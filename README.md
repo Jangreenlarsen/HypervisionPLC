@@ -2154,6 +2154,73 @@ Result: 42 ✓ (restored from NVS)
 Result: 100 ✓ (restored from NVS)
 ```
 
+### Example 6: API Hello World — ST Logic + GPIO via REST API
+
+Komplet opsætning af et blink-program udelukkende via HTTP REST API — ingen CLI, ingen serial.
+Se [docs/API_HELLO_WORLD_GUIDE.md](docs/API_HELLO_WORLD_GUIDE.md) for fuld dokumentation med fejlfinding og udvidelser.
+
+**Forudsætninger:** WiFi forbundet, HTTP API aktiveret med Basic Auth.
+
+```bash
+# Auth setup (Base64 encode credentials)
+AUTH="Authorization: Basic $(echo -n 'api_user:password' | base64)"
+HOST="http://10.1.1.126"
+
+# Trin 1: Upload ST Logic blink-program
+curl -s -H "$AUTH" -H "Content-Type: application/json" \
+  -X POST "$HOST/api/logic/1/source" \
+  -d '{"source": "VAR\n  led : BOOL := FALSE;\n  ticks : INT := 0;\nEND_VAR\nBEGIN\n  ticks := ticks + 1;\n  IF ticks >= 50 THEN\n    led := NOT led;\n    ticks := 0;\n  END_IF;\nEND"}'
+# → {"status":200,"compiled":true,"source_size":154}
+
+# Trin 2: Bind led-variabel til Modbus Coil 10 (output)
+curl -s -H "$AUTH" -H "Content-Type: application/json" \
+  -X POST "$HOST/api/logic/1/bind" \
+  -d '{"variable": "led", "binding": "coil:10", "direction": "output"}'
+# → {"status":200,"mappings_created":1}
+
+# Trin 3: Map GPIO 19 som output styret af Coil 10
+curl -s -H "$AUTH" -H "Content-Type: application/json" \
+  -X POST "$HOST/api/gpio/19/config" \
+  -d '{"direction": "output", "coil": 10}'
+# → {"status":200,"pin":19,"direction":"output","coil":10}
+
+# Trin 4: Aktivér programmet
+curl -s -H "$AUTH" -H "Content-Type: application/json" \
+  -X POST "$HOST/api/logic/1/enable"
+# → {"status":200,"enabled":true}
+
+# Trin 5: Gem til NVS (overlever genstart)
+curl -s -H "$AUTH" -H "Content-Type: application/json" \
+  -X POST "$HOST/api/system/save"
+# → {"status":200,"message":"Configuration saved to NVS"}
+```
+
+**Verifikation:**
+```bash
+# Se program status (execution count stiger ~100/sek)
+curl -s -H "$AUTH" "$HOST/api/logic/1"
+# → {"enabled":true,"compiled":true,"execution_count":15733,"error_count":0,...}
+
+# Se GPIO 19 (value skifter mellem 0 og 1)
+curl -s -H "$AUTH" "$HOST/api/gpio/19"
+# → {"pin":19,"value":1,"configured":true,"direction":"output","coil":10}
+```
+
+**Dataflow:**
+```
+ST Logic (10ms) → led := NOT led → Coil 10 → GPIO 19 → LED blinker (500ms on/off)
+```
+
+**API endpoints brugt:**
+
+| Trin | Endpoint | Formål |
+|------|----------|--------|
+| 1 | `POST /api/logic/1/source` | Upload + kompilér ST kildekode |
+| 2 | `POST /api/logic/1/bind` | Bind variabel → Modbus coil |
+| 3 | `POST /api/gpio/19/config` | Map fysisk pin → coil |
+| 4 | `POST /api/logic/1/enable` | Start execution |
+| 5 | `POST /api/system/save` | Persistér til NVS flash |
+
 ---
 
 ## 🖥️ CLI Commands Reference
@@ -3932,6 +3999,7 @@ Please describe:
 ## 📚 Additional Documentation
 
 ### 🎯 Quick Start Guides
+- **[docs/API_HELLO_WORLD_GUIDE.md](docs/API_HELLO_WORLD_GUIDE.md)** - ⭐ **API Hello World** - ST Logic + GPIO via REST API (komplet gennemgang)
 - **[docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md)** - Initial setup and configuration
 - **[docs/GPIO2_ST_QUICK_START.md](docs/GPIO2_ST_QUICK_START.md)** - Quick start: GPIO2 + ST Logic integration
 - **[docs/COUNTER_COMPARE_QUICK_START.md](docs/COUNTER_COMPARE_QUICK_START.md)** - Quick start: Counter compare feature
