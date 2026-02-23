@@ -5,9 +5,21 @@
  * Uses ESP-IDF Ethernet API with SPI-based W5500 MAC/PHY.
  * Handles DHCP, static IP, link status detection.
  *
+ * Build flag: Define ETHERNET_W5500_ENABLED in platformio.ini to include.
+ * When disabled, all functions return safe defaults (no-op stubs).
+ *
  * Boot safety: GPIO 12 is a strapping pin. W5500 is held in reset
  * (RST LOW via GPIO 33) during SPI init to prevent MISO interference.
  */
+
+#include "ethernet_driver.h"
+#include "constants.h"
+
+#ifdef ETHERNET_W5500_ENABLED
+
+// ============================================================================
+// FULL IMPLEMENTATION (only compiled when ETHERNET_W5500_ENABLED is defined)
+// ============================================================================
 
 #include <string.h>
 #include <Arduino.h>
@@ -20,8 +32,6 @@
 #include <lwip/inet.h>
 #include <lwip/dns.h>
 
-#include "ethernet_driver.h"
-#include "constants.h"
 #include "types.h"
 
 static const char *TAG = "ETH_DRV";
@@ -336,47 +346,20 @@ uint8_t ethernet_driver_is_connected(void)
   return (eth_state.state == ETH_DRV_STATE_CONNECTED) && (eth_state.local_ip != 0);
 }
 
-uint32_t ethernet_driver_get_local_ip(void)
-{
-  return eth_state.local_ip;
-}
-
-uint32_t ethernet_driver_get_gateway(void)
-{
-  return eth_state.gateway;
-}
-
-uint32_t ethernet_driver_get_netmask(void)
-{
-  return eth_state.netmask;
-}
-
-uint32_t ethernet_driver_get_dns(void)
-{
-  return eth_state.dns;
-}
-
-uint32_t ethernet_driver_get_speed(void)
-{
-  return eth_state.speed_mbps;
-}
-
-uint8_t ethernet_driver_is_full_duplex(void)
-{
-  return eth_state.full_duplex;
-}
+uint32_t ethernet_driver_get_local_ip(void)  { return eth_state.local_ip; }
+uint32_t ethernet_driver_get_gateway(void)   { return eth_state.gateway; }
+uint32_t ethernet_driver_get_netmask(void)   { return eth_state.netmask; }
+uint32_t ethernet_driver_get_dns(void)       { return eth_state.dns; }
+uint32_t ethernet_driver_get_speed(void)     { return eth_state.speed_mbps; }
+uint8_t  ethernet_driver_is_full_duplex(void) { return eth_state.full_duplex; }
 
 int ethernet_driver_get_mac_str(char *out_mac)
 {
-  if (!out_mac) {
-    return -1;
-  }
-
+  if (!out_mac) return -1;
   snprintf(out_mac, 18, "%02X:%02X:%02X:%02X:%02X:%02X",
            eth_state.mac_addr[0], eth_state.mac_addr[1],
            eth_state.mac_addr[2], eth_state.mac_addr[3],
            eth_state.mac_addr[4], eth_state.mac_addr[5]);
-
   return 0;
 }
 
@@ -393,10 +376,8 @@ int ethernet_driver_set_static_ip(uint32_t ip_addr, uint32_t gateway, uint32_t n
   eth_state.use_static_ip = 1;
 
   if (eth_state.eth_netif) {
-    // Stop DHCP client
     esp_netif_dhcpc_stop(eth_state.eth_netif);
 
-    // Set static IP
     esp_netif_ip_info_t ip_info;
     ip_info.ip.addr = ip_addr;
     ip_info.gw.addr = gateway;
@@ -408,7 +389,6 @@ int ethernet_driver_set_static_ip(uint32_t ip_addr, uint32_t gateway, uint32_t n
       return -1;
     }
 
-    // Set DNS
     ip_addr_t dns_server;
     dns_server.u_addr.ip4.addr = dns;
     dns_server.type = IPADDR_TYPE_V4;
@@ -426,9 +406,7 @@ int ethernet_driver_set_static_ip(uint32_t ip_addr, uint32_t gateway, uint32_t n
 
 int ethernet_driver_enable_dhcp(void)
 {
-  if (!eth_state.eth_netif) {
-    return -1;
-  }
+  if (!eth_state.eth_netif) return -1;
 
   esp_err_t err = esp_netif_dhcpc_start(eth_state.eth_netif);
   if (err != ESP_OK && err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED) {
@@ -445,25 +423,13 @@ int ethernet_driver_enable_dhcp(void)
  * BACKGROUND TASKS
  * ============================================================================ */
 
-int ethernet_driver_loop(void)
-{
-  // Ethernet events are handled via event handlers (no polling needed)
-  // This function is kept for API consistency with wifi_driver_loop()
-  return 0;
-}
+int ethernet_driver_loop(void)    { return 0; }
 
 uint32_t ethernet_driver_get_uptime_ms(void)
 {
-  if (eth_state.state != ETH_DRV_STATE_CONNECTED) {
-    return 0;
-  }
-
+  if (eth_state.state != ETH_DRV_STATE_CONNECTED) return 0;
   return millis() - eth_state.connect_time_ms;
 }
-
-/* ============================================================================
- * DEBUGGING
- * ============================================================================ */
 
 const char* ethernet_driver_get_state_string(void)
 {
@@ -476,3 +442,28 @@ const char* ethernet_driver_get_state_string(void)
     default:                           return "Unknown";
   }
 }
+
+#else // !ETHERNET_W5500_ENABLED
+
+// ============================================================================
+// STUB IMPLEMENTATION (no-op when W5500 hardware support not compiled in)
+// ============================================================================
+
+int      ethernet_driver_init(void)       { return -1; }
+int      ethernet_driver_start(void)      { return -1; }
+int      ethernet_driver_stop(void)       { return 0; }
+uint8_t  ethernet_driver_is_connected(void) { return 0; }
+uint32_t ethernet_driver_get_local_ip(void) { return 0; }
+uint32_t ethernet_driver_get_gateway(void)  { return 0; }
+uint32_t ethernet_driver_get_netmask(void)  { return 0; }
+uint32_t ethernet_driver_get_dns(void)      { return 0; }
+uint32_t ethernet_driver_get_speed(void)    { return 0; }
+uint8_t  ethernet_driver_is_full_duplex(void) { return 0; }
+int      ethernet_driver_get_mac_str(char *out_mac) { if (out_mac) out_mac[0] = '\0'; return -1; }
+int      ethernet_driver_set_static_ip(uint32_t ip, uint32_t gw, uint32_t nm, uint32_t dns) { return -1; }
+int      ethernet_driver_enable_dhcp(void) { return -1; }
+int      ethernet_driver_loop(void)       { return 0; }
+uint32_t ethernet_driver_get_uptime_ms(void) { return 0; }
+const char* ethernet_driver_get_state_string(void) { return "Not compiled"; }
+
+#endif // ETHERNET_W5500_ENABLED
