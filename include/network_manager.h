@@ -52,13 +52,19 @@ int network_manager_stop(void);
 uint8_t network_manager_is_wifi_connected(void);
 
 /**
+ * Check if Ethernet is connected with valid IP (v6.1.0+)
+ * @return 1 if connected, 0 otherwise
+ */
+uint8_t network_manager_is_ethernet_connected(void);
+
+/**
  * Check if Telnet client is connected
  * @return 1 if client connected, 0 otherwise
  */
 uint8_t network_manager_is_telnet_connected(void);
 
 /**
- * Get local IP address
+ * Get local IP address (Wi-Fi)
  * @return IP address (network byte order), 0 if not connected
  */
 uint32_t network_manager_get_local_ip(void);

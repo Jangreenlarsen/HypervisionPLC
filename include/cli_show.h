@@ -112,6 +112,11 @@ void cli_cmd_show_echo(void);
 void cli_cmd_show_wifi(void);
 
 /**
+ * @brief Handle "show ethernet" command (W5500 Ethernet status) (v6.1.0+)
+ */
+void cli_cmd_show_ethernet(void);
+
+/**
  * @brief Handle "show http" command (HTTP REST API status) (v6.0.0+)
  */
 void cli_cmd_show_http(void);

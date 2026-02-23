@@ -81,6 +81,8 @@ extern esp_err_t api_handler_modbus_get(httpd_req_t *req);
 extern esp_err_t api_handler_modbus_post(httpd_req_t *req);
 extern esp_err_t api_handler_wifi_get(httpd_req_t *req);
 extern esp_err_t api_handler_wifi_post(httpd_req_t *req);
+extern esp_err_t api_handler_ethernet_get(httpd_req_t *req);
+extern esp_err_t api_handler_ethernet_post(httpd_req_t *req);
 extern esp_err_t api_handler_http_config_post(httpd_req_t *req);
 extern esp_err_t api_handler_gpio_config_delete(httpd_req_t *req);
 extern esp_err_t api_handler_logic_settings_post(httpd_req_t *req);
@@ -362,6 +364,22 @@ static const httpd_uri_t uri_wifi_config_post = {
   .user_ctx = NULL
 };
 
+// Ethernet GET (v6.1.0+)
+static const httpd_uri_t uri_ethernet_get = {
+  .uri      = "/api/ethernet",
+  .method   = HTTP_GET,
+  .handler  = api_handler_ethernet_get,
+  .user_ctx = NULL
+};
+
+// Ethernet POST (v6.1.0+)
+static const httpd_uri_t uri_ethernet_post = {
+  .uri      = "/api/ethernet",
+  .method   = HTTP_POST,
+  .handler  = api_handler_ethernet_post,
+  .user_ctx = NULL
+};
+
 // HTTP config POST (GAP-7)
 static const httpd_uri_t uri_http_config_post = {
   .uri      = "/api/http",
@@ -540,6 +558,8 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_wifi_get);
   httpd_register_uri_handler(http_state.server, &uri_wifi_post);
   httpd_register_uri_handler(http_state.server, &uri_wifi_config_post);
+  httpd_register_uri_handler(http_state.server, &uri_ethernet_get);
+  httpd_register_uri_handler(http_state.server, &uri_ethernet_post);
   httpd_register_uri_handler(http_state.server, &uri_http_config_post);
   httpd_register_uri_handler(http_state.server, &uri_gpio_delete);
   httpd_register_uri_handler(http_state.server, &uri_logic_settings_post);

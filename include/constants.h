@@ -197,7 +197,7 @@ typedef enum {
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   10      // Current config schema version (v6.0.0+: HTTP REST API configuration)
+#define CONFIG_SCHEMA_VERSION   11      // Current config schema version (v6.1.0: W5500 Ethernet support)
 #define CONFIG_CRC_SEED         0xFFFF  // CRC16 initial value
 
 /* ============================================================================
@@ -226,11 +226,15 @@ typedef enum {
 #define PIN_I2C_SDA         21          // GPIO21
 #define PIN_I2C_SCL         22          // GPIO22
 
-// SPI pins (future W5500)
-#define PIN_SPI_MISO        12          // GPIO12 (HSPI MISO)
+// SPI pins (W5500 Ethernet)
+#define PIN_SPI_MISO        12          // GPIO12 (HSPI MISO) - STRAPPING PIN: W5500 held in reset during boot
 #define PIN_SPI_MOSI        13          // GPIO13 (HSPI MOSI)
 #define PIN_SPI_CLK         14          // GPIO14 (HSPI CLK)
 #define PIN_SPI_CS          23          // GPIO23 (HSPI CS)
+
+// W5500 Ethernet control pins
+#define PIN_W5500_INT       34          // GPIO34 (input-only, external 10K pullup required)
+#define PIN_W5500_RST       33          // GPIO33 (hardware reset, held LOW during boot)
 
 /* ============================================================================
  * SERIAL CONFIGURATION

@@ -9,11 +9,14 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <Arduino.h>
+#include <esp_netif.h>
+#include <esp_event.h>
 #include <lwip/inet.h>
 #include <esp_log.h>
 
 #include "network_manager.h"
 #include "wifi_driver.h"
+#include "ethernet_driver.h"
 #include "tcp_server.h"
 #include "telnet_server.h"
 #include "http_server.h"
@@ -54,10 +57,22 @@ int network_manager_init(void)
   memset(&network_mgr.state, 0, sizeof(NetworkState));
   network_mgr.state.telnet_socket = -1;
 
+  // Initialize global networking stack (must be called once before any interface)
+  ESP_ERROR_CHECK(esp_netif_init());
+  ESP_ERROR_CHECK(esp_event_loop_create_default());
+  ESP_LOGI(TAG, "Global networking stack initialized");
+
   // Initialize Wi-Fi driver
   if (wifi_driver_init() != 0) {
     ESP_LOGE(TAG, "Failed to initialize Wi-Fi driver");
     return -1;
+  }
+
+  // Initialize W5500 Ethernet driver (v6.1.0+)
+  // Note: Non-fatal if Ethernet init fails (hardware may not be present)
+  if (ethernet_driver_init() != 0) {
+    ESP_LOGW(TAG, "Ethernet driver init failed (W5500 not present?)");
+    // Continue without Ethernet - WiFi-only mode
   }
 
   // Create Telnet server (but don't start yet)
@@ -153,6 +168,28 @@ int network_manager_connect(const NetworkConfig *config)
 
   ESP_LOGI(TAG, "Connecting to Wi-Fi network: %s", config->ssid);
 
+  // Start Ethernet interface (v6.1.0+ W5500)
+  if (config->ethernet.enabled) {
+    ESP_LOGI(TAG, "Starting Ethernet interface (W5500)");
+
+    // Configure DHCP or static IP for Ethernet
+    if (config->ethernet.dhcp_enabled) {
+      ethernet_driver_enable_dhcp();
+    } else {
+      ethernet_driver_set_static_ip(config->ethernet.static_ip,
+                                     config->ethernet.static_gateway,
+                                     config->ethernet.static_netmask,
+                                     config->ethernet.static_dns);
+    }
+
+    if (ethernet_driver_start() != 0) {
+      ESP_LOGE(TAG, "Failed to start Ethernet (W5500 not present?)");
+      // Non-fatal - continue with Wi-Fi only
+    } else {
+      ESP_LOGI(TAG, "Ethernet started (DHCP: %s)", config->ethernet.dhcp_enabled ? "on" : "off");
+    }
+  }
+
   return 0;
 }
 
@@ -170,6 +207,9 @@ int network_manager_stop(void)
     telnet_server_stop(network_mgr.telnet_server);
   }
 
+  // Stop Ethernet (v6.1.0+)
+  ethernet_driver_stop();
+
   // Disconnect Wi-Fi
   wifi_driver_disconnect();
 
@@ -185,6 +225,11 @@ int network_manager_stop(void)
 uint8_t network_manager_is_wifi_connected(void)
 {
   return wifi_driver_is_connected();
+}
+
+uint8_t network_manager_is_ethernet_connected(void)
+{
+  return ethernet_driver_is_connected();
 }
 
 uint8_t network_manager_is_telnet_connected(void)
@@ -280,6 +325,9 @@ int network_manager_loop(void)
   // Process Wi-Fi events (auto-reconnect, etc.)
   events += wifi_driver_loop();
 
+  // Process Ethernet events (v6.1.0+)
+  events += ethernet_driver_loop();
+
   // Update runtime state from Wi-Fi driver
   if (wifi_driver_is_connected()) {
     network_mgr.state.wifi_connected = 1;
@@ -290,6 +338,18 @@ int network_manager_loop(void)
   } else {
     network_mgr.state.wifi_connected = 0;
     network_mgr.state.local_ip = 0;
+  }
+
+  // Update runtime state from Ethernet driver (v6.1.0+)
+  if (ethernet_driver_is_connected()) {
+    network_mgr.state.eth_connected = 1;
+    network_mgr.state.eth_local_ip = ethernet_driver_get_local_ip();
+    network_mgr.state.eth_gateway = ethernet_driver_get_gateway();
+    network_mgr.state.eth_netmask = ethernet_driver_get_netmask();
+    network_mgr.state.eth_dns = ethernet_driver_get_dns();
+  } else {
+    network_mgr.state.eth_connected = 0;
+    network_mgr.state.eth_local_ip = 0;
   }
 
   // Process Telnet server events (independent of Wi-Fi status)
@@ -338,8 +398,28 @@ void network_manager_print_status(void)
     debug_printf("Telnet Port:  %d\n", TELNET_PORT);
   }
 
+  // Ethernet status (v6.1.0+)
+  debug_printf("\nEthernet:     %s\n", ethernet_driver_get_state_string());
+  if (network_mgr.state.eth_connected) {
+    char ip_str[16];
+    struct in_addr addr;
+    addr.s_addr = network_mgr.state.eth_local_ip;
+    debug_printf("ETH IP:       %s\n", inet_ntoa(addr));
+
+    addr.s_addr = network_mgr.state.eth_gateway;
+    debug_printf("ETH Gateway:  %s\n", inet_ntoa(addr));
+
+    debug_printf("ETH Speed:    %lu Mbps %s\n",
+                 ethernet_driver_get_speed(),
+                 ethernet_driver_is_full_duplex() ? "Full-Duplex" : "Half-Duplex");
+
+    char mac_str[18];
+    ethernet_driver_get_mac_str(mac_str);
+    debug_printf("ETH MAC:      %s\n", mac_str);
+  }
+
   // HTTP REST API status (v6.0.0+)
-  debug_printf("HTTP API:     %s\n", http_server_is_running() ? "Running" : "Stopped");
+  debug_printf("\nHTTP API:     %s\n", http_server_is_running() ? "Running" : "Stopped");
   if (http_server_is_running()) {
     const HttpConfig *http_cfg = http_server_get_config();
     if (http_cfg) {

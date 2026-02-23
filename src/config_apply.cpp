@@ -271,6 +271,10 @@ bool config_apply(const PersistConfig* cfg) {
   debug_print("  Wi-Fi power save: ");
   debug_println(cfg->network.wifi_power_save ? "ON (min modem)" : "OFF (low latency)");
 
+  // Apply Ethernet configuration (v6.1.0+)
+  debug_print("  Ethernet: ");
+  debug_println(cfg->network.ethernet.enabled ? "ENABLED" : "DISABLED");
+
   debug_println("CONFIG APPLY: Done");
   return true;
 }

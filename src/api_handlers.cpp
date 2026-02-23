@@ -26,6 +26,7 @@
 #include "timer_engine.h"
 #include "st_logic_config.h"
 #include "wifi_driver.h"
+#include "ethernet_driver.h"
 #include "build_version.h"
 #include "debug_flags.h"
 #include "debug.h"
@@ -225,6 +226,8 @@ esp_err_t api_handler_endpoints(httpd_req_t *req)
     "{\"method\":\"POST\",\"path\":\"/api/wifi\",\"desc\":\"Configure WiFi\"},"
     "{\"method\":\"POST\",\"path\":\"/api/wifi/connect\",\"desc\":\"Connect WiFi\"},"
     "{\"method\":\"POST\",\"path\":\"/api/wifi/disconnect\",\"desc\":\"Disconnect WiFi\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/ethernet\",\"desc\":\"Ethernet (W5500) config+status\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/ethernet\",\"desc\":\"Configure Ethernet\"},"
     "{\"method\":\"POST\",\"path\":\"/api/http\",\"desc\":\"Configure HTTP server\"},"
     "{\"method\":\"GET\",\"path\":\"/api/modules\",\"desc\":\"Module flags\"},"
     "{\"method\":\"POST\",\"path\":\"/api/modules\",\"desc\":\"Set module flags\"},"
@@ -2265,6 +2268,147 @@ esp_err_t api_handler_wifi_post(httpd_req_t *req)
 }
 
 /* ============================================================================
+ * GET /api/ethernet - Ethernet (W5500) status (v6.1.0+)
+ * ============================================================================ */
+
+esp_err_t api_handler_ethernet_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  JsonDocument doc;
+
+  // Config
+  JsonObject cfg = doc["config"].to<JsonObject>();
+  cfg["enabled"] = g_persist_config.network.ethernet.enabled ? true : false;
+  cfg["dhcp"] = g_persist_config.network.ethernet.dhcp_enabled ? true : false;
+
+  if (!g_persist_config.network.ethernet.dhcp_enabled) {
+    char ip_buf[16];
+    struct in_addr addr;
+    addr.s_addr = g_persist_config.network.ethernet.static_ip;
+    strncpy(ip_buf, inet_ntoa(addr), 15); ip_buf[15] = '\0';
+    cfg["static_ip"] = (const char*)ip_buf;
+    addr.s_addr = g_persist_config.network.ethernet.static_gateway;
+    strncpy(ip_buf, inet_ntoa(addr), 15); ip_buf[15] = '\0';
+    cfg["static_gateway"] = (const char*)ip_buf;
+    addr.s_addr = g_persist_config.network.ethernet.static_netmask;
+    strncpy(ip_buf, inet_ntoa(addr), 15); ip_buf[15] = '\0';
+    cfg["static_netmask"] = (const char*)ip_buf;
+    addr.s_addr = g_persist_config.network.ethernet.static_dns;
+    strncpy(ip_buf, inet_ntoa(addr), 15); ip_buf[15] = '\0';
+    cfg["static_dns"] = (const char*)ip_buf;
+  }
+
+  if (g_persist_config.network.ethernet.hostname[0]) {
+    cfg["hostname"] = g_persist_config.network.ethernet.hostname;
+  }
+
+  // Runtime status
+  JsonObject runtime = doc["runtime"].to<JsonObject>();
+  runtime["connected"] = ethernet_driver_is_connected() ? true : false;
+
+  if (ethernet_driver_is_connected()) {
+    struct in_addr addr;
+    char ip_buf[16];
+
+    addr.s_addr = ethernet_driver_get_local_ip();
+    strncpy(ip_buf, inet_ntoa(addr), 15); ip_buf[15] = '\0';
+    runtime["ip"] = (const char*)ip_buf;
+
+    addr.s_addr = ethernet_driver_get_gateway();
+    strncpy(ip_buf, inet_ntoa(addr), 15); ip_buf[15] = '\0';
+    runtime["gateway"] = (const char*)ip_buf;
+
+    addr.s_addr = ethernet_driver_get_netmask();
+    strncpy(ip_buf, inet_ntoa(addr), 15); ip_buf[15] = '\0';
+    runtime["netmask"] = (const char*)ip_buf;
+
+    addr.s_addr = ethernet_driver_get_dns();
+    strncpy(ip_buf, inet_ntoa(addr), 15); ip_buf[15] = '\0';
+    runtime["dns"] = (const char*)ip_buf;
+
+    runtime["speed_mbps"] = ethernet_driver_get_speed();
+    runtime["full_duplex"] = ethernet_driver_is_full_duplex() ? true : false;
+    runtime["uptime_ms"] = ethernet_driver_get_uptime_ms();
+
+    char mac_str[18];
+    ethernet_driver_get_mac_str(mac_str);
+    runtime["mac"] = (const char*)mac_str;
+  }
+
+  runtime["state"] = ethernet_driver_get_state_string();
+
+  char buf[HTTP_JSON_DOC_SIZE];
+  serializeJson(doc, buf, sizeof(buf));
+
+  return api_send_json(req, buf);
+}
+
+/* ============================================================================
+ * POST /api/ethernet - Ethernet (W5500) configuration (v6.1.0+)
+ * ============================================================================ */
+
+esp_err_t api_handler_ethernet_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  char content[512];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    return api_send_error(req, 400, "Failed to read request body");
+  }
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, content);
+  if (error) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  if (doc.containsKey("enabled")) {
+    g_persist_config.network.ethernet.enabled = doc["enabled"].as<bool>() ? 1 : 0;
+  }
+  if (doc.containsKey("dhcp")) {
+    g_persist_config.network.ethernet.dhcp_enabled = doc["dhcp"].as<bool>() ? 1 : 0;
+  }
+  if (doc.containsKey("static_ip")) {
+    const char *ip = doc["static_ip"].as<const char*>();
+    if (ip) g_persist_config.network.ethernet.static_ip = inet_addr(ip);
+  }
+  if (doc.containsKey("static_gateway")) {
+    const char *gw = doc["static_gateway"].as<const char*>();
+    if (gw) g_persist_config.network.ethernet.static_gateway = inet_addr(gw);
+  }
+  if (doc.containsKey("static_netmask")) {
+    const char *nm = doc["static_netmask"].as<const char*>();
+    if (nm) g_persist_config.network.ethernet.static_netmask = inet_addr(nm);
+  }
+  if (doc.containsKey("static_dns")) {
+    const char *dns = doc["static_dns"].as<const char*>();
+    if (dns) g_persist_config.network.ethernet.static_dns = inet_addr(dns);
+  }
+  if (doc.containsKey("hostname")) {
+    const char *hn = doc["hostname"].as<const char*>();
+    if (hn) {
+      strncpy(g_persist_config.network.ethernet.hostname, hn,
+              sizeof(g_persist_config.network.ethernet.hostname) - 1);
+      g_persist_config.network.ethernet.hostname[sizeof(g_persist_config.network.ethernet.hostname) - 1] = '\0';
+    }
+  }
+
+  JsonDocument resp;
+  resp["status"] = 200;
+  resp["message"] = "Ethernet config updated";
+
+  char buf2[256];
+  serializeJson(resp, buf2, sizeof(buf2));
+
+  return api_send_json(req, buf2);
+}
+
+/* ============================================================================
  * POST /api/http - HTTP server configuration (GAP-7)
  * ============================================================================ */
 
@@ -3185,11 +3329,28 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   network["ssid"] = g_persist_config.network.ssid;
   network["password"] = g_persist_config.network.password;
   network["dhcp"] = g_persist_config.network.dhcp_enabled ? true : false;
-  network["static_ip"] = g_persist_config.network.static_ip;
-  network["static_gateway"] = g_persist_config.network.static_gateway;
-  network["static_netmask"] = g_persist_config.network.static_netmask;
-  network["static_dns"] = g_persist_config.network.static_dns;
-  network["wifi_power_save"] = g_persist_config.network.wifi_power_save;
+  // IP addresses as human-readable dotted strings (ESP32 stores little-endian uint32_t)
+  {
+    char ip_str[16];
+    uint32_t ip;
+
+    ip = g_persist_config.network.static_ip;
+    snprintf(ip_str, sizeof(ip_str), "%d.%d.%d.%d", ip & 0xFF, (ip >> 8) & 0xFF, (ip >> 16) & 0xFF, (ip >> 24) & 0xFF);
+    network["static_ip"] = ip_str;
+
+    ip = g_persist_config.network.static_gateway;
+    snprintf(ip_str, sizeof(ip_str), "%d.%d.%d.%d", ip & 0xFF, (ip >> 8) & 0xFF, (ip >> 16) & 0xFF, (ip >> 24) & 0xFF);
+    network["static_gateway"] = ip_str;
+
+    ip = g_persist_config.network.static_netmask;
+    snprintf(ip_str, sizeof(ip_str), "%d.%d.%d.%d", ip & 0xFF, (ip >> 8) & 0xFF, (ip >> 16) & 0xFF, (ip >> 24) & 0xFF);
+    network["static_netmask"] = ip_str;
+
+    ip = g_persist_config.network.static_dns;
+    snprintf(ip_str, sizeof(ip_str), "%d.%d.%d.%d", ip & 0xFF, (ip >> 8) & 0xFF, (ip >> 16) & 0xFF, (ip >> 24) & 0xFF);
+    network["static_dns"] = ip_str;
+  }
+  network["wifi_power_save"] = g_persist_config.network.wifi_power_save ? true : false;
 
   // ── TELNET ──
   JsonObject telnet = doc["telnet"].to<JsonObject>();
@@ -3210,8 +3371,8 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   http["priority"] = g_persist_config.network.http.priority;
 
   // ── MISC ──
-  doc["remote_echo"] = g_persist_config.remote_echo;
-  doc["gpio2_user_mode"] = g_persist_config.gpio2_user_mode;
+  doc["remote_echo"] = g_persist_config.remote_echo ? true : false;
+  doc["gpio2_user_mode"] = g_persist_config.gpio2_user_mode ? true : false;
   doc["st_logic_interval_ms"] = g_persist_config.st_logic_interval_ms;
   doc["module_flags"] = g_persist_config.module_flags;
 
@@ -3370,7 +3531,17 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
       pr["enabled"] = p->enabled ? true : false;
       const char *src = st_logic_get_source_code(st_state, i);
       if (src && p->source_size > 0) {
-        pr["source"] = src;
+        // BUG-FIX: Source pool entries are NOT null-terminated (BUG-212).
+        // Must create null-terminated copy for JSON serialization.
+        char *src_copy = (char *)malloc(p->source_size + 1);
+        if (src_copy) {
+          memcpy(src_copy, src, p->source_size);
+          src_copy[p->source_size] = '\0';
+          pr["source"] = src_copy;
+          free(src_copy);
+        } else {
+          pr["source"] = (const char *)nullptr;
+        }
       } else {
         pr["source"] = (const char *)nullptr;
       }
@@ -3393,6 +3564,21 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   esp_err_t ret = api_send_json(req, buf);
   free(buf);
   return ret;
+}
+
+// Helper: parse dotted IP string "a.b.c.d" to ESP32 little-endian uint32_t.
+// Also accepts raw integer for backward compatibility with old backups.
+static uint32_t parse_ip_field(JsonVariant v) {
+  if (v.is<const char *>()) {
+    const char *s = v.as<const char *>();
+    if (s) {
+      uint8_t a = 0, b = 0, c = 0, d = 0;
+      sscanf(s, "%hhu.%hhu.%hhu.%hhu", &a, &b, &c, &d);
+      return (uint32_t)a | ((uint32_t)b << 8) | ((uint32_t)c << 16) | ((uint32_t)d << 24);
+    }
+  }
+  // Fallback: raw uint32_t (backward compatible with old backup format)
+  return v.as<uint32_t>();
 }
 
 esp_err_t api_handler_system_restore(httpd_req_t *req)
@@ -3479,11 +3665,11 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
       g_persist_config.network.password[sizeof(g_persist_config.network.password) - 1] = '\0';
     }
     if (n.containsKey("dhcp")) g_persist_config.network.dhcp_enabled = n["dhcp"].as<bool>() ? 1 : 0;
-    if (n.containsKey("static_ip")) g_persist_config.network.static_ip = n["static_ip"];
-    if (n.containsKey("static_gateway")) g_persist_config.network.static_gateway = n["static_gateway"];
-    if (n.containsKey("static_netmask")) g_persist_config.network.static_netmask = n["static_netmask"];
-    if (n.containsKey("static_dns")) g_persist_config.network.static_dns = n["static_dns"];
-    if (n.containsKey("wifi_power_save")) g_persist_config.network.wifi_power_save = n["wifi_power_save"];
+    if (n.containsKey("static_ip")) g_persist_config.network.static_ip = parse_ip_field(n["static_ip"]);
+    if (n.containsKey("static_gateway")) g_persist_config.network.static_gateway = parse_ip_field(n["static_gateway"]);
+    if (n.containsKey("static_netmask")) g_persist_config.network.static_netmask = parse_ip_field(n["static_netmask"]);
+    if (n.containsKey("static_dns")) g_persist_config.network.static_dns = parse_ip_field(n["static_dns"]);
+    if (n.containsKey("wifi_power_save")) g_persist_config.network.wifi_power_save = n["wifi_power_save"].as<bool>() ? 1 : 0;
   }
 
   // ── RESTORE TELNET ──
@@ -3645,28 +3831,9 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
     }
   }
 
-  // ── RESTORE VARIABLE MAPPINGS ──
-  if (doc.containsKey("var_maps")) {
-    JsonArray vma = doc["var_maps"];
-    g_persist_config.var_map_count = 0;
-    for (JsonObject mo : vma) {
-      if (g_persist_config.var_map_count >= 32) break;
-      VariableMapping *m = &g_persist_config.var_maps[g_persist_config.var_map_count];
-      m->source_type = mo["source_type"] | 0;
-      m->gpio_pin = mo["gpio_pin"] | 0;
-      m->associated_counter = mo["associated_counter"] | 0xFF;
-      m->associated_timer = mo["associated_timer"] | 0xFF;
-      m->st_program_id = mo["st_program_id"] | 0xFF;
-      m->st_var_index = mo["st_var_index"] | 0;
-      m->is_input = mo["is_input"] | 0;
-      m->input_type = mo["input_type"] | 0;
-      m->output_type = mo["output_type"] | 0;
-      m->input_reg = mo["input_reg"] | 0xFFFF;
-      m->coil_reg = mo["coil_reg"] | 0xFFFF;
-      m->word_count = mo["word_count"] | 1;
-      g_persist_config.var_map_count++;
-    }
-  }
+  // NOTE: var_maps restore moved AFTER logic_programs restore.
+  // st_logic_delete() clears var_map entries as side-effect,
+  // so var_maps must be restored after all st_logic_delete() calls.
 
   // ── RESTORE PERSIST REGS ──
   if (doc.containsKey("persist_regs")) {
@@ -3740,6 +3907,31 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
 
       // Save ST Logic to SPIFFS
       st_logic_save_to_persist_config(&g_persist_config);
+    }
+  }
+
+  // ── RESTORE VARIABLE MAPPINGS ──
+  // Must be AFTER logic_programs restore because st_logic_delete()
+  // clears var_map entries as side-effect (bindings + GPIO maps).
+  if (doc.containsKey("var_maps")) {
+    JsonArray vma = doc["var_maps"];
+    g_persist_config.var_map_count = 0;
+    for (JsonObject mo : vma) {
+      if (g_persist_config.var_map_count >= 32) break;
+      VariableMapping *m = &g_persist_config.var_maps[g_persist_config.var_map_count];
+      m->source_type = mo["source_type"] | 0;
+      m->gpio_pin = mo["gpio_pin"] | 0;
+      m->associated_counter = mo["associated_counter"] | 0xFF;
+      m->associated_timer = mo["associated_timer"] | 0xFF;
+      m->st_program_id = mo["st_program_id"] | 0xFF;
+      m->st_var_index = mo["st_var_index"] | 0;
+      m->is_input = mo["is_input"] | 0;
+      m->input_type = mo["input_type"] | 0;
+      m->output_type = mo["output_type"] | 0;
+      m->input_reg = mo["input_reg"] | 0xFFFF;
+      m->coil_reg = mo["coil_reg"] | 0xFFFF;
+      m->word_count = mo["word_count"] | 1;
+      g_persist_config.var_map_count++;
     }
   }
 

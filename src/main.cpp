@@ -8,6 +8,8 @@
 
 #include <Arduino.h>
 #include <nvs_flash.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 #include "constants.h"
 #include "types.h"
 #include "version.h"
@@ -46,6 +48,9 @@ Console *g_serial_console = NULL;  // Used by cli_commands.cpp to detect Serial 
 // ============================================================================
 
 void setup() {
+  // Disable brownout detector (38-pin boards with weak USB power)
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
   // Initialize serial ports
   Serial.begin(SERIAL_BAUD_DEBUG);      // USB debug (UART0)
   delay(1000);  // Wait for serial monitor
@@ -119,7 +124,7 @@ void setup() {
 
   // Initialize network subsystem (v3.0+)
   if (network_manager_init() == 0) {
-    Serial.println("Network manager initialized (Wi-Fi client mode)");
+    Serial.println("Network manager initialized (Wi-Fi + Ethernet)");
 
     // If Wi-Fi is enabled in config, start connection
     if (g_persist_config.network.enabled) {

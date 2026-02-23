@@ -301,6 +301,21 @@ typedef struct __attribute__((packed)) {
 } HttpConfig;
 
 /* ============================================================================
+ * ETHERNET CONFIGURATION (v6.1.0+ W5500)
+ * ============================================================================ */
+
+typedef struct __attribute__((packed)) {
+  uint8_t enabled;                              // Ethernet enabled (1) or disabled (0)
+  uint8_t dhcp_enabled;                         // 1 = DHCP, 0 = static IP
+  uint32_t static_ip;                           // Static IP address (network byte order)
+  uint32_t static_gateway;                      // Gateway IP
+  uint32_t static_netmask;                      // Netmask
+  uint32_t static_dns;                          // Primary DNS
+  char hostname[32];                            // Ethernet-specific hostname (empty = system hostname)
+  uint8_t reserved[4];                          // Future use
+} EthernetConfig;
+
+/* ============================================================================
  * NETWORK CONFIGURATION (v3.0+)
  * ============================================================================ */
 
@@ -329,6 +344,9 @@ typedef struct __attribute__((packed)) {
 
   // Wi-Fi power management (v6.0.4+)
   uint8_t wifi_power_save;                      // 0 = OFF (fast response), 1 = ON (low power)
+
+  // W5500 Ethernet configuration (v6.1.0+)
+  EthernetConfig ethernet;                      // Ethernet configuration
 
   // Reserved for future (SSH, mDNS, etc.)
   uint8_t reserved[3];                          // Future: SSH, certificates, mDNS (reduced from 4)
@@ -459,11 +477,18 @@ typedef struct {
   uint32_t wifi_connect_time_ms;                // When last connected
   uint32_t wifi_reconnect_retries;              // Current reconnect attempt count
 
-  // IP information (DHCP or static)
-  uint32_t local_ip;                            // Current local IP
-  uint32_t gateway;                             // Current gateway
-  uint32_t netmask;                             // Current netmask
-  uint32_t dns;                                 // Current DNS
+  // Wi-Fi IP information (DHCP or static)
+  uint32_t local_ip;                            // Current local IP (Wi-Fi)
+  uint32_t gateway;                             // Current gateway (Wi-Fi)
+  uint32_t netmask;                             // Current netmask (Wi-Fi)
+  uint32_t dns;                                 // Current DNS (Wi-Fi)
+
+  // Ethernet state (v6.1.0+)
+  uint8_t eth_connected;                        // Current Ethernet connection status
+  uint32_t eth_local_ip;                        // Current local IP (Ethernet)
+  uint32_t eth_gateway;                         // Current gateway (Ethernet)
+  uint32_t eth_netmask;                         // Current netmask (Ethernet)
+  uint32_t eth_dns;                             // Current DNS (Ethernet)
 
   // Client socket
   int telnet_socket;                            // Socket descriptor (-1 if none)

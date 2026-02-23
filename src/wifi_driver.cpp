@@ -176,9 +176,8 @@ int wifi_driver_init(void)
 
   esp_err_t err;
 
-  // Initialize networking stack
-  ESP_ERROR_CHECK(esp_netif_init());
-  ESP_ERROR_CHECK(esp_event_loop_create_default());
+  // NOTE: esp_netif_init() and esp_event_loop_create_default() are called
+  // by network_manager_init() before this function. Do NOT call them here.
 
   // Create Wi-Fi station interface
   esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();

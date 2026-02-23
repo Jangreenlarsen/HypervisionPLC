@@ -196,6 +196,7 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "COIL")) return "COIL";
   if (str_eq_i(s, "HOSTNAME")) return "HOSTNAME";
   if (str_eq_i(s, "WIFI")) return "WIFI";
+  if (str_eq_i(s, "ETHERNET") || str_eq_i(s, "ETH")) return "ETHERNET";
   if (str_eq_i(s, "HTTP") || str_eq_i(s, "REST") || str_eq_i(s, "API")) return "HTTP";
   if (str_eq_i(s, "BACKUP")) return "BACKUP";
   if (str_eq_i(s, "ENABLE")) return "ENABLE";
@@ -239,6 +240,7 @@ static void print_show_help(void) {
   debug_println("Available 'show' commands:");
   debug_println("  show config          - Vis fuld konfiguration");
   debug_println("  show wifi            - Vis Wi-Fi status og IP");
+  debug_println("  show ethernet        - Vis Ethernet (W5500) status");
   debug_println("  show counters        - Vis alle counters");
   debug_println("  show counter <id> [verbose] - Vis specifik counter (1-4)");
   debug_println("  show timers          - Vis alle timers");
@@ -664,6 +666,9 @@ bool cli_parser_execute(char* line) {
     } else if (!strcmp(what, "WIFI")) {
       cli_cmd_show_wifi();
       return true;
+    } else if (!strcmp(what, "ETHERNET")) {
+      cli_cmd_show_ethernet();
+      return true;
     } else if (!strcmp(what, "HTTP")) {
       cli_cmd_show_http();
       return true;
@@ -1001,6 +1006,14 @@ bool cli_parser_execute(char* line) {
         return true;
       }
       cli_cmd_set_wifi(argc - 2, argv + 2);
+      return true;
+    } else if (!strcmp(what, "ETHERNET")) {
+      // set ethernet <option> [value]
+      if (argc < 3) {
+        cli_cmd_set_ethernet(0, NULL);  // Print usage
+        return true;
+      }
+      cli_cmd_set_ethernet(argc - 2, argv + 2);
       return true;
     } else if (!strcmp(what, "HTTP")) {
       // Check for help
@@ -1531,6 +1544,7 @@ bool cli_parser_execute(char* line) {
     debug_println("  show config, cfg        - Full configuration");
     debug_println("  show version, ver, v    - Firmware version");
     debug_println("  show wifi               - WiFi status + RSSI + MAC");
+    debug_println("  show ethernet, eth      - Ethernet (W5500) status");
     debug_println("  show counters, cnts     - All counters table");
     debug_println("  show counter <id> [verbose] - Counter 1-4 details");
     debug_println("  show timers, tmrs       - All timers table");

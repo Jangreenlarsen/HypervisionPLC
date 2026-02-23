@@ -28,6 +28,7 @@
 #include "st_logic_config.h"
 #include "network_manager.h"
 #include "network_config.h"
+#include "ethernet_driver.h"
 #include "http_server.h"
 #include "https_wrapper.h"
 #include <WiFi.h>
@@ -66,6 +67,7 @@ void cli_cmd_show_config(const char *section) {
   bool show_timers   = show_all || show_section_match(section, "TIMER");
   bool show_gpio     = show_all || show_section_match(section, "GPIO");
   bool show_network  = show_all || show_section_match(section, "NETWORK") || show_section_match(section, "WIFI");
+  bool show_ethernet = show_all || show_section_match(section, "ETHERNET") || show_section_match(section, "ETH");
   bool show_http     = show_all || show_section_match(section, "HTTP") || show_section_match(section, "API");
   bool show_modules  = show_all || show_section_match(section, "MODULE");
   bool show_persist  = show_all || show_section_match(section, "PERSIST");
@@ -392,7 +394,7 @@ void cli_cmd_show_config(const char *section) {
   }
   for (uint8_t i = 0; i < COUNTER_COUNT; i++) {
     const CounterConfig &cc = g_persist_config.counters[i];
-    if (cc.hw_mode == COUNTER_HW_PCNT && cc.hw_gpio > 0) {
+    if (cc.enabled && cc.hw_mode == COUNTER_HW_PCNT && cc.hw_gpio > 0) {
       char buf[64];
       snprintf(buf, sizeof(buf), "  GPIO %-2d - Counter %d HW (PCNT)", cc.hw_gpio, i + 1);
       debug_println(buf);
@@ -401,7 +403,7 @@ void cli_cmd_show_config(const char *section) {
   if (!g_persist_config.modbus_slave.enabled && !g_persist_config.modbus_master.enabled) {
     bool any_counter = false;
     for (uint8_t i = 0; i < COUNTER_COUNT; i++) {
-      if (g_persist_config.counters[i].hw_mode == COUNTER_HW_PCNT && g_persist_config.counters[i].hw_gpio > 0) {
+      if (g_persist_config.counters[i].enabled && g_persist_config.counters[i].hw_mode == COUNTER_HW_PCNT && g_persist_config.counters[i].hw_gpio > 0) {
         any_counter = true; break;
       }
     }
@@ -772,6 +774,43 @@ void cli_cmd_show_config(const char *section) {
   debug_println(g_persist_config.network.telnet_password[0] ? "********" : "(not set)");
 
   } // end show_network
+
+  // =========================================================================
+  // ETHERNET (v6.1.0+)
+  // =========================================================================
+  if (show_ethernet) {
+  debug_println("\n[ETHERNET]");
+  debug_print("  status: ");
+  debug_println(g_persist_config.network.ethernet.enabled ? "enabled" : "disabled");
+
+  debug_print("  dhcp: ");
+  debug_println(g_persist_config.network.ethernet.dhcp_enabled ? "enabled" : "disabled");
+
+  if (!g_persist_config.network.ethernet.dhcp_enabled) {
+    char ip_str[16];
+    debug_print("  static ip: ");
+    network_config_ip_to_str(g_persist_config.network.ethernet.static_ip, ip_str);
+    debug_println(ip_str);
+
+    debug_print("  gateway: ");
+    network_config_ip_to_str(g_persist_config.network.ethernet.static_gateway, ip_str);
+    debug_println(ip_str);
+
+    debug_print("  netmask: ");
+    network_config_ip_to_str(g_persist_config.network.ethernet.static_netmask, ip_str);
+    debug_println(ip_str);
+
+    debug_print("  dns: ");
+    network_config_ip_to_str(g_persist_config.network.ethernet.static_dns, ip_str);
+    debug_println(ip_str);
+  }
+
+  if (g_persist_config.network.ethernet.hostname[0]) {
+    debug_print("  hostname: ");
+    debug_println(g_persist_config.network.ethernet.hostname);
+  }
+
+  } // end show_ethernet
 
   // =========================================================================
   // API HTTP
@@ -2288,17 +2327,49 @@ void cli_cmd_show_gpio(void) {
   debug_println("  Kommandoer: 'set gpio 2 enable' / 'set gpio 2 disable'");
   debug_println("");
 
-  debug_println("UART1 (Modbus):");
-  debug_println("  GPIO 4  - RX");
-  debug_println("  GPIO 5  - TX");
-  debug_println("  GPIO 15 - RS485 DIR");
-  debug_println("");
-  debug_println("PCNT Counters:");
-  debug_println("  GPIO 19 - Counter 1 (PCNT Unit 0)");
-  debug_println("  GPIO 25 - Counter 2 (PCNT Unit 1)");
-  debug_println("  GPIO 27 - Counter 3 (PCNT Unit 2)");
-  debug_println("  GPIO 33 - Counter 4 (PCNT Unit 3)");
-  debug_println("");
+  // Modbus Slave pins (kun hvis enabled)
+  if (g_persist_config.modbus_slave.enabled) {
+    debug_println("UART1 (Modbus Slave):");
+    char buf[64];
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - RX", PIN_UART1_RX);
+    debug_println(buf);
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - TX", PIN_UART1_TX);
+    debug_println(buf);
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - RS485 DIR", PIN_RS485_DIR);
+    debug_println(buf);
+    debug_println("");
+  }
+
+  // Modbus Master pins (kun hvis enabled)
+  if (g_persist_config.modbus_master.enabled) {
+    debug_println("UART (Modbus Master):");
+    char buf[64];
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - TX", MODBUS_MASTER_TX_PIN);
+    debug_println(buf);
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - RX", MODBUS_MASTER_RX_PIN);
+    debug_println(buf);
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - RS485 DE/RE", MODBUS_MASTER_DE_PIN);
+    debug_println(buf);
+    debug_println("");
+  }
+
+  // PCNT Counter pins (kun hvis counter enabled med hw_gpio konfigureret)
+  {
+    bool any_counter = false;
+    for (uint8_t i = 0; i < COUNTER_COUNT; i++) {
+      const CounterConfig &cc = g_persist_config.counters[i];
+      if (cc.enabled && cc.hw_mode == COUNTER_HW_PCNT && cc.hw_gpio > 0) {
+        if (!any_counter) {
+          debug_println("PCNT Counters:");
+          any_counter = true;
+        }
+        char buf[64];
+        snprintf(buf, sizeof(buf), "  GPIO %-2d - Counter %d HW (PCNT)", cc.hw_gpio, i + 1);
+        debug_println(buf);
+      }
+    }
+    if (any_counter) debug_println("");
+  }
 
   // Show user-configured GPIO mappings (exclude ST Logic bindings)
   uint8_t gpio_count = 0;
@@ -2364,21 +2435,39 @@ void cli_cmd_show_gpio_pin(uint8_t pin) {
     debug_println("");
   }
 
-  // Check if this is a hardware-reserved pin
+  // Check if this is a hardware-reserved pin (dynamisk baseret på config)
   bool is_reserved = false;
-  const char* reservation = "";
+  char reservation_buf[64];
 
-  if (pin == 4) { reservation = "UART1 RX (Modbus)"; is_reserved = true; }
-  else if (pin == 5) { reservation = "UART1 TX (Modbus)"; is_reserved = true; }
-  else if (pin == 15) { reservation = "RS485 DIR"; is_reserved = true; }
-  else if (pin == 19) { reservation = "Counter 1 HW (PCNT Unit 0)"; is_reserved = true; }
-  else if (pin == 25) { reservation = "Counter 2 HW (PCNT Unit 1)"; is_reserved = true; }
-  else if (pin == 27) { reservation = "Counter 3 HW (PCNT Unit 2)"; is_reserved = true; }
-  else if (pin == 33) { reservation = "Counter 4 HW (PCNT Unit 3)"; is_reserved = true; }
+  // Modbus Slave pins
+  if (g_persist_config.modbus_slave.enabled) {
+    if (pin == PIN_UART1_RX) { snprintf(reservation_buf, sizeof(reservation_buf), "UART1 RX (Modbus Slave)"); is_reserved = true; }
+    else if (pin == PIN_UART1_TX) { snprintf(reservation_buf, sizeof(reservation_buf), "UART1 TX (Modbus Slave)"); is_reserved = true; }
+    else if (pin == PIN_RS485_DIR) { snprintf(reservation_buf, sizeof(reservation_buf), "RS485 DIR (Modbus Slave)"); is_reserved = true; }
+  }
+
+  // Modbus Master pins
+  if (!is_reserved && g_persist_config.modbus_master.enabled) {
+    if (pin == MODBUS_MASTER_TX_PIN) { snprintf(reservation_buf, sizeof(reservation_buf), "UART TX (Modbus Master)"); is_reserved = true; }
+    else if (pin == MODBUS_MASTER_RX_PIN) { snprintf(reservation_buf, sizeof(reservation_buf), "UART RX (Modbus Master)"); is_reserved = true; }
+    else if (pin == MODBUS_MASTER_DE_PIN) { snprintf(reservation_buf, sizeof(reservation_buf), "RS485 DE/RE (Modbus Master)"); is_reserved = true; }
+  }
+
+  // Counter PCNT pins
+  if (!is_reserved) {
+    for (uint8_t i = 0; i < COUNTER_COUNT; i++) {
+      const CounterConfig &cc = g_persist_config.counters[i];
+      if (cc.enabled && cc.hw_mode == COUNTER_HW_PCNT && cc.hw_gpio > 0 && cc.hw_gpio == pin) {
+        snprintf(reservation_buf, sizeof(reservation_buf), "Counter %d HW (PCNT)", i + 1);
+        is_reserved = true;
+        break;
+      }
+    }
+  }
 
   if (is_reserved) {
     debug_print("Reservation: ");
-    debug_println(reservation);
+    debug_println(reservation_buf);
     debug_println("  WARNING: This pin is reserved for hardware functionality!");
     debug_println("");
   }
@@ -2460,6 +2549,93 @@ void cli_cmd_show_echo(void) {
 /* ============================================================================
  * SHOW WIFI
  * ============================================================================ */
+
+void cli_cmd_show_ethernet(void) {
+  debug_println("\n=== ETHERNET STATUS (W5500) ===");
+
+  if (!g_persist_config.network.ethernet.enabled) {
+    debug_println("Ethernet: DISABLED");
+    debug_println("(Enable with: set ethernet enable)");
+    debug_println("");
+    return;
+  }
+
+  if (!ethernet_driver_is_connected()) {
+    debug_println("Ethernet: NOT CONNECTED");
+    debug_println("(Check W5500 wiring and cable)");
+  } else {
+    debug_println("Ethernet: CONNECTED");
+
+    // Show IP
+    uint32_t ip = ethernet_driver_get_local_ip();
+    if (ip != 0) {
+      char ip_str[16];
+      network_config_ip_to_str(ip, ip_str);
+      debug_print("Local IP: ");
+      debug_println(ip_str);
+    }
+
+    // Gateway
+    uint32_t gw = ethernet_driver_get_gateway();
+    if (gw != 0) {
+      char gw_str[16];
+      network_config_ip_to_str(gw, gw_str);
+      debug_print("Gateway: ");
+      debug_println(gw_str);
+    }
+
+    // Netmask
+    uint32_t nm = ethernet_driver_get_netmask();
+    if (nm != 0) {
+      char nm_str[16];
+      network_config_ip_to_str(nm, nm_str);
+      debug_print("Netmask: ");
+      debug_println(nm_str);
+    }
+
+    // DNS
+    uint32_t dns = ethernet_driver_get_dns();
+    if (dns != 0) {
+      char dns_str[16];
+      network_config_ip_to_str(dns, dns_str);
+      debug_print("DNS: ");
+      debug_println(dns_str);
+    }
+
+    // Speed and duplex
+    debug_print("Link Speed: ");
+    debug_print_uint(ethernet_driver_get_speed());
+    debug_print(" Mbps ");
+    debug_println(ethernet_driver_is_full_duplex() ? "Full-Duplex" : "Half-Duplex");
+
+    // MAC address
+    char mac_str[18];
+    ethernet_driver_get_mac_str(mac_str);
+    debug_print("MAC Address: ");
+    debug_println(mac_str);
+
+    // Uptime
+    uint32_t uptime = ethernet_driver_get_uptime_ms();
+    debug_print("Uptime: ");
+    debug_print_uint(uptime / 1000);
+    debug_println(" sec");
+  }
+
+  // Show config
+  debug_println("");
+  debug_println("Configuration:");
+  debug_print("  DHCP: ");
+  debug_println(g_persist_config.network.ethernet.dhcp_enabled ? "ON" : "OFF");
+
+  if (!g_persist_config.network.ethernet.dhcp_enabled) {
+    char ip_str[16];
+    network_config_ip_to_str(g_persist_config.network.ethernet.static_ip, ip_str);
+    debug_print("  Static IP: ");
+    debug_println(ip_str);
+  }
+
+  debug_println("");
+}
 
 void cli_cmd_show_wifi(void) {
   debug_println("\n=== WI-FI STATUS ===");

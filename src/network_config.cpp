@@ -67,6 +67,16 @@ void network_config_init_defaults(NetworkConfig *config)
   config->static_netmask = htonl(0xFFFFFF00);  // 255.255.255.0
   config->static_dns = htonl(0x08080808);      // 8.8.8.8 (Google DNS)
 
+  // Default Ethernet configuration (v6.1.0+ W5500)
+  config->ethernet.enabled = 0;                 // Disabled by default
+  config->ethernet.dhcp_enabled = 1;            // DHCP by default
+  config->ethernet.static_ip = htonl(0xC0A80165);       // 192.168.1.101
+  config->ethernet.static_gateway = htonl(0xC0A80101);  // 192.168.1.1
+  config->ethernet.static_netmask = htonl(0xFFFFFF00);  // 255.255.255.0
+  config->ethernet.static_dns = htonl(0x08080808);      // 8.8.8.8
+  memset(config->ethernet.hostname, 0, sizeof(config->ethernet.hostname));
+  memset(config->ethernet.reserved, 0, sizeof(config->ethernet.reserved));
+
   ESP_LOGI(TAG, "Network config initialized with defaults");
 }
 

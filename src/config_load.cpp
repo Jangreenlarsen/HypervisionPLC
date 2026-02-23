@@ -239,6 +239,27 @@ bool config_load_from_nvs(PersistConfig* out) {
 
       debug_println("CONFIG LOAD: Migration 9→10 complete");
       // Note: CRC will be invalid, but we'll recalculate on next save
+      // Fall through to v10→v11 migration
+    }
+
+    if (out->schema_version == 10) {
+      debug_println("CONFIG LOAD: Migrating schema 10 → 11 (W5500 Ethernet support)");
+
+      // Initialize Ethernet config with defaults (new field in NetworkConfig)
+      out->network.ethernet.enabled = 0;              // Disabled by default
+      out->network.ethernet.dhcp_enabled = 1;          // DHCP by default
+      out->network.ethernet.static_ip = 0;
+      out->network.ethernet.static_gateway = 0;
+      out->network.ethernet.static_netmask = 0;
+      out->network.ethernet.static_dns = 0;
+      memset(out->network.ethernet.hostname, 0, sizeof(out->network.ethernet.hostname));
+      memset(out->network.ethernet.reserved, 0, sizeof(out->network.ethernet.reserved));
+
+      // Update schema version
+      out->schema_version = 11;
+
+      debug_println("CONFIG LOAD: Migration 10→11 complete");
+      // Note: CRC will be invalid, but we'll recalculate on next save
     } else if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);

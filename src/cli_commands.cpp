@@ -2095,6 +2095,107 @@ void cli_cmd_set_wifi(uint8_t argc, char* argv[]) {
 }
 
 /* ============================================================================
+ * ETHERNET COMMANDS (v6.1.0+ W5500)
+ * ============================================================================ */
+
+void cli_cmd_set_ethernet(uint8_t argc, char* argv[]) {
+  if (argc < 1) {
+    debug_println("SET ETHERNET: missing parameters");
+    debug_println("  Usage: set ethernet <option> [value]");
+    debug_println("");
+    debug_println("  Options:");
+    debug_println("    enable              - Enable Ethernet (W5500)");
+    debug_println("    disable             - Disable Ethernet");
+    debug_println("    dhcp on|off         - Enable/disable DHCP (default: on)");
+    debug_println("    ip <address>        - Static IP (e.g., 192.168.1.101)");
+    debug_println("    gateway <address>   - Gateway IP (e.g., 192.168.1.1)");
+    debug_println("    netmask <address>   - Netmask (e.g., 255.255.255.0)");
+    debug_println("    dns <address>       - DNS server (e.g., 8.8.8.8)");
+    debug_println("");
+    debug_println("  Note: Use 'save' to persist settings to NVS");
+    return;
+  }
+
+  const char* option = argv[0];
+  const char* value = (argc >= 2) ? argv[1] : "";
+
+  if (!strcmp(option, "enable")) {
+    g_persist_config.network.ethernet.enabled = 1;
+    debug_println("Ethernet enabled (W5500)");
+
+  } else if (!strcmp(option, "disable")) {
+    g_persist_config.network.ethernet.enabled = 0;
+    debug_println("Ethernet disabled");
+
+  } else if (!strcmp(option, "dhcp")) {
+    if (!strcmp(value, "on") || !strcmp(value, "ON")) {
+      g_persist_config.network.ethernet.dhcp_enabled = 1;
+      debug_println("Ethernet DHCP enabled");
+    } else if (!strcmp(value, "off") || !strcmp(value, "OFF")) {
+      g_persist_config.network.ethernet.dhcp_enabled = 0;
+      debug_println("Ethernet DHCP disabled (use static IP settings)");
+    } else {
+      debug_println("SET ETHERNET DHCP: invalid value (use: on|off)");
+    }
+
+  } else if (!strcmp(option, "ip")) {
+    uint32_t ip;
+    if (!network_config_str_to_ip(value, &ip)) {
+      debug_println("SET ETHERNET IP: invalid IP address format");
+      return;
+    }
+    g_persist_config.network.ethernet.static_ip = ip;
+    debug_print("Ethernet static IP set to: ");
+    char ip_str[16];
+    debug_println(network_config_ip_to_str(ip, ip_str));
+
+  } else if (!strcmp(option, "gateway")) {
+    uint32_t gw;
+    if (!network_config_str_to_ip(value, &gw)) {
+      debug_println("SET ETHERNET GATEWAY: invalid IP address format");
+      return;
+    }
+    g_persist_config.network.ethernet.static_gateway = gw;
+    debug_print("Ethernet gateway set to: ");
+    char gw_str[16];
+    debug_println(network_config_ip_to_str(gw, gw_str));
+
+  } else if (!strcmp(option, "netmask")) {
+    uint32_t nm;
+    if (!network_config_str_to_ip(value, &nm)) {
+      debug_println("SET ETHERNET NETMASK: invalid IP address format");
+      return;
+    }
+    if (!network_config_is_valid_netmask(nm)) {
+      debug_println("SET ETHERNET NETMASK: invalid netmask (must be contiguous bits)");
+      return;
+    }
+    g_persist_config.network.ethernet.static_netmask = nm;
+    debug_print("Ethernet netmask set to: ");
+    char nm_str[16];
+    debug_println(network_config_ip_to_str(nm, nm_str));
+
+  } else if (!strcmp(option, "dns")) {
+    uint32_t dns;
+    if (!network_config_str_to_ip(value, &dns)) {
+      debug_println("SET ETHERNET DNS: invalid IP address format");
+      return;
+    }
+    g_persist_config.network.ethernet.static_dns = dns;
+    debug_print("Ethernet DNS set to: ");
+    char dns_str[16];
+    debug_println(network_config_ip_to_str(dns, dns_str));
+
+  } else {
+    debug_print("SET ETHERNET: unknown option '");
+    debug_print(option);
+    debug_println("' (use: enable, disable, dhcp, ip, gateway, netmask, dns)");
+  }
+
+  debug_println("Hint: Use 'save' to persist configuration to NVS");
+}
+
+/* ============================================================================
  * HTTP REST API COMMANDS (v6.0.0+)
  * ============================================================================ */
 

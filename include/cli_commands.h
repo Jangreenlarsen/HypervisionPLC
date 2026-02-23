@@ -261,6 +261,21 @@ void cli_cmd_set_debug(uint8_t argc, char* argv[]);
 void cli_cmd_set_wifi(uint8_t argc, char* argv[]);
 
 /**
+ * @brief Handle "set ethernet" command for W5500 Ethernet configuration (v6.1.0+)
+ * @param argc Argument count
+ * @param argv Argument values
+ *
+ * Usage:
+ *   set ethernet enable|disable
+ *   set ethernet dhcp on|off
+ *   set ethernet ip 192.168.1.101
+ *   set ethernet gateway 192.168.1.1
+ *   set ethernet netmask 255.255.255.0
+ *   set ethernet dns 8.8.8.8
+ */
+void cli_cmd_set_ethernet(uint8_t argc, char* argv[]);
+
+/**
  * @brief Handle "set http" command for HTTP REST API configuration (v6.0.0+)
  * @param argc Argument count
  * @param argv Argument values (e.g., {"enabled", "on"})
