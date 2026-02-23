@@ -68,12 +68,8 @@ int network_manager_init(void)
     return -1;
   }
 
-  // Initialize W5500 Ethernet driver (v6.1.0+)
-  // Note: Non-fatal if Ethernet init fails (hardware may not be present)
-  if (ethernet_driver_init() != 0) {
-    ESP_LOGW(TAG, "Ethernet driver init failed (W5500 not present?)");
-    // Continue without Ethernet - WiFi-only mode
-  }
+  // NOTE: Ethernet driver (W5500) is initialized lazily in network_manager_connect()
+  // only when ethernet.enabled == 1. This prevents SPI/W5500 crashes when no hardware is present.
 
   // Create Telnet server (but don't start yet)
   // Note: We pass NULL for network_config here, will be updated when config is available
@@ -168,26 +164,34 @@ int network_manager_connect(const NetworkConfig *config)
 
   ESP_LOGI(TAG, "Connecting to Wi-Fi network: %s", config->ssid);
 
-  // Start Ethernet interface (v6.1.0+ W5500)
+  // Initialize and start Ethernet interface (v6.1.0+ W5500)
+  // Only init hardware when enabled — prevents crash when W5500 not connected
   if (config->ethernet.enabled) {
-    ESP_LOGI(TAG, "Starting Ethernet interface (W5500)");
+    ESP_LOGI(TAG, "Ethernet enabled — initializing W5500 SPI driver");
 
-    // Configure DHCP or static IP for Ethernet
-    if (config->ethernet.dhcp_enabled) {
-      ethernet_driver_enable_dhcp();
+    if (ethernet_driver_init() != 0) {
+      ESP_LOGW(TAG, "W5500 Ethernet init failed (hardware not present?)");
+      // Non-fatal — continue with Wi-Fi only
     } else {
-      ethernet_driver_set_static_ip(config->ethernet.static_ip,
-                                     config->ethernet.static_gateway,
-                                     config->ethernet.static_netmask,
-                                     config->ethernet.static_dns);
-    }
+      // Configure DHCP or static IP for Ethernet
+      if (config->ethernet.dhcp_enabled) {
+        ethernet_driver_enable_dhcp();
+      } else {
+        ethernet_driver_set_static_ip(config->ethernet.static_ip,
+                                       config->ethernet.static_gateway,
+                                       config->ethernet.static_netmask,
+                                       config->ethernet.static_dns);
+      }
 
-    if (ethernet_driver_start() != 0) {
-      ESP_LOGE(TAG, "Failed to start Ethernet (W5500 not present?)");
-      // Non-fatal - continue with Wi-Fi only
-    } else {
-      ESP_LOGI(TAG, "Ethernet started (DHCP: %s)", config->ethernet.dhcp_enabled ? "on" : "off");
+      if (ethernet_driver_start() != 0) {
+        ESP_LOGE(TAG, "Failed to start Ethernet (W5500 not present?)");
+        // Non-fatal — continue with Wi-Fi only
+      } else {
+        ESP_LOGI(TAG, "Ethernet started (DHCP: %s)", config->ethernet.dhcp_enabled ? "on" : "off");
+      }
     }
+  } else {
+    ESP_LOGI(TAG, "Ethernet disabled in config");
   }
 
   return 0;
