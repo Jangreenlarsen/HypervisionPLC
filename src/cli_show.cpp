@@ -2553,6 +2553,14 @@ void cli_cmd_show_echo(void) {
 void cli_cmd_show_ethernet(void) {
   debug_println("\n=== ETHERNET STATUS (W5500) ===");
 
+#ifndef ETHERNET_W5500_ENABLED
+  debug_println("Ethernet: NOT COMPILED");
+  debug_println("  Build med -DETHERNET_W5500_ENABLED i platformio.ini");
+  debug_println("  for at aktivere W5500 hardware support.");
+  debug_println("");
+  return;
+#endif
+
   if (!g_persist_config.network.ethernet.enabled) {
     debug_println("Ethernet: DISABLED");
     debug_println("(Enable with: set ethernet enable)");

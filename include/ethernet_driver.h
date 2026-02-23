@@ -2,6 +2,9 @@
  * @file ethernet_driver.h
  * @brief W5500 SPI Ethernet driver for ESP32 (Layer 0 hardware abstraction)
  *
+ * Build: Requires -DETHERNET_W5500_ENABLED in platformio.ini build_flags.
+ *        Without it, all functions compile as no-op stubs (safe for WiFi-only).
+ *
  * Uses ESP-IDF Ethernet API with W5500 SPI MAC/PHY.
  * Handles DHCP, static IP, link status, and auto-reconnect.
  *
