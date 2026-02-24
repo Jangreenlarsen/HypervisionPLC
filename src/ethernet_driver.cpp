@@ -31,6 +31,7 @@
 #include <driver/spi_master.h>
 #include <lwip/inet.h>
 #include <lwip/dns.h>
+#include <esp_mac.h>
 
 #include "types.h"
 
@@ -67,6 +68,10 @@ typedef struct {
   uint32_t static_netmask;
   uint32_t static_dns;
   uint8_t use_static_ip;
+
+  // Init diagnostics
+  uint8_t init_flags;         // Bitmask of completed init steps
+  const char *last_error;     // Last error description
 } EthDriverInternalState;
 
 static EthDriverInternalState eth_state = {
@@ -85,7 +90,9 @@ static EthDriverInternalState eth_state = {
   .static_gateway = 0,
   .static_netmask = 0,
   .static_dns = 0,
-  .use_static_ip = 0
+  .use_static_ip = 0,
+  .init_flags = 0,
+  .last_error = "Not initialized"
 };
 
 /* ============================================================================
@@ -203,12 +210,17 @@ int ethernet_driver_init(void)
   buscfg.quadwp_io_num = -1;
   buscfg.quadhd_io_num = -1;
 
+  eth_state.init_flags = 0;
+  eth_state.last_error = "OK";
+
   err = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "SPI bus init failed: %s", esp_err_to_name(err));
     eth_state.state = ETH_DRV_STATE_ERROR;
+    eth_state.last_error = "SPI bus init failed";
     return -1;
   }
+  eth_state.init_flags |= 0x01;  // bit 0: SPI bus OK
 
   // === Release W5500 from reset ===
   delay(1);  // Brief delay before releasing reset
@@ -230,8 +242,10 @@ int ethernet_driver_init(void)
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "SPI add device failed: %s", esp_err_to_name(err));
     eth_state.state = ETH_DRV_STATE_ERROR;
+    eth_state.last_error = "SPI add device failed";
     return -1;
   }
+  eth_state.init_flags |= 0x02;  // bit 1: SPI device OK
 
   // === Create W5500 MAC driver ===
   eth_w5500_config_t w5500_config = ETH_W5500_DEFAULT_CONFIG(spi_handle);
@@ -242,8 +256,10 @@ int ethernet_driver_init(void)
   if (!mac) {
     ESP_LOGE(TAG, "Failed to create W5500 MAC");
     eth_state.state = ETH_DRV_STATE_ERROR;
+    eth_state.last_error = "W5500 MAC failed (no SPI response - check wiring)";
     return -1;
   }
+  eth_state.init_flags |= 0x04;  // bit 2: MAC created (W5500 SPI comms OK)
 
   // === Create W5500 PHY driver ===
   eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
@@ -254,8 +270,10 @@ int ethernet_driver_init(void)
   if (!phy) {
     ESP_LOGE(TAG, "Failed to create W5500 PHY");
     eth_state.state = ETH_DRV_STATE_ERROR;
+    eth_state.last_error = "W5500 PHY failed";
     return -1;
   }
+  eth_state.init_flags |= 0x08;  // bit 3: PHY created
 
   // === Create Ethernet driver ===
   esp_eth_config_t eth_config = ETH_DEFAULT_CONFIG(mac, phy);
@@ -263,7 +281,20 @@ int ethernet_driver_init(void)
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Ethernet driver install failed: %s", esp_err_to_name(err));
     eth_state.state = ETH_DRV_STATE_ERROR;
+    eth_state.last_error = "Driver install failed";
     return -1;
+  }
+  eth_state.init_flags |= 0x10;  // bit 4: Driver installed
+
+  // === Set MAC address from ESP32 eFuse (W5500 modules often have no factory MAC) ===
+  {
+    uint8_t mac_addr[6];
+    esp_read_mac(mac_addr, ESP_MAC_ETH);
+    esp_eth_ioctl(eth_state.eth_handle, ETH_CMD_S_MAC_ADDR, mac_addr);
+    memcpy(eth_state.mac_addr, mac_addr, 6);
+    ESP_LOGI(TAG, "MAC set from ESP32 eFuse: %02X:%02X:%02X:%02X:%02X:%02X",
+             mac_addr[0], mac_addr[1], mac_addr[2],
+             mac_addr[3], mac_addr[4], mac_addr[5]);
   }
 
   // === Create esp_netif for Ethernet ===
@@ -272,17 +303,20 @@ int ethernet_driver_init(void)
   if (!eth_state.eth_netif) {
     ESP_LOGE(TAG, "Failed to create Ethernet netif");
     eth_state.state = ETH_DRV_STATE_ERROR;
+    eth_state.last_error = "Network interface failed";
     return -1;
   }
 
   // Attach Ethernet driver to TCP/IP stack
   esp_netif_attach(eth_state.eth_netif, esp_eth_new_netif_glue(eth_state.eth_handle));
+  eth_state.init_flags |= 0x20;  // bit 5: Netif created
 
   // === Register event handlers ===
   err = esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID, &eth_event_handler, NULL);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to register ETH_EVENT handler: %s", esp_err_to_name(err));
     eth_state.state = ETH_DRV_STATE_ERROR;
+    eth_state.last_error = "Event handler registration failed";
     return -1;
   }
 
@@ -290,8 +324,10 @@ int ethernet_driver_init(void)
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to register IP_EVENT handler: %s", esp_err_to_name(err));
     eth_state.state = ETH_DRV_STATE_ERROR;
+    eth_state.last_error = "IP event handler registration failed";
     return -1;
   }
+  eth_state.init_flags |= 0x40;  // bit 6: Event handlers OK
 
   eth_state.state = ETH_DRV_STATE_IDLE;
   ESP_LOGI(TAG, "W5500 Ethernet driver initialized successfully");
@@ -312,9 +348,11 @@ int ethernet_driver_start(void)
   esp_err_t err = esp_eth_start(eth_state.eth_handle);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start Ethernet: %s", esp_err_to_name(err));
+    eth_state.last_error = "Ethernet start failed";
     return -1;
   }
 
+  eth_state.init_flags |= 0x80;  // bit 7: Ethernet started
   ESP_LOGI(TAG, "Ethernet started");
   return 0;
 }
@@ -443,6 +481,9 @@ const char* ethernet_driver_get_state_string(void)
   }
 }
 
+uint8_t ethernet_driver_get_init_flags(void)  { return eth_state.init_flags; }
+const char* ethernet_driver_get_last_error(void) { return eth_state.last_error; }
+
 #else // !ETHERNET_W5500_ENABLED
 
 // ============================================================================
@@ -465,5 +506,7 @@ int      ethernet_driver_enable_dhcp(void) { return -1; }
 int      ethernet_driver_loop(void)       { return 0; }
 uint32_t ethernet_driver_get_uptime_ms(void) { return 0; }
 const char* ethernet_driver_get_state_string(void) { return "Not compiled"; }
+uint8_t ethernet_driver_get_init_flags(void) { return 0; }
+const char* ethernet_driver_get_last_error(void) { return "Not compiled"; }
 
 #endif // ETHERNET_W5500_ENABLED

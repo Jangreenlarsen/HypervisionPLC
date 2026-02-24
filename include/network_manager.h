@@ -29,11 +29,29 @@
 int network_manager_init(void);
 
 /**
+ * Start network services (Telnet, HTTP) independently of Wi-Fi/Ethernet (v6.0.9+)
+ * Must be called before connect/start_ethernet so services are available on any interface.
+ * Safe to call multiple times (services check if already running).
+ * @param config Network configuration (uses telnet/http sub-configs)
+ * @return 0 on success, -1 on error
+ */
+int network_manager_start_services(const NetworkConfig *config);
+
+/**
  * Start Wi-Fi connection with config
  * @param config Network configuration (from PersistConfig)
  * @return 0 on start, -1 on error (connection is asynchronous)
  */
 int network_manager_connect(const NetworkConfig *config);
+
+/**
+ * Start Ethernet interface independently of Wi-Fi (v6.0.9+)
+ * Can be called even when Wi-Fi is disabled.
+ * Safe to call multiple times (ethernet_driver_init has double-init guard).
+ * @param config Network configuration (uses config->ethernet sub-struct)
+ * @return 0 on success, -1 on error or ethernet disabled
+ */
+int network_manager_start_ethernet(const NetworkConfig *config);
 
 /**
  * Stop Wi-Fi connection and Telnet server

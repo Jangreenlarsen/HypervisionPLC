@@ -188,7 +188,14 @@
 | BUG-210 | API source upload kompilerer ikke automatisk | ✅ FIXED | 🟡 HIGH | v6.0.6 | POST `/api/logic/{id}/source` kaldte kun `st_logic_upload()` men IKKE `st_logic_compile()`. FIX: Tilføjet `st_logic_compile()` kald efter upload (api_handlers.cpp:1084) (Build #1197) |
 | BUG-211 | Parser håndterer ikke FUNCTION/FUNCTION_BLOCK definitioner i PROGRAM body | ✅ FIXED | 🔴 CRITICAL | v6.0.6 | `st_parser_parse_statement()` havde ingen case for FUNCTION/FUNCTION_BLOCK. FIX: (1) `st_parser_parse_program()` parser FUNCTION/FB mellem VAR og BEGIN, (2) valgfri BEGIN i funktionskrop, (3) funktionskald-som-statement support. Alle 11 FEAT-003 tests bestået (st_parser.cpp:1668-1704, 697-747) (Build #1224) |
 | BUG-212 | Source pool null-terminering mangler i compiler path | ✅ FIXED | 🔴 CRITICAL | v6.0.6 | `st_logic_get_source_code()` returnerer pointer ind i shared pool UDEN null-terminator. Lexeren bruger '\0' til EOF-detektion → parser læser forbi kildekoden ind i tilstødende pool-data. Symptom: parse fejl med variabelnavne fra andre programmer. FIX: null-termineret kopi i `st_logic_compile()` + memory leak fix i `st_logic_delete()` (st_logic_config.cpp:240-260, 376-380) (Build #1224) |
-| BUG-213 | GPIO hardware pins statisk - ignorerer modbus slave/master config | ✅ FIXED | 🟠 MEDIUM | v6.0.7 | `show config` GPIO sektion viste altid samme hardkodede pins uanset modbus slave/master enabled status. Counter pins var hardkodet til GPIO 19/25/27/33 men er konfigurerbare via hw_gpio. FIX: Dynamisk visning baseret på enabled flags + faktisk hw_gpio config (cli_show.cpp:373-411) |
+| BUG-213 | GPIO hardware pins statisk - ignorerer modbus slave/master config | ✅ FIXED | 🟠 MEDIUM | v6.0.7 | `show config`, `show gpio` og `show gpio <pin>` viste hardkodede pins uanset enabled status. Counter pins (GPIO 19/25/27/33) vist selvom counters disabled. FIX: Alle 3 kommandoer bruger nu dynamisk visning baseret på enabled flags (modbus slave/master + counter) + faktisk hw_gpio config (cli_show.cpp:373-411, 2291-2333, 2399-2434) |
+| BUG-214 | Backup: ST Logic source korruption pga. manglende null-terminering | ✅ FIXED | 🔴 CRITICAL | v6.0.7 | `api_handler_system_backup()` brugte `st_logic_get_source_code()` pointer direkte i ArduinoJson. Source pool entries er IKKE null-terminerede (BUG-212). ArduinoJson læste forbi program boundary → Program 0 (646 bytes) serialiseret som 5158 bytes (sammenklæbet med program 1-3). Ved restore: pool overflow → program 0+2 source tabt, program 1+3 korrupt. FIX: malloc null-termineret kopi med source_size (api_handlers.cpp:3371) (Build #1241) |
+| BUG-215 | Restore: var_maps tabt pga. st_logic_delete() side-effect | ✅ FIXED | 🔴 CRITICAL | v6.0.7 | Under restore blev var_maps restored FØR logic_programs. `st_logic_delete()` (st_logic_config.cpp:411-415) clearer ALLE var_map entries med matchende st_program_id som side-effect. Da logic_programs restore kalder delete+upload, blev alle netop restored var_maps slettet. FIX: Flyttet var_maps restore sektion til EFTER logic_programs restore (api_handlers.cpp) (Build #1241) |
+| BUG-216 | Backup: IP-adresser som rå uint32_t i stedet for dotted strings | ✅ FIXED | 🟠 MEDIUM | v6.0.7 | Network felter (static_ip, static_gateway, static_netmask, static_dns) blev serialiseret som rå uint32_t little-endian integers (fx 1677830336 = 192.168.1.100). Ikke menneskelæseligt, platform-afhængigt. FIX: Serialiseres nu som dotted strings + backward-kompatibel `parse_ip_field()` helper der håndterer begge formater ved restore (api_handlers.cpp:3188) (Build #1241) |
+| BUG-217 | Backup: Boolean felter inkonsistente (int vs true/false) | ✅ FIXED | 🔵 LOW | v6.0.7 | `wifi_power_save`, `remote_echo`, `gpio2_user_mode` blev serialiseret som integers (0/1) i stedet for JSON boolean (true/false). FIX: Ternary operators for konsistent boolean output + `.as<bool>()` ved restore (api_handlers.cpp) (Build #1241) |
+| BUG-218 | W5500 Ethernet boot-loop ved flash overflow | ✅ FIXED | 🔴 CRITICAL | v6.0.8 | `-DETHERNET_W5500_ENABLED` tilføjer ~38 KB → flash 97.1% overfyldt → boot-loop/crash. FIX: Custom partition table (app0 1.5MB vs 1.25MB) + ArduinoJson size flags. Flash nu 80.9% uden Ethernet, 83.3% med (platformio.ini, partitions.csv) |
+| BUG-219 | Flash forbrug 97%+ forhindrer nye features | ✅ FIXED | 🔴 CRITICAL | v6.0.8 | Default partition (1.25 MB app) kun 37 KB fri → ingen plads til Ethernet eller andre features. FIX: Aktiveret custom partitions.csv (app0=1.5MB, +262 KB). Kræver `pio run -t erase` ved første upload (platformio.ini) |
+| BUG-220 | Ethernet init afhængig af WiFi enabled | ✅ FIXED | 🟡 HIGH | v6.0.9 | `ethernet_driver_init()` kun kaldt fra `network_manager_connect()` som kræver WiFi enabled. Ethernet aldrig initialiseret når WiFi disabled. FIX: Ny `network_manager_start_ethernet()` funktion + standalone kald i main.cpp når WiFi disabled (network_manager.cpp, main.cpp) |
 
 ## Feature Requests / Enhancements
 
@@ -258,6 +265,10 @@
 - **BUG-201:** ESP-IDF middle-wildcard URI routing matcher aldrig (FIXED Build #1162)
 - **BUG-202:** Source pool entries ikke null-termineret (FIXED Build #1162)
 - **BUG-207:** HTTP server stack_size 4096 for lille til API handlers (FIXED Build #1196)
+- **BUG-214:** Backup ST Logic source korruption pga. manglende null-terminering (FIXED Build #1241)
+- **BUG-215:** Restore var_maps tabt pga. st_logic_delete() side-effect (FIXED Build #1241)
+- **BUG-218:** W5500 Ethernet boot-loop ved flash overflow (FIXED v6.0.8)
+- **BUG-219:** Flash forbrug 97%+ forhindrer nye features (FIXED v6.0.8)
 
 ### 🟡 HIGH Priority (SHOULD FIX)
 - **BUG-003:** Bounds checking on var index
@@ -334,6 +345,7 @@
 
 ### 🟠 MEDIUM Priority (NICE TO HAVE)
 - **BUG-187:** Timer ctrl_reg ikke initialiseret i defaults (FIXED Build #1074)
+- **BUG-216:** Backup IP-adresser som rå uint32_t i stedet for dotted strings (FIXED Build #1241)
 
 ### 🔵 LOW Priority (COSMETIC)
 - **BUG-006:** Counter wrapping at 65535
@@ -349,6 +361,7 @@
 - **BUG-176:** HYSTERESIS function med inverterede thresholds (FIXED Build #1019)
 - **BUG-177:** strcpy uden bounds check i lexer (FIXED Build #1038)
 - **BUG-206:** /api/ trailing slash returnerer 404 (FIXED Build #1162)
+- **BUG-217:** Backup boolean felter inkonsistente int vs true/false (FIXED Build #1241)
 
 ### ✔️ NOT BUGS (DESIGN CHOICES)
 - **BUG-013:** Binding display order (intentional)

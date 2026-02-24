@@ -1048,6 +1048,32 @@ void cli_cmd_show_config(const char *section) {
   }
   } // end show_network
 
+  if (show_ethernet) {
+  // Ethernet (v6.0.9+)
+  debug_println("\n# Ethernet");
+  debug_print("set ethernet ");
+  debug_println(g_persist_config.network.ethernet.enabled ? "enable" : "disable");
+  if (g_persist_config.network.ethernet.enabled) {
+    debug_print("set ethernet dhcp ");
+    debug_println(g_persist_config.network.ethernet.dhcp_enabled ? "on" : "off");
+    if (!g_persist_config.network.ethernet.dhcp_enabled) {
+      char ip_str[16];
+      network_config_ip_to_str(g_persist_config.network.ethernet.static_ip, ip_str);
+      debug_print("set ethernet ip ");
+      debug_println(ip_str);
+      network_config_ip_to_str(g_persist_config.network.ethernet.static_gateway, ip_str);
+      debug_print("set ethernet gateway ");
+      debug_println(ip_str);
+      network_config_ip_to_str(g_persist_config.network.ethernet.static_netmask, ip_str);
+      debug_print("set ethernet netmask ");
+      debug_println(ip_str);
+      network_config_ip_to_str(g_persist_config.network.ethernet.static_dns, ip_str);
+      debug_print("set ethernet dns ");
+      debug_println(ip_str);
+    }
+  }
+  } // end show_ethernet
+
   if (show_http) {
   // API HTTP
   debug_println("\n# API HTTP");
@@ -2568,11 +2594,36 @@ void cli_cmd_show_ethernet(void) {
     return;
   }
 
+  // Hardware diagnostics
+  uint8_t flags = ethernet_driver_get_init_flags();
+  debug_println("Hardware init:");
+  debug_print("  SPI bus:      "); debug_println((flags & 0x01) ? "OK" : "FAIL");
+  debug_print("  SPI device:   "); debug_println((flags & 0x02) ? "OK" : (flags & 0x01) ? "FAIL" : "-");
+  debug_print("  W5500 MAC:    "); debug_println((flags & 0x04) ? "OK (SPI comms verified)" : (flags & 0x02) ? "FAIL (no SPI response)" : "-");
+  debug_print("  W5500 PHY:    "); debug_println((flags & 0x08) ? "OK" : (flags & 0x04) ? "FAIL" : "-");
+  debug_print("  Driver:       "); debug_println((flags & 0x10) ? "OK" : (flags & 0x08) ? "FAIL" : "-");
+  debug_print("  Network:      "); debug_println((flags & 0x20) ? "OK" : (flags & 0x10) ? "FAIL" : "-");
+  debug_print("  Events:       "); debug_println((flags & 0x40) ? "OK" : (flags & 0x20) ? "FAIL" : "-");
+  debug_print("  Started:      "); debug_println((flags & 0x80) ? "OK" : (flags & 0x40) ? "FAIL" : "-");
+
+  if (flags != 0xFF) {
+    debug_print("  Last error:   ");
+    debug_println(ethernet_driver_get_last_error());
+    debug_println("");
+  }
+
+  debug_print("State: ");
+  debug_println(ethernet_driver_get_state_string());
+
   if (!ethernet_driver_is_connected()) {
-    debug_println("Ethernet: NOT CONNECTED");
-    debug_println("(Check W5500 wiring and cable)");
+    debug_println("Link: NOT CONNECTED");
+    if (flags == 0xFF) {
+      debug_println("(Check Ethernet cable)");
+    } else {
+      debug_println("(Check W5500 wiring)");
+    }
   } else {
-    debug_println("Ethernet: CONNECTED");
+    debug_println("Link: CONNECTED");
 
     // Show IP
     uint32_t ip = ethernet_driver_get_local_ip();

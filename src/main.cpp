@@ -126,14 +126,23 @@ void setup() {
   if (network_manager_init() == 0) {
     Serial.println("Network manager initialized (Wi-Fi + Ethernet)");
 
-    // If Wi-Fi is enabled in config, start connection
+    // BUG-220: Start network services (Telnet, HTTP) FIRST — independent of WiFi/Ethernet
+    // Services bind to 0.0.0.0 and will serve on whichever interface comes up
+    network_manager_start_services(&g_persist_config.network);
+
+    // Start Wi-Fi if enabled
     if (g_persist_config.network.enabled) {
       Serial.print("Connecting to Wi-Fi: ");
       Serial.println(g_persist_config.network.ssid);
-
       network_manager_connect(&g_persist_config.network);
     } else {
       Serial.println("Wi-Fi disabled in config");
+    }
+
+    // Start Ethernet if enabled (independent of Wi-Fi)
+    if (g_persist_config.network.ethernet.enabled) {
+      Serial.println("Starting Ethernet (W5500)");
+      network_manager_start_ethernet(&g_persist_config.network);
     }
   } else {
     Serial.println("ERROR: Failed to initialize network manager");

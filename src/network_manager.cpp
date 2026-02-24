@@ -91,6 +91,44 @@ int network_manager_init(void)
   return 0;
 }
 
+int network_manager_start_services(const NetworkConfig *config)
+{
+  if (!config || !network_mgr.initialized) {
+    ESP_LOGE(TAG, "Invalid config or not initialized");
+    return -1;
+  }
+
+  // Save config (needed by Telnet for credentials)
+  memcpy(&network_mgr.current_config, config, sizeof(NetworkConfig));
+
+  // Update Telnet server with network config (for credentials)
+  if (network_mgr.telnet_server) {
+    network_mgr.telnet_server->network_config = &network_mgr.current_config;
+  }
+
+  // Start Telnet server
+  if (config->telnet_enabled) {
+    if (telnet_server_start(network_mgr.telnet_server) != 0) {
+      ESP_LOGE(TAG, "Failed to start Telnet server");
+      // Non-fatal — continue without Telnet
+    } else {
+      ESP_LOGI(TAG, "Telnet server started on port %d", TELNET_PORT);
+    }
+  }
+
+  // Start HTTP REST API server (v6.0.0+)
+  if (config->http.enabled) {
+    if (http_server_start(&config->http) != 0) {
+      ESP_LOGE(TAG, "Failed to start HTTP server");
+      // Non-fatal — continue without HTTP
+    } else {
+      ESP_LOGI(TAG, "HTTP server started on port %d", config->http.port);
+    }
+  }
+
+  return 0;
+}
+
 int network_manager_connect(const NetworkConfig *config)
 {
   if (!config || !network_mgr.initialized) {
@@ -115,15 +153,7 @@ int network_manager_connect(const NetworkConfig *config)
     ESP_LOGI(TAG, "Config validation PASSED");
   }
 
-  // Save config
-  memcpy(&network_mgr.current_config, config, sizeof(NetworkConfig));
-
-  // Update Telnet server with network config (for credentials)
-  if (network_mgr.telnet_server) {
-    network_mgr.telnet_server->network_config = &network_mgr.current_config;
-  }
-
-  // Configure DHCP vs static IP
+  // Configure DHCP vs static IP for Wi-Fi
   if (config->dhcp_enabled) {
     wifi_driver_enable_dhcp();
     ESP_LOGI(TAG, "DHCP enabled");
@@ -131,25 +161,6 @@ int network_manager_connect(const NetworkConfig *config)
     wifi_driver_set_static_ip(config->static_ip, config->static_gateway,
                              config->static_netmask, config->static_dns);
     ESP_LOGI(TAG, "Static IP configured");
-  }
-
-  // Start Telnet server
-  if (config->telnet_enabled) {
-    if (telnet_server_start(network_mgr.telnet_server) != 0) {
-      ESP_LOGE(TAG, "Failed to start Telnet server");
-      return -1;
-    }
-    ESP_LOGI(TAG, "Telnet server started on port %d", TELNET_PORT);
-  }
-
-  // Start HTTP REST API server (v6.0.0+)
-  if (config->http.enabled) {
-    if (http_server_start(&config->http) != 0) {
-      ESP_LOGE(TAG, "Failed to start HTTP server");
-      // Non-fatal - continue without HTTP
-    } else {
-      ESP_LOGI(TAG, "HTTP server started on port %d", config->http.port);
-    }
   }
 
   // Connect to Wi-Fi
@@ -164,36 +175,45 @@ int network_manager_connect(const NetworkConfig *config)
 
   ESP_LOGI(TAG, "Connecting to Wi-Fi network: %s", config->ssid);
 
-  // Initialize and start Ethernet interface (v6.1.0+ W5500)
-  // Only init hardware when enabled — prevents crash when W5500 not connected
-  if (config->ethernet.enabled) {
-    ESP_LOGI(TAG, "Ethernet enabled — initializing W5500 SPI driver");
+  return 0;
+}
 
-    if (ethernet_driver_init() != 0) {
-      ESP_LOGW(TAG, "W5500 Ethernet init failed (hardware not present?)");
-      // Non-fatal — continue with Wi-Fi only
-    } else {
-      // Configure DHCP or static IP for Ethernet
-      if (config->ethernet.dhcp_enabled) {
-        ethernet_driver_enable_dhcp();
-      } else {
-        ethernet_driver_set_static_ip(config->ethernet.static_ip,
-                                       config->ethernet.static_gateway,
-                                       config->ethernet.static_netmask,
-                                       config->ethernet.static_dns);
-      }
-
-      if (ethernet_driver_start() != 0) {
-        ESP_LOGE(TAG, "Failed to start Ethernet (W5500 not present?)");
-        // Non-fatal — continue with Wi-Fi only
-      } else {
-        ESP_LOGI(TAG, "Ethernet started (DHCP: %s)", config->ethernet.dhcp_enabled ? "on" : "off");
-      }
-    }
-  } else {
-    ESP_LOGI(TAG, "Ethernet disabled in config");
+int network_manager_start_ethernet(const NetworkConfig *config)
+{
+  if (!config || !network_mgr.initialized) {
+    ESP_LOGE(TAG, "Invalid config or network manager not initialized");
+    return -1;
   }
 
+  if (!config->ethernet.enabled) {
+    ESP_LOGI(TAG, "Ethernet disabled in config");
+    return -1;
+  }
+
+  // ethernet_driver_init() has internal double-init guard — safe to call multiple times
+  ESP_LOGI(TAG, "Ethernet enabled — initializing W5500 SPI driver");
+
+  if (ethernet_driver_init() != 0) {
+    ESP_LOGW(TAG, "W5500 Ethernet init failed (hardware not present?)");
+    return -1;
+  }
+
+  // Configure DHCP or static IP for Ethernet
+  if (config->ethernet.dhcp_enabled) {
+    ethernet_driver_enable_dhcp();
+  } else {
+    ethernet_driver_set_static_ip(config->ethernet.static_ip,
+                                   config->ethernet.static_gateway,
+                                   config->ethernet.static_netmask,
+                                   config->ethernet.static_dns);
+  }
+
+  if (ethernet_driver_start() != 0) {
+    ESP_LOGE(TAG, "Failed to start Ethernet (W5500 not present?)");
+    return -1;
+  }
+
+  ESP_LOGI(TAG, "Ethernet started (DHCP: %s)", config->ethernet.dhcp_enabled ? "on" : "off");
   return 0;
 }
 

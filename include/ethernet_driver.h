@@ -150,4 +150,25 @@ uint32_t ethernet_driver_get_uptime_ms(void);
  */
 const char* ethernet_driver_get_state_string(void);
 
+/**
+ * Get init progress bitmask for diagnostics
+ * Each bit represents a successful init step:
+ *   bit 0: SPI bus initialized
+ *   bit 1: W5500 SPI device added
+ *   bit 2: W5500 MAC created (SPI communication OK)
+ *   bit 3: W5500 PHY created
+ *   bit 4: Ethernet driver installed
+ *   bit 5: Network interface created
+ *   bit 6: Event handlers registered
+ *   bit 7: Ethernet started
+ * @return bitmask (0xFF = all steps OK)
+ */
+uint8_t ethernet_driver_get_init_flags(void);
+
+/**
+ * Get last error description from init
+ * @return Error string or "OK" if no error
+ */
+const char* ethernet_driver_get_last_error(void);
+
 #endif // ETHERNET_DRIVER_H
