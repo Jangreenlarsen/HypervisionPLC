@@ -1908,11 +1908,13 @@ void cli_cmd_set_debug(uint8_t argc, char* argv[]) {
  * ============================================================================ */
 
 void cli_cmd_set_wifi(uint8_t argc, char* argv[]) {
-  if (argc < 2) {
+  if (argc < 1) {
     debug_println("SET WIFI: missing parameters");
-    debug_println("  Usage: set wifi <option> <value>");
+    debug_println("  Usage: set wifi <option> [value]");
     debug_println("");
     debug_println("  Options:");
+    debug_println("    enable              - Enable Wi-Fi");
+    debug_println("    disable             - Disable Wi-Fi");
     debug_println("    ssid <name>         - Set Wi-Fi network name");
     debug_println("    password <pwd>      - Set Wi-Fi password (WPA2, 8-63 chars)");
     debug_println("    dhcp on|off         - Enable/disable DHCP (default: on)");
@@ -1921,15 +1923,14 @@ void cli_cmd_set_wifi(uint8_t argc, char* argv[]) {
     debug_println("    netmask <address>   - Netmask (e.g., 255.255.255.0)");
     debug_println("    dns <address>       - DNS server (e.g., 8.8.8.8)");
     debug_println("    telnet-port <port>  - Telnet port (default: 23)");
-    debug_println("    enable              - Enable Wi-Fi");
-    debug_println("    disable             - Disable Wi-Fi");
+    debug_println("    power-save on|off   - Enable/disable Wi-Fi power save");
     debug_println("");
     debug_println("  Note: Use 'save' to persist settings to NVS");
     return;
   }
 
   const char* option = argv[0];
-  const char* value = argv[1];
+  const char* value = (argc >= 2) ? argv[1] : "";
 
   if (!strcmp(option, "ssid")) {
     if (strlen(value) > WIFI_SSID_MAX_LEN - 1) {
@@ -2119,26 +2120,26 @@ void cli_cmd_set_ethernet(uint8_t argc, char* argv[]) {
   const char* option = argv[0];
   const char* value = (argc >= 2) ? argv[1] : "";
 
-  if (!strcmp(option, "enable")) {
+  if (!strcasecmp(option, "enable")) {
     g_persist_config.network.ethernet.enabled = 1;
     debug_println("Ethernet enabled (W5500)");
 
-  } else if (!strcmp(option, "disable")) {
+  } else if (!strcasecmp(option, "disable")) {
     g_persist_config.network.ethernet.enabled = 0;
     debug_println("Ethernet disabled");
 
-  } else if (!strcmp(option, "dhcp")) {
-    if (!strcmp(value, "on") || !strcmp(value, "ON")) {
+  } else if (!strcasecmp(option, "dhcp")) {
+    if (!strcasecmp(value, "on")) {
       g_persist_config.network.ethernet.dhcp_enabled = 1;
       debug_println("Ethernet DHCP enabled");
-    } else if (!strcmp(value, "off") || !strcmp(value, "OFF")) {
+    } else if (!strcasecmp(value, "off")) {
       g_persist_config.network.ethernet.dhcp_enabled = 0;
       debug_println("Ethernet DHCP disabled (use static IP settings)");
     } else {
       debug_println("SET ETHERNET DHCP: invalid value (use: on|off)");
     }
 
-  } else if (!strcmp(option, "ip")) {
+  } else if (!strcasecmp(option, "ip")) {
     uint32_t ip;
     if (!network_config_str_to_ip(value, &ip)) {
       debug_println("SET ETHERNET IP: invalid IP address format");
@@ -2149,7 +2150,7 @@ void cli_cmd_set_ethernet(uint8_t argc, char* argv[]) {
     char ip_str[16];
     debug_println(network_config_ip_to_str(ip, ip_str));
 
-  } else if (!strcmp(option, "gateway")) {
+  } else if (!strcasecmp(option, "gateway")) {
     uint32_t gw;
     if (!network_config_str_to_ip(value, &gw)) {
       debug_println("SET ETHERNET GATEWAY: invalid IP address format");
@@ -2160,7 +2161,7 @@ void cli_cmd_set_ethernet(uint8_t argc, char* argv[]) {
     char gw_str[16];
     debug_println(network_config_ip_to_str(gw, gw_str));
 
-  } else if (!strcmp(option, "netmask")) {
+  } else if (!strcasecmp(option, "netmask")) {
     uint32_t nm;
     if (!network_config_str_to_ip(value, &nm)) {
       debug_println("SET ETHERNET NETMASK: invalid IP address format");
@@ -2175,7 +2176,7 @@ void cli_cmd_set_ethernet(uint8_t argc, char* argv[]) {
     char nm_str[16];
     debug_println(network_config_ip_to_str(nm, nm_str));
 
-  } else if (!strcmp(option, "dns")) {
+  } else if (!strcasecmp(option, "dns")) {
     uint32_t dns;
     if (!network_config_str_to_ip(value, &dns)) {
       debug_println("SET ETHERNET DNS: invalid IP address format");

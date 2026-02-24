@@ -172,6 +172,8 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "MODBUS-MASTER") || str_eq_i(s, "MB-MASTER")) return "MODBUS-MASTER";
   if (str_eq_i(s, "MODBUS-SLAVE") || str_eq_i(s, "MB-SLAVE")) return "MODBUS-SLAVE";
   if (str_eq_i(s, "ENABLED")) return "ENABLED";
+  if (str_eq_i(s, "DISABLED")) return "DISABLED";
+  if (str_eq_i(s, "INTERVAL")) return "INTERVAL";
   if (str_eq_i(s, "SLAVE-ID") || str_eq_i(s, "SLAVEID") || str_eq_i(s, "ID")) return "SLAVE-ID";
   if (str_eq_i(s, "BAUDRATE") || str_eq_i(s, "BAUD")) return "BAUDRATE";
   if (str_eq_i(s, "PARITY")) return "PARITY";
@@ -275,6 +277,7 @@ static void print_set_help(void) {
   debug_println("  set reg <addr> <value>  - Skriv holding register");
   debug_println("  set coil <idx> <0|1>    - Skriv coil");
   debug_println("  set wifi ?              - Vis Wi-Fi kommandoer");
+  debug_println("  set ethernet ?          - Vis Ethernet (W5500) kommandoer");
   debug_println("  set counter ?           - Vis counter kommandoer");
   debug_println("  set timer ?             - Vis timer kommandoer");
   debug_println("  set gpio ?              - Vis GPIO kommandoer");
@@ -284,6 +287,21 @@ static void print_set_help(void) {
   debug_println("  set modbus-master ?     - Vis Modbus Master kommandoer (v4.4+)");
   debug_println("  set modbus-slave ?      - Vis Modbus Slave kommandoer (v4.4.1+)");
   debug_println("  set echo <on|off>       - Sæt remote echo");
+  debug_println("");
+}
+
+static void print_ethernet_help(void) {
+  debug_println("");
+  debug_println("Available 'set ethernet' commands:");
+  debug_println("  set ethernet enable        - Aktivér Ethernet (W5500)");
+  debug_println("  set ethernet disable       - Deaktivér Ethernet");
+  debug_println("  set ethernet dhcp <on|off> - Aktivér/deaktivér DHCP");
+  debug_println("  set ethernet ip <ip>       - Sæt statisk IP (hvis DHCP off)");
+  debug_println("  set ethernet gateway <ip>  - Sæt gateway IP");
+  debug_println("  set ethernet netmask <mask>- Sæt netmask");
+  debug_println("  set ethernet dns <ip>      - Sæt DNS server");
+  debug_println("");
+  debug_println("  Note: Requires -DETHERNET_W5500_ENABLED build flag");
   debug_println("");
 }
 
@@ -1009,8 +1027,15 @@ bool cli_parser_execute(char* line) {
       return true;
     } else if (!strcmp(what, "ETHERNET")) {
       // set ethernet <option> [value]
+      if (argc >= 3) {
+        const char* subwhat = normalize_alias(argv[2]);
+        if (!strcmp(subwhat, "HELP") || !strcmp(subwhat, "?")) {
+          print_ethernet_help();
+          return true;
+        }
+      }
       if (argc < 3) {
-        cli_cmd_set_ethernet(0, NULL);  // Print usage
+        print_ethernet_help();
         return true;
       }
       cli_cmd_set_ethernet(argc - 2, argv + 2);
@@ -1093,6 +1118,19 @@ bool cli_parser_execute(char* line) {
           cli_cmd_set_logic_interval(st_logic_get_state(), interval_ms);
           return true;
         }
+
+        // set logic interval <X>  (space-separated variant)
+        const char* arg_norm = normalize_alias(arg);
+        if (!strcmp(arg_norm, "INTERVAL")) {
+          if (argc >= 4) {
+            uint32_t interval_ms = atoi(argv[3]);
+            cli_cmd_set_logic_interval(st_logic_get_state(), interval_ms);
+          } else {
+            debug_println("SET LOGIC INTERVAL: missing value");
+            debug_println("  Usage: set logic interval <ms>  (10,20,25,50,75,100)");
+          }
+          return true;
+        }
       }
 
       // set logic <id> <subcommand> [params...]
@@ -1131,6 +1169,15 @@ bool cli_parser_execute(char* line) {
 
       // Now normalize for other commands
       const char* cmd_normalized = normalize_alias(subcommand);
+
+      // set logic <id> enabled|disabled (space-separated variant)
+      if (!strcmp(cmd_normalized, "ENABLED") || !strcmp(cmd_normalized, "ENABLE")) {
+        cli_cmd_set_logic_enabled(st_logic_get_state(), prog_idx, true);
+        return true;
+      } else if (!strcmp(cmd_normalized, "DISABLED") || !strcmp(cmd_normalized, "DISABLE")) {
+        cli_cmd_set_logic_enabled(st_logic_get_state(), prog_idx, false);
+        return true;
+      }
 
       if (!strcmp(cmd_normalized, "UPLOAD")) {
         // set logic <id> upload "<code>"   OR   set logic <id> upload (multi-line mode)
@@ -1566,6 +1613,7 @@ bool cli_parser_execute(char* line) {
     debug_println("  set timer <id> ?        - Timer help");
     debug_println("  set gpio ?              - GPIO help");
     debug_println("  set wifi ?              - WiFi help");
+    debug_println("  set ethernet ?          - Ethernet (W5500) help");
     debug_println("  set debug ?             - Debug help");
     debug_println("  set persist ?           - Persistence help");
     debug_println("  set modbus-master ?     - Modbus master help");
