@@ -695,11 +695,55 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
 
       return node;
     } else {
-      // Not a remote write function, error
-      char error_msg[128];
-      snprintf(error_msg, sizeof(error_msg), "Function call syntax not allowed in assignment (use variable := expression)");
-      parser_error(parser, error_msg);
-      return NULL;
+      // FEAT-003: Function/FB call as statement (e.g. COUNTER(); or MyFunc(x);)
+      parser_advance(parser); // consume '('
+
+      st_ast_node_t *node = ast_node_alloc(ST_AST_FUNCTION_CALL, line);
+      if (!node) {
+        parser_error(parser, "Out of memory");
+        return NULL;
+      }
+      strncpy(node->data.function_call.func_name, var_name, 63);
+      node->data.function_call.func_name[63] = '\0';
+      node->data.function_call.arg_count = 0;
+
+      // Parse arguments (if any)
+      if (!parser_match(parser, ST_TOK_RPAREN)) {
+        st_ast_node_t *arg = parser_parse_expression(parser);
+        if (!arg) { st_ast_node_free(node); return NULL; }
+        if (node->data.function_call.arg_count < 4) {
+          node->data.function_call.args[node->data.function_call.arg_count++] = arg;
+        }
+        while (parser_match(parser, ST_TOK_COMMA)) {
+          parser_advance(parser);
+          arg = parser_parse_expression(parser);
+          if (!arg) { st_ast_node_free(node); return NULL; }
+          if (node->data.function_call.arg_count < 4) {
+            node->data.function_call.args[node->data.function_call.arg_count++] = arg;
+          }
+        }
+      }
+
+      // Expect closing ')'
+      if (!parser_expect(parser, ST_TOK_RPAREN)) {
+        parser_error(parser, "Expected ')' after function arguments");
+        st_ast_node_free(node);
+        return NULL;
+      }
+
+      // Check if this is actually an assignment: FUNC(args) := value (not supported)
+      if (parser_match(parser, ST_TOK_ASSIGN)) {
+        parser_error(parser, "Assignment to function call not supported (use MB_WRITE syntax)");
+        st_ast_node_free(node);
+        return NULL;
+      }
+
+      // Consume optional semicolon
+      if (parser_match(parser, ST_TOK_SEMICOLON)) {
+        parser_advance(parser);
+      }
+
+      return node;
     }
   }
 
@@ -1596,6 +1640,11 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
     }
   }
 
+  // Optional BEGIN keyword (IEC 61131-3 doesn't require it, but allow it)
+  if (parser_match(parser, ST_TOK_BEGIN)) {
+    parser_advance(parser);
+  }
+
   // Parse function body (statements)
   node->data.function_def.body = st_parser_parse_statements(parser);
 
@@ -1660,6 +1709,30 @@ st_program_t *st_parser_parse_program(st_parser_t *parser) {
     return NULL;
   }
 
+  // FEAT-003: Parse FUNCTION/FUNCTION_BLOCK definitions (between VAR and BEGIN)
+  st_ast_node_t *func_head = NULL;
+  st_ast_node_t *func_tail = NULL;
+  while (parser_match(parser, ST_TOK_FUNCTION) || parser_match(parser, ST_TOK_FUNCTION_BLOCK)) {
+    st_ast_node_t *func_node = parser_parse_function_definition(parser);
+    if (!func_node) {
+      // Free any already-parsed function nodes
+      while (func_head) {
+        st_ast_node_t *next = func_head->next;
+        st_ast_node_free(func_head);
+        func_head = next;
+      }
+      st_program_free(program);
+      return NULL;
+    }
+    if (!func_head) {
+      func_head = func_node;
+      func_tail = func_node;
+    } else {
+      func_tail->next = func_node;
+      func_tail = func_node;
+    }
+  }
+
   // Optional: Parse BEGIN keyword
   if (parser_match(parser, ST_TOK_BEGIN)) {
     has_begin_keyword = true;
@@ -1668,6 +1741,12 @@ st_program_t *st_parser_parse_program(st_parser_t *parser) {
 
   // Parse statements
   program->body = st_parser_parse_statements(parser);
+
+  // Prepend function definitions to body (compiler expects them in body list)
+  if (func_head) {
+    func_tail->next = program->body;
+    program->body = func_head;
+  }
 
   // Optional: Parse END or END_PROGRAM if PROGRAM or BEGIN was used
   if (has_program_keyword || has_begin_keyword) {

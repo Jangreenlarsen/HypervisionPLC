@@ -2096,6 +2096,76 @@ void cli_cmd_set_wifi(uint8_t argc, char* argv[]) {
 }
 
 /* ============================================================================
+ * TELNET COMMANDS (standalone, independent of WiFi)
+ * ============================================================================ */
+
+void cli_cmd_set_telnet(uint8_t argc, char* argv[]) {
+  if (argc < 1) {
+    debug_println("SET TELNET: missing parameters");
+    debug_println("  Usage: set telnet <option> [value]");
+    debug_println("");
+    debug_println("  Options:");
+    debug_println("    enable              - Enable Telnet server");
+    debug_println("    disable             - Disable Telnet server");
+    debug_println("    user <username>     - Set Telnet username");
+    debug_println("    pass <password>     - Set Telnet password");
+    debug_println("    port <port>         - Set Telnet port (default: 23)");
+    debug_println("");
+    debug_println("  Note: Use 'save' to persist settings to NVS");
+    return;
+  }
+
+  const char* option = argv[0];
+  const char* value = (argc >= 2) ? argv[1] : "";
+
+  if (!strcmp(option, "enable") || !strcmp(option, "on")) {
+    g_persist_config.network.telnet_enabled = 1;
+    debug_println("Telnet enabled");
+
+  } else if (!strcmp(option, "disable") || !strcmp(option, "off")) {
+    g_persist_config.network.telnet_enabled = 0;
+    debug_println("Telnet disabled");
+
+  } else if (!strcmp(option, "user")) {
+    if (!value || value[0] == '\0') {
+      debug_println("SET TELNET USER: missing username");
+      return;
+    }
+    strncpy(g_persist_config.network.telnet_username, value, sizeof(g_persist_config.network.telnet_username) - 1);
+    g_persist_config.network.telnet_username[sizeof(g_persist_config.network.telnet_username) - 1] = '\0';
+    debug_print("Telnet username set to: ");
+    debug_println(g_persist_config.network.telnet_username);
+
+  } else if (!strcmp(option, "pass")) {
+    if (!value || value[0] == '\0') {
+      debug_println("SET TELNET PASS: missing password");
+      return;
+    }
+    strncpy(g_persist_config.network.telnet_password, value, sizeof(g_persist_config.network.telnet_password) - 1);
+    g_persist_config.network.telnet_password[sizeof(g_persist_config.network.telnet_password) - 1] = '\0';
+    debug_println("Telnet password set (hidden for security)");
+
+  } else if (!strcmp(option, "port")) {
+    uint16_t port = atoi(value);
+    if (port < 1 || port > 65535) {
+      debug_println("SET TELNET PORT: invalid port (1-65535)");
+      return;
+    }
+    g_persist_config.network.telnet_port = port;
+    debug_print("Telnet port set to: ");
+    debug_print_uint(port);
+    debug_println("");
+
+  } else {
+    debug_print("SET TELNET: unknown option '");
+    debug_print(option);
+    debug_println("' (use: enable, disable, user, pass, port)");
+  }
+
+  debug_println("Hint: Use 'save' to persist configuration to NVS");
+}
+
+/* ============================================================================
  * ETHERNET COMMANDS (v6.1.0+ W5500)
  * ============================================================================ */
 

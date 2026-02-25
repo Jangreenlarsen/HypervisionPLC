@@ -337,10 +337,18 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "6.0.7"
+#define PROJECT_VERSION     "6.1.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v6.1.0 (2026-02-25): W5500 Ethernet + Telnet standalone
+ *                      - FEAT: W5500 SPI Ethernet driver (GPIO12-15,33,34)
+ *                      - FEAT: set ethernet enable/disable/dhcp/ip/gateway/netmask/dns
+ *                      - FEAT: set telnet — standalone CLI sektion (uafhængig af WiFi)
+ *                      - FIX: BUG-223 W5500 ping ~1000ms → 2-5ms (xTaskNotifyGive polling)
+ *                      - FIX: BUG-224 Telnet echo langsom (TCP_NODELAY)
+ *                      - FIX: BUG-225 sh config | s telnet viste ingen SET commands
+ *                      - FIX: BUG-221+222 CLI parser set wifi disable / set logic interval
  * v6.0.7 (2026-02-14): FEAT-017 Config Backup/Restore via HTTP API + CLI
  *                      - FEAT: GET /api/system/backup - Download fuld config som JSON inkl. passwords + ST Logic source
  *                      - FEAT: POST /api/system/restore - Upload JSON for fuld restore, auto-save + apply

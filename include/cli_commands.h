@@ -261,6 +261,19 @@ void cli_cmd_set_debug(uint8_t argc, char* argv[]);
 void cli_cmd_set_wifi(uint8_t argc, char* argv[]);
 
 /**
+ * @brief Handle "set telnet" command for Telnet configuration (standalone)
+ * @param argc Argument count
+ * @param argv Argument values
+ *
+ * Usage:
+ *   set telnet enable|disable
+ *   set telnet user <username>
+ *   set telnet pass <password>
+ *   set telnet port <port>
+ */
+void cli_cmd_set_telnet(uint8_t argc, char* argv[]);
+
+/**
  * @brief Handle "set ethernet" command for W5500 Ethernet configuration (v6.1.0+)
  * @param argc Argument count
  * @param argv Argument values

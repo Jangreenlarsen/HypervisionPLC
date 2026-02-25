@@ -15,6 +15,7 @@
 #include "telnet_server.h"
 #include "constants.h"
 #include "types.h"  // For NetworkConfig
+#include "config_struct.h"  // For g_persist_config (hostname + live credentials)
 #include "console.h"
 #include "console_telnet.h"
 #include "cli_shell.h"  // For cli_shell_execute_command()
@@ -226,7 +227,8 @@ static void telnet_send_auth_prompt(TelnetServer *server) {
 
     // Full banner only for initial prompt
     telnet_server_writeline(server, "");
-    telnet_server_writeline(server, "=== Telnet Server (v3.0) ===");
+    const char *hn = g_persist_config.hostname[0] ? g_persist_config.hostname : "modbus-esp32";
+    telnet_server_writelinef(server, "=== %s - Telnet Srv ===", hn);
     telnet_server_writeline(server, "LOGIN REQUIRED");
     telnet_server_writeline(server, "");
 
@@ -318,9 +320,9 @@ static void telnet_handle_auth_input(TelnetServer *server, const char *input) {
     telnet_send_auth_prompt(server);
   } else if (server->auth_state == TELNET_AUTH_USERNAME) {
     // Password entry
-    // Use credentials from config (or fallback to defaults if config not available)
-    const char *expected_user = (server->network_config) ? server->network_config->telnet_username : "admin";
-    const char *expected_pass = (server->network_config) ? server->network_config->telnet_password : "telnet123";
+    // Use credentials from live config (always up-to-date, even after 'set telnet' without reboot)
+    const char *expected_user = g_persist_config.network.telnet_username[0] ? g_persist_config.network.telnet_username : "admin";
+    const char *expected_pass = g_persist_config.network.telnet_password[0] ? g_persist_config.network.telnet_password : "telnet123";
 
     // DEBUG: Log password validation attempt (temporary - can be removed later)
     ESP_LOGI(TAG, "Auth attempt: user='%s' (expected='%s'), pass_len=%d (expected_len=%d)",
@@ -889,7 +891,8 @@ int telnet_server_loop(TelnetServer *server)
 
       // Send welcome message and initial CLI prompt
       telnet_server_writeline(server, "");
-      telnet_server_writeline(server, "=== Telnet Server (v3.0) ===");
+      const char *hn2 = g_persist_config.hostname[0] ? g_persist_config.hostname : "modbus-esp32";
+      telnet_server_writelinef(server, "=== %s - Telnet Srv ===", hn2);
       telnet_server_writeline(server, "");
       telnet_server_write(server, "> ");
     }

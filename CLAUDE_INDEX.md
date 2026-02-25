@@ -33,8 +33,8 @@
 | **Microcontroller** | ESP32-WROOM-32 (240MHz dual-core) |
 | **Interface** | RS-485 Modbus RTU (UART0: Slave, UART1: Master) |
 | **Architecture** | 50+ modular .cpp/.h files |
-| **Version** | v6.0.7 (Build #1227) |
-| **Main Components** | Modbus Master/Slave, Counters, Timers, ST Logic, CLI |
+| **Version** | v6.1.0 (Build #1350) |
+| **Main Components** | Modbus Master/Slave, Counters, Timers, ST Logic, CLI, Ethernet (W5500) |
 
 **Key improvement:** Monolithic code → Modular architecture with hardware abstraction layers
 
@@ -108,7 +108,7 @@ Project files:
 ## 📚 Reference Cards
 
 ### Version Numbers
-- **Current:** v4.2.1
+- **Current:** v6.1.0
 - **Format:** vMAJOR.MINOR.PATCH
 - **File:** See `include/constants.h`
 - **Changelog:** See `CHANGELOG.md`
@@ -210,7 +210,7 @@ EXCEPTION:
 
 ---
 
-**Last Updated:** 2026-02-14
-**Version:** v6.0.7
-**Build:** #1227
+**Last Updated:** 2026-02-25
+**Version:** v6.1.0
+**Build:** #1350
 **Status:** ✅ Active & Maintained

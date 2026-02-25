@@ -198,6 +198,15 @@
 | BUG-220 | Ethernet init afhængig af WiFi enabled | ✅ FIXED | 🟡 HIGH | v6.0.9 | `ethernet_driver_init()` kun kaldt fra `network_manager_connect()` som kræver WiFi enabled. Ethernet aldrig initialiseret når WiFi disabled. FIX: Ny `network_manager_start_ethernet()` + `network_manager_start_services()` funktioner, kaldt uafhængigt fra main.cpp. Services (HTTP/Telnet) startes FØR interfaces. W5500 MAC sat fra ESP32 eFuse (network_manager.cpp, main.cpp, ethernet_driver.cpp) |
 | BUG-221 | `set wifi disable` blokeret af argc < 2 check | ✅ FIXED | 🟡 HIGH | v6.0.9 | `cli_cmd_set_wifi()` krævede `argc < 2` men `enable`/`disable` er standalone options uden value-parameter. FIX: Ændret til `argc < 1`, value er nu optional med fallback til tom string (cli_commands.cpp) |
 | BUG-222 | `set logic interval 100` fejler med "Invalid program ID 0" | ✅ FIXED | 🟡 HIGH | v6.0.9 | Parseren kun understøttede kolon-syntax `set logic interval:100`. Mellemrum-syntax `set logic interval 100` (som `show config` genererer) faldt igennem til program-ID parser → atoi("interval")=0. FIX: Tilføjet mellemrum-variant + `set logic <id> enabled/disabled` + INTERVAL/DISABLED i normalize_alias (cli_parser.cpp) |
+| BUG-223 | W5500 Ethernet ~1000ms ping latency | ✅ FIXED | 🔴 CRITICAL | v6.0.10 | ESP-IDF 4.4 W5500 driver RX task (`w5500_tsk`) bruger 1000ms timeout på `ulTaskNotifyTake()`. GPIO34 falling-edge ISR fyrer ikke pålideligt → RX task kun vågner ved timeout (~1s). Ping: 300-1000ms. FIX: `ethernet_driver_loop()` poller GPIO34 hvert loop-cycle, sender `xTaskNotifyGive()` direkte til `w5500_tsk` task når INT er LOW. Ping nu 2-5ms. SPI clock sænket fra 20→8 MHz for signalintegritet (ethernet_driver.cpp, tcp_server.cpp) |
+| BUG-224 | Telnet character echo langsom over Ethernet | ✅ FIXED | 🟡 HIGH | v6.0.10 | TCP Nagle algorithm bufferede 1-byte telnet echo pakker i op til 200ms. FIX: `TCP_NODELAY` socket option sat på client accept (tcp_server.cpp:168) |
+| BUG-225 | `sh config \| s telnet` viser ingen SET commands | ✅ FIXED | 🟠 MEDIUM | v6.0.10 | Sektionsfilter i `cli_cmd_show_config()` genkendte "NETWORK" og "WIFI" men IKKE "TELNET". Telnet SET commands nested under `show_network` → usynlige ved telnet-filtrering. FIX: Tilføjet `show_section_match(section, "TELNET")` til show_network filter (cli_show.cpp:69) |
+| BUG-226 | Telnet config nested under WiFi — usynlig ved WiFi disabled | ✅ FIXED | 🟡 HIGH | v6.1.0 | Telnet SET commands og status var nested under `show_network`/WiFi enabled check. Når WiFi disabled → telnet config helt usynlig i `sh config`. FIX: Standalone `[TELNET]` sektion + `set telnet` kommandoer uafhængig af WiFi (cli_show.cpp, cli_commands.cpp, cli_parser.cpp) |
+| BUG-227 | normalize_alias() mangler TELNET keyword | ✅ FIXED | 🟡 HIGH | v6.1.0 | `set telnet pass` → "SET: unknown argument" fordi "telnet" ikke normaliseres til "TELNET". FIX: Tilføjet `if (str_eq_i(s, "TELNET")) return "TELNET"` i normalize_alias() (cli_parser.cpp) |
+| BUG-228 | Telnet banner viser "Telnet Server (v3.0)" i stedet for hostname | ✅ FIXED | 🔵 LOW | v6.1.0 | Banner viste hardkodet "=== Telnet Server (v3.0) ===" i stedet for hostname. FIX: Bruger nu `g_persist_config.hostname` + "Telnet Srv" (telnet_server.cpp) |
+| BUG-229 | Telnet login bruger startup-kopi af credentials | ✅ FIXED | 🟡 HIGH | v6.1.0 | `telnet_server.cpp` brugte `server->network_config` (kopi fra startup). Credentials ændret via CLI blev aldrig brugt. FIX: Bruger nu `g_persist_config.network` direkte for live credentials (telnet_server.cpp) |
+| BUG-230 | `sh config` over telnet trunkeret — kun [SYSTEM] vises | ✅ FIXED | 🔴 CRITICAL | v6.1.0 | Non-blocking TCP socket returnerer EAGAIN ved fuld send-buffer. Data silently droppet → kun første ~200 bytes (SYSTEM sektion) nåede frem. FIX: Retry-loop i `tcp_server_send()` med EAGAIN håndtering (tcp_server.cpp) |
+| BUG-231 | TCP send retry blokerer main loop → 1s output bursts | ✅ FIXED | 🔴 CRITICAL | v6.1.0 | `delay(10)` i retry-loop blokerede main loop → `ethernet_driver_loop()` kørte ikke → W5500 RX task kun vågnet på 1000ms timeout → TCP ACKs forsinkede → output i 1-sekunds ryk. FIX: `vTaskDelay(1)` + direkte `xTaskNotifyGive()` til W5500 RX task under retries (tcp_server.cpp) |
 
 ## Feature Requests / Enhancements
 
@@ -271,6 +280,8 @@
 - **BUG-215:** Restore var_maps tabt pga. st_logic_delete() side-effect (FIXED Build #1241)
 - **BUG-218:** W5500 Ethernet boot-loop ved flash overflow (FIXED v6.0.8)
 - **BUG-219:** Flash forbrug 97%+ forhindrer nye features (FIXED v6.0.8)
+- **BUG-230:** `sh config` over telnet trunkeret — kun [SYSTEM] vises (FIXED v6.1.0)
+- **BUG-231:** TCP send retry blokerer main loop → 1s output bursts (FIXED v6.1.0)
 
 ### 🟡 HIGH Priority (SHOULD FIX)
 - **BUG-003:** Bounds checking on var index
@@ -344,6 +355,9 @@
 - **BUG-208:** GET /api/logic/{id}/stats stack buffer overflow (FIXED Build #1196)
 - **BUG-209:** GET /api/logic/{id}/source timeout - delvis data (FIXED Build #1196)
 - **BUG-210:** API source upload kompilerer ikke automatisk (FIXED Build #1197)
+- **BUG-226:** Telnet config nested under WiFi — usynlig ved WiFi disabled (FIXED v6.1.0)
+- **BUG-227:** normalize_alias() mangler TELNET keyword (FIXED v6.1.0)
+- **BUG-229:** Telnet login bruger startup-kopi af credentials (FIXED v6.1.0)
 
 ### 🟠 MEDIUM Priority (NICE TO HAVE)
 - **BUG-187:** Timer ctrl_reg ikke initialiseret i defaults (FIXED Build #1074)
@@ -364,6 +378,7 @@
 - **BUG-177:** strcpy uden bounds check i lexer (FIXED Build #1038)
 - **BUG-206:** /api/ trailing slash returnerer 404 (FIXED Build #1162)
 - **BUG-217:** Backup boolean felter inkonsistente int vs true/false (FIXED Build #1241)
+- **BUG-228:** Telnet banner viser "Telnet Server (v3.0)" i stedet for hostname (FIXED v6.1.0)
 
 ### ✔️ NOT BUGS (DESIGN CHOICES)
 - **BUG-013:** Binding display order (intentional)

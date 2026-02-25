@@ -1,12 +1,11 @@
-# ESP32 Partition Table - Custom for Modbus RTU Server with Large NVS
+# ESP32 Partition Table - Custom for Modbus RTU Server
+# App at 0x10000 (standard), NVS 64KB after app, no OTA
 # Name,     Type, SubType, Offset,   Size,     Flags
-# NVS partition (64KB for ST Logic programs)
-nvs,        data, nvs,     0x9000,   0x10000,
-# OTA data partition
-otadata,    data, ota,     0x19000,  0x2000,
 # PHY init data (REQUIRED for WiFi!)
-phy_init,   data, phy,     0x1B000,  0x1000,
-# Factory app partition - MUST start at 64KB boundary
-app0,       app,  factory, 0x20000,  0x180000,
-# SPIFFS partition (remaining space)
-spiffs,     data, spiffs,  0x1A0000, 0x260000,
+phy_init,   data, phy,     0x9000,   0x1000,
+# Factory app partition at standard offset 0x10000 (1.875MB)
+app0,       app,  factory, 0x10000,  0x1E0000,
+# NVS partition (64KB for ST Logic programs + config)
+nvs,        data, nvs,     0x1F0000, 0x10000,
+# SPIFFS partition (remaining 2MB)
+spiffs,     data, spiffs,  0x200000, 0x200000,

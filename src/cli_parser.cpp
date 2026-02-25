@@ -198,6 +198,7 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "COIL")) return "COIL";
   if (str_eq_i(s, "HOSTNAME")) return "HOSTNAME";
   if (str_eq_i(s, "WIFI")) return "WIFI";
+  if (str_eq_i(s, "TELNET")) return "TELNET";
   if (str_eq_i(s, "ETHERNET") || str_eq_i(s, "ETH")) return "ETHERNET";
   if (str_eq_i(s, "HTTP") || str_eq_i(s, "REST") || str_eq_i(s, "API")) return "HTTP";
   if (str_eq_i(s, "BACKUP")) return "BACKUP";
@@ -315,9 +316,13 @@ static void print_wifi_help(void) {
   debug_println("  set wifi gateway <ip>      - Sæt gateway IP");
   debug_println("  set wifi netmask <mask>    - Sæt netmask");
   debug_println("  set wifi dns <ip>          - Sæt DNS server");
-  debug_println("  set wifi port <port>       - Sæt Telnet port (default 23)");
-  debug_println("  set wifi telnet_user <u>   - Sæt Telnet username");
-  debug_println("  set wifi telnet_pass <p>   - Sæt Telnet password");
+  debug_println("  set wifi power-save on|off - Wi-Fi power save");
+  debug_println("");
+  debug_println("Telnet is now a standalone section:");
+  debug_println("  set telnet enable|disable  - Aktivér/deaktivér Telnet");
+  debug_println("  set telnet user <username> - Sæt Telnet username");
+  debug_println("  set telnet pass <password> - Sæt Telnet password");
+  debug_println("  set telnet port <port>     - Sæt Telnet port (default 23)");
   debug_println("");
 }
 
@@ -662,7 +667,7 @@ bool cli_parser_execute(char* line) {
     } else if (!strcmp(what, "INPUTS")) {
       cli_cmd_show_inputs();
       return true;
-    } else if (!strcmp(what, "ST-STATS") || !strcmp(what, "STATS")) {
+    } else if (!strcmp(what, "STATS")) {
       // show st-stats or show stats - ST Logic performance stats from Modbus IR 252-293
       cli_cmd_show_st_logic_stats_modbus();
       return true;
@@ -914,7 +919,7 @@ bool cli_parser_execute(char* line) {
       }
       cli_cmd_set_hostname(argv[2]);
       return true;
-    } else if (!strcmp(what, "BAUD")) {
+    } else if (!strcmp(what, "BAUDRATE")) {
       if (argc < 3) {
         debug_println("SET BAUD: missing value");
         return false;
@@ -922,7 +927,7 @@ bool cli_parser_execute(char* line) {
       uint32_t baud = atol(argv[2]);
       cli_cmd_set_baud(baud);
       return true;
-    } else if (!strcmp(what, "ID")) {
+    } else if (!strcmp(what, "SLAVE-ID")) {
       if (argc < 3) {
         debug_println("SET ID: missing value");
         return false;
@@ -1024,6 +1029,21 @@ bool cli_parser_execute(char* line) {
         return true;
       }
       cli_cmd_set_wifi(argc - 2, argv + 2);
+      return true;
+    } else if (!strcmp(what, "TELNET")) {
+      // set telnet <option> [value]
+      if (argc >= 3) {
+        const char* subwhat = normalize_alias(argv[2]);
+        if (!strcmp(subwhat, "HELP") || !strcmp(subwhat, "?")) {
+          cli_cmd_set_telnet(0, NULL);
+          return true;
+        }
+      }
+      if (argc < 3) {
+        cli_cmd_set_telnet(0, NULL);
+        return true;
+      }
+      cli_cmd_set_telnet(argc - 2, argv + 2);
       return true;
     } else if (!strcmp(what, "ETHERNET")) {
       // set ethernet <option> [value]

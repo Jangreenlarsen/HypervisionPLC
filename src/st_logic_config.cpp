@@ -237,16 +237,29 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
   }
 
   // Get source code from pool
-  const char *source_code = st_logic_get_source_code(state, program_id);
-  if (!source_code || prog->source_size == 0) {
+  const char *source_raw = st_logic_get_source_code(state, program_id);
+  if (!source_raw || prog->source_size == 0) {
     snprintf(prog->last_error, sizeof(prog->last_error), "No source code uploaded");
     return false;
   }
+
+  // BUG-212: Create null-terminated copy of source code
+  // Source pool entries are NOT null-terminated (BUG-202 variant).
+  // The lexer requires '\0' to detect EOF. Without it, the parser reads
+  // past the source into adjacent pool data, causing parse corruption.
+  char *source_code = (char *)malloc(prog->source_size + 1);
+  if (!source_code) {
+    snprintf(prog->last_error, sizeof(prog->last_error), "Insufficient heap for source copy");
+    return false;
+  }
+  memcpy(source_code, source_raw, prog->source_size);
+  source_code[prog->source_size] = '\0';
 
   // Dynamically allocate parser and compiler (~12 KB, only needed during compile)
   g_parser = (st_parser_t *)malloc(sizeof(st_parser_t));
   if (!g_parser) {
     snprintf(prog->last_error, sizeof(prog->last_error), "Insufficient heap for parser");
+    free(source_code);
     return false;
   }
 
@@ -257,6 +270,7 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
     snprintf(prog->last_error, sizeof(prog->last_error), "Parse error: %s", g_parser->error_msg);
     free(g_parser);
     g_parser = NULL;
+    free(source_code);
     return false;
   }
 
@@ -266,6 +280,7 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
     st_program_free(program);
     free(g_parser);
     g_parser = NULL;
+    free(source_code);
     return false;
   }
 
@@ -279,6 +294,7 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
     g_compiler = NULL;
     free(g_parser);
     g_parser = NULL;
+    free(source_code);
     return false;
   }
 
@@ -324,6 +340,7 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
   g_compiler = NULL;
   free(g_parser);
   g_parser = NULL;
+  free(source_code);  // BUG-212: Free null-terminated copy
 
   return true;
 }
@@ -374,8 +391,14 @@ bool st_logic_delete(st_logic_engine_state_t *state, uint8_t program_id) {
   st_logic_pool_free(state, program_id);
   ir_pool_free(state, program_id);  // v5.1.0 - Free IR pool
 
-  // Clear the program itself
+  // FEAT-003: Free function registry before clearing program
   st_logic_program_config_t *prog = &state->programs[program_id];
+  if (prog->bytecode.func_registry) {
+    free(prog->bytecode.func_registry);
+    prog->bytecode.func_registry = NULL;
+  }
+
+  // Clear the program itself
   memset(prog, 0, sizeof(*prog));
   snprintf(prog->name, sizeof(prog->name), "Logic%d", program_id + 1);
   prog->enabled = 0;

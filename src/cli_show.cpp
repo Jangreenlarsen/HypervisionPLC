@@ -59,7 +59,7 @@ static bool show_section_match(const char *filter, const char *section_name) {
 }
 
 void cli_cmd_show_config(const char *section) {
-  // Section filter: NULL/"" = all, "WIFI"/"NETWORK"/"MODBUS"/"COUNTERS"/"TIMERS"/"GPIO"/"HTTP"/"MODULES"/"PERSIST"/"SYSTEM"
+  // Section filter: NULL/"" = all, "WIFI"/"NETWORK"/"TELNET"/"MODBUS"/"COUNTERS"/"TIMERS"/"GPIO"/"HTTP"/"MODULES"/"PERSIST"/"SYSTEM"
   bool show_all = (!section || section[0] == '\0');
   bool show_system   = show_all || show_section_match(section, "SYSTEM");
   bool show_modbus   = show_all || show_section_match(section, "MODBUS");
@@ -67,6 +67,7 @@ void cli_cmd_show_config(const char *section) {
   bool show_timers   = show_all || show_section_match(section, "TIMER");
   bool show_gpio     = show_all || show_section_match(section, "GPIO");
   bool show_network  = show_all || show_section_match(section, "NETWORK") || show_section_match(section, "WIFI");
+  bool show_telnet   = show_all || show_section_match(section, "TELNET");
   bool show_ethernet = show_all || show_section_match(section, "ETHERNET") || show_section_match(section, "ETH");
   bool show_http     = show_all || show_section_match(section, "HTTP") || show_section_match(section, "API");
   bool show_modules  = show_all || show_section_match(section, "MODULE");
@@ -759,7 +760,13 @@ void cli_cmd_show_config(const char *section) {
   debug_print("  power-save: ");
   debug_println(g_persist_config.network.wifi_power_save ? "ON (low power)" : "OFF (fast response)");
 
-  debug_println("\ntelnet:");
+  } // end show_network
+
+  // =========================================================================
+  // TELNET (standalone section, independent of WiFi)
+  // =========================================================================
+  if (show_telnet) {
+  debug_println("\n[TELNET]");
   debug_print("  status: ");
   debug_println(g_persist_config.network.telnet_enabled ? "enabled" : "disabled");
 
@@ -773,7 +780,7 @@ void cli_cmd_show_config(const char *section) {
   debug_print("  password: ");
   debug_println(g_persist_config.network.telnet_password[0] ? "********" : "(not set)");
 
-  } // end show_network
+  } // end show_telnet
 
   // =========================================================================
   // ETHERNET (v6.1.0+)
@@ -1028,25 +1035,30 @@ void cli_cmd_show_config(const char *section) {
       debug_print("set wifi dns ");
       debug_println(ip_str);
     }
-    debug_print("set wifi telnet ");
-    debug_println(g_persist_config.network.telnet_enabled ? "enable" : "disable");
-    if (g_persist_config.network.telnet_enabled) {
-      if (g_persist_config.network.telnet_username[0]) {
-        debug_print("set wifi telnet-user ");
-        debug_println(g_persist_config.network.telnet_username);
-      }
-      if (g_persist_config.network.telnet_password[0]) {
-        debug_println("set wifi telnet-pass ********");
-      }
-      debug_print("set wifi telnet-port ");
-      debug_print_uint(g_persist_config.network.telnet_port);
-      debug_println("");
-    }
     // Power save setting (v6.0.4+)
     debug_print("set wifi power-save ");
     debug_println(g_persist_config.network.wifi_power_save ? "on" : "off");
   }
   } // end show_network
+
+  if (show_telnet) {
+  // Telnet (standalone, independent of WiFi)
+  debug_println("\n# Telnet");
+  debug_print("set telnet ");
+  debug_println(g_persist_config.network.telnet_enabled ? "enable" : "disable");
+  if (g_persist_config.network.telnet_enabled) {
+    if (g_persist_config.network.telnet_username[0]) {
+      debug_print("set telnet user ");
+      debug_println(g_persist_config.network.telnet_username);
+    }
+    if (g_persist_config.network.telnet_password[0]) {
+      debug_println("set telnet pass ********");
+    }
+    debug_print("set telnet port ");
+    debug_print_uint(g_persist_config.network.telnet_port);
+    debug_println("");
+  }
+  } // end show_telnet
 
   if (show_ethernet) {
   // Ethernet (v6.0.9+)
@@ -2821,10 +2833,10 @@ void cli_cmd_show_wifi(void) {
   debug_println("  set wifi gateway <ip>");
   debug_println("  set wifi netmask <ip>");
   debug_println("  set wifi dns <ip>");
-  debug_println("  set wifi telnet enable|disable");
-  debug_println("  set wifi telnet-user <username>");
-  debug_println("  set wifi telnet-pass <password>");
-  debug_println("  set wifi telnet-port <port>");
+  debug_println("  set telnet enable|disable");
+  debug_println("  set telnet user <username>");
+  debug_println("  set telnet pass <password>");
+  debug_println("  set telnet port <port>");
   debug_println("  connect wifi");
   debug_println("  disconnect wifi");
   debug_println("  save (to persist changes)\n");

@@ -313,15 +313,16 @@ Nye opcodes:
 | File | Purpose |
 |------|---------|
 | `wifi_driver.cpp/h` | ESP32 Wi-Fi HAL, connect/disconnect |
+| `ethernet_driver.cpp/h` | W5500 SPI Ethernet driver (v6.1.0+) |
 | `network_manager.cpp/h` | Network state machine, reconnection |
-| `network_config.cpp/h` | Wi-Fi/network configuration handling |
+| `network_config.cpp/h` | Wi-Fi/network/ethernet configuration handling |
 | `tcp_server.cpp/h` | TCP server for remote connections |
 | `telnet_server.cpp/h` | Telnet protocol implementation |
 | `console_serial.cpp/h` | Serial console I/O abstraction |
 | `console_telnet.cpp/h` | Telnet console I/O abstraction |
 | `console.h` | Unified console interface |
 
-**Key Principle:** Network is optional. CLI works on both serial and telnet transparently.
+**Key Principle:** Network is optional. WiFi, Ethernet and Telnet are independent. CLI works on both serial and telnet transparently.
 
 ---
 

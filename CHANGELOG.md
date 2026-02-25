@@ -4,7 +4,53 @@ All notable changes to this project are documented in this file.
 
 ---
 
-## [6.0.7] - 2026-02-14 💾 (Config Backup/Restore)
+## [6.1.0] - 2026-02-25 (W5500 Ethernet + Telnet Standalone)
+
+### NEW FEATURES
+
+**W5500 SPI Ethernet**
+- W5500 Ethernet driver via SPI bus (GPIO12 MISO, GPIO13 MOSI, GPIO14 CLK, GPIO15 CS, GPIO33 RST, GPIO34 INT)
+- `set ethernet enable|disable` — aktivér/deaktivér Ethernet
+- `set ethernet dhcp on|off` — DHCP eller statisk IP
+- `set ethernet ip/gateway/netmask/dns` — statisk konfiguration
+- `show ethernet` — status med link, IP, MAC, hastighed
+- Ethernet og WiFi er uafhængige — kan køre samtidigt eller hver for sig
+- Build-flag `ETHERNET_W5500_ENABLED` i platformio.ini
+
+**Telnet som selvstændig sektion**
+- `set telnet enable|disable` — selvstændig CLI kommando (ikke under `set wifi`)
+- `set telnet user/pass/port` — konfigurér Telnet uafhængigt af WiFi
+- `sh config | s telnet` — viser altid telnet-konfiguration, uanset WiFi-status
+- Backward-compatible: `set wifi telnet*` virker stadig som alias
+
+### BUG FIXES
+
+- **BUG-221+222:** CLI parser `set wifi disable` og `set logic interval` med mellemrum
+- **BUG-220:** Ethernet+Services uafhængig af WiFi + W5500 MAC fra eFuse
+- **BUG-223:** W5500 ping latens ~1000ms fix — GPIO34 ISR upålidelig, polling med xTaskNotifyGive (nu 2-5ms)
+- **BUG-224:** Telnet echo langsom — TCP_NODELAY på client socket
+- **BUG-225:** `sh config | s telnet` viste ingen SET commands — telnet var nested under WiFi
+
+### FILES CHANGED
+
+| File | Change |
+|------|--------|
+| `src/ethernet_driver.cpp/h` | W5500 SPI driver, polling workaround |
+| `src/tcp_server.cpp` | TCP_NODELAY på accept |
+| `src/cli_show.cpp` | [TELNET] selvstændig sektion, `set telnet` kommandoer |
+| `src/cli_commands.cpp` | `cli_cmd_set_telnet()` funktion |
+| `src/cli_parser.cpp` | `set telnet` routing + wifi help opdateret |
+| `include/cli_commands.h` | `cli_cmd_set_telnet()` deklaration |
+| `include/constants.h` | Version 6.1.0 |
+
+### BUILD
+
+- **Version:** 6.1.0
+- **Schema:** 10 (unchanged)
+
+---
+
+## [6.0.7] - 2026-02-14 (Config Backup/Restore)
 
 ### ✨ NEW FEATURES
 

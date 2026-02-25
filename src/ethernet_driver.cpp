@@ -32,6 +32,8 @@
 #include <lwip/inet.h>
 #include <lwip/dns.h>
 #include <esp_mac.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include "types.h"
 
@@ -233,7 +235,7 @@ int ethernet_driver_init(void)
   devcfg.command_bits = 16;  // W5500 address phase
   devcfg.address_bits = 8;   // W5500 control phase
   devcfg.mode = 0;
-  devcfg.clock_speed_hz = 20 * 1000 * 1000;  // 20 MHz SPI clock
+  devcfg.clock_speed_hz = 8 * 1000 * 1000;  // 8 MHz SPI clock (conservative — 20 MHz can cause errors on longer wires)
   devcfg.spics_io_num = PIN_SPI_CS;
   devcfg.queue_size = 20;
 
@@ -461,7 +463,37 @@ int ethernet_driver_enable_dhcp(void)
  * BACKGROUND TASKS
  * ============================================================================ */
 
-int ethernet_driver_loop(void)    { return 0; }
+// W5500 RX task handle — resolved by name after driver start
+static TaskHandle_t w5500_rx_task_handle = NULL;
+
+int ethernet_driver_loop(void)
+{
+  // WORKAROUND: ESP-IDF 4.4 W5500 driver's RX task ("w5500_tsk") uses a
+  // 1000ms timeout on ulTaskNotifyTake(). If the GPIO edge-triggered ISR
+  // doesn't fire (missed edge, ISR conflict, etc.), the task only wakes
+  // on timeout — causing ~1000ms ping latency.
+  //
+  // Fix: Poll INT pin every 2ms. If LOW (W5500 has pending data), send
+  // xTaskNotifyGive() directly to the RX task, bypassing GPIO ISR entirely.
+  if (eth_state.state < ETH_DRV_STATE_IDLE) return 0;
+
+  // Lazy-resolve the RX task handle (created by esp_eth_mac_new_w5500)
+  if (!w5500_rx_task_handle) {
+    w5500_rx_task_handle = xTaskGetHandle("w5500_tsk");
+    if (w5500_rx_task_handle) {
+      ESP_LOGI(TAG, "Found W5500 RX task handle (w5500_tsk) — polling active");
+    }
+  }
+
+  if (w5500_rx_task_handle) {
+    if (gpio_get_level((gpio_num_t)PIN_W5500_INT) == 0) {
+      // INT asserted (active LOW) — wake RX task directly
+      xTaskNotifyGive(w5500_rx_task_handle);
+    }
+  }
+
+  return 0;
+}
 
 uint32_t ethernet_driver_get_uptime_ms(void)
 {

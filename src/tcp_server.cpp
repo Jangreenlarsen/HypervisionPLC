@@ -15,11 +15,17 @@
 #include <lwip/sockets.h>
 #include <lwip/inet.h>
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <driver/gpio.h>
 
 #include "tcp_server.h"
 #include "constants.h"
 
 static const char *TAG = "TCP_SRV";
+
+// Cached W5500 RX task handle for direct notification during send retries
+static TaskHandle_t s_w5500_rx_task = NULL;
 
 #define TCP_RECV_BUFFER_SIZE    256
 
@@ -162,6 +168,11 @@ int tcp_server_accept(TcpServer *server)
       int flags = fcntl(client_sock, F_GETFL, 0);
       fcntl(client_sock, F_SETFL, flags | O_NONBLOCK);
 
+      // Disable Nagle's algorithm for low-latency character echo (Telnet)
+      // Without this, small TCP packets (1-byte echo) are delayed up to 200ms
+      int nodelay = 1;
+      setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
       server->clients[0].socket = client_sock;
       server->clients[0].client_ip = client_addr.sin_addr.s_addr;
       server->clients[0].client_port = ntohs(client_addr.sin_port);
@@ -256,19 +267,57 @@ int tcp_server_send(TcpServer *server, uint8_t client_index, const uint8_t *data
     return -1;
   }
 
-  int sent = send(client->socket, (const char*)data, len, 0);
-  if (sent < 0) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      return 0;  // Would block, try again later
+  // Send with retry on EAGAIN (TCP buffer full)
+  // Without retry, large CLI outputs (sh config) get silently truncated.
+  // IMPORTANT: We must notify W5500 RX task during retries so TCP ACKs
+  // are processed. Using delay() alone blocks main loop and W5500 only
+  // wakes on its 1000ms timeout — causing 1-second output bursts.
+  size_t total_sent = 0;
+  int retries = 0;
+  const int max_retries = 100;  // 100 * ~2ms = ~200ms max wait
+
+  // Lazy-resolve W5500 RX task handle (same pattern as ethernet_driver.cpp)
+  if (!s_w5500_rx_task) {
+    s_w5500_rx_task = xTaskGetHandle("w5500_tsk");
+  }
+
+  while (total_sent < len && retries < max_retries) {
+    int sent = send(client->socket, (const char*)(data + total_sent), len - total_sent, 0);
+    if (sent > 0) {
+      total_sent += sent;
+      retries = 0;  // Reset retry counter on progress
+    } else if (sent < 0) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        // Buffer full — kick W5500 RX task to process incoming TCP ACKs
+        if (s_w5500_rx_task) {
+          if (gpio_get_level((gpio_num_t)PIN_W5500_INT) == 0) {
+            xTaskNotifyGive(s_w5500_rx_task);
+          }
+        }
+        vTaskDelay(1);  // Yield 1 tick (~1ms) — non-blocking
+        retries++;
+      } else {
+        ESP_LOGE(TAG, "Send error (errno: %d)", errno);
+        tcp_server_disconnect_client(server, client_index);
+        return -1;
+      }
     } else {
-      ESP_LOGE(TAG, "Send error (errno: %d)", errno);
-      tcp_server_disconnect_client(server, client_index);
-      return -1;
+      // sent == 0: no data sent, treat as EAGAIN
+      if (s_w5500_rx_task) {
+        if (gpio_get_level((gpio_num_t)PIN_W5500_INT) == 0) {
+          xTaskNotifyGive(s_w5500_rx_task);
+        }
+      }
+      vTaskDelay(1);
+      retries++;
     }
   }
 
-  client->last_activity_ms = millis();
-  return sent;
+  if (total_sent > 0) {
+    client->last_activity_ms = millis();
+  }
+
+  return (int)total_sent;
 }
 
 int tcp_server_sendf(TcpServer *server, uint8_t client_index, const char *format, ...)
