@@ -303,6 +303,13 @@ void cli_cmd_set_ethernet(uint8_t argc, char* argv[]);
 void cli_cmd_set_http(uint8_t argc, char* argv[]);
 
 /**
+ * @brief Handle "ping" command (ICMP ping to remote host)
+ * @param argc Argument count
+ * @param argv Argument array (argv[0] = host, argv[1] = count)
+ */
+void cli_cmd_ping(uint8_t argc, char* argv[]);
+
+/**
  * @brief Handle "connect wifi" command (start Wi-Fi connection)
  */
 void cli_cmd_connect_wifi(void);

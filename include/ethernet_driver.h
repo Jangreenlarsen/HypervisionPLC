@@ -62,6 +62,12 @@ int ethernet_driver_stop(void);
 uint8_t ethernet_driver_is_connected(void);
 
 /**
+ * Check if physical Ethernet link is up (cable connected)
+ * @return 1 if link up, 0 if link down
+ */
+uint8_t ethernet_driver_has_link(void);
+
+/**
  * Get current local IP address
  * @return IP address in network byte order (0 if not connected)
  */

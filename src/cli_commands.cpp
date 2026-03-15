@@ -32,6 +32,8 @@
 #include "debug_flags.h"
 #include "network_manager.h"
 #include "network_config.h"
+#include "wifi_driver.h"
+#include "ethernet_driver.h"
 #include "register_allocator.h"  // BUG-025: Register overlap checking
 #include <Arduino.h>
 #include <esp_system.h>
@@ -2380,6 +2382,38 @@ void cli_cmd_set_http(uint8_t argc, char* argv[]) {
   }
 
   debug_println("Hint: Use 'save' to persist configuration to NVS");
+}
+
+void cli_cmd_ping(uint8_t argc, char* argv[]) {
+  if (argc < 1) {
+    debug_println("Brug: ping <ip/hostname> [count]");
+    debug_println("  ping 10.1.32.1       - 4 pings (default)");
+    debug_println("  ping 10.1.32.1 10    - 10 pings");
+    return;
+  }
+
+  // Check that at least one network interface is up
+  if (!wifi_driver_is_connected()
+#ifdef ETHERNET_W5500_ENABLED
+      && !ethernet_driver_is_connected()
+#endif
+  ) {
+    debug_println("Ping: ingen netværksforbindelse (WiFi/Ethernet nede)");
+    return;
+  }
+
+  const char *host = argv[0];
+  uint32_t count = 4;  // default
+  if (argc >= 2) {
+    count = (uint32_t)atoi(argv[1]);
+    if (count == 0 || count > 100) {
+      debug_println("Ping: count skal være 1-100");
+      return;
+    }
+  }
+
+  debug_println("");
+  wifi_driver_ping(host, count);
 }
 
 void cli_cmd_connect_wifi(void) {

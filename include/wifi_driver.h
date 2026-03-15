@@ -137,12 +137,12 @@ int wifi_driver_enable_dhcp(void);
  * ============================================================================ */
 
 /**
- * Ping remote host (blocking, ~5 second timeout)
+ * Ping remote host (blocking, sends count ICMP echo requests)
  * @param host IP address or hostname
- * @param out_time_ms Output response time in milliseconds
- * @return 0 on success (host reachable), -1 if unreachable/error
+ * @param count Number of pings to send (1-100)
+ * @return 0 on success (at least one reply), -1 if all unreachable/error
  */
-int wifi_driver_ping(const char *host, uint32_t *out_time_ms);
+int wifi_driver_ping(const char *host, uint32_t count);
 
 /**
  * Resolve hostname to IP address (blocking, ~5 second timeout)

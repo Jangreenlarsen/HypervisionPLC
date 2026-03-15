@@ -18,6 +18,8 @@
 #include <lwip/sockets.h>
 #include <lwip/netdb.h>
 #include <ping/ping_sock.h>
+#include <freertos/semphr.h>
+#include "debug.h"
 
 #include "wifi_driver.h"
 #include "constants.h"
@@ -521,17 +523,146 @@ int wifi_driver_enable_dhcp(void)
  * NETWORK UTILITIES (ICMP)
  * ============================================================================ */
 
-int wifi_driver_ping(const char *host, uint32_t *out_time_ms)
+// --- Ping callback context ---
+typedef struct {
+  SemaphoreHandle_t done_sem;
+  uint32_t sent;
+  uint32_t received;
+  uint32_t total_time_ms;
+  uint32_t min_time_ms;
+  uint32_t max_time_ms;
+  char target_ip[20];
+} ping_ctx_t;
+
+static void ping_on_success(esp_ping_handle_t hdl, void *args)
 {
-  if (!host || !out_time_ms) {
+  ping_ctx_t *ctx = (ping_ctx_t *)args;
+  uint8_t ttl;
+  uint32_t elapsed;
+  uint32_t size;
+  uint32_t seqno;
+  esp_ping_get_profile(hdl, ESP_PING_PROF_SEQNO, &seqno, sizeof(seqno));
+  esp_ping_get_profile(hdl, ESP_PING_PROF_TTL, &ttl, sizeof(ttl));
+  esp_ping_get_profile(hdl, ESP_PING_PROF_TIMEGAP, &elapsed, sizeof(elapsed));
+  esp_ping_get_profile(hdl, ESP_PING_PROF_SIZE, &size, sizeof(size));
+
+  ctx->received++;
+  ctx->total_time_ms += elapsed;
+  if (elapsed < ctx->min_time_ms) ctx->min_time_ms = elapsed;
+  if (elapsed > ctx->max_time_ms) ctx->max_time_ms = elapsed;
+
+  char buf[80];
+  snprintf(buf, sizeof(buf), "PING %s: %lu bytes seq=%lu ttl=%u time=%lu ms",
+           ctx->target_ip, (unsigned long)size, (unsigned long)seqno, ttl, (unsigned long)elapsed);
+  debug_println(buf);
+}
+
+static void ping_on_timeout(esp_ping_handle_t hdl, void *args)
+{
+  ping_ctx_t *ctx = (ping_ctx_t *)args;
+  uint32_t seqno;
+  esp_ping_get_profile(hdl, ESP_PING_PROF_SEQNO, &seqno, sizeof(seqno));
+
+  char buf[60];
+  snprintf(buf, sizeof(buf), "PING %s: timeout seq=%lu", ctx->target_ip, (unsigned long)seqno);
+  debug_println(buf);
+}
+
+static void ping_on_end(esp_ping_handle_t hdl, void *args)
+{
+  ping_ctx_t *ctx = (ping_ctx_t *)args;
+  esp_ping_get_profile(hdl, ESP_PING_PROF_REQUEST, &ctx->sent, sizeof(ctx->sent));
+  xSemaphoreGive(ctx->done_sem);
+}
+
+int wifi_driver_ping(const char *host, uint32_t count)
+{
+  if (!host || count == 0 || count > 100) {
     return -1;
   }
 
-  // Note: ESP32 ping_sock API is asynchronous
-  // For simplicity, we'll return -1 (not yet implemented properly)
-  // Full implementation would use lwIP ping with callbacks
-  ESP_LOGW(TAG, "ICMP ping not fully implemented yet");
-  return -1;
+  // Resolve hostname to IP
+  uint32_t ip_addr = wifi_driver_resolve_hostname(host);
+  if (ip_addr == 0) {
+    debug_println("Ping: kunne ikke resolve hostname");
+    return -1;
+  }
+
+  // Setup context
+  ping_ctx_t ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.min_time_ms = UINT32_MAX;
+  ctx.done_sem = xSemaphoreCreateBinary();
+  if (!ctx.done_sem) {
+    return -1;
+  }
+
+  // Format target IP for display
+  ip4_addr_t addr4;
+  addr4.addr = ip_addr;
+  snprintf(ctx.target_ip, sizeof(ctx.target_ip), "%s", ip4addr_ntoa(&addr4));
+
+  // Configure ping session
+  esp_ping_config_t ping_config = ESP_PING_DEFAULT_CONFIG();
+  ip_addr_t target_addr;
+  target_addr.type = IPADDR_TYPE_V4;
+  target_addr.u_addr.ip4.addr = ip_addr;
+  ping_config.target_addr = target_addr;
+  ping_config.count = count;
+  ping_config.interval_ms = 1000;
+  ping_config.timeout_ms = 3000;
+  ping_config.data_size = 56;
+
+  // Register callbacks
+  esp_ping_callbacks_t cbs = {
+    .cb_args = &ctx,
+    .on_ping_success = ping_on_success,
+    .on_ping_timeout = ping_on_timeout,
+    .on_ping_end = ping_on_end,
+  };
+
+  esp_ping_handle_t ping_handle = NULL;
+  esp_err_t err = esp_ping_new_session(&ping_config, &cbs, &ping_handle);
+  if (err != ESP_OK || !ping_handle) {
+    ESP_LOGE(TAG, "Failed to create ping session: %s", esp_err_to_name(err));
+    vSemaphoreDelete(ctx.done_sem);
+    return -1;
+  }
+
+  // Start ping
+  esp_ping_start(ping_handle);
+
+  // Wait for completion (timeout: count * 4 seconds max)
+  TickType_t wait_ticks = pdMS_TO_TICKS((count * 4000) + 2000);
+  xSemaphoreTake(ctx.done_sem, wait_ticks);
+
+  // Cleanup
+  esp_ping_stop(ping_handle);
+  esp_ping_delete_session(ping_handle);
+  vSemaphoreDelete(ctx.done_sem);
+
+  // Print summary
+  debug_println("");
+  char buf[80];
+  snprintf(buf, sizeof(buf), "--- %s ping statistics ---", ctx.target_ip);
+  debug_println(buf);
+
+  uint32_t loss = 0;
+  if (ctx.sent > 0) {
+    loss = ((ctx.sent - ctx.received) * 100) / ctx.sent;
+  }
+  snprintf(buf, sizeof(buf), "%lu sent, %lu received, %lu%% loss",
+           (unsigned long)ctx.sent, (unsigned long)ctx.received, (unsigned long)loss);
+  debug_println(buf);
+
+  if (ctx.received > 0) {
+    uint32_t avg = ctx.total_time_ms / ctx.received;
+    snprintf(buf, sizeof(buf), "min/avg/max = %lu/%lu/%lu ms",
+             (unsigned long)ctx.min_time_ms, (unsigned long)avg, (unsigned long)ctx.max_time_ms);
+    debug_println(buf);
+  }
+
+  return (ctx.received > 0) ? 0 : -1;
 }
 
 uint32_t wifi_driver_resolve_hostname(const char *hostname)

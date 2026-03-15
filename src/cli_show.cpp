@@ -2627,17 +2627,34 @@ void cli_cmd_show_ethernet(void) {
   debug_print("State: ");
   debug_println(ethernet_driver_get_state_string());
 
-  if (!ethernet_driver_is_connected()) {
-    debug_println("Link: NOT CONNECTED");
+  // Physical link status (cable)
+  debug_print("Link: ");
+  if (ethernet_driver_has_link()) {
+    debug_println("UP");
+    // Speed and duplex (available when link is up)
+    debug_print("Link Speed: ");
+    debug_print_uint(ethernet_driver_get_speed());
+    debug_print(" Mbps ");
+    debug_println(ethernet_driver_is_full_duplex() ? "Full-Duplex" : "Half-Duplex");
+  } else {
+    debug_println("DOWN");
     if (flags == 0xFF) {
       debug_println("(Check Ethernet cable)");
     } else {
       debug_println("(Check W5500 wiring)");
     }
-  } else {
-    debug_println("Link: CONNECTED");
+  }
 
-    // Show IP
+  // MAC address (always available after init)
+  char mac_str[18];
+  ethernet_driver_get_mac_str(mac_str);
+  debug_print("MAC Address: ");
+  debug_println(mac_str);
+
+  // IP status
+  if (ethernet_driver_is_connected()) {
+    debug_println("IP: CONNECTED");
+
     uint32_t ip = ethernet_driver_get_local_ip();
     if (ip != 0) {
       char ip_str[16];
@@ -2646,7 +2663,6 @@ void cli_cmd_show_ethernet(void) {
       debug_println(ip_str);
     }
 
-    // Gateway
     uint32_t gw = ethernet_driver_get_gateway();
     if (gw != 0) {
       char gw_str[16];
@@ -2655,7 +2671,6 @@ void cli_cmd_show_ethernet(void) {
       debug_println(gw_str);
     }
 
-    // Netmask
     uint32_t nm = ethernet_driver_get_netmask();
     if (nm != 0) {
       char nm_str[16];
@@ -2664,7 +2679,6 @@ void cli_cmd_show_ethernet(void) {
       debug_println(nm_str);
     }
 
-    // DNS
     uint32_t dns = ethernet_driver_get_dns();
     if (dns != 0) {
       char dns_str[16];
@@ -2673,23 +2687,14 @@ void cli_cmd_show_ethernet(void) {
       debug_println(dns_str);
     }
 
-    // Speed and duplex
-    debug_print("Link Speed: ");
-    debug_print_uint(ethernet_driver_get_speed());
-    debug_print(" Mbps ");
-    debug_println(ethernet_driver_is_full_duplex() ? "Full-Duplex" : "Half-Duplex");
-
-    // MAC address
-    char mac_str[18];
-    ethernet_driver_get_mac_str(mac_str);
-    debug_print("MAC Address: ");
-    debug_println(mac_str);
-
-    // Uptime
     uint32_t uptime = ethernet_driver_get_uptime_ms();
     debug_print("Uptime: ");
     debug_print_uint(uptime / 1000);
     debug_println(" sec");
+  } else if (ethernet_driver_has_link()) {
+    debug_println("IP: WAITING (link up, waiting for DHCP...)");
+  } else {
+    debug_println("IP: NO LINK");
   }
 
   // Show config

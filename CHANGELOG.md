@@ -4,6 +4,41 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [6.2.0] - 2026-03-15 (CLI Ping + Ethernet Fixes)
+
+### NEW FEATURES
+
+**FEAT-018: CLI ping kommando**
+- `ping <ip/hostname>` — 4 ICMP echo requests (default)
+- `ping <ip/hostname> <count>` — 1-100 pings
+- Viser RTT per ping, timeout markering, og statistik (sent/received/loss/min/avg/max)
+- Virker over både WiFi og W5500 Ethernet
+- DNS-opløsning via eksisterende `wifi_driver_resolve_hostname()`
+- Blokerende med semaphore — venter på alle pings før statistik
+
+### BUG FIXES
+
+- **BUG-235:** Ethernet statisk IP genaktiveres ikke efter link-flap. `DISCONNECT` event nulstillede `local_ip=0`, men `CONNECTED` event checkede `local_ip != 0` → statisk IP aldrig gensat. FIX: Bruger nu `static_ip` til re-apply ved link-up (ethernet_driver.cpp)
+
+### FILES CHANGED
+
+| File | Change |
+|------|--------|
+| `src/wifi_driver.cpp` | Fuld esp_ping implementation (erstatter stub) |
+| `include/wifi_driver.h` | Ny signatur: `wifi_driver_ping(host, count)` |
+| `src/cli_commands.cpp` | `cli_cmd_ping()` handler |
+| `include/cli_commands.h` | `cli_cmd_ping()` deklaration |
+| `src/cli_parser.cpp` | PING alias + dispatch + help text |
+| `src/ethernet_driver.cpp` | BUG-235: Static IP re-apply on link-up |
+| `include/constants.h` | Version 6.2.0 |
+
+### BUILD
+
+- **Version:** 6.2.0
+- **Schema:** 11 (unchanged)
+
+---
+
 ## [6.1.0] - 2026-02-25 (W5500 Ethernet + Telnet Standalone)
 
 ### NEW FEATURES

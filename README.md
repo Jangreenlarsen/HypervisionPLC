@@ -1,6 +1,6 @@
 # Modbus RTU Server (ESP32)
 
-**Version:** v6.0.7 | **Build:** #1227 | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
+**Version:** v6.2.0 | **Build:** #1375 | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
 
 En komplet, modulær **Modbus RTU Server** implementation til ESP32-WROOM-32 mikrocontroller med **dual Modbus interfaces** (Slave + Master), ST Structured Text Logic programmering med IEC 61131-3 type system, Wi-Fi netværk, **HTTP REST API** for Node-RED integration, telnet CLI interface, og komplet Modbus register dokumentation.
 
@@ -1164,6 +1164,14 @@ write h-reg 100 value uint 65000           # Write 65000 as unsigned
 write h-reg 100 value dint 100000          # Write 100000 as DINT (reg 100-101, LSW first)
 write h-reg 100 value dword 3000000000     # Write 3000000000 as DWORD (reg 100-101, LSW first)
 write h-reg 100 value real 3.14159         # Write 3.14159 as REAL (reg 100-101)
+```
+
+**Network Diagnostics (v6.2.0+):**
+```bash
+ping <ip/hostname>                       # Ping host (4 pings default)
+ping <ip/hostname> <count>               # Ping host N times (1-100)
+connect wifi                             # Connect to configured WiFi
+disconnect wifi                          # Disconnect WiFi
 ```
 
 **System Commands:**

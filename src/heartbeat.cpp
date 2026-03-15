@@ -4,11 +4,12 @@
  */
 
 #include "heartbeat.h"
+#include "constants.h"
 #include "config_struct.h"
 #include "debug.h"
 #include <Arduino.h>
 
-#define LED_PIN 2  // ESP32 onboard LED on GPIO2
+#define LED_PIN PIN_LED  // Board-specifik LED pin fra constants.h
 #define BLINK_INTERVAL 1000  // 1 second
 
 static uint32_t last_blink = 0;

@@ -209,32 +209,85 @@ typedef enum {
 #define CLI_TOKEN_MAX       20          // Max tokens per command
 
 /* ============================================================================
- * HARDWARE PINS (ESP32-WROOM-32)
+ * HARDWARE PINS - Board-specifik konfiguration
+ * Vælg board-variant via build_flags i platformio.ini
  * ============================================================================ */
 
-#define PIN_UART1_RX        4           // GPIO4
-#define PIN_UART1_TX        5           // GPIO5
-#define PIN_RS485_DIR       15          // GPIO15 (RS-485 direction control)
+// Waveshare S3-ETH har W5500 onboard — auto-enable
+#if defined(BOARD_WAVESHARE_S3_ETH) && !defined(ETHERNET_W5500_ENABLED)
+  #define ETHERNET_W5500_ENABLED
+#endif
 
-// Counter pins (GPIO interrupt for SW-ISR mode)
-#define PIN_INT1            16          // GPIO16 (available)
-#define PIN_INT2            17          // GPIO17 (available)
-#define PIN_INT3            18          // GPIO18 (available)
-#define PIN_INT4            19          // GPIO19 (PCNT unit0 input)
+#if defined(BOARD_WAVESHARE_S3_ETH)
+  // Waveshare ESP32-S3-ETH (W5500 onboard via SPI)
+  // Docs: https://www.waveshare.com/wiki/ESP32-S3-ETH
+  #define PIN_LED             2
+  #define PIN_UART1_RX        4
+  #define PIN_UART1_TX        5
+  #define PIN_RS485_DIR       15
+  #define PIN_INT1            16
+  #define PIN_INT2            17
+  #define PIN_INT3            18
+  #define PIN_INT4            19
+  #define PIN_I2C_SDA         21
+  #define PIN_I2C_SCL         22
+  // W5500 SPI (onboard, fixed pins)
+  #define PIN_SPI_MISO        12
+  #define PIN_SPI_MOSI        11
+  #define PIN_SPI_CLK         13
+  #define PIN_SPI_CS          14
+  #define PIN_W5500_INT       10
+  #define PIN_W5500_RST       9
+  #define W5500_SPI_HOST      SPI2_HOST
+  #define W5500_SPI_CLOCK_HZ  (20 * 1000 * 1000)  // 20 MHz (onboard, korte spor)
 
-// I2C pins (future expansion)
-#define PIN_I2C_SDA         21          // GPIO21
-#define PIN_I2C_SCL         22          // GPIO22
+#elif defined(BOARD_ESP32_38PIN)
+  // ESP32-WROOM-32 38-pin DevKit
+  #define PIN_LED             2
+  #define PIN_UART1_RX        4
+  #define PIN_UART1_TX        5
+  #define PIN_RS485_DIR       15
+  #define PIN_INT1            16
+  #define PIN_INT2            17
+  #define PIN_INT3            18
+  #define PIN_INT4            19
+  #define PIN_I2C_SDA         21
+  #define PIN_I2C_SCL         22
+  // W5500 SPI (ekstern modul via HSPI)
+  #define PIN_SPI_MISO        12
+  #define PIN_SPI_MOSI        13
+  #define PIN_SPI_CLK         14
+  #define PIN_SPI_CS          23
+  #define PIN_W5500_INT       34
+  #define PIN_W5500_RST       33
+  #define W5500_SPI_HOST      SPI2_HOST
+  #define W5500_SPI_CLOCK_HZ  (8 * 1000 * 1000)   // 8 MHz (ekstern, længere ledninger)
 
-// SPI pins (W5500 Ethernet)
-#define PIN_SPI_MISO        12          // GPIO12 (HSPI MISO) - STRAPPING PIN: W5500 held in reset during boot
-#define PIN_SPI_MOSI        13          // GPIO13 (HSPI MOSI)
-#define PIN_SPI_CLK         14          // GPIO14 (HSPI CLK)
-#define PIN_SPI_CS          23          // GPIO23 (HSPI CS)
+#elif defined(BOARD_ESP32_30PIN)
+  // ESP32-WROOM-32 30-pin DevKit (DEFAULT)
+  #define PIN_LED             2
+  #define PIN_UART1_RX        4
+  #define PIN_UART1_TX        5
+  #define PIN_RS485_DIR       15
+  #define PIN_INT1            16
+  #define PIN_INT2            17
+  #define PIN_INT3            18
+  #define PIN_INT4            19
+  #define PIN_I2C_SDA         21
+  #define PIN_I2C_SCL         22
+  // W5500 SPI (ekstern modul via HSPI)
+  #define PIN_SPI_MISO        12
+  #define PIN_SPI_MOSI        13
+  #define PIN_SPI_CLK         14
+  #define PIN_SPI_CS          23
+  #define PIN_W5500_INT       34
+  #define PIN_W5500_RST       33
+  #define W5500_SPI_HOST      SPI2_HOST
+  #define W5500_SPI_CLOCK_HZ  (8 * 1000 * 1000)   // 8 MHz (ekstern, længere ledninger)
 
-// W5500 Ethernet control pins
-#define PIN_W5500_INT       34          // GPIO34 (input-only, external 10K pullup required)
-#define PIN_W5500_RST       33          // GPIO33 (hardware reset, held LOW during boot)
+#else
+  #error "Ingen BOARD_* variant defineret! Vælg én i platformio.ini build_flags"
+#endif
 
 /* ============================================================================
  * SERIAL CONFIGURATION
@@ -337,10 +390,11 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "6.1.0"
+#define PROJECT_VERSION     "6.2.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v6.2.0 (2026-03-15): FEAT-018 CLI ping + BUG-235 Ethernet static IP reconnect
  * v6.1.0 (2026-02-25): W5500 Ethernet + Telnet standalone
  *                      - FEAT: W5500 SPI Ethernet driver (GPIO12-15,33,34)
  *                      - FEAT: set ethernet enable/disable/dhcp/ip/gateway/netmask/dns

@@ -142,6 +142,7 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "DEFAULTS") || str_eq_i(s, "DEF")) return "DEFAULTS";
   if (str_eq_i(s, "REBOOT") || str_eq_i(s, "RESTART")) return "REBOOT";
   if (str_eq_i(s, "EXIT") || str_eq_i(s, "QUIT") || str_eq_i(s, "Q")) return "EXIT";
+  if (str_eq_i(s, "PING")) return "PING";
   if (str_eq_i(s, "CONNECT") || str_eq_i(s, "CONN") || str_eq_i(s, "CON")) return "CONNECT";
   if (str_eq_i(s, "DISCONNECT") || str_eq_i(s, "DISC") || str_eq_i(s, "DC")) return "DISCONNECT";
   if (str_eq_i(s, "HELP") || !strcmp(s, "?") || str_eq_i(s, "H")) return "HELP";
@@ -1589,6 +1590,11 @@ bool cli_parser_execute(char* line) {
       return false;
     }
 
+  } else if (!strcmp(cmd, "PING")) {
+    // ping <host> [count]
+    cli_cmd_ping(argc - 1, argv + 1);
+    return true;
+
   } else if (!strcmp(cmd, "HELP")) {
     cli_parser_print_help();
     return true;
@@ -1651,6 +1657,7 @@ bool cli_parser_execute(char* line) {
     debug_println("  write coil <addr> value <0|1>      - Write coil\n");
 
     debug_println("Network:");
+    debug_println("  ping <ip> [count]       - ICMP ping (default 4)");
     debug_println("  connect wifi, con       - Connect to WiFi");
     debug_println("  disconnect wifi, dc     - Disconnect WiFi\n");
 

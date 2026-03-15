@@ -62,6 +62,7 @@ typedef struct {
   uint32_t connect_time_ms;
   uint32_t speed_mbps;
   uint8_t full_duplex;
+  uint8_t link_up;            // Physical link status (cable connected)
   uint8_t mac_addr[6];
 
   // Static IP config
@@ -87,6 +88,7 @@ static EthDriverInternalState eth_state = {
   .connect_time_ms = 0,
   .speed_mbps = 0,
   .full_duplex = 0,
+  .link_up = 0,
   .mac_addr = {0},
   .static_ip = 0,
   .static_gateway = 0,
@@ -108,6 +110,7 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
     switch (event_id) {
       case ETHERNET_EVENT_CONNECTED: {
         ESP_LOGI(TAG, "Ethernet link up");
+        eth_state.link_up = 1;
 
         // Get MAC address
         esp_eth_handle_t eth_handle = *(esp_eth_handle_t *)event_data;
@@ -128,11 +131,26 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Speed: %lu Mbps, %s duplex",
                  eth_state.speed_mbps,
                  eth_state.full_duplex ? "Full" : "Half");
+
+        // Static IP: re-apply and mark connected on link up
+        if (eth_state.use_static_ip && eth_state.static_ip != 0) {
+          // Re-apply static IP (may have been cleared on disconnect)
+          if (eth_state.local_ip == 0) {
+            eth_state.local_ip = eth_state.static_ip;
+            eth_state.gateway = eth_state.static_gateway;
+            eth_state.netmask = eth_state.static_netmask;
+            eth_state.dns = eth_state.static_dns;
+          }
+          eth_state.state = ETH_DRV_STATE_CONNECTED;
+          eth_state.connect_time_ms = millis();
+          ESP_LOGI(TAG, "Static IP active on link up");
+        }
         break;
       }
 
       case ETHERNET_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "Ethernet link down");
+        eth_state.link_up = 0;
         eth_state.state = ETH_DRV_STATE_DISCONNECTED;
         eth_state.local_ip = 0;
         eth_state.speed_mbps = 0;
@@ -215,7 +233,7 @@ int ethernet_driver_init(void)
   eth_state.init_flags = 0;
   eth_state.last_error = "OK";
 
-  err = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+  err = spi_bus_initialize(W5500_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "SPI bus init failed: %s", esp_err_to_name(err));
     eth_state.state = ETH_DRV_STATE_ERROR;
@@ -235,12 +253,12 @@ int ethernet_driver_init(void)
   devcfg.command_bits = 16;  // W5500 address phase
   devcfg.address_bits = 8;   // W5500 control phase
   devcfg.mode = 0;
-  devcfg.clock_speed_hz = 8 * 1000 * 1000;  // 8 MHz SPI clock (conservative — 20 MHz can cause errors on longer wires)
+  devcfg.clock_speed_hz = W5500_SPI_CLOCK_HZ;
   devcfg.spics_io_num = PIN_SPI_CS;
   devcfg.queue_size = 20;
 
   spi_device_handle_t spi_handle = NULL;
-  err = spi_bus_add_device(SPI2_HOST, &devcfg, &spi_handle);
+  err = spi_bus_add_device(W5500_SPI_HOST, &devcfg, &spi_handle);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "SPI add device failed: %s", esp_err_to_name(err));
     eth_state.state = ETH_DRV_STATE_ERROR;
@@ -386,6 +404,7 @@ uint8_t ethernet_driver_is_connected(void)
   return (eth_state.state == ETH_DRV_STATE_CONNECTED) && (eth_state.local_ip != 0);
 }
 
+uint8_t  ethernet_driver_has_link(void)       { return eth_state.link_up; }
 uint32_t ethernet_driver_get_local_ip(void)  { return eth_state.local_ip; }
 uint32_t ethernet_driver_get_gateway(void)   { return eth_state.gateway; }
 uint32_t ethernet_driver_get_netmask(void)   { return eth_state.netmask; }
@@ -438,6 +457,12 @@ int ethernet_driver_set_static_ip(uint32_t ip_addr, uint32_t gateway, uint32_t n
     eth_state.gateway = gateway;
     eth_state.netmask = netmask;
     eth_state.dns = dns;
+
+    // Static IP is immediately active when link is up
+    if (eth_state.link_up) {
+      eth_state.state = ETH_DRV_STATE_CONNECTED;
+      eth_state.connect_time_ms = millis();
+    }
   }
 
   ESP_LOGI(TAG, "Static IP configured");
@@ -526,6 +551,7 @@ int      ethernet_driver_init(void)       { return -1; }
 int      ethernet_driver_start(void)      { return -1; }
 int      ethernet_driver_stop(void)       { return 0; }
 uint8_t  ethernet_driver_is_connected(void) { return 0; }
+uint8_t  ethernet_driver_has_link(void)     { return 0; }
 uint32_t ethernet_driver_get_local_ip(void) { return 0; }
 uint32_t ethernet_driver_get_gateway(void)  { return 0; }
 uint32_t ethernet_driver_get_netmask(void)  { return 0; }

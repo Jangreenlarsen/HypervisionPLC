@@ -207,6 +207,10 @@
 | BUG-229 | Telnet login bruger startup-kopi af credentials | ✅ FIXED | 🟡 HIGH | v6.1.0 | `telnet_server.cpp` brugte `server->network_config` (kopi fra startup). Credentials ændret via CLI blev aldrig brugt. FIX: Bruger nu `g_persist_config.network` direkte for live credentials (telnet_server.cpp) |
 | BUG-230 | `sh config` over telnet trunkeret — kun [SYSTEM] vises | ✅ FIXED | 🔴 CRITICAL | v6.1.0 | Non-blocking TCP socket returnerer EAGAIN ved fuld send-buffer. Data silently droppet → kun første ~200 bytes (SYSTEM sektion) nåede frem. FIX: Retry-loop i `tcp_server_send()` med EAGAIN håndtering (tcp_server.cpp) |
 | BUG-231 | TCP send retry blokerer main loop → 1s output bursts | ✅ FIXED | 🔴 CRITICAL | v6.1.0 | `delay(10)` i retry-loop blokerede main loop → `ethernet_driver_loop()` kørte ikke → W5500 RX task kun vågnet på 1000ms timeout → TCP ACKs forsinkede → output i 1-sekunds ryk. FIX: `vTaskDelay(1)` + direkte `xTaskNotifyGive()` til W5500 RX task under retries (tcp_server.cpp) |
+| BUG-232 | `sh ethernet` viser "NOT CONNECTED" selvom fysisk link er oppe | ✅ FIXED | 🟡 HIGH | v6.2.0 | `ETHERNET_EVENT_CONNECTED` satte ikke `eth_state.state` → forblev IDLE. State kun sat til CONNECTED i `IP_EVENT_ETH_GOT_IP` (DHCP). FIX: Ny `link_up` flag + `ethernet_driver_has_link()` + `sh ethernet` viser nu Link og IP separat (ethernet_driver.cpp, ethernet_driver.h, cli_show.cpp) |
+| BUG-233 | Statisk IP markerer aldrig state CONNECTED | ✅ FIXED | 🔴 CRITICAL | v6.2.0 | `ethernet_driver_set_static_ip()` satte `local_ip` men aldrig `state = CONNECTED`. State kun sat via DHCP `IP_EVENT_ETH_GOT_IP` event. Med DHCP OFF: permanent "Disconnected" trods gyldig statisk IP og link. FIX: Sæt `CONNECTED` i `set_static_ip()` når link er oppe + i `ETHERNET_EVENT_CONNECTED` når statisk IP er konfigureret (ethernet_driver.cpp) |
+| BUG-234 | Netmask validering fejler pga. byte order (ntohl mangler) | ✅ FIXED | 🟡 HIGH | v6.2.0 | `network_config_is_valid_netmask()` lavede bit-contiguity check på network byte order (big-endian fra `inet_aton()`). På little-endian ESP32: `255.255.255.0` = `0x00FFFFFF` → `~mask+1` ikke power-of-2 → alle gyldige netmasks afvist. FIX: `ntohl()` konvertering før bit-check (network_config.cpp) |
+| BUG-235 | Ethernet statisk IP genaktiveres ikke efter link-flap | ✅ FIXED | 🟡 HIGH | v6.2.0 | `ETHERNET_EVENT_DISCONNECTED` nulstillede `local_ip=0`. `ETHERNET_EVENT_CONNECTED` checkede `local_ip != 0` for statisk IP → aldrig gensat efter disconnect. FIX: Checker `static_ip != 0` og re-applyer fra static config (ethernet_driver.cpp) |
 
 ## Feature Requests / Enhancements
 
@@ -229,6 +233,7 @@
 | FEAT-015 | Telnet IAC negotiation + ANSI-kompatibel history | ✅ DONE | 🟠 MEDIUM | v6.0.4 | Korrekt IAC WILL ECHO/SUPPRESS-GO-AHEAD ved connection. ANSI-fri line clearing for alle terminaler. (telnet_server.cpp) (Build #1126) |
 | FEAT-016 | Show config sektionsfiltrering | ✅ DONE | 🟠 MEDIUM | v6.0.4 | "show config wifi/modbus/counters/http/..." viser kun relevant sektion. (cli_show.cpp, cli_parser.cpp) (Build #1126) |
 | FEAT-017 | Config Backup/Restore via HTTP API + CLI | ✅ DONE | 🟡 HIGH | v6.0.7 | GET /api/system/backup download fuld JSON config inkl. passwords + ST Logic source. POST /api/system/restore upload JSON for fuld restore. CLI: show backup. (api_handlers.cpp, http_server.cpp, cli_show.cpp, cli_parser.cpp) |
+| FEAT-018 | CLI ping kommando | ✅ DONE | 🟠 MEDIUM | v6.2.0 | `ping <ip> [count]` kommando i CLI. esp_ping session-baseret async med semaphore. Viser RTT per ping + statistik (sent/received/loss/min/avg/max). Virker over WiFi og Ethernet (wifi_driver.cpp, cli_commands.cpp, cli_parser.cpp) |
 
 ## Quick Lookup by Category
 

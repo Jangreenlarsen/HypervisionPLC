@@ -228,9 +228,13 @@ uint8_t network_config_is_valid_netmask(uint32_t netmask)
     return 0;
   }
 
-  // Netmask should be contiguous bits (e.g., 255.255.255.0)
-  // Simple check: flip bits and add 1 should be power of 2
-  uint32_t flipped = ~netmask;
+  // netmask is in network byte order (big-endian) from inet_aton().
+  // Convert to host byte order for bit-contiguity check.
+  uint32_t mask = ntohl(netmask);
+
+  // Netmask should be contiguous 1-bits followed by contiguous 0-bits
+  // Flip bits and add 1 should be power of 2
+  uint32_t flipped = ~mask;
   uint32_t check = flipped + 1;
 
   // Check if power of 2 (single bit set)
