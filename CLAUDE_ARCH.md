@@ -55,6 +55,24 @@ Each layer has **ONE responsibility**. No circular dependencies.
 
 ---
 
+### Layer 1.5: HTTP/REST API (v6.0.0+, udvidet v6.3.0)
+
+| File | Purpose |
+|------|---------|
+| `http_server.cpp/h` | HTTP server init, URI registrering, TLS (optional) |
+| `api_handlers.cpp/h` | Alle REST API handlers (56+ endpoints) |
+
+**Key Principle:** API handlers kalder direkte ned i Layer 4-5 (registers, engines). Kører i separat FreeRTOS task, blokerer ikke Modbus.
+
+**v6.3.0 tilføjelser:**
+- CORS headers på alle responses + OPTIONS preflight
+- Bulk register read/write (hr, ir, coils, di)
+- ST Logic debug API (pause/step/breakpoint/snapshot)
+- Telnet, hostname, watchdog, heartbeat endpoints
+- 56+ registrerede URI handlers (max_uri_handlers: 64)
+
+---
+
 ### Layer 1: Protocol Core (Modbus framing)
 
 | File | Purpose |
@@ -553,7 +571,7 @@ pio clean && pio run # Clean rebuild
 
 ---
 
-**Last Updated:** 2026-02-07
-**Version:** v6.1.0
-**Build:** #1184+
+**Last Updated:** 2026-03-16
+**Version:** v6.3.0
+**Build:** #1380
 **Status:** ✅ Active & Complete

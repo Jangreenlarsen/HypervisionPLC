@@ -1,6 +1,6 @@
 # Modbus RTU Server (ESP32)
 
-**Version:** v6.2.0 | **Build:** #1375 | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
+**Version:** v6.3.0 | **Build:** #1380 | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
 
 En komplet, modulær **Modbus RTU Server** implementation til ESP32-WROOM-32 mikrocontroller med **dual Modbus interfaces** (Slave + Master), ST Structured Text Logic programmering med IEC 61131-3 type system, Wi-Fi netværk, **HTTP REST API** for Node-RED integration, telnet CLI interface, og komplet Modbus register dokumentation.
 
@@ -838,16 +838,26 @@ set logic debug:false            # Disable debug output
 - **Graceful Disconnect:** `exit` command
 - **Session Timeout:** Configurable inactivity timeout
 
-#### HTTP REST API (v6.0.0+)
+#### HTTP REST API (v6.0.0+, udvidet v6.3.0)
 - **Port:** 80 (default, konfigurerbar)
 - **Protocol:** HTTP/1.1 med JSON responses
 - **Authentication:** Optional Basic Auth
+- **CORS:** Fuld cross-origin support (v6.3.0) — browser dashboards kan kalde API direkte
 - **Use Cases:**
   - Node-RED integration via HTTP Request nodes
   - Web dashboards og visualisering
   - Third-party system integration
   - Remote monitoring og control
-- **Endpoints:** Se [docs/REST_API.md](docs/REST_API.md) for komplet dokumentation
+- **Endpoints:** 56+ endpoints — se [docs/REST_API.md](docs/REST_API.md) for komplet dokumentation
+- **v6.3.0 Nye Endpoints:**
+  - `GET/POST /api/telnet` — Telnet konfiguration
+  - `GET/POST /api/hostname` — Hostname konfiguration
+  - `GET /api/system/watchdog` — Watchdog status
+  - `GET/POST /api/heartbeat` — Heartbeat/LED konfiguration
+  - `GET /api/registers/hr?start=0&count=10` — Bulk register læsning
+  - `POST /api/registers/hr` — Bulk register skrivning
+  - `GET/POST/DELETE /api/logic/{id}/debug/*` — ST Logic debugger
+  - `OPTIONS *` — CORS preflight support
 - **Quick Test:**
 ```bash
 # System status
@@ -859,10 +869,18 @@ curl http://192.168.1.100/api/counters
 # Læs holding register 100
 curl http://192.168.1.100/api/registers/hr/100
 
+# Bulk læs 10 holding registers fra adresse 0
+curl "http://192.168.1.100/api/registers/hr?start=0&count=10"
+
 # Skriv til holding register
 curl -X POST -H "Content-Type: application/json" \
      -d '{"value": 12345}' \
      http://192.168.1.100/api/registers/hr/100
+
+# ST Logic debug — pause program
+curl -X POST -H "Content-Type: application/json" \
+     -d '{"action":"pause"}' \
+     http://192.168.1.100/api/logic/1/debug/control
 ```
 - **CLI Configuration:**
 ```bash

@@ -211,6 +211,7 @@
 | BUG-233 | Statisk IP markerer aldrig state CONNECTED | ✅ FIXED | 🔴 CRITICAL | v6.2.0 | `ethernet_driver_set_static_ip()` satte `local_ip` men aldrig `state = CONNECTED`. State kun sat via DHCP `IP_EVENT_ETH_GOT_IP` event. Med DHCP OFF: permanent "Disconnected" trods gyldig statisk IP og link. FIX: Sæt `CONNECTED` i `set_static_ip()` når link er oppe + i `ETHERNET_EVENT_CONNECTED` når statisk IP er konfigureret (ethernet_driver.cpp) |
 | BUG-234 | Netmask validering fejler pga. byte order (ntohl mangler) | ✅ FIXED | 🟡 HIGH | v6.2.0 | `network_config_is_valid_netmask()` lavede bit-contiguity check på network byte order (big-endian fra `inet_aton()`). På little-endian ESP32: `255.255.255.0` = `0x00FFFFFF` → `~mask+1` ikke power-of-2 → alle gyldige netmasks afvist. FIX: `ntohl()` konvertering før bit-check (network_config.cpp) |
 | BUG-235 | Ethernet statisk IP genaktiveres ikke efter link-flap | ✅ FIXED | 🟡 HIGH | v6.2.0 | `ETHERNET_EVENT_DISCONNECTED` nulstillede `local_ip=0`. `ETHERNET_EVENT_CONNECTED` checkede `local_ip != 0` for statisk IP → aldrig gensat efter disconnect. FIX: Checker `static_ip != 0` og re-applyer fra static config (ethernet_driver.cpp) |
+| BUG-236 | Heartbeat POST fanges af GPIO wildcard handler | ✅ FIXED | 🟠 MEDIUM | v6.3.0 | `/api/gpio/2/heartbeat` POST matchede `/api/gpio/*` wildcard fordi gpio_write registreredes FØR heartbeat. FIX: Heartbeat handlers registreres FØR GPIO wildcard i http_server.cpp (Build #1384) |
 
 ## Feature Requests / Enhancements
 
@@ -234,8 +235,45 @@
 | FEAT-016 | Show config sektionsfiltrering | ✅ DONE | 🟠 MEDIUM | v6.0.4 | "show config wifi/modbus/counters/http/..." viser kun relevant sektion. (cli_show.cpp, cli_parser.cpp) (Build #1126) |
 | FEAT-017 | Config Backup/Restore via HTTP API + CLI | ✅ DONE | 🟡 HIGH | v6.0.7 | GET /api/system/backup download fuld JSON config inkl. passwords + ST Logic source. POST /api/system/restore upload JSON for fuld restore. CLI: show backup. (api_handlers.cpp, http_server.cpp, cli_show.cpp, cli_parser.cpp) |
 | FEAT-018 | CLI ping kommando | ✅ DONE | 🟠 MEDIUM | v6.2.0 | `ping <ip> [count]` kommando i CLI. esp_ping session-baseret async med semaphore. Viser RTT per ping + statistik (sent/received/loss/min/avg/max). Virker over WiFi og Ethernet (wifi_driver.cpp, cli_commands.cpp, cli_parser.cpp) |
+| FEAT-019 | Telnet Configuration API endpoint | ✅ DONE+TESTET | 🟡 HIGH | v6.3.0 | `GET/POST /api/telnet` — Telnet konfiguration via REST API. Testet 4/4 PASS (Build #1384) |
+| FEAT-020 | ST Logic Debug API endpoints | ✅ DONE+TESTET | 🟡 HIGH | v6.3.0 | `POST /api/logic/{id}/debug/pause\|continue\|step\|breakpoint\|stop` + `GET .../debug/state` — Fuld debug kontrol via API. Testet 8/8 PASS (Build #1384) |
+| FEAT-021 | Bulk Register Operations API | ✅ DONE+TESTET | 🟡 HIGH | v6.3.0 | `GET /api/registers/hr?start=0&count=100` + `POST /api/registers/hr/bulk` + IR/coils/DI bulk read/write. Testet 12/12 PASS (Build #1384) |
+| FEAT-022 | Persistence Group Management API | ❌ OPEN | 🟠 MEDIUM | v6.4.0 | `GET/POST/DELETE /api/persist/groups/{name}` — CLI `set persist` kommandoer har ingen API ækvivalent. Vigtig for avanceret konfigurationsstyring via web |
+| FEAT-023 | WebSocket/SSE real-time events | ❌ OPEN | 🟠 MEDIUM | v7.0.0 | WebSocket eller Server-Sent Events for push-baseret register/counter/timer opdateringer. Eliminerer polling, muliggør live dashboards. Stor arkitektur-ændring — kræver event system |
+| FEAT-024 | Hostname API endpoint | ✅ DONE+TESTET | 🟠 MEDIUM | v6.3.0 | `GET/POST /api/hostname` — Hostname ændring via REST API. Testet 3/3 PASS (Build #1384) |
+| FEAT-025 | Watchdog Status API endpoint | ✅ DONE+TESTET | 🟠 MEDIUM | v6.3.0 | `GET /api/system/watchdog` — Reboot count, reset reason, heap stats, uptime. Testet 2/2 PASS (Build #1384) |
+| FEAT-026 | GPIO2 Heartbeat Control API | ✅ DONE+TESTET | 🔵 LOW | v6.3.0 | `GET/POST /api/gpio/2/heartbeat` — Enable/disable heartbeat LED. BUG-236 fixed. Testet 3/3 PASS (Build #1384) |
+| FEAT-027 | CORS Headers support | ✅ DONE+TESTET | 🟠 MEDIUM | v6.3.0 | `Access-Control-Allow-Origin: *` på alle API responses + OPTIONS preflight. Testet 3/3 PASS (Build #1384) |
+| FEAT-028 | Request Rate Limiting | ❌ OPEN | 🟠 MEDIUM | v7.0.0 | Max requests/sekund per klient IP — beskytter mod API misbrug/overbelastning på resource-begrænset ESP32. Token bucket eller sliding window algoritme |
+| FEAT-029 | OpenAPI/Swagger Schema endpoint | ❌ OPEN | 🔵 LOW | v7.0.0 | `GET /api/schema` returnerer maskinlæsbar OpenAPI 3.0 spec — muliggør automatisk klient-kodegenerering (Python, JS, C#). Stort JSON dokument, kan kræve chunked response |
+| FEAT-030 | API Versioning | ❌ OPEN | 🔵 LOW | v7.0.0 | `/api/v1/...` prefix for backward-kompatibilitet ved breaking changes. Kræver URI router refactoring. Alternativ: Accept header versioning |
+| FEAT-031 | Firmware OTA via API | ❌ OPEN | 🟡 HIGH | v7.0.0 | `POST /api/system/ota` — firmware upload endpoint for fjern-opdatering uden fysisk adgang. Kræver OTA partition, checksum validering, rollback support. Stor feature med sikkerhedsimplikationer |
+| FEAT-032 | Prometheus Metrics endpoint | ❌ OPEN | 🔵 LOW | v7.0.0 | `GET /api/metrics` i Prometheus text format — integration med Grafana/monitoring stacks. Eksponerer: uptime, heap, counters, timers, modbus stats, API request counts |
+| FEAT-033 | Request Audit Log | ❌ OPEN | 🔵 LOW | v7.0.0 | `GET /api/system/logs` — ringbuffer med sidste 50-100 API requests (timestamp, path, method, status, IP). Vigtig for fejlfinding og sikkerhedsovervågning. RAM-begrænset på ESP32 |
 
 ## Quick Lookup by Category
+
+### 🌐 API Roadmap (v6.3.0 — v7.0.0)
+
+**v6.3.0 — API Gap Coverage (CLI parity) — ✅ 7/8 DONE:**
+- **FEAT-019:** ✅ Telnet Configuration API — 4/4 testet PASS
+- **FEAT-020:** ✅ ST Logic Debug API — 8/8 testet PASS
+- **FEAT-021:** ✅ Bulk Register Operations — 12/12 testet PASS
+- **FEAT-022:** ❌ Persistence Group Management API (→ v6.4.0)
+- **FEAT-024:** ✅ Hostname API — 3/3 testet PASS
+- **FEAT-025:** ✅ Watchdog Status API — 2/2 testet PASS
+- **FEAT-026:** ✅ Heartbeat Control API — 3/3 testet PASS (BUG-236 fixed)
+- **FEAT-027:** ✅ CORS Headers — 3/3 testet PASS
+- **Test:** 34/34 PASS (100%) — se `tests/API_V630_TEST_RESULTS.md`
+
+**v7.0.0 — Next Generation API:**
+- **FEAT-023:** WebSocket/SSE real-time events 🟠 MEDIUM
+- **FEAT-028:** Request Rate Limiting 🟠 MEDIUM
+- **FEAT-029:** OpenAPI/Swagger Schema endpoint 🔵 LOW
+- **FEAT-030:** API Versioning (v1/v2) 🔵 LOW
+- **FEAT-031:** Firmware OTA via API 🟡 HIGH
+- **FEAT-032:** Prometheus Metrics endpoint 🔵 LOW
+- **FEAT-033:** Request Audit Log 🔵 LOW
 
 ### ⚠️ CRITICAL Bugs (MUST FIX)
 - **BUG-001:** ST Logic vars not visible in Modbus (IR 220-251)

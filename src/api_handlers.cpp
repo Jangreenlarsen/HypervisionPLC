@@ -36,6 +36,9 @@
 #include "gpio_driver.h"
 #include "network_manager.h"
 #include "modbus_master.h"
+#include "st_debug.h"
+#include "watchdog_monitor.h"
+#include "heartbeat.h"
 
 static const char *TAG = "API_HDLR";
 
@@ -104,6 +107,7 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
   httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
   httpd_resp_set_hdr(req, "Connection", "keep-alive");
   httpd_resp_set_hdr(req, "Keep-Alive", "timeout=15, max=100");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_status(req, status == 404 ? "404 Not Found" :
                              status == 400 ? "400 Bad Request" :
                              status == 401 ? "401 Unauthorized" :
@@ -138,6 +142,7 @@ esp_err_t api_send_json(httpd_req_t *req, const char *json_str)
   httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
   httpd_resp_set_hdr(req, "Connection", "keep-alive");
   httpd_resp_set_hdr(req, "Keep-Alive", "timeout=15, max=100");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_sendstr(req, json_str);
   http_server_stat_success();
   return ESP_OK;
@@ -171,14 +176,14 @@ esp_err_t api_handler_endpoints(httpd_req_t *req)
   http_server_stat_request();
   CHECK_AUTH(req);
 
-  // Use heap allocation for larger response (endpoints list ~8KB with v6.1.0+ GAP additions)
-  char *buf = (char *)malloc(8192);
+  // Use heap allocation for larger response (endpoints list ~10KB with v6.3.0 additions)
+  char *buf = (char *)malloc(10240);
   if (!buf) {
     return api_send_error(req, 500, "Out of memory");
   }
 
   // Build JSON manually for efficiency
-  int len = snprintf(buf, 8192,
+  int len = snprintf(buf, 10240,
     "{"
     "\"name\":\"Modbus ESP32 REST API\","
     "\"version\":\"%s\","
@@ -238,12 +243,31 @@ esp_err_t api_handler_endpoints(httpd_req_t *req)
     "{\"method\":\"POST\",\"path\":\"/api/system/load\",\"desc\":\"Load config from NVS\"},"
     "{\"method\":\"POST\",\"path\":\"/api/system/defaults\",\"desc\":\"Reset to defaults\"},"
     "{\"method\":\"GET\",\"path\":\"/api/system/backup\",\"desc\":\"Download config backup\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/system/restore\",\"desc\":\"Restore config from backup\"}"
+    "{\"method\":\"POST\",\"path\":\"/api/system/restore\",\"desc\":\"Restore config from backup\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/telnet\",\"desc\":\"Telnet config+status\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/telnet\",\"desc\":\"Configure Telnet\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/hostname\",\"desc\":\"Get hostname\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/hostname\",\"desc\":\"Set hostname\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/system/watchdog\",\"desc\":\"Watchdog status\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/registers/hr\",\"desc\":\"Bulk read HRs (start,count)\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/registers/hr/bulk\",\"desc\":\"Bulk write HRs\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/registers/ir\",\"desc\":\"Bulk read IRs (start,count)\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/registers/coils\",\"desc\":\"Bulk read coils (start,count)\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/registers/coils/bulk\",\"desc\":\"Bulk write coils\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/registers/di\",\"desc\":\"Bulk read DIs (start,count)\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/debug/pause\",\"desc\":\"Pause program\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/debug/continue\",\"desc\":\"Continue program\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/debug/step\",\"desc\":\"Step instruction\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/debug/breakpoint\",\"desc\":\"Set breakpoint\"},"
+    "{\"method\":\"DELETE\",\"path\":\"/api/logic/{1-4}/debug/breakpoint\",\"desc\":\"Remove breakpoint\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/debug/stop\",\"desc\":\"Stop debug\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/logic/{1-4}/debug/state\",\"desc\":\"Debug snapshot\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/gpio/2/heartbeat\",\"desc\":\"Heartbeat control\"}"
     "]"
     "}",
     PROJECT_VERSION, BUILD_NUMBER);
 
-  if (len < 0 || len >= 8192) {
+  if (len < 0 || len >= 10240) {
     free(buf);
     return api_send_error(req, 500, "Buffer overflow");
   }
@@ -845,6 +869,11 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
   // All requests to /api/logic/{id}/xxx land here via /api/logic/* wildcard.
   const char *uri = req->uri;
   size_t uri_len = strlen(uri);
+
+  // FEAT-020: Debug routes (contains /debug/) — route before other suffixes
+  if (strstr(uri, "/debug/") != NULL) {
+    return api_handler_logic_debug(req);
+  }
 
   // GET suffixes
   if (req->method == HTTP_GET) {
@@ -1528,6 +1557,11 @@ esp_err_t api_handler_logic_disable(httpd_req_t *req)
 
 esp_err_t api_handler_logic_delete(httpd_req_t *req)
 {
+  // FEAT-020: Route debug DELETE to debug handler
+  if (strstr(req->uri, "/debug/") != NULL) {
+    return api_handler_logic_debug(req);
+  }
+
   http_server_stat_request();
   CHECK_AUTH(req);
 
@@ -3953,4 +3987,663 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
   serializeJson(resp, respbuf, sizeof(respbuf));
 
   return api_send_json(req, respbuf);
+}
+
+/* ============================================================================
+ * v6.3.0 API EXTENSIONS (FEAT-019 to FEAT-027)
+ * ============================================================================ */
+
+/* ============================================================================
+ * FEAT-027: OPTIONS preflight handler for CORS
+ * ============================================================================ */
+
+esp_err_t api_handler_cors_preflight(httpd_req_t *req)
+{
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Authorization, Content-Type");
+  httpd_resp_set_hdr(req, "Access-Control-Max-Age", "86400");
+  httpd_resp_set_status(req, "204 No Content");
+  httpd_resp_sendstr(req, "");
+  return ESP_OK;
+}
+
+/* ============================================================================
+ * FEAT-019: GET /api/telnet — Telnet configuration + status
+ * ============================================================================ */
+
+esp_err_t api_handler_telnet_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  JsonDocument doc;
+  doc["enabled"] = g_persist_config.network.telnet_enabled ? true : false;
+  doc["port"] = g_persist_config.network.telnet_port;
+  doc["username"] = g_persist_config.network.telnet_username;
+  doc["auth_required"] = (strlen(g_persist_config.network.telnet_username) > 0) ? true : false;
+
+  char buf[HTTP_JSON_DOC_SIZE];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+/* ============================================================================
+ * FEAT-019: POST /api/telnet — Configure Telnet
+ * ============================================================================ */
+
+esp_err_t api_handler_telnet_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  char body[512];
+  int len = httpd_req_recv(req, body, sizeof(body) - 1);
+  if (len <= 0) {
+    return api_send_error(req, 400, "Empty request body");
+  }
+  body[len] = '\0';
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, body);
+  if (error) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  if (doc.containsKey("enabled")) {
+    g_persist_config.network.telnet_enabled = doc["enabled"].as<bool>() ? 1 : 0;
+  }
+  if (doc.containsKey("port")) {
+    uint16_t port = doc["port"].as<uint16_t>();
+    if (port > 0 && port <= 65535) {
+      g_persist_config.network.telnet_port = port;
+    }
+  }
+  if (doc.containsKey("username")) {
+    strncpy(g_persist_config.network.telnet_username,
+            doc["username"].as<const char*>(),
+            sizeof(g_persist_config.network.telnet_username) - 1);
+    g_persist_config.network.telnet_username[sizeof(g_persist_config.network.telnet_username) - 1] = '\0';
+  }
+  if (doc.containsKey("password")) {
+    strncpy(g_persist_config.network.telnet_password,
+            doc["password"].as<const char*>(),
+            sizeof(g_persist_config.network.telnet_password) - 1);
+    g_persist_config.network.telnet_password[sizeof(g_persist_config.network.telnet_password) - 1] = '\0';
+  }
+
+  char resp[128];
+  snprintf(resp, sizeof(resp), "{\"status\":200,\"message\":\"Telnet config updated. Save + reboot to apply.\"}");
+  return api_send_json(req, resp);
+}
+
+/* ============================================================================
+ * FEAT-024: GET /api/hostname
+ * ============================================================================ */
+
+esp_err_t api_handler_hostname_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  char buf[128];
+  snprintf(buf, sizeof(buf), "{\"hostname\":\"%s\"}", g_persist_config.hostname);
+  return api_send_json(req, buf);
+}
+
+/* ============================================================================
+ * FEAT-024: POST /api/hostname
+ * ============================================================================ */
+
+esp_err_t api_handler_hostname_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  char body[256];
+  int len = httpd_req_recv(req, body, sizeof(body) - 1);
+  if (len <= 0) {
+    return api_send_error(req, 400, "Empty request body");
+  }
+  body[len] = '\0';
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, body);
+  if (error) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  if (!doc.containsKey("hostname")) {
+    return api_send_error(req, 400, "Missing 'hostname' field");
+  }
+
+  const char *hostname = doc["hostname"].as<const char*>();
+  if (!hostname || strlen(hostname) == 0 || strlen(hostname) >= sizeof(g_persist_config.hostname)) {
+    return api_send_error(req, 400, "Invalid hostname (1-31 chars)");
+  }
+
+  strncpy(g_persist_config.hostname, hostname, sizeof(g_persist_config.hostname) - 1);
+  g_persist_config.hostname[sizeof(g_persist_config.hostname) - 1] = '\0';
+
+  char resp[128];
+  snprintf(resp, sizeof(resp), "{\"status\":200,\"hostname\":\"%s\"}", g_persist_config.hostname);
+  return api_send_json(req, resp);
+}
+
+/* ============================================================================
+ * FEAT-025: GET /api/system/watchdog
+ * ============================================================================ */
+
+esp_err_t api_handler_system_watchdog(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  WatchdogState *wd = watchdog_get_state();
+
+  JsonDocument doc;
+  doc["enabled"] = wd->enabled ? true : false;
+  doc["timeout_ms"] = wd->timeout_ms;
+  doc["reboot_count"] = wd->reboot_counter;
+  doc["last_reset_reason"] = wd->last_reset_reason;
+  doc["last_error"] = wd->last_error;
+  doc["last_reboot_uptime_ms"] = wd->last_reboot_uptime_ms;
+  doc["uptime_ms"] = millis();
+  doc["heap_free"] = ESP.getFreeHeap();
+  doc["heap_min_free"] = ESP.getMinFreeHeap();
+
+  char buf[512];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+/* ============================================================================
+ * FEAT-021: Bulk register read — GET /api/registers/hr (with ?start=&count=)
+ * ============================================================================ */
+
+static int api_parse_query_int(httpd_req_t *req, const char *key, int default_val)
+{
+  char qstr[128];
+  if (httpd_req_get_url_query_str(req, qstr, sizeof(qstr)) != ESP_OK) return default_val;
+  char val[16];
+  if (httpd_query_key_value(qstr, key, val, sizeof(val)) != ESP_OK) return default_val;
+  return atoi(val);
+}
+
+esp_err_t api_handler_hr_bulk_read(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  int start = api_parse_query_int(req, "start", 0);
+  int count = api_parse_query_int(req, "count", 10);
+
+  if (start < 0 || start >= HOLDING_REGS_SIZE) {
+    return api_send_error(req, 400, "Invalid start address");
+  }
+  if (count < 1 || count > 200) {
+    return api_send_error(req, 400, "Count must be 1-200");
+  }
+  if (start + count > HOLDING_REGS_SIZE) {
+    count = HOLDING_REGS_SIZE - start;
+  }
+
+  // Allocate on heap: ~25 bytes per register entry in JSON
+  size_t buf_size = (size_t)count * 30 + 128;
+  char *buf = (char *)malloc(buf_size);
+  if (!buf) {
+    return api_send_error(req, 500, "Out of memory");
+  }
+
+  int pos = snprintf(buf, buf_size, "{\"start\":%d,\"count\":%d,\"registers\":[", start, count);
+  for (int i = 0; i < count && pos < (int)buf_size - 32; i++) {
+    uint16_t val = registers_get_holding_register(start + i);
+    if (i > 0) buf[pos++] = ',';
+    pos += snprintf(buf + pos, buf_size - pos, "{\"addr\":%d,\"value\":%u}", start + i, val);
+  }
+  pos += snprintf(buf + pos, buf_size - pos, "]}");
+
+  esp_err_t ret = api_send_json(req, buf);
+  free(buf);
+  return ret;
+}
+
+/* ============================================================================
+ * FEAT-021: Bulk register write — POST /api/registers/hr/bulk
+ * ============================================================================ */
+
+esp_err_t api_handler_hr_bulk_write(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  char *body = (char *)malloc(2048);
+  if (!body) {
+    return api_send_error(req, 500, "Out of memory");
+  }
+
+  int len = httpd_req_recv(req, body, 2047);
+  if (len <= 0) {
+    free(body);
+    return api_send_error(req, 400, "Empty request body");
+  }
+  body[len] = '\0';
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, body);
+  free(body);
+  if (error) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  if (!doc.containsKey("writes")) {
+    return api_send_error(req, 400, "Missing 'writes' array");
+  }
+
+  JsonArray writes = doc["writes"];
+  int written = 0;
+  for (JsonObject w : writes) {
+    int addr = w["addr"] | -1;
+    if (addr < 0 || addr >= HOLDING_REGS_SIZE) continue;
+    uint16_t val = w["value"] | 0;
+    registers_set_holding_register(addr, val);
+    written++;
+  }
+
+  char resp[128];
+  snprintf(resp, sizeof(resp), "{\"status\":200,\"written\":%d}", written);
+  return api_send_json(req, resp);
+}
+
+/* ============================================================================
+ * FEAT-021: Bulk IR read — GET /api/registers/ir (with ?start=&count=)
+ * ============================================================================ */
+
+esp_err_t api_handler_ir_bulk_read(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  int start = api_parse_query_int(req, "start", 0);
+  int count = api_parse_query_int(req, "count", 10);
+
+  if (start < 0 || start >= INPUT_REGS_SIZE) {
+    return api_send_error(req, 400, "Invalid start address");
+  }
+  if (count < 1 || count > 200) {
+    return api_send_error(req, 400, "Count must be 1-200");
+  }
+  if (start + count > INPUT_REGS_SIZE) {
+    count = INPUT_REGS_SIZE - start;
+  }
+
+  size_t buf_size = (size_t)count * 30 + 128;
+  char *buf = (char *)malloc(buf_size);
+  if (!buf) {
+    return api_send_error(req, 500, "Out of memory");
+  }
+
+  int pos = snprintf(buf, buf_size, "{\"start\":%d,\"count\":%d,\"registers\":[", start, count);
+  for (int i = 0; i < count && pos < (int)buf_size - 32; i++) {
+    uint16_t val = registers_get_input_register(start + i);
+    if (i > 0) buf[pos++] = ',';
+    pos += snprintf(buf + pos, buf_size - pos, "{\"addr\":%d,\"value\":%u}", start + i, val);
+  }
+  pos += snprintf(buf + pos, buf_size - pos, "]}");
+
+  esp_err_t ret = api_send_json(req, buf);
+  free(buf);
+  return ret;
+}
+
+/* ============================================================================
+ * FEAT-021: Bulk coils read — GET /api/registers/coils (with ?start=&count=)
+ * ============================================================================ */
+
+esp_err_t api_handler_coils_bulk_read(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  int start = api_parse_query_int(req, "start", 0);
+  int count = api_parse_query_int(req, "count", 32);
+
+  if (start < 0 || start >= 256) {
+    return api_send_error(req, 400, "Invalid start address");
+  }
+  if (count < 1 || count > 256) {
+    return api_send_error(req, 400, "Count must be 1-256");
+  }
+  if (start + count > 256) {
+    count = 256 - start;
+  }
+
+  size_t buf_size = (size_t)count * 28 + 128;
+  char *buf = (char *)malloc(buf_size);
+  if (!buf) {
+    return api_send_error(req, 500, "Out of memory");
+  }
+
+  int pos = snprintf(buf, buf_size, "{\"start\":%d,\"count\":%d,\"coils\":[", start, count);
+  for (int i = 0; i < count && pos < (int)buf_size - 32; i++) {
+    uint8_t val = registers_get_coil(start + i);
+    if (i > 0) buf[pos++] = ',';
+    pos += snprintf(buf + pos, buf_size - pos, "{\"addr\":%d,\"value\":%s}", start + i, val ? "true" : "false");
+  }
+  pos += snprintf(buf + pos, buf_size - pos, "]}");
+
+  esp_err_t ret = api_send_json(req, buf);
+  free(buf);
+  return ret;
+}
+
+/* ============================================================================
+ * FEAT-021: Bulk coils write — POST /api/registers/coils/bulk
+ * ============================================================================ */
+
+esp_err_t api_handler_coils_bulk_write(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  char *body = (char *)malloc(2048);
+  if (!body) {
+    return api_send_error(req, 500, "Out of memory");
+  }
+
+  int len = httpd_req_recv(req, body, 2047);
+  if (len <= 0) {
+    free(body);
+    return api_send_error(req, 400, "Empty request body");
+  }
+  body[len] = '\0';
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, body);
+  free(body);
+  if (error) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  if (!doc.containsKey("writes")) {
+    return api_send_error(req, 400, "Missing 'writes' array");
+  }
+
+  JsonArray writes = doc["writes"];
+  int written = 0;
+  for (JsonObject w : writes) {
+    int addr = w["addr"] | -1;
+    if (addr < 0 || addr >= 256) continue;
+    bool val = w["value"].as<bool>();
+    registers_set_coil(addr, val ? 1 : 0);
+    written++;
+  }
+
+  char resp[128];
+  snprintf(resp, sizeof(resp), "{\"status\":200,\"written\":%d}", written);
+  return api_send_json(req, resp);
+}
+
+/* ============================================================================
+ * FEAT-021: Bulk DI read — GET /api/registers/di (with ?start=&count=)
+ * ============================================================================ */
+
+esp_err_t api_handler_di_bulk_read(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  int start = api_parse_query_int(req, "start", 0);
+  int count = api_parse_query_int(req, "count", 32);
+
+  if (start < 0 || start >= 256) {
+    return api_send_error(req, 400, "Invalid start address");
+  }
+  if (count < 1 || count > 256) {
+    return api_send_error(req, 400, "Count must be 1-256");
+  }
+  if (start + count > 256) {
+    count = 256 - start;
+  }
+
+  size_t buf_size = (size_t)count * 28 + 128;
+  char *buf = (char *)malloc(buf_size);
+  if (!buf) {
+    return api_send_error(req, 500, "Out of memory");
+  }
+
+  int pos = snprintf(buf, buf_size, "{\"start\":%d,\"count\":%d,\"inputs\":[", start, count);
+  for (int i = 0; i < count && pos < (int)buf_size - 32; i++) {
+    uint8_t val = registers_get_discrete_input(start + i);
+    if (i > 0) buf[pos++] = ',';
+    pos += snprintf(buf + pos, buf_size - pos, "{\"addr\":%d,\"value\":%s}", start + i, val ? "true" : "false");
+  }
+  pos += snprintf(buf + pos, buf_size - pos, "]}");
+
+  esp_err_t ret = api_send_json(req, buf);
+  free(buf);
+  return ret;
+}
+
+/* ============================================================================
+ * FEAT-020: ST Logic Debug API — suffix routing via /api/logic/{id}/debug/*
+ * ============================================================================ */
+
+esp_err_t api_handler_logic_debug(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  // Parse: /api/logic/{id}/debug/{action}
+  const char *uri = req->uri;
+  int id = api_extract_id_from_uri(req, "/api/logic/");
+  if (id < 1 || id > ST_LOGIC_MAX_PROGRAMS) {
+    return api_send_error(req, 400, "Invalid program ID (must be 1-4)");
+  }
+
+  st_logic_engine_state_t *st = st_logic_get_state();
+  st_debug_state_t *dbg = &st->debugger[id - 1];
+
+  // Find /debug/ suffix
+  const char *debug_pos = strstr(uri, "/debug/");
+  if (!debug_pos) {
+    return api_send_error(req, 400, "Missing debug action");
+  }
+  const char *action = debug_pos + 7; // skip "/debug/"
+
+  // Strip query params
+  char action_buf[32];
+  int ai = 0;
+  while (*action && *action != '?' && ai < 31) {
+    action_buf[ai++] = *action++;
+  }
+  action_buf[ai] = '\0';
+
+  // GET /api/logic/{id}/debug/state — return snapshot
+  if (req->method == HTTP_GET && strcmp(action_buf, "state") == 0) {
+    JsonDocument doc;
+    doc["program_id"] = id;
+    doc["mode"] = (dbg->mode == ST_DEBUG_OFF) ? "off" :
+                  (dbg->mode == ST_DEBUG_PAUSED) ? "paused" :
+                  (dbg->mode == ST_DEBUG_STEP) ? "step" : "run";
+    doc["pause_reason"] = (int)dbg->pause_reason;
+    doc["breakpoint_count"] = dbg->breakpoint_count;
+    doc["total_steps"] = dbg->total_steps_debugged;
+    doc["breakpoints_hit"] = dbg->breakpoints_hit_count;
+
+    JsonArray bps = doc["breakpoints"].to<JsonArray>();
+    for (int i = 0; i < dbg->breakpoint_count; i++) {
+      bps.add(dbg->breakpoints[i]);
+    }
+
+    if (dbg->snapshot_valid) {
+      JsonObject snap = doc["snapshot"].to<JsonObject>();
+      snap["pc"] = dbg->snapshot.pc;
+      snap["sp"] = dbg->snapshot.sp;
+      snap["halted"] = dbg->snapshot.halted ? true : false;
+      snap["error"] = dbg->snapshot.error ? true : false;
+      snap["step_count"] = dbg->snapshot.step_count;
+      if (dbg->snapshot.error) {
+        snap["error_msg"] = dbg->snapshot.error_msg;
+      }
+      JsonArray vars = snap["variables"].to<JsonArray>();
+      for (int i = 0; i < dbg->snapshot.var_count && i < 32; i++) {
+        JsonObject v = vars.add<JsonObject>();
+        v["index"] = i;
+        if (dbg->snapshot.var_types[i] == ST_TYPE_REAL) {
+          v["type"] = "REAL";
+          v["value"] = dbg->snapshot.variables[i].real_val;
+        } else if (dbg->snapshot.var_types[i] == ST_TYPE_DINT) {
+          v["type"] = "DINT";
+          v["value"] = dbg->snapshot.variables[i].dint_val;
+        } else if (dbg->snapshot.var_types[i] == ST_TYPE_BOOL) {
+          v["type"] = "BOOL";
+          v["value"] = dbg->snapshot.variables[i].bool_val ? true : false;
+        } else {
+          v["type"] = "INT";
+          v["value"] = dbg->snapshot.variables[i].int_val;
+        }
+      }
+    }
+
+    char *buf = (char *)malloc(2048);
+    if (!buf) return api_send_error(req, 500, "Out of memory");
+    serializeJson(doc, buf, 2048);
+    esp_err_t ret = api_send_json(req, buf);
+    free(buf);
+    return ret;
+  }
+
+  // POST actions
+  if (req->method == HTTP_POST) {
+    if (strcmp(action_buf, "pause") == 0) {
+      st_debug_alloc_vm();
+      st_debug_pause(dbg);
+      char resp[96];
+      snprintf(resp, sizeof(resp), "{\"status\":200,\"message\":\"Program %d paused\"}", id);
+      return api_send_json(req, resp);
+    }
+
+    if (strcmp(action_buf, "continue") == 0) {
+      st_debug_continue(dbg);
+      char resp[96];
+      snprintf(resp, sizeof(resp), "{\"status\":200,\"message\":\"Program %d continued\"}", id);
+      return api_send_json(req, resp);
+    }
+
+    if (strcmp(action_buf, "step") == 0) {
+      st_debug_alloc_vm();
+      st_debug_step(dbg);
+      char resp[96];
+      snprintf(resp, sizeof(resp), "{\"status\":200,\"message\":\"Program %d stepped\"}", id);
+      return api_send_json(req, resp);
+    }
+
+    if (strcmp(action_buf, "stop") == 0) {
+      st_debug_stop(dbg);
+      st_debug_free_vm();
+      char resp[96];
+      snprintf(resp, sizeof(resp), "{\"status\":200,\"message\":\"Program %d debug stopped\"}", id);
+      return api_send_json(req, resp);
+    }
+
+    if (strcmp(action_buf, "breakpoint") == 0) {
+      char body[128];
+      int blen = httpd_req_recv(req, body, sizeof(body) - 1);
+      if (blen <= 0) {
+        return api_send_error(req, 400, "Missing breakpoint data");
+      }
+      body[blen] = '\0';
+
+      JsonDocument bdoc;
+      if (deserializeJson(bdoc, body)) {
+        return api_send_error(req, 400, "Invalid JSON");
+      }
+
+      uint16_t pc = bdoc["pc"] | 0xFFFF;
+      if (pc == 0xFFFF) {
+        return api_send_error(req, 400, "Missing 'pc' field");
+      }
+
+      bool ok = st_debug_add_breakpoint(dbg, pc);
+      if (!ok) {
+        return api_send_error(req, 400, "Max breakpoints reached (8)");
+      }
+
+      char resp[128];
+      snprintf(resp, sizeof(resp), "{\"status\":200,\"message\":\"Breakpoint set at PC %u\"}", pc);
+      return api_send_json(req, resp);
+    }
+  }
+
+  // DELETE /api/logic/{id}/debug/breakpoint
+  if (req->method == HTTP_DELETE && strcmp(action_buf, "breakpoint") == 0) {
+    char body[128];
+    int blen = httpd_req_recv(req, body, sizeof(body) - 1);
+    if (blen > 0) {
+      body[blen] = '\0';
+      JsonDocument bdoc;
+      if (!deserializeJson(bdoc, body)) {
+        uint16_t pc = bdoc["pc"] | 0xFFFF;
+        if (pc != 0xFFFF) {
+          st_debug_remove_breakpoint(dbg, pc);
+          char resp[128];
+          snprintf(resp, sizeof(resp), "{\"status\":200,\"message\":\"Breakpoint removed at PC %u\"}", pc);
+          return api_send_json(req, resp);
+        }
+      }
+    }
+    // No body or no pc = clear all
+    st_debug_clear_breakpoints(dbg);
+    return api_send_json(req, "{\"status\":200,\"message\":\"All breakpoints cleared\"}");
+  }
+
+  return api_send_error(req, 404, "Unknown debug action");
+}
+
+/* ============================================================================
+ * FEAT-026: POST /api/gpio/2/heartbeat — GPIO2 heartbeat control
+ * ============================================================================ */
+
+esp_err_t api_handler_heartbeat(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  if (req->method == HTTP_GET) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "{\"enabled\":%s,\"gpio2_user_mode\":%s}",
+             g_persist_config.gpio2_user_mode ? "false" : "true",
+             g_persist_config.gpio2_user_mode ? "true" : "false");
+    return api_send_json(req, buf);
+  }
+
+  // POST
+  char body[128];
+  int len = httpd_req_recv(req, body, sizeof(body) - 1);
+  if (len <= 0) {
+    return api_send_error(req, 400, "Empty request body");
+  }
+  body[len] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  if (doc.containsKey("enabled")) {
+    bool enable = doc["enabled"].as<bool>();
+    if (enable) {
+      g_persist_config.gpio2_user_mode = 0;  // heartbeat mode
+      heartbeat_enable();
+    } else {
+      g_persist_config.gpio2_user_mode = 1;  // user mode
+      heartbeat_disable();
+    }
+  }
+
+  char resp[128];
+  snprintf(resp, sizeof(resp), "{\"status\":200,\"heartbeat_enabled\":%s}",
+           g_persist_config.gpio2_user_mode ? "false" : "true");
+  return api_send_json(req, resp);
 }

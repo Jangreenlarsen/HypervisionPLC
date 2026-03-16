@@ -390,10 +390,19 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "6.2.0"
+#define PROJECT_VERSION     "6.3.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v6.3.0 (2026-03-16): API v6.3.0 — 8 nye features (FEAT-019 to FEAT-027)
+ *                      - FEAT-019: GET/POST /api/telnet — Telnet konfiguration via API
+ *                      - FEAT-020: ST Logic Debug API (pause/step/continue/breakpoint/state)
+ *                      - FEAT-021: Bulk register operations (HR/IR/coils/DI read/write ranges)
+ *                      - FEAT-024: GET/POST /api/hostname — Hostname ændring via API
+ *                      - FEAT-025: GET /api/system/watchdog — Watchdog status
+ *                      - FEAT-026: GET/POST /api/gpio/2/heartbeat — GPIO2 heartbeat kontrol
+ *                      - FEAT-027: CORS headers (Access-Control-Allow-Origin) + OPTIONS preflight
+ *                      - API discovery opdateret med 20 nye endpoints (50 → 70 total)
  * v6.2.0 (2026-03-15): FEAT-018 CLI ping + BUG-235 Ethernet static IP reconnect
  * v6.1.0 (2026-02-25): W5500 Ethernet + Telnet standalone
  *                      - FEAT: W5500 SPI Ethernet driver (GPIO12-15,33,34)

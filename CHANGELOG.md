@@ -4,6 +4,69 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [6.3.0] - 2026-03-16 (REST API Udvidelse — CORS, Bulk, Debug, Telnet, Watchdog)
+
+### NEW FEATURES
+
+**FEAT-019: Telnet API endpoints**
+- `GET /api/telnet` — Læs telnet konfiguration (enabled, port, timeout)
+- `POST /api/telnet` — Opdatér telnet konfiguration via JSON
+
+**FEAT-020: ST Logic Debug API**
+- `GET /api/logic/{id}/debug/state` — Hent debug-tilstand (paused, line, breakpoints, snapshot)
+- `POST /api/logic/{id}/debug/control` — Styr debugger: pause, continue, step, stop
+- `POST /api/logic/{id}/debug/breakpoint` — Sæt breakpoint på linje
+- `DELETE /api/logic/{id}/debug/breakpoint` — Fjern breakpoint
+- Integreret via suffix-routing i eksisterende logic handler
+
+**FEAT-021: Bulk register operationer**
+- `GET /api/registers/hr?start=0&count=10` — Bulk læs holding registers
+- `POST /api/registers/hr` — Bulk skriv holding registers (JSON array)
+- `GET /api/registers/ir?start=0&count=10` — Bulk læs input registers
+- `GET /api/registers/coils?start=0&count=32` — Bulk læs coils
+- `POST /api/registers/coils` — Bulk skriv coils
+- `GET /api/registers/di?start=0&count=32` — Bulk læs discrete inputs
+- Heap-allokeret output buffer (undgår stack overflow)
+
+**FEAT-024: Hostname API**
+- `GET /api/hostname` — Læs hostname
+- `POST /api/hostname` — Sæt hostname via JSON
+
+**FEAT-025: Watchdog status API**
+- `GET /api/system/watchdog` — Watchdog tilstand, reboot tæller, last reason
+
+**FEAT-026: Heartbeat/LED API**
+- `GET /api/heartbeat` — LED mode, GPIO2 user mode status
+- `POST /api/heartbeat` — Toggle GPIO2 user mode on/off
+
+**FEAT-027: CORS support**
+- `Access-Control-Allow-Origin: *` header på alle JSON responses
+- `OPTIONS` preflight handler (204 No Content) for browser CORS
+- Registreret som wildcard-catch for alle OPTIONS requests
+
+### IMPROVEMENTS
+
+- Discovery endpoint (`GET /api/discover`) udvidet med 20 nye endpoint-beskrivelser
+- Discovery buffer øget fra 8192 til 10240 bytes
+- `max_uri_handlers` øget fra 48 til 64 for at rumme nye endpoints
+- Bulk routes registreres FØR wildcard routes for korrekt URI matching
+
+### FILES CHANGED
+
+| File | Change |
+|------|--------|
+| `src/api_handlers.cpp` | ~500 linjer nye handlers + CORS headers |
+| `include/api_handlers.h` | 14 nye handler-deklarationer |
+| `src/http_server.cpp` | 14 nye URI registreringer, max_uri_handlers 48→64 |
+| `include/constants.h` | Version 6.3.0 |
+
+### BUILD
+
+- **Version:** 6.3.0
+- **Schema:** 11 (unchanged)
+
+---
+
 ## [6.2.0] - 2026-03-15 (CLI Ping + Ethernet Fixes)
 
 ### NEW FEATURES

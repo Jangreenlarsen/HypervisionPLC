@@ -7175,3 +7175,320 @@ Se BUGS_INDEX.md for komplet liste. Detaljerede beskrivelser tilføjes ved behov
 
 **Build #1017+ Identified Bugs:** 22 new issues (4 CRITICAL, 6 HIGH, 8 MEDIUM, 4 LOW)
 
+---
+
+## API Feature Roadmap (FEAT-019 til FEAT-033)
+
+### v6.3.0 — API Gap Coverage (CLI parity)
+
+---
+
+### FEAT-019: Telnet Configuration API Endpoint
+
+**Priority:** HIGH | **Status:** ✅ DONE | **Target:** v6.3.0
+
+#### Problem
+Telnet er den eneste netværksservice uden REST API endpoint. CLI har fuld kontrol via `set telnet enable/disable/user/pass/port`, men remote management via HTTP er umulig.
+
+#### Foreslået Implementation
+```
+GET  /api/telnet  → { "enabled": true, "port": 23, "username": "admin", "auth_enabled": true }
+POST /api/telnet  ← { "enabled": true, "port": 2323, "username": "user", "password": "pass" }
+```
+
+#### Berørte Filer
+- `api_handlers.cpp` — Nye handler funktioner
+- `http_server.cpp` — URI registration (2 nye routes)
+- `types.h` — NetworkConfig struct (allerede har telnet felter)
+
+#### Estimeret Kompleksitet
+Lav — følger eksisterende mønster fra `/api/wifi` og `/api/http` endpoints.
+
+---
+
+### FEAT-020: ST Logic Debug API Endpoints
+
+**Priority:** HIGH | **Status:** ✅ DONE | **Target:** v6.3.0
+
+#### Problem
+FEAT-008 implementerede kraftfuld CLI debug mode (pause/step/breakpoint/inspect), men denne funktionalitet er helt skjult fra API. Remote debugging via web UI er umulig.
+
+#### Foreslået Implementation
+```
+POST /api/logic/{id}/debug/pause       → Pause execution
+POST /api/logic/{id}/debug/continue    → Resume execution
+POST /api/logic/{id}/debug/step        → Execute single instruction
+POST /api/logic/{id}/debug/breakpoint  ← { "pc": 42 } eller { "line": 15 }
+DELETE /api/logic/{id}/debug/breakpoint ← { "pc": 42 }
+POST /api/logic/{id}/debug/stop        → Exit debug mode
+GET  /api/logic/{id}/debug/state       → Snapshot: PC, stack, variables, mode
+```
+
+#### Berørte Filer
+- `api_handlers.cpp` — 6-7 nye handler funktioner
+- `http_server.cpp` — URI registration (wildcard `/api/logic/*/debug*`)
+- `st_debug.h/cpp` — Allerede implementeret, API kalder eksisterende funktioner
+
+#### Estimeret Kompleksitet
+Medium — mange endpoints men logikken eksisterer allerede i `st_debug.cpp`.
+
+---
+
+### FEAT-021: Bulk Register Operations API
+
+**Priority:** HIGH | **Status:** ✅ DONE | **Target:** v6.3.0
+
+#### Problem
+API kan kun læse/skrive ét register ad gangen. CLI kan `show registers 0 100`. For SCADA dashboards der læser 50+ registre er dette 50+ separate HTTP requests — langsomt og ressource-tungt på ESP32.
+
+#### Foreslået Implementation
+```
+GET  /api/registers/hr?start=0&count=100  → { "registers": [{"addr": 0, "value": 123}, ...] }
+GET  /api/registers/ir?start=220&count=32 → { "registers": [{"addr": 220, "value": 456}, ...] }
+GET  /api/registers/coils?start=0&count=32 → { "coils": [{"addr": 0, "value": true}, ...] }
+POST /api/registers/hr/bulk ← { "writes": [{"addr": 100, "value": 123}, {"addr": 101, "value": 456}] }
+POST /api/registers/coils/bulk ← { "writes": [{"addr": 0, "value": true}, {"addr": 1, "value": false}] }
+```
+
+#### Berørte Filer
+- `api_handlers.cpp` — Nye bulk handler funktioner
+- `http_server.cpp` — URI registration
+
+#### OBS: Memory
+Bulk response for 100 registre ≈ 3-4 KB JSON. HTTP stack er 8192 bytes (BUG-207 fix). Max ~200 registre per request for at undgå heap exhaustion.
+
+#### Estimeret Kompleksitet
+Medium — JSON array serialisering + query parameter parsing.
+
+---
+
+### FEAT-022: Persistence Group Management API
+
+**Priority:** MEDIUM | **Status:** OPEN | **Target:** v6.4.0
+
+#### Problem
+CLI `set persist` kommandoer (groups, auto-load, enable/disable) har ingen API ækvivalent. Avanceret konfigurationsstyring kun mulig via serial/telnet.
+
+#### Foreslået Implementation
+```
+GET    /api/persist              → { "enabled": true, "auto_load": true, "groups": [...] }
+GET    /api/persist/groups       → [{ "name": "counters", "enabled": true }, ...]
+POST   /api/persist/groups/{name} ← { "enabled": true }
+DELETE /api/persist/groups/{name} → Fjern group
+POST   /api/persist/settings     ← { "enabled": true, "auto_load": true }
+```
+
+#### Estimeret Kompleksitet
+Medium — kræver forståelse af persistence group strukturen.
+
+---
+
+### FEAT-024: Hostname API Endpoint
+
+**Priority:** MEDIUM | **Status:** ✅ DONE | **Target:** v6.3.0
+
+#### Foreslået Implementation
+```
+GET  /api/hostname  → { "hostname": "esp32-modbus-01" }
+POST /api/hostname  ← { "hostname": "new-name" }
+```
+
+#### Estimeret Kompleksitet
+Lav — enkelt string felt i PersistConfig.
+
+---
+
+### FEAT-025: Watchdog Status API Endpoint
+
+**Priority:** MEDIUM | **Status:** ✅ DONE | **Target:** v6.3.0
+
+#### Foreslået Implementation
+```
+GET /api/system/watchdog → {
+  "reboot_count": 3,
+  "last_reset_reason": "SW_RESET",
+  "uptime_ms": 3600000,
+  "free_heap": 102400,
+  "min_free_heap": 85000,
+  "task_watchdog_triggered": false
+}
+```
+
+#### Estimeret Kompleksitet
+Lav — data allerede tilgængelig via ESP-IDF API (`esp_reset_reason()`, `esp_get_free_heap_size()` etc.).
+
+---
+
+### FEAT-026: GPIO2 Heartbeat Control API
+
+**Priority:** LOW | **Status:** ✅ DONE | **Target:** v6.3.0
+
+#### Foreslået Implementation
+```
+POST /api/gpio/2/heartbeat ← { "enabled": true }
+GET  /api/gpio/2/heartbeat → { "enabled": true, "frequency_hz": 1 }
+```
+
+#### Estimeret Kompleksitet
+Lav — toggler `gpio2_user_mode` flag.
+
+---
+
+### FEAT-027: CORS Headers Support
+
+**Priority:** MEDIUM | **Status:** ✅ DONE | **Target:** v6.3.0
+
+#### Problem
+Browser-baserede dashboards og SPA frontends kan ikke kalde API fra anden origin uden CORS headers. Blokeret af Same-Origin Policy.
+
+#### Foreslået Implementation
+Tilføj til alle API responses:
+```
+Access-Control-Allow-Origin: * (eller konfigurerbar)
+Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS
+Access-Control-Allow-Headers: Authorization, Content-Type
+```
+Plus OPTIONS preflight handler for alle `/api/*` routes.
+
+#### Estimeret Kompleksitet
+Lav-Medium — headers i `api_send_json()`/`api_send_error()` + OPTIONS handler.
+
+---
+
+### v7.0.0 — Next Generation API
+
+---
+
+### FEAT-023: WebSocket/SSE Real-Time Events
+
+**Priority:** MEDIUM | **Status:** OPEN | **Target:** v7.0.0
+
+#### Problem
+Al data kræver polling. Et dashboard der viser 10 counters + 4 timers + 32 registre laver 46+ requests per opdatering. Ved 1 Hz polling = 46 req/s — for meget for ESP32.
+
+#### Foreslået Implementation (SSE foretrukket — simplere end WebSocket)
+```
+GET /api/events?subscribe=counters,timers,registers
+```
+Server sender events:
+```
+event: counter
+data: {"id": 1, "value": 12345, "running": true}
+
+event: register
+data: {"addr": 100, "value": 567}
+```
+
+#### Arkitekturelle Overvejelser
+- ESP-IDF httpd understøtter async send via `httpd_queue_work()`
+- Max 2-3 samtidige SSE connections (RAM begrænset)
+- Event throttling: max 10 events/sekund per connection
+- Kræver event bus i main loop der broadcaster ændringer
+
+#### Estimeret Kompleksitet
+Høj — kræver event system, connection management, throttling.
+
+---
+
+### FEAT-028: Request Rate Limiting
+
+**Priority:** MEDIUM | **Status:** OPEN | **Target:** v7.0.0
+
+#### Problem
+Ingen beskyttelse mod API misbrug. En klient kan sende 100+ requests/sekund og overbelaste ESP32 heap/stack.
+
+#### Foreslået Implementation
+Token bucket algoritme per klient-IP:
+- Default: 30 requests/sekund, burst: 50
+- HTTP 429 Too Many Requests ved overskridelse
+- Konfigurerbar via `/api/http` POST
+
+#### Estimeret Kompleksitet
+Medium — IP tracking + token bucket state.
+
+---
+
+### FEAT-029: OpenAPI/Swagger Schema Endpoint
+
+**Priority:** LOW | **Status:** OPEN | **Target:** v7.0.0
+
+#### Foreslået Implementation
+```
+GET /api/schema → OpenAPI 3.0 JSON spec
+```
+Statisk JSON embedded i flash (~5-10 KB). Muliggør automatisk klient-kodegenerering.
+
+#### Estimeret Kompleksitet
+Lav kode, men stort manuelt arbejde at skrive spec.
+
+---
+
+### FEAT-030: API Versioning
+
+**Priority:** LOW | **Status:** OPEN | **Target:** v7.0.0
+
+Kræver URI router refactoring til `/api/v1/...` prefix. Alternativ: Accept header versioning. Først relevant ved breaking API changes.
+
+---
+
+### FEAT-031: Firmware OTA via API
+
+**Priority:** HIGH | **Status:** OPEN | **Target:** v7.0.0
+
+#### Problem
+Firmware opdatering kræver fysisk USB forbindelse. Med OTA kan enheder opdateres remote.
+
+#### Foreslået Implementation
+```
+POST /api/system/ota ← multipart/form-data med firmware.bin
+GET  /api/system/ota/status → { "state": "idle|downloading|verifying|rebooting", "progress": 75 }
+```
+
+#### Sikkerhedskrav
+- SHA-256 checksum validering
+- Rollback til tidligere firmware ved fejl
+- Kræver OTA partition i partition table (allerede plads efter BUG-219 fix)
+- Authentication påkrævet (eksisterende Basic Auth)
+
+#### Estimeret Kompleksitet
+Høj — ESP-IDF OTA API, partition management, error recovery.
+
+---
+
+### FEAT-032: Prometheus Metrics Endpoint
+
+**Priority:** LOW | **Status:** OPEN | **Target:** v7.0.0
+
+```
+GET /api/metrics → text/plain (Prometheus exposition format)
+```
+```
+# HELP esp32_uptime_seconds Device uptime
+esp32_uptime_seconds 3600
+# HELP esp32_heap_free_bytes Free heap memory
+esp32_heap_free_bytes 102400
+# HELP modbus_requests_total Total Modbus requests
+modbus_requests_total{type="slave"} 5432
+```
+
+#### Estimeret Kompleksitet
+Lav — simpel text output af eksisterende metrics.
+
+---
+
+### FEAT-033: Request Audit Log
+
+**Priority:** LOW | **Status:** OPEN | **Target:** v7.0.0
+
+```
+GET /api/system/logs?limit=50 → [
+  { "timestamp": 1234567890, "method": "POST", "path": "/api/counters/1", "status": 200, "ip": "192.168.1.10" },
+  ...
+]
+```
+
+Ringbuffer i RAM (50-100 entries, ~5 KB). Cleared ved reboot.
+
+#### Estimeret Kompleksitet
+Lav-Medium — ringbuffer struct + JSON serialisering.
+

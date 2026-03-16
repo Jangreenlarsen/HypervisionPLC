@@ -91,6 +91,21 @@ extern esp_err_t api_handler_modules_post(httpd_req_t *req);
 // Backup/restore handlers
 extern esp_err_t api_handler_system_backup(httpd_req_t *req);
 extern esp_err_t api_handler_system_restore(httpd_req_t *req);
+// v6.3.0 FEAT-019 to FEAT-027 handlers
+extern esp_err_t api_handler_telnet_get(httpd_req_t *req);
+extern esp_err_t api_handler_telnet_post(httpd_req_t *req);
+extern esp_err_t api_handler_hostname_get(httpd_req_t *req);
+extern esp_err_t api_handler_hostname_post(httpd_req_t *req);
+extern esp_err_t api_handler_system_watchdog(httpd_req_t *req);
+extern esp_err_t api_handler_hr_bulk_read(httpd_req_t *req);
+extern esp_err_t api_handler_hr_bulk_write(httpd_req_t *req);
+extern esp_err_t api_handler_ir_bulk_read(httpd_req_t *req);
+extern esp_err_t api_handler_coils_bulk_read(httpd_req_t *req);
+extern esp_err_t api_handler_coils_bulk_write(httpd_req_t *req);
+extern esp_err_t api_handler_di_bulk_read(httpd_req_t *req);
+extern esp_err_t api_handler_logic_debug(httpd_req_t *req);
+extern esp_err_t api_handler_heartbeat(httpd_req_t *req);
+extern esp_err_t api_handler_cors_preflight(httpd_req_t *req);
 
 /* ============================================================================
  * URI DEFINITIONS
@@ -437,6 +452,114 @@ static const httpd_uri_t uri_system_restore = {
 };
 
 /* ============================================================================
+ * v6.3.0 URI DEFINITIONS (FEAT-019 to FEAT-027)
+ * ============================================================================ */
+
+// FEAT-019: Telnet config
+static const httpd_uri_t uri_telnet_get = {
+  .uri      = "/api/telnet",
+  .method   = HTTP_GET,
+  .handler  = api_handler_telnet_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_telnet_post = {
+  .uri      = "/api/telnet",
+  .method   = HTTP_POST,
+  .handler  = api_handler_telnet_post,
+  .user_ctx = NULL
+};
+
+// FEAT-024: Hostname
+static const httpd_uri_t uri_hostname_get = {
+  .uri      = "/api/hostname",
+  .method   = HTTP_GET,
+  .handler  = api_handler_hostname_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_hostname_post = {
+  .uri      = "/api/hostname",
+  .method   = HTTP_POST,
+  .handler  = api_handler_hostname_post,
+  .user_ctx = NULL
+};
+
+// FEAT-025: Watchdog status
+static const httpd_uri_t uri_system_watchdog = {
+  .uri      = "/api/system/watchdog",
+  .method   = HTTP_GET,
+  .handler  = api_handler_system_watchdog,
+  .user_ctx = NULL
+};
+
+// FEAT-021: Bulk register operations
+static const httpd_uri_t uri_hr_bulk_read = {
+  .uri      = "/api/registers/hr",
+  .method   = HTTP_GET,
+  .handler  = api_handler_hr_bulk_read,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_hr_bulk_write = {
+  .uri      = "/api/registers/hr/bulk",
+  .method   = HTTP_POST,
+  .handler  = api_handler_hr_bulk_write,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_ir_bulk_read = {
+  .uri      = "/api/registers/ir",
+  .method   = HTTP_GET,
+  .handler  = api_handler_ir_bulk_read,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_coils_bulk_read = {
+  .uri      = "/api/registers/coils",
+  .method   = HTTP_GET,
+  .handler  = api_handler_coils_bulk_read,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_coils_bulk_write = {
+  .uri      = "/api/registers/coils/bulk",
+  .method   = HTTP_POST,
+  .handler  = api_handler_coils_bulk_write,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_di_bulk_read = {
+  .uri      = "/api/registers/di",
+  .method   = HTTP_GET,
+  .handler  = api_handler_di_bulk_read,
+  .user_ctx = NULL
+};
+
+// FEAT-020: ST Logic Debug — routed via suffix in logic_single handler, no extra URIs needed
+
+// FEAT-026: GPIO2 Heartbeat control
+static const httpd_uri_t uri_heartbeat_get = {
+  .uri      = "/api/gpio/2/heartbeat",
+  .method   = HTTP_GET,
+  .handler  = api_handler_heartbeat,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_heartbeat_post = {
+  .uri      = "/api/gpio/2/heartbeat",
+  .method   = HTTP_POST,
+  .handler  = api_handler_heartbeat,
+  .user_ctx = NULL
+};
+
+// FEAT-027: CORS preflight for all /api/* routes
+static const httpd_uri_t uri_cors_preflight = {
+  .uri      = "/api/*",
+  .method   = HTTP_OPTIONS,
+  .handler  = api_handler_cors_preflight,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_cors_preflight_root = {
+  .uri      = "/api",
+  .method   = HTTP_OPTIONS,
+  .handler  = api_handler_cors_preflight,
+  .user_ctx = NULL
+};
+
+/* ============================================================================
  * INITIALIZATION & CONTROL
  * ============================================================================ */
 
@@ -483,7 +606,7 @@ int http_server_start(const HttpConfig *config)
     uint8_t prio = (config->priority == 0) ? 3 : (config->priority == 2) ? 6 : 5;
     int ret = https_wrapper_start(&http_state.server,
                                    config->port,
-                                   48,       // max URI handlers
+                                   64,       // max URI handlers
                                    10240,    // stack (TLS handshake needs ~8-10KB)
                                    prio,
                                    1);       // core 1
@@ -496,7 +619,7 @@ int http_server_start(const HttpConfig *config)
     // Plain HTTP mode
     httpd_config_t httpd_config = HTTPD_DEFAULT_CONFIG();
     httpd_config.server_port = config->port;
-    httpd_config.max_uri_handlers = 48;
+    httpd_config.max_uri_handlers = 64;
     httpd_config.stack_size = 8192;
     httpd_config.uri_match_fn = httpd_uri_match_wildcard;
 
@@ -508,7 +631,7 @@ int http_server_start(const HttpConfig *config)
     http_state.tls_active = 0;
   }
 
-  // Register URI handlers (38 total)
+  // Register URI handlers (56 total with v6.3.0 additions)
   // NOTE: ESP-IDF httpd_uri_match_wildcard only supports * at END of URI.
   // Middle-wildcards like /api/logic/*/source NEVER match.
   // Instead, wildcard handlers do internal suffix-based routing.
@@ -525,13 +648,23 @@ int http_server_start(const HttpConfig *config)
   // Timers
   httpd_register_uri_handler(http_state.server, &uri_timers);
   httpd_register_uri_handler(http_state.server, &uri_timer_single);
-  // Registers
+  // FEAT-021: Bulk register operations (must be before wildcard routes)
+  httpd_register_uri_handler(http_state.server, &uri_hr_bulk_read);
+  httpd_register_uri_handler(http_state.server, &uri_hr_bulk_write);
+  httpd_register_uri_handler(http_state.server, &uri_ir_bulk_read);
+  httpd_register_uri_handler(http_state.server, &uri_coils_bulk_read);
+  httpd_register_uri_handler(http_state.server, &uri_coils_bulk_write);
+  httpd_register_uri_handler(http_state.server, &uri_di_bulk_read);
+  // Registers (single, wildcard)
   httpd_register_uri_handler(http_state.server, &uri_hr_read);
   httpd_register_uri_handler(http_state.server, &uri_hr_write);
   httpd_register_uri_handler(http_state.server, &uri_ir_read);
   httpd_register_uri_handler(http_state.server, &uri_coil_read);
   httpd_register_uri_handler(http_state.server, &uri_coil_write);
   httpd_register_uri_handler(http_state.server, &uri_di_read);
+  // v6.3.0: FEAT-026 Heartbeat (MUST register before GPIO wildcard to avoid /api/gpio/* catching it)
+  httpd_register_uri_handler(http_state.server, &uri_heartbeat_get);
+  httpd_register_uri_handler(http_state.server, &uri_heartbeat_post);
   // GPIO
   httpd_register_uri_handler(http_state.server, &uri_gpio);
   httpd_register_uri_handler(http_state.server, &uri_gpio_single);
@@ -568,6 +701,17 @@ int http_server_start(const HttpConfig *config)
   // Backup/restore
   httpd_register_uri_handler(http_state.server, &uri_system_backup);
   httpd_register_uri_handler(http_state.server, &uri_system_restore);
+  // v6.3.0: FEAT-019 Telnet config
+  httpd_register_uri_handler(http_state.server, &uri_telnet_get);
+  httpd_register_uri_handler(http_state.server, &uri_telnet_post);
+  // v6.3.0: FEAT-024 Hostname
+  httpd_register_uri_handler(http_state.server, &uri_hostname_get);
+  httpd_register_uri_handler(http_state.server, &uri_hostname_post);
+  // v6.3.0: FEAT-025 Watchdog
+  httpd_register_uri_handler(http_state.server, &uri_system_watchdog);
+  // v6.3.0: FEAT-027 CORS preflight
+  httpd_register_uri_handler(http_state.server, &uri_cors_preflight_root);
+  httpd_register_uri_handler(http_state.server, &uri_cors_preflight);
 
   http_state.running = 1;
   ESP_LOGI(TAG, "HTTP server started on port %d", config->port);

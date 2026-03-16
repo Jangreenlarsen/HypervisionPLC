@@ -1,6 +1,6 @@
 # HTTP REST API Documentation
 
-**Version:** v6.0.0 | **Feature:** FEAT-011
+**Version:** v6.3.0 | **Feature:** FEAT-011, FEAT-019–027
 
 ESP32 Modbus RTU Server's HTTP REST API giver nem integration med Node-RED, web dashboards, og andre HTTP-baserede systemer.
 
@@ -16,7 +16,14 @@ ESP32 Modbus RTU Server's HTTP REST API giver nem integration med Node-RED, web 
    - [Counters](#counters)
    - [Timers](#timers)
    - [Registers](#registers)
+   - [Bulk Register Operationer (v6.3.0)](#bulk-register-operationer)
    - [ST Logic](#st-logic)
+   - [ST Logic Debug (v6.3.0)](#st-logic-debug)
+   - [Telnet (v6.3.0)](#telnet)
+   - [Hostname (v6.3.0)](#hostname)
+   - [Watchdog (v6.3.0)](#watchdog)
+   - [Heartbeat (v6.3.0)](#heartbeat)
+   - [CORS (v6.3.0)](#cors)
 5. [Response Format](#response-format)
 6. [Error Handling](#error-handling)
 7. [Node-RED Integration](#node-red-integration)
@@ -30,9 +37,13 @@ HTTP REST API'en kører som en separat FreeRTOS task og blokerer ikke Modbus kom
 
 ### Nøglefunktioner
 - **JSON Responses:** Alle endpoints returnerer JSON
-- **RESTful Design:** GET for læsning, POST for skrivning
+- **RESTful Design:** GET for læsning, POST for skrivning, DELETE for fjernelse
 - **Basic Auth:** Optional HTTP Basic Authentication
+- **CORS Support (v6.3.0):** `Access-Control-Allow-Origin: *` + OPTIONS preflight
+- **Bulk Operations (v6.3.0):** Læs/skriv multiple registers i ét kald
+- **Debug API (v6.3.0):** ST Logic debugger via REST (pause, step, breakpoints)
 - **Statistics:** Request/error counters via `show http`
+- **56+ Endpoints:** Komplet dækning af alle system-funktioner
 - **Low Latency:** Typisk <50ms response time
 
 ### Hukommelsesforbrug
@@ -581,6 +592,297 @@ Returnerer detaljeret info for enkelt program med variabler.
 
 ---
 
+### Bulk Register Operationer
+
+*Tilføjet i v6.3.0 (FEAT-021)*
+
+#### GET /api/registers/hr?start={start}&count={count}
+Bulk læs holding registers.
+
+**Query Parameters:**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `start` | 0 | Start-adresse |
+| `count` | 10 | Antal registers (max 125) |
+
+**Response:**
+```json
+{
+  "start": 0,
+  "count": 10,
+  "registers": [0, 0, 12345, 0, 0, 0, 0, 0, 0, 0]
+}
+```
+
+**Eksempel:**
+```bash
+curl "http://192.168.1.100/api/registers/hr?start=100&count=20"
+```
+
+---
+
+#### POST /api/registers/hr
+Bulk skriv holding registers.
+
+**Request Body:**
+```json
+{
+  "start": 100,
+  "values": [1234, 5678, 9012]
+}
+```
+
+**Response:**
+```json
+{
+  "start": 100,
+  "count": 3,
+  "status": "ok"
+}
+```
+
+---
+
+#### GET /api/registers/ir?start={start}&count={count}
+Bulk læs input registers (read-only). Samme format som holding registers.
+
+---
+
+#### GET /api/registers/coils?start={start}&count={count}
+Bulk læs coils.
+
+**Response:**
+```json
+{
+  "start": 0,
+  "count": 16,
+  "coils": [true, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false]
+}
+```
+
+---
+
+#### POST /api/registers/coils
+Bulk skriv coils.
+
+**Request Body:**
+```json
+{
+  "start": 0,
+  "values": [true, false, true, true]
+}
+```
+
+---
+
+#### GET /api/registers/di?start={start}&count={count}
+Bulk læs discrete inputs (read-only). Samme format som coils.
+
+---
+
+### ST Logic Debug
+
+*Tilføjet i v6.3.0 (FEAT-020)*
+
+#### GET /api/logic/{id}/debug/state
+Hent aktuel debug-tilstand for et ST Logic program.
+
+**Response:**
+```json
+{
+  "program_id": 1,
+  "paused": true,
+  "current_line": 5,
+  "breakpoints": [3, 7, 12],
+  "snapshot": {
+    "variables": [
+      {"name": "counter", "type": "INT", "value": 42},
+      {"name": "running", "type": "BOOL", "value": true}
+    ]
+  }
+}
+```
+
+---
+
+#### POST /api/logic/{id}/debug/control
+Styr ST Logic debugger.
+
+**Request Body (pause):**
+```json
+{"action": "pause"}
+```
+
+**Request Body (continue):**
+```json
+{"action": "continue"}
+```
+
+**Request Body (step):**
+```json
+{"action": "step"}
+```
+
+**Request Body (stop):**
+```json
+{"action": "stop"}
+```
+
+---
+
+#### POST /api/logic/{id}/debug/breakpoint
+Sæt breakpoint.
+
+**Request Body:**
+```json
+{"line": 5}
+```
+
+---
+
+#### DELETE /api/logic/{id}/debug/breakpoint
+Fjern breakpoint.
+
+**Request Body:**
+```json
+{"line": 5}
+```
+
+---
+
+### Telnet
+
+*Tilføjet i v6.3.0 (FEAT-019)*
+
+#### GET /api/telnet
+Læs telnet server konfiguration.
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "port": 23,
+  "timeout_sec": 300
+}
+```
+
+---
+
+#### POST /api/telnet
+Opdatér telnet konfiguration.
+
+**Request Body:**
+```json
+{
+  "enabled": true,
+  "port": 23,
+  "timeout_sec": 600
+}
+```
+
+---
+
+### Hostname
+
+*Tilføjet i v6.3.0 (FEAT-024)*
+
+#### GET /api/hostname
+Læs enhedens hostname.
+
+**Response:**
+```json
+{
+  "hostname": "esp32-modbus"
+}
+```
+
+---
+
+#### POST /api/hostname
+Sæt hostname.
+
+**Request Body:**
+```json
+{
+  "hostname": "production-plc-01"
+}
+```
+
+---
+
+### Watchdog
+
+*Tilføjet i v6.3.0 (FEAT-025)*
+
+#### GET /api/system/watchdog
+Hent watchdog status.
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "timeout_sec": 30,
+  "reboot_count": 2,
+  "last_reboot_reason": "watchdog"
+}
+```
+
+---
+
+### Heartbeat
+
+*Tilføjet i v6.3.0 (FEAT-026)*
+
+#### GET /api/heartbeat
+Hent heartbeat/LED status.
+
+**Response:**
+```json
+{
+  "gpio2_user_mode": false,
+  "led_state": true
+}
+```
+
+---
+
+#### POST /api/heartbeat
+Toggle GPIO2 user mode.
+
+**Request Body:**
+```json
+{
+  "gpio2_user_mode": true
+}
+```
+
+---
+
+### CORS
+
+*Tilføjet i v6.3.0 (FEAT-027)*
+
+Alle API responses inkluderer `Access-Control-Allow-Origin: *` header, så browser-baserede dashboards kan kalde API direkte.
+
+#### OPTIONS * (preflight)
+Returnerer 204 No Content med CORS headers:
+```
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization
+Access-Control-Max-Age: 86400
+```
+
+**Eksempel (browser preflight):**
+```bash
+curl -X OPTIONS http://192.168.1.100/api/status -i
+# HTTP/1.1 204 No Content
+# Access-Control-Allow-Origin: *
+# ...
+```
+
+---
+
 ## Response Format
 
 ### Success Response (2xx)
@@ -885,6 +1187,6 @@ HTTP API påvirker ikke Modbus RTU kommunikation - de kører i separate FreeRTOS
 
 ---
 
-**Document Version:** 1.0
-**Last Updated:** 2026-01-21
-**Compatible With:** Firmware v6.0.0+
+**Document Version:** 2.0
+**Last Updated:** 2026-03-16
+**Compatible With:** Firmware v6.3.0+ (bulk/debug/CORS endpoints kræver v6.3.0)

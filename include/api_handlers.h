@@ -228,6 +228,40 @@ esp_err_t api_handler_system_backup(httpd_req_t *req);
 esp_err_t api_handler_system_restore(httpd_req_t *req);
 
 /* ============================================================================
+ * v6.3.0 API EXTENSIONS (FEAT-019 to FEAT-027)
+ * ============================================================================ */
+
+/** FEAT-019: GET /api/telnet — Telnet config+status */
+esp_err_t api_handler_telnet_get(httpd_req_t *req);
+/** FEAT-019: POST /api/telnet — Configure Telnet */
+esp_err_t api_handler_telnet_post(httpd_req_t *req);
+
+/** FEAT-024: GET /api/hostname */
+esp_err_t api_handler_hostname_get(httpd_req_t *req);
+/** FEAT-024: POST /api/hostname */
+esp_err_t api_handler_hostname_post(httpd_req_t *req);
+
+/** FEAT-025: GET /api/system/watchdog — Watchdog status */
+esp_err_t api_handler_system_watchdog(httpd_req_t *req);
+
+/** FEAT-021: Bulk register operations */
+esp_err_t api_handler_hr_bulk_read(httpd_req_t *req);
+esp_err_t api_handler_hr_bulk_write(httpd_req_t *req);
+esp_err_t api_handler_ir_bulk_read(httpd_req_t *req);
+esp_err_t api_handler_coils_bulk_read(httpd_req_t *req);
+esp_err_t api_handler_coils_bulk_write(httpd_req_t *req);
+esp_err_t api_handler_di_bulk_read(httpd_req_t *req);
+
+/** FEAT-020: ST Logic Debug API */
+esp_err_t api_handler_logic_debug(httpd_req_t *req);
+
+/** FEAT-026: GPIO2 Heartbeat control */
+esp_err_t api_handler_heartbeat(httpd_req_t *req);
+
+/** FEAT-027: CORS preflight handler */
+esp_err_t api_handler_cors_preflight(httpd_req_t *req);
+
+/* ============================================================================
  * UTILITY FUNCTIONS
  * ============================================================================ */
 
