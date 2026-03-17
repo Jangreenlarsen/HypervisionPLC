@@ -390,10 +390,20 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "6.3.0"
+#define PROJECT_VERSION     "7.0.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.0.0 (2026-03-17): API v7.0.0 — SSE Real-Time Events + API Versioning
+ *                      - FEAT-023: GET /api/events — Server-Sent Events for live push updates
+ *                        - Subscribe per topic: ?subscribe=counters,timers,registers,system
+ *                        - Max 3 samtidige SSE connections, 10 Hz change detection
+ *                        - Automatic keepalive heartbeat every 15s
+ *                      - FEAT-030: API Versioning — /api/v1/* prefix support
+ *                        - GET /api/version — API version info
+ *                        - /api/v1/* dispatcher med URI rewriting til eksisterende handlers
+ *                        - Backward-kompatibelt: /api/* virker stadig uændret
+ *                      - GET /api/events/status — SSE subsystem info
  * v6.3.0 (2026-03-16): API v6.3.0 — 8 nye features (FEAT-019 to FEAT-027)
  *                      - FEAT-019: GET/POST /api/telnet — Telnet konfiguration via API
  *                      - FEAT-020: ST Logic Debug API (pause/step/continue/breakpoint/state)

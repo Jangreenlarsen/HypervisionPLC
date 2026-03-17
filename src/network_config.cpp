@@ -59,6 +59,7 @@ void network_config_init_defaults(NetworkConfig *config)
   config->http.tls_enabled = 0;                   // Default: plain HTTP
   config->http.api_enabled = 1;                   // API enabled by default
   config->http.priority = 1;                      // NORMAL priority (0=LOW, 1=NORMAL, 2=HIGH)
+  config->http.sse_port = 0;                      // 0 = auto (main port + 1, e.g., 81)
   memset(config->http.reserved, 0, sizeof(config->http.reserved));
 
   // Default static IP (192.168.1.100)

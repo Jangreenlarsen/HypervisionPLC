@@ -36,6 +36,7 @@
 #include "watchdog_monitor.h"
 #include "register_allocator.h"
 #include "registers_persist.h"
+#include "sse_events.h"        // v7.0.0 - SSE real-time events
 
 // ============================================================================
 // GLOBAL CONSOLE
@@ -89,6 +90,7 @@ void setup() {
   modbus_server_init(g_persist_config.modbus_slave.slave_id);    // Modbus RTU server (UART0, from config)
   modbus_master_init();     // Modbus RTU master (UART1, separate RS485 port)
   heartbeat_init();         // LED blink on GPIO2
+  sse_init();               // SSE real-time events (v7.0.0)
 
   // Load ST Logic programs from persistent config
   st_logic_load_from_persist_config(&g_persist_config);

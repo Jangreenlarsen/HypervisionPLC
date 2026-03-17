@@ -106,6 +106,13 @@ extern esp_err_t api_handler_di_bulk_read(httpd_req_t *req);
 extern esp_err_t api_handler_logic_debug(httpd_req_t *req);
 extern esp_err_t api_handler_heartbeat(httpd_req_t *req);
 extern esp_err_t api_handler_cors_preflight(httpd_req_t *req);
+// v7.0.0 FEAT-023 SSE + FEAT-030 API Versioning
+extern esp_err_t api_handler_sse_events(httpd_req_t *req);
+extern esp_err_t api_handler_sse_status(httpd_req_t *req);
+extern esp_err_t api_handler_api_version(httpd_req_t *req);
+extern esp_err_t api_v1_dispatch_get(httpd_req_t *req);
+extern esp_err_t api_v1_dispatch_post(httpd_req_t *req);
+extern esp_err_t api_v1_dispatch_delete(httpd_req_t *req);
 
 /* ============================================================================
  * URI DEFINITIONS
@@ -560,6 +567,46 @@ static const httpd_uri_t uri_cors_preflight_root = {
 };
 
 /* ============================================================================
+ * v7.0.0 URI DEFINITIONS (FEAT-023 SSE, FEAT-030 API Versioning)
+ * ============================================================================ */
+
+// FEAT-023: SSE status endpoint (on main server; SSE stream runs on dedicated port)
+static const httpd_uri_t uri_sse_status = {
+  .uri      = "/api/events/status",
+  .method   = HTTP_GET,
+  .handler  = api_handler_sse_status,
+  .user_ctx = NULL
+};
+
+// FEAT-030: API version endpoint
+static const httpd_uri_t uri_api_version = {
+  .uri      = "/api/version",
+  .method   = HTTP_GET,
+  .handler  = api_handler_api_version,
+  .user_ctx = NULL
+};
+
+// FEAT-030: /api/v1/* dispatchers (forward to existing handlers)
+static const httpd_uri_t uri_v1_get = {
+  .uri      = "/api/v1/*",
+  .method   = HTTP_GET,
+  .handler  = api_v1_dispatch_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_v1_post = {
+  .uri      = "/api/v1/*",
+  .method   = HTTP_POST,
+  .handler  = api_v1_dispatch_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_v1_delete = {
+  .uri      = "/api/v1/*",
+  .method   = HTTP_DELETE,
+  .handler  = api_v1_dispatch_delete,
+  .user_ctx = NULL
+};
+
+/* ============================================================================
  * INITIALIZATION & CONTROL
  * ============================================================================ */
 
@@ -631,7 +678,7 @@ int http_server_start(const HttpConfig *config)
     http_state.tls_active = 0;
   }
 
-  // Register URI handlers (56 total with v6.3.0 additions)
+  // Register URI handlers (64+ with v7.0.0 additions)
   // NOTE: ESP-IDF httpd_uri_match_wildcard only supports * at END of URI.
   // Middle-wildcards like /api/logic/*/source NEVER match.
   // Instead, wildcard handlers do internal suffix-based routing.
@@ -712,6 +759,14 @@ int http_server_start(const HttpConfig *config)
   // v6.3.0: FEAT-027 CORS preflight
   httpd_register_uri_handler(http_state.server, &uri_cors_preflight_root);
   httpd_register_uri_handler(http_state.server, &uri_cors_preflight);
+  // v7.0.0: FEAT-023 SSE status (stream runs on dedicated SSE server port)
+  httpd_register_uri_handler(http_state.server, &uri_sse_status);
+  // v7.0.0: FEAT-030 API version endpoint
+  httpd_register_uri_handler(http_state.server, &uri_api_version);
+  // v7.0.0: FEAT-030 /api/v1/* dispatchers
+  httpd_register_uri_handler(http_state.server, &uri_v1_get);
+  httpd_register_uri_handler(http_state.server, &uri_v1_post);
+  httpd_register_uri_handler(http_state.server, &uri_v1_delete);
 
   http_state.running = 1;
   ESP_LOGI(TAG, "HTTP server started on port %d", config->port);

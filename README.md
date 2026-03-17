@@ -200,6 +200,7 @@ Remote I/O Boards (Modbus Slaves)
 | Document | Description |
 |----------|-------------|
 | **[CHANGELOG.md](CHANGELOG.md)** | Complete version history |
+| **[docs/API_V7_SSE_VERSIONING.md](docs/API_V7_SSE_VERSIONING.md)** | v7.0.0 SSE Real-Time Events + API Versioning (FEAT-023/030) |
 | **[RELEASE_NOTES_V47.md](RELEASE_NOTES_V47.md)** | v4.7 release notes |
 | **[IMPLEMENTATION_STATUS_v4.6.0.md](IMPLEMENTATION_STATUS_v4.6.0.md)** | v4.6.0 implementation status |
 | **[TEST_PLAN_v4.6.0.md](TEST_PLAN_v4.6.0.md)** | v4.6.0 test plan |
@@ -3607,6 +3608,25 @@ empty := CTD(dispense, reload, 50);              (* Count down from 50 *)
 ---
 
 ## 📝 Version History
+
+- **v7.0.0** (2026-03-17) - 📡 SSE Real-Time Events + API Versioning
+  - **FEAT-023: Server-Sent Events (SSE)**
+    - `GET :81/api/events?subscribe=counters,timers,registers,system`
+    - Dedicated SSE httpd server on configurable port (default: 81)
+    - Change detection at 10 Hz with topic-based subscription filtering
+    - Max 3 simultaneous clients, heartbeat keepalive every 15s
+    - Monitors counters (4), timers (4), holding registers (0-15)
+  - **FEAT-030: API Versioning**
+    - `GET /api/version` — API version info endpoint
+    - `/api/v1/*` dispatcher with URI rewriting to existing handlers
+    - 40+ routes supported (exact + wildcard prefix matching)
+    - Fully backward-compatible: existing `/api/*` endpoints unchanged
+  - **New Endpoints:** `/api/version`, `/api/events/status`, `/api/v1/*`
+  - **New Files:** `sse_events.h/cpp`
+  - **Config:** `HttpConfig.sse_port` field (0=auto, default port+1)
+  - **Docs:** [docs/API_V7_SSE_VERSIONING.md](docs/API_V7_SSE_VERSIONING.md)
+  - **Test:** 40/40 PASS — see [tests/FEAT023_FEAT030_TEST_RESULTS.md](tests/FEAT023_FEAT030_TEST_RESULTS.md)
+  - **Build:** #1389
 
 - **v5.3.0** (2026-01-19) - 🔧 ST Logic Debugger (FEAT-008)
   - **NEW FEATURE: Interactive Debugger**

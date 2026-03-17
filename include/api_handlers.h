@@ -262,6 +262,23 @@ esp_err_t api_handler_heartbeat(httpd_req_t *req);
 esp_err_t api_handler_cors_preflight(httpd_req_t *req);
 
 /* ============================================================================
+ * v7.0.0 API EXTENSIONS (FEAT-023, FEAT-030)
+ * ============================================================================ */
+
+/** FEAT-023: GET /api/events — SSE real-time event stream */
+esp_err_t api_handler_sse_events(httpd_req_t *req);
+/** FEAT-023: GET /api/events/status — SSE subsystem info */
+esp_err_t api_handler_sse_status(httpd_req_t *req);
+
+/** FEAT-030: GET /api/version — API version info */
+esp_err_t api_handler_api_version(httpd_req_t *req);
+
+/** FEAT-030: /api/v1/* dispatchers — forward to existing handlers */
+esp_err_t api_v1_dispatch_get(httpd_req_t *req);
+esp_err_t api_v1_dispatch_post(httpd_req_t *req);
+esp_err_t api_v1_dispatch_delete(httpd_req_t *req);
+
+/* ============================================================================
  * UTILITY FUNCTIONS
  * ============================================================================ */
 

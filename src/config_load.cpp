@@ -232,6 +232,7 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->network.http.tls_enabled = 0;
       out->network.http.api_enabled = 1;              // API enabled by default
       out->network.http.priority = 1;                 // NORMAL priority
+      out->network.http.sse_port = 0;                 // 0 = auto (main port + 1)
       memset(out->network.http.reserved, 0, sizeof(out->network.http.reserved));
 
       // Update schema version

@@ -262,7 +262,11 @@ esp_err_t api_handler_endpoints(httpd_req_t *req)
     "{\"method\":\"DELETE\",\"path\":\"/api/logic/{1-4}/debug/breakpoint\",\"desc\":\"Remove breakpoint\"},"
     "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/debug/stop\",\"desc\":\"Stop debug\"},"
     "{\"method\":\"GET\",\"path\":\"/api/logic/{1-4}/debug/state\",\"desc\":\"Debug snapshot\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/gpio/2/heartbeat\",\"desc\":\"Heartbeat control\"}"
+    "{\"method\":\"POST\",\"path\":\"/api/gpio/2/heartbeat\",\"desc\":\"Heartbeat control\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/events\",\"desc\":\"SSE real-time event stream (FEAT-023)\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/events/status\",\"desc\":\"SSE subsystem info\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/version\",\"desc\":\"API version info (FEAT-030)\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/v1/*\",\"desc\":\"API v1 versioned endpoint (FEAT-030)\"}"
     "]"
     "}",
     PROJECT_VERSION, BUILD_NUMBER);
@@ -4646,4 +4650,210 @@ esp_err_t api_handler_heartbeat(httpd_req_t *req)
   snprintf(resp, sizeof(resp), "{\"status\":200,\"heartbeat_enabled\":%s}",
            g_persist_config.gpio2_user_mode ? "false" : "true");
   return api_send_json(req, resp);
+}
+
+/* ============================================================================
+ * FEAT-030: GET /api/version — API Version Info (v7.0.0)
+ * ============================================================================ */
+
+esp_err_t api_handler_api_version(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  char buf[256];
+  snprintf(buf, sizeof(buf),
+    "{\"api_version\":1,\"api_version_str\":\"v1\","
+    "\"firmware_version\":\"%s\",\"build\":%d,"
+    "\"min_supported_api\":1,"
+    "\"versioned_prefix\":\"/api/v1\","
+    "\"unversioned_prefix\":\"/api\"}",
+    PROJECT_VERSION, BUILD_NUMBER);
+
+  return api_send_json(req, buf);
+}
+
+/* ============================================================================
+ * FEAT-030: /api/v1/* Dispatch Handlers (v7.0.0)
+ *
+ * These handlers receive requests for /api/v1/... URIs, strip the "/v1"
+ * segment in-place, call the appropriate existing handler, then restore
+ * the URI. This avoids duplicating 56+ URI registrations.
+ *
+ * ESP-IDF httpd_req_t.uri is a char[] array — safe to modify in-place.
+ * ============================================================================ */
+
+// Rewrite "/api/v1/xyz" -> "/api/xyz" in-place, returns true if rewritten
+static bool v1_rewrite_uri(httpd_req_t *req)
+{
+  char *uri = (char *)req->uri;
+  size_t len = strlen(uri);
+
+  // Must start with "/api/v1/" or be exactly "/api/v1"
+  if (len >= 7 && strncmp(uri, "/api/v1", 7) == 0) {
+    if (len == 7 || uri[7] == '/' || uri[7] == '?') {
+      // Shift everything after "/api/v1" to after "/api"
+      // "/api/v1/counters/1" -> "/api/counters/1"
+      memmove(uri + 4, uri + 7, len - 7 + 1);  // +1 for null terminator
+      return true;
+    }
+  }
+  return false;
+}
+
+// Undo rewrite: "/api/xyz" -> "/api/v1/xyz"
+static void v1_restore_uri(httpd_req_t *req, size_t original_len)
+{
+  char *uri = (char *)req->uri;
+  size_t cur_len = strlen(uri);
+  // Shift back: make room for "/v1"
+  memmove(uri + 7, uri + 4, cur_len - 4 + 1);
+  memcpy(uri + 4, "/v1", 3);
+}
+
+// Internal dispatch based on rewritten URI
+static esp_err_t v1_dispatch(httpd_req_t *req);
+
+esp_err_t api_v1_dispatch_get(httpd_req_t *req)
+{
+  return v1_dispatch(req);
+}
+
+esp_err_t api_v1_dispatch_post(httpd_req_t *req)
+{
+  return v1_dispatch(req);
+}
+
+esp_err_t api_v1_dispatch_delete(httpd_req_t *req)
+{
+  return v1_dispatch(req);
+}
+
+// Routing table entry
+typedef struct {
+  const char *prefix;     // URI prefix to match (after v1 rewrite)
+  bool exact;             // true = exact match, false = prefix match
+  int method;             // HTTP_GET, HTTP_POST, HTTP_DELETE, or -1 for any
+  esp_err_t (*handler)(httpd_req_t *req);
+} V1Route;
+
+// Forward-declared handlers we need
+extern esp_err_t api_handler_endpoints(httpd_req_t *req);
+extern esp_err_t api_handler_config_get(httpd_req_t *req);
+extern esp_err_t api_handler_gpio(httpd_req_t *req);
+extern esp_err_t api_handler_gpio_single(httpd_req_t *req);
+extern esp_err_t api_handler_gpio_write(httpd_req_t *req);
+extern esp_err_t api_handler_debug_get(httpd_req_t *req);
+extern esp_err_t api_handler_debug_set(httpd_req_t *req);
+extern esp_err_t api_handler_system_reboot(httpd_req_t *req);
+extern esp_err_t api_handler_system_save(httpd_req_t *req);
+extern esp_err_t api_handler_system_load(httpd_req_t *req);
+extern esp_err_t api_handler_system_defaults(httpd_req_t *req);
+extern esp_err_t api_handler_ethernet_get(httpd_req_t *req);
+extern esp_err_t api_handler_ethernet_post(httpd_req_t *req);
+extern esp_err_t api_handler_system_backup(httpd_req_t *req);
+extern esp_err_t api_handler_system_restore(httpd_req_t *req);
+
+// Routing table — order matters (more specific first)
+static const V1Route v1_routes[] = {
+  // Exact matches first
+  {"/api/status",           true,  HTTP_GET,    api_handler_status},
+  {"/api/config",           true,  HTTP_GET,    api_handler_config_get},
+  {"/api/counters",         true,  HTTP_GET,    api_handler_counters},
+  {"/api/timers",           true,  HTTP_GET,    api_handler_timers},
+  {"/api/logic",            true,  HTTP_GET,    api_handler_logic},
+  {"/api/gpio",             true,  HTTP_GET,    api_handler_gpio},
+  {"/api/wifi",             true,  HTTP_GET,    api_handler_wifi_get},
+  {"/api/wifi",             true,  HTTP_POST,   api_handler_wifi_post},
+  {"/api/ethernet",         true,  HTTP_GET,    api_handler_ethernet_get},
+  {"/api/ethernet",         true,  HTTP_POST,   api_handler_ethernet_post},
+  {"/api/debug",            true,  HTTP_GET,    api_handler_debug_get},
+  {"/api/debug",            true,  HTTP_POST,   api_handler_debug_set},
+  {"/api/modules",          true,  HTTP_GET,    api_handler_modules_get},
+  {"/api/modules",          true,  HTTP_POST,   api_handler_modules_post},
+  {"/api/hostname",         true,  HTTP_GET,    api_handler_hostname_get},
+  {"/api/hostname",         true,  HTTP_POST,   api_handler_hostname_post},
+  {"/api/telnet",           true,  HTTP_GET,    api_handler_telnet_get},
+  {"/api/telnet",           true,  HTTP_POST,   api_handler_telnet_post},
+  {"/api/system/reboot",    true,  HTTP_POST,   api_handler_system_reboot},
+  {"/api/system/save",      true,  HTTP_POST,   api_handler_system_save},
+  {"/api/system/load",      true,  HTTP_POST,   api_handler_system_load},
+  {"/api/system/defaults",  true,  HTTP_POST,   api_handler_system_defaults},
+  {"/api/system/watchdog",  true,  HTTP_GET,    api_handler_system_watchdog},
+  {"/api/system/backup",    true,  HTTP_GET,    api_handler_system_backup},
+  {"/api/system/restore",   true,  HTTP_POST,   api_handler_system_restore},
+  {"/api/http",             true,  HTTP_POST,   api_handler_http_config_post},
+  {"/api/logic/settings",   true,  HTTP_POST,   api_handler_logic_settings_post},
+
+  // Bulk register operations (before wildcards)
+  {"/api/registers/hr/bulk", true,  HTTP_POST,  api_handler_hr_bulk_write},
+  {"/api/registers/coils/bulk", true, HTTP_POST, api_handler_coils_bulk_write},
+
+  // Wildcard prefix matches
+  {"/api/counters/",        false, HTTP_GET,    api_handler_counter_single},
+  {"/api/counters/",        false, HTTP_POST,   api_handler_counter_single},
+  {"/api/counters/",        false, HTTP_DELETE,  api_handler_counter_delete},
+  {"/api/timers/",          false, HTTP_GET,    api_handler_timer_single},
+  {"/api/timers/",          false, HTTP_POST,   api_handler_timer_config_post},
+  {"/api/timers/",          false, HTTP_DELETE,  api_handler_timer_delete},
+  {"/api/registers/hr/",    false, HTTP_GET,    api_handler_hr_read},
+  {"/api/registers/hr/",    false, HTTP_POST,   api_handler_hr_write},
+  {"/api/registers/ir/",    false, HTTP_GET,    api_handler_ir_read},
+  {"/api/registers/coils/", false, HTTP_GET,    api_handler_coil_read},
+  {"/api/registers/coils/", false, HTTP_POST,   api_handler_coil_write},
+  {"/api/registers/di/",    false, HTTP_GET,    api_handler_di_read},
+  {"/api/gpio/",            false, HTTP_GET,    api_handler_gpio_single},
+  {"/api/gpio/",            false, HTTP_POST,   api_handler_gpio_write},
+  {"/api/gpio/",            false, HTTP_DELETE,  api_handler_gpio_config_delete},
+  {"/api/logic/",           false, HTTP_GET,    api_handler_logic_single},
+  {"/api/logic/",           false, HTTP_POST,   api_handler_logic_single},
+  {"/api/logic/",           false, HTTP_DELETE,  api_handler_logic_delete},
+  {"/api/modbus/",          false, HTTP_GET,    api_handler_modbus_get},
+  {"/api/modbus/",          false, HTTP_POST,   api_handler_modbus_post},
+  {"/api/wifi/",            false, HTTP_POST,   api_handler_wifi_post},
+
+  // Sentinel
+  {NULL, false, -1, NULL}
+};
+
+static esp_err_t v1_dispatch(httpd_req_t *req)
+{
+  http_server_stat_request();
+
+  // Save original length before rewrite
+  size_t orig_len = strlen(req->uri);
+
+  // Rewrite: /api/v1/xxx -> /api/xxx
+  if (!v1_rewrite_uri(req)) {
+    return api_send_error(req, 400, "Invalid v1 API path");
+  }
+
+  const char *uri = req->uri;
+  int method = req->method;
+
+  // Try routing table
+  for (int i = 0; v1_routes[i].prefix != NULL; i++) {
+    const V1Route *r = &v1_routes[i];
+
+    // Check method
+    if (r->method != -1 && r->method != method) continue;
+
+    // Check URI match
+    if (r->exact) {
+      if (strcmp(uri, r->prefix) != 0) continue;
+    } else {
+      if (strncmp(uri, r->prefix, strlen(r->prefix)) != 0) continue;
+    }
+
+    // Match found — call handler
+    esp_err_t result = r->handler(req);
+
+    // Restore URI
+    v1_restore_uri(req, orig_len);
+    return result;
+  }
+
+  // No match — restore URI and return 404
+  v1_restore_uri(req, orig_len);
+  return api_send_error(req, 404, "Endpoint not found in API v1");
 }
