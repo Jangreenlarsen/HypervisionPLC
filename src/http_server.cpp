@@ -107,7 +107,6 @@ extern esp_err_t api_handler_logic_debug(httpd_req_t *req);
 extern esp_err_t api_handler_heartbeat(httpd_req_t *req);
 extern esp_err_t api_handler_cors_preflight(httpd_req_t *req);
 // v7.0.0 FEAT-023 SSE + FEAT-030 API Versioning
-extern esp_err_t api_handler_sse_events(httpd_req_t *req);
 extern esp_err_t api_handler_sse_status(httpd_req_t *req);
 extern esp_err_t api_handler_api_version(httpd_req_t *req);
 extern esp_err_t api_v1_dispatch_get(httpd_req_t *req);

@@ -34,6 +34,7 @@
 #include "network_config.h"
 #include "wifi_driver.h"
 #include "ethernet_driver.h"
+#include "sse_events.h"
 #include "register_allocator.h"  // BUG-025: Register overlap checking
 #include <Arduino.h>
 #include <esp_system.h>
@@ -2382,6 +2383,126 @@ void cli_cmd_set_http(uint8_t argc, char* argv[]) {
   }
 
   debug_println("Hint: Use 'save' to persist configuration to NVS");
+}
+
+/* ============================================================================
+ * SET SSE (v7.0.2)
+ * ============================================================================ */
+
+void cli_cmd_set_sse(uint8_t argc, char* argv[]) {
+  if (argc < 1) {
+    debug_println("SET SSE: missing parameters");
+    debug_println("  Usage: set sse <option> [value]");
+    debug_println("");
+    debug_println("  Options:");
+    debug_println("    enable              - Enable SSE server");
+    debug_println("    disable             - Disable SSE server");
+    debug_println("    port <port>         - SSE port (1-65535, 0=auto)");
+    debug_println("    max-clients <1-5>   - Max simultaneous clients");
+    debug_println("    interval <50-5000>  - Change detection interval (ms)");
+    debug_println("    heartbeat <1000-60000> - Heartbeat interval (ms)");
+    debug_println("    disconnect all         - Disconnect all SSE clients");
+    debug_println("    disconnect <slot>      - Disconnect specific client (see 'show sse')");
+    debug_println("");
+    debug_println("  Note: Use 'save' to persist, 'reboot' to apply");
+    return;
+  }
+
+  const char* option = argv[0];
+
+  if (!strcmp(option, "enable") || !strcmp(option, "enabled") || !strcmp(option, "on")) {
+    g_persist_config.network.http.sse_enabled = 1;
+    debug_println("SSE server enabled (reboot to apply)");
+
+  } else if (!strcmp(option, "disable") || !strcmp(option, "disabled") || !strcmp(option, "off")) {
+    g_persist_config.network.http.sse_enabled = 0;
+    debug_println("SSE server disabled (reboot to apply)");
+
+  } else if (!strcmp(option, "port")) {
+    if (argc < 2) { debug_println("SET SSE PORT: missing port value"); return; }
+    int port = atoi(argv[1]);
+    if (port < 0 || port > 65535) {
+      debug_println("SET SSE PORT: invalid port (0=auto, 1-65535)");
+      return;
+    }
+    g_persist_config.network.http.sse_port = (uint16_t)port;
+    if (port == 0) {
+      debug_println("SSE port set to: auto (HTTP port + 1)");
+    } else {
+      debug_print("SSE port set to: ");
+      debug_print_uint(port);
+      debug_println("");
+    }
+
+  } else if (!strcmp(option, "max-clients") || !strcmp(option, "clients")) {
+    if (argc < 2) { debug_println("SET SSE MAX-CLIENTS: missing value"); return; }
+    int val = atoi(argv[1]);
+    if (val < 1 || val > 5) {
+      debug_println("SET SSE MAX-CLIENTS: invalid value (1-5)");
+      return;
+    }
+    g_persist_config.network.http.sse_max_clients = (uint8_t)val;
+    debug_print("SSE max clients set to: ");
+    debug_print_uint(val);
+    debug_println("");
+
+  } else if (!strcmp(option, "interval") || !strcmp(option, "check-interval")) {
+    if (argc < 2) { debug_println("SET SSE INTERVAL: missing value (ms)"); return; }
+    int val = atoi(argv[1]);
+    if (val < 50 || val > 5000) {
+      debug_println("SET SSE INTERVAL: invalid value (50-5000 ms)");
+      return;
+    }
+    g_persist_config.network.http.sse_check_interval_ms = (uint16_t)val;
+    debug_print("SSE check interval set to: ");
+    debug_print_uint(val);
+    debug_println(" ms");
+
+  } else if (!strcmp(option, "heartbeat")) {
+    if (argc < 2) { debug_println("SET SSE HEARTBEAT: missing value (ms)"); return; }
+    int val = atoi(argv[1]);
+    if (val < 1000 || val > 60000) {
+      debug_println("SET SSE HEARTBEAT: invalid value (1000-60000 ms)");
+      return;
+    }
+    g_persist_config.network.http.sse_heartbeat_ms = (uint16_t)val;
+    debug_print("SSE heartbeat set to: ");
+    debug_print_uint(val);
+    debug_println(" ms");
+
+  } else if (!strcmp(option, "disconnect") || !strcmp(option, "disc") || !strcmp(option, "kick")) {
+    if (argc < 2) {
+      debug_println("SET SSE DISCONNECT: missing target (all or slot number)");
+      debug_println("  Use 'show sse' to see connected clients");
+      return;
+    }
+    if (!strcmp(argv[1], "all") || !strcmp(argv[1], "ALL")) {
+      int n = sse_disconnect_all();
+      debug_print("SSE: disconnect requested for ");
+      debug_print_uint(n);
+      debug_println(" client(s)");
+    } else {
+      int slot = atoi(argv[1]);
+      if (sse_disconnect_client(slot)) {
+        debug_print("SSE: disconnect requested for client slot ");
+        debug_print_uint(slot);
+        debug_println("");
+      } else {
+        debug_print("SSE: no active client in slot ");
+        debug_print_uint(slot);
+        debug_println("");
+      }
+    }
+    return;
+
+  } else {
+    debug_print("SET SSE: unknown option '");
+    debug_print(option);
+    debug_println("' (use: enable, disable, port, max-clients, interval, heartbeat, disconnect)");
+    return;
+  }
+
+  debug_println("Hint: Use 'save' to persist, 'reboot' to apply changes");
 }
 
 void cli_cmd_ping(uint8_t argc, char* argv[]) {

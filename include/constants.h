@@ -197,7 +197,7 @@ typedef enum {
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   11      // Current config schema version (v6.1.0: W5500 Ethernet support)
+#define CONFIG_SCHEMA_VERSION   12      // Current config schema version (v7.0.2: SSE config fields)
 #define CONFIG_CRC_SEED         0xFFFF  // CRC16 initial value
 
 /* ============================================================================
@@ -390,10 +390,29 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.0.0"
+#define PROJECT_VERSION     "7.0.3"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.0.3 (2026-03-18): SSE CLI management + konfigurerbare SSE parametre
+ *                      - FEAT: CLI `set sse` / `show sse` sektioner (enable/disable/port/max-clients/interval/heartbeat)
+ *                      - FEAT: SSE klient-registry med IP-tracking per slot
+ *                      - FEAT: `show sse` viser tilsluttede klienter med IP, fd, uptime
+ *                      - FEAT: `set sse disconnect all|<slot>` — kick klienter fra CLI
+ *                      - FEAT: `show config` inkluderer [API SSE] status + # API SSE config sektioner
+ *                      - FEAT: SSE parametre konfigurerbare og persisteret i NVS (schema 12)
+ *                      - FIX: `set sse` alias registreret i normalize_alias()
+ * v7.0.2 (2026-03-18): SSE multi-klient stabilitet + reconnection-beskyttelse
+ *                      - FIX: Heap-check før client task spawn (afvis ved <10KB fri)
+ *                      - FIX: Cooldown (500ms) efter task spawn mod rapid reconnect storms
+ *                      - FIX: Defensiv sse_active_clients decrement (undgår underflow)
+ *                      - FIX: 1s delay ved task creation failure
+ *                      - Testet: 2 samtidige SSE klienter bekræftet stabil
+ * v7.0.1 (2026-03-17): SSE register watch udvidet til alle 4 registertyper
+ *                      - Query params: ?hr=0,5,10-15&coils=0-7&ir=0-3&di=0-3
+ *                      - Understøtter: Holding Registers, Input Registers, Coils, Discrete Inputs
+ *                      - Max 32 adresser per type, ranges og enkelt-adresser
+ *                      - Backward-kompatibelt: default = HR 0-15
  * v7.0.0 (2026-03-17): API v7.0.0 — SSE Real-Time Events + API Versioning
  *                      - FEAT-023: GET /api/events — Server-Sent Events for live push updates
  *                        - Subscribe per topic: ?subscribe=counters,timers,registers,system

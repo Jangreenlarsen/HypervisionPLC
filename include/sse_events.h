@@ -8,7 +8,7 @@
  * Architecture: Runs on dedicated httpd instance (separate port) to avoid
  * blocking the main API server. Port is configurable via HttpConfig.sse_port.
  *
- * Endpoint: GET /api/events?subscribe=counters,timers,registers,system
+ * Endpoint: GET /api/events?subscribe=counters,timers,registers,system&hr=0-15&ir=0-3&coils=0-7&di=0-3
  */
 
 #ifndef SSE_EVENTS_H
@@ -25,6 +25,7 @@
 #define SSE_CHECK_INTERVAL_MS   100     // Change detection interval (10 Hz)
 #define SSE_HEARTBEAT_MS        15000   // SSE keepalive comment interval
 #define SSE_DEFAULT_PORT        81      // Default SSE port (main port + 1)
+#define SSE_MAX_WATCH_PER_TYPE  32      // Max watched addresses per register type
 
 /* ============================================================================
  * TOPIC SUBSCRIPTION BITMASK
@@ -78,5 +79,36 @@ int sse_get_client_count(void);
  * Get SSE server port
  */
 uint16_t sse_get_port(void);
+
+/**
+ * Client info for CLI display
+ */
+typedef struct {
+  bool active;
+  int slot;
+  int fd;
+  uint32_t ip_addr;       // Network byte order
+  uint32_t connected_ms;  // millis() at connect time
+} SseClientInfoPublic;
+
+/**
+ * Get info about active SSE clients
+ * @param out Array of SSE_MAX_CLIENTS entries
+ * @return Number of active clients
+ */
+int sse_get_client_info(SseClientInfoPublic *out);
+
+/**
+ * Request disconnect of specific client by slot index
+ * @param slot Client slot (0-based)
+ * @return true if client was active and flagged
+ */
+bool sse_disconnect_client(int slot);
+
+/**
+ * Request disconnect of all active clients
+ * @return Number of clients flagged
+ */
+int sse_disconnect_all(void);
 
 #endif // SSE_EVENTS_H

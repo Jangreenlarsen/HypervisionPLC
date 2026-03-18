@@ -239,7 +239,7 @@
 | FEAT-020 | ST Logic Debug API endpoints | ✅ DONE+TESTET | 🟡 HIGH | v6.3.0 | `POST /api/logic/{id}/debug/pause\|continue\|step\|breakpoint\|stop` + `GET .../debug/state` — Fuld debug kontrol via API. Testet 8/8 PASS (Build #1384) |
 | FEAT-021 | Bulk Register Operations API | ✅ DONE+TESTET | 🟡 HIGH | v6.3.0 | `GET /api/registers/hr?start=0&count=100` + `POST /api/registers/hr/bulk` + IR/coils/DI bulk read/write. Testet 12/12 PASS (Build #1384) |
 | FEAT-022 | Persistence Group Management API | ❌ OPEN | 🟠 MEDIUM | v6.4.0 | `GET/POST/DELETE /api/persist/groups/{name}` — CLI `set persist` kommandoer har ingen API ækvivalent. Vigtig for avanceret konfigurationsstyring via web |
-| FEAT-023 | SSE Real-Time Events | ✅ DONE+TESTET | 🟠 MEDIUM | v7.0.0 | `GET :81/api/events?subscribe=counters,timers,registers,system` — Dedikeret SSE server på port 81 (konfigurerbar). Change detection 10Hz, heartbeat 15s, max 3 clients. Testet 8/8 PASS (Build #1389) |
+| FEAT-023 | SSE Real-Time Events | ✅ DONE+TESTET | 🟠 MEDIUM | v7.0.3 | Raw TCP multi-klient SSE med CLI management. `set sse`/`show sse` config+status. Klient-registry med IP-tracking, `disconnect all\|<slot>`. Konfigurerbar watch HR/IR/Coils/DI. NVS-persisteret config (schema 12) |
 | FEAT-024 | Hostname API endpoint | ✅ DONE+TESTET | 🟠 MEDIUM | v6.3.0 | `GET/POST /api/hostname` — Hostname ændring via REST API. Testet 3/3 PASS (Build #1384) |
 | FEAT-025 | Watchdog Status API endpoint | ✅ DONE+TESTET | 🟠 MEDIUM | v6.3.0 | `GET /api/system/watchdog` — Reboot count, reset reason, heap stats, uptime. Testet 2/2 PASS (Build #1384) |
 | FEAT-026 | GPIO2 Heartbeat Control API | ✅ DONE+TESTET | 🔵 LOW | v6.3.0 | `GET/POST /api/gpio/2/heartbeat` — Enable/disable heartbeat LED. BUG-236 fixed. Testet 3/3 PASS (Build #1384) |
@@ -266,8 +266,18 @@
 - **FEAT-027:** ✅ CORS Headers — 3/3 testet PASS
 - **Test:** 34/34 PASS (100%) — se `tests/API_V630_TEST_RESULTS.md`
 
-**v7.0.0 — Next Generation API (2026-03-17):**
-- **FEAT-023:** ✅ SSE Real-Time Events — 8/8 testet PASS (dedikeret server port 81)
+**v7.0.3 — SSE CLI Management (2026-03-18):**
+- **FEAT:** `set sse` / `show sse` CLI sektioner med fuld konfiguration
+- **FEAT:** Klient-registry med IP-tracking, `set sse disconnect all|<slot>`
+- **FEAT:** `show config` inkluderer [API SSE] + # API SSE sektioner
+- **FEAT:** SSE parametre konfigurerbare via NVS (schema 12)
+
+**v7.0.2 — SSE Stabilitet (2026-03-18):**
+- **FIX:** SSE multi-klient reconnect-beskyttelse (heap-check, cooldown, defensiv decrement)
+- Testet: 2 samtidige klienter bekræftet stabil
+
+**v7.0.1 — Next Generation API (2026-03-17):**
+- **FEAT-023:** ✅ SSE Real-Time Events — konfigurerbar watch af HR/IR/Coils/DI via query params
 - **FEAT-030:** ✅ API Versioning — 32/32 testet PASS (/api/v1/* + /api/version)
 - **Test:** 40/40 PASS (100%) — se `tests/FEAT023_FEAT030_TEST_RESULTS.md`
 

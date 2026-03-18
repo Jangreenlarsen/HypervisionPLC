@@ -1,15 +1,17 @@
-# API v7.0.0 — SSE Real-Time Events & API Versioning
+# API v7.0.3 — SSE Real-Time Events & API Versioning
 
-**Version:** v7.0.0 | **Build:** #1389 | **Date:** 2026-03-17
+**Version:** v7.0.3 | **Date:** 2026-03-18
 
 ---
 
 ## Overview
 
-v7.0.0 introduces two major API features:
+v7.0.x introduces two major API features:
 
 1. **FEAT-023: Server-Sent Events (SSE)** — Push-based real-time updates, eliminates polling
 2. **FEAT-030: API Versioning** — `/api/v1/*` prefix support for backward compatibility
+
+**v7.0.1** adds configurable register watch lists for SSE — monitor specific HR, IR, coils and DI addresses.
 
 Both features are fully backward-compatible. Existing `/api/*` endpoints work unchanged.
 
@@ -19,17 +21,17 @@ Both features are fully backward-compatible. Existing `/api/*` endpoints work un
 
 ### Architecture
 
-SSE runs on a **dedicated httpd server** on a separate port (default: 81). This prevents the blocking SSE stream from blocking the main REST API on port 80.
+SSE runs on a **raw TCP socket server** on a separate port (default: 81). Each client gets its own FreeRTOS task, enabling true multi-client support without blocking the main REST API.
 
 ```
-Port 80 (main)     Port 81 (SSE)
-  ┌──────────┐       ┌──────────┐
-  │  httpd   │       │  httpd   │
-  │ REST API │       │ SSE only │
-  │ 56+ URIs │       │ 1 URI    │
-  └──────────┘       └──────────┘
-       │                   │
-       └───── Shared ──────┘
+Port 80 (main)          Port 81 (SSE)
+  ┌──────────┐           ┌───────────────┐
+  │  httpd   │           │ Raw TCP Server │
+  │ REST API │           │ Acceptor Task  │
+  │ 56+ URIs │           │   ├─ Client 1  │
+  └──────────┘           │   ├─ Client 2  │
+       │                 │   └─ Client 3  │
+       └──── Shared ─────┘
          counter_engine
          timer_engine
          registers
@@ -38,15 +40,25 @@ Port 80 (main)     Port 81 (SSE)
 ### Endpoint
 
 ```
-GET http://<ip>:81/api/events?subscribe=<topics>
+GET http://<ip>:81/api/events?subscribe=<topics>&hr=<addrs>&ir=<addrs>&coils=<addrs>&di=<addrs>
 ```
 
 **Query Parameters:**
 | Parameter | Values | Default |
 |-----------|--------|---------|
 | `subscribe` | `counters`, `timers`, `registers`, `system`, `all` | `all` |
+| `hr` | Holding register addresses (0-159) | `0-15` |
+| `ir` | Input register addresses (0-159) | none |
+| `coils` | Coil addresses (0-255) | none |
+| `di` | Discrete input addresses (0-255) | none |
 
 Multiple topics can be comma-separated: `?subscribe=counters,timers`
+
+**Address format** (v7.0.1+): Individual, ranges, or mixed — comma-separated:
+- Individual: `hr=0,5,10`
+- Range: `hr=0-15`
+- Mixed: `hr=0,5,10-15`
+- Max 32 addresses per type
 
 ### SSE Event Format
 
@@ -63,7 +75,7 @@ data: <json_payload>
 #### `connected` — Initial connection confirmation
 ```
 event: connected
-data: {"status":"connected","topics":"0x0f","max_clients":3,"active_clients":1,"port":81}
+data: {"status":"connected","topics":"0x0f","max_clients":3,"active_clients":1,"port":81,"watching":{"hr":16,"ir":0,"coils":0,"di":0}}
 ```
 
 #### `counter` — Counter value change
@@ -80,12 +92,21 @@ data: {"id":1,"enabled":true,"mode":"ASTABLE","output":true}
 ```
 Triggered when any timer's output or enabled state changes.
 
-#### `register` — Holding register change
+#### `register` — Register/coil change (v7.0.1: all 4 types)
 ```
 event: register
 data: {"type":"hr","addr":0,"value":999}
 ```
-Monitors holding registers 0-15. Triggered when value changes.
+
+Supported `type` values:
+| Type | Description | Address range |
+|------|-------------|---------------|
+| `hr` | Holding Register | 0-159 |
+| `ir` | Input Register | 0-159 |
+| `coil` | Coil | 0-255 |
+| `di` | Discrete Input | 0-255 |
+
+Triggered when a watched address changes value. Configure which addresses to watch via query parameters (`hr`, `ir`, `coils`, `di`). Default: HR 0-15.
 
 #### `heartbeat` — Keepalive (every 15 seconds)
 ```
@@ -115,31 +136,55 @@ Response:
 
 ### Configuration
 
-SSE port is configurable via `HttpConfig.sse_port`:
+All SSE settings are configurable via CLI and persisted in NVS:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `sse_port` | `0` (auto = main port + 1) | SSE server port. Set to specific port or 0 for auto |
+| Setting | CLI Command | Default | Range | Description |
+|---------|------------|---------|-------|-------------|
+| `sse_enabled` | `set sse enable\|disable` | enabled | on/off | Enable/disable SSE server |
+| `sse_port` | `set sse port <port>` | `0` (auto) | 0-65535 | SSE port (0 = HTTP port + 1) |
+| `sse_max_clients` | `set sse max-clients <n>` | `3` | 1-5 | Max simultaneous SSE clients |
+| `sse_check_interval_ms` | `set sse interval <ms>` | `100` | 50-5000 | Change detection polling interval |
+| `sse_heartbeat_ms` | `set sse heartbeat <ms>` | `15000` | 1000-60000 | Keepalive heartbeat interval |
 
-**CLI:** `set http sse-port <port>` (future)
-**API:** `POST /api/http` with `{"sse_port": 82}` (future)
+**CLI eksempler:**
+```
+show sse                     — Vis SSE status og konfiguration
+set sse disable              — Deaktiver SSE server
+set sse port 82              — Brug port 82
+set sse max-clients 2        — Max 2 samtidige klienter
+set sse interval 200         — 5 Hz change detection (200ms)
+set sse heartbeat 30000      — 30s heartbeat
+save                         — Gem til NVS
+reboot                       — Anvend ændringer
+```
+
+**API:** `GET /api/events/status` returnerer aktuel konfiguration og runtime-status.
 
 ### Limits & Performance
 
-| Parameter | Value |
-|-----------|-------|
-| Max simultaneous clients | 3 |
-| Change detection interval | 100ms (10 Hz) |
-| Heartbeat interval | 15 seconds |
-| Monitored HR range | 0-15 (16 registers) |
-| Stack per SSE connection | 6 KB |
-| Heap impact | ~12 KB (SSE server) |
+| Parameter | Default | Configurable | Range |
+|-----------|---------|-------------|-------|
+| Max simultaneous clients | 3 | Yes | 1-5 |
+| Change detection interval | 100ms (10 Hz) | Yes | 50-5000ms |
+| Heartbeat interval | 15 seconds | Yes | 1-60 seconds |
+| Max watched addresses per type | 32 | No (compile-time) | — |
+| Watched register types | HR, IR, Coils, DI | No | — |
+| Default watch (no params) | HR 0-15 | No | — |
+| Stack per SSE connection | 5 KB | No | — |
+| Heap impact | ~12 KB (SSE server) | — | — |
+| Min free heap for new client | 10 KB | No | — |
+| Reconnect cooldown | 500ms | No | — |
 
 ### Usage Examples
 
-**curl:**
+**curl — all registers default (HR 0-15):**
 ```bash
-curl -N -u api_user:password http://10.1.32.20:81/api/events?subscribe=counters,registers
+curl -N -u api_user:password "http://10.1.32.20:81/api/events?subscribe=counters,registers"
+```
+
+**curl — specific addresses (v7.0.1):**
+```bash
+curl -N -u api_user:password "http://10.1.32.20:81/api/events?subscribe=registers&hr=0,5,10-15&coils=0-7&ir=0-3&di=0-3"
 ```
 
 **JavaScript (EventSource):**
@@ -165,8 +210,42 @@ es.addEventListener('heartbeat', (e) => {
 });
 ```
 
-**Node-RED:**
-Use an HTTP Request node configured as SSE with Basic Auth to port 81.
+**Node-RED (native http module i Function node):**
+```javascript
+// Function node — Setup tab: libs = [{var: "http", module: "http"}]
+const opts = {
+  hostname: '10.1.32.20', port: 81,
+  path: '/api/events?subscribe=registers&hr=0-15&coils=0-7',
+  headers: { 'Authorization': 'Basic ' + Buffer.from('api_user:ChangeMe123!').toString('base64') }
+};
+
+const req = http.get(opts, (res) => {
+  let buf = '';
+  res.on('data', (chunk) => {
+    buf += chunk.toString();
+    const parts = buf.split('\n\n');
+    buf = parts.pop();
+    for (const part of parts) {
+      const eventMatch = part.match(/^event: (.+)$/m);
+      const dataMatch = part.match(/^data: (.+)$/m);
+      if (eventMatch && dataMatch) {
+        try {
+          const data = JSON.parse(dataMatch[1]);
+          node.send({ payload: {
+            event: eventMatch[1],
+            register: data.addr,
+            value: data.value,
+            type: data.type || eventMatch[1]
+          }});
+        } catch(e) {}
+      }
+    }
+  });
+});
+req.on('error', () => setTimeout(() => {}, 5000));
+```
+
+Se også: `tests/sse_nodered_native.json` — importerbar Node-RED flow.
 
 ---
 

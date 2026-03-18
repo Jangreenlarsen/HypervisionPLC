@@ -126,10 +126,14 @@ int network_manager_start_services(const NetworkConfig *config)
       ESP_LOGI(TAG, "HTTP server started on port %d", config->http.port);
 
       // Start SSE server on dedicated port (v7.0.0, FEAT-023)
-      uint16_t sse_port = config->http.sse_port;
-      if (sse_port == 0) sse_port = config->http.port + 1;  // Default: main+1
-      if (sse_start(sse_port) != 0) {
-        ESP_LOGE(TAG, "Failed to start SSE server on port %d", sse_port);
+      if (config->http.sse_enabled) {
+        uint16_t sse_port = config->http.sse_port;
+        if (sse_port == 0) sse_port = config->http.port + 1;  // Default: main+1
+        if (sse_start(sse_port) != 0) {
+          ESP_LOGE(TAG, "Failed to start SSE server on port %d", sse_port);
+        }
+      } else {
+        ESP_LOGI(TAG, "SSE server disabled by config");
       }
     }
   }

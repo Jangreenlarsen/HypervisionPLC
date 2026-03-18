@@ -60,7 +60,10 @@ void network_config_init_defaults(NetworkConfig *config)
   config->http.api_enabled = 1;                   // API enabled by default
   config->http.priority = 1;                      // NORMAL priority (0=LOW, 1=NORMAL, 2=HIGH)
   config->http.sse_port = 0;                      // 0 = auto (main port + 1, e.g., 81)
-  memset(config->http.reserved, 0, sizeof(config->http.reserved));
+  config->http.sse_enabled = 1;                   // SSE enabled by default
+  config->http.sse_max_clients = 3;               // Default 3 clients
+  config->http.sse_check_interval_ms = 100;       // 10 Hz change detection
+  config->http.sse_heartbeat_ms = 15000;          // 15s heartbeat
 
   // Default static IP (192.168.1.100)
   config->static_ip = htonl(0xC0A80164);       // 192.168.1.100

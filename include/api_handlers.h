@@ -265,9 +265,7 @@ esp_err_t api_handler_cors_preflight(httpd_req_t *req);
  * v7.0.0 API EXTENSIONS (FEAT-023, FEAT-030)
  * ============================================================================ */
 
-/** FEAT-023: GET /api/events — SSE real-time event stream */
-esp_err_t api_handler_sse_events(httpd_req_t *req);
-/** FEAT-023: GET /api/events/status — SSE subsystem info */
+/** FEAT-023: GET /api/events/status — SSE subsystem info (SSE stream runs on raw TCP) */
 esp_err_t api_handler_sse_status(httpd_req_t *req);
 
 /** FEAT-030: GET /api/version — API version info */

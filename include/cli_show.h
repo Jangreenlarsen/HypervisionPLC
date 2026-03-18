@@ -122,6 +122,11 @@ void cli_cmd_show_ethernet(void);
 void cli_cmd_show_http(void);
 
 /**
+ * @brief Handle "show sse" command (SSE server status) (v7.0.2+)
+ */
+void cli_cmd_show_sse(void);
+
+/**
  * @brief Handle "show debug" command (Debug flags status)
  */
 void cli_cmd_show_debug(void);

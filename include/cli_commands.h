@@ -303,6 +303,16 @@ void cli_cmd_set_ethernet(uint8_t argc, char* argv[]);
 void cli_cmd_set_http(uint8_t argc, char* argv[]);
 
 /**
+ * @brief Handle "set sse" command (SSE server configuration) (v7.0.2+)
+ *   set sse enable|disable
+ *   set sse port 81
+ *   set sse max-clients 3
+ *   set sse interval 100
+ *   set sse heartbeat 15000
+ */
+void cli_cmd_set_sse(uint8_t argc, char* argv[]);
+
+/**
  * @brief Handle "ping" command (ICMP ping to remote host)
  * @param argc Argument count
  * @param argv Argument array (argv[0] = host, argv[1] = count)

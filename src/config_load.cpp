@@ -233,7 +233,10 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->network.http.api_enabled = 1;              // API enabled by default
       out->network.http.priority = 1;                 // NORMAL priority
       out->network.http.sse_port = 0;                 // 0 = auto (main port + 1)
-      memset(out->network.http.reserved, 0, sizeof(out->network.http.reserved));
+      out->network.http.sse_enabled = 1;               // SSE enabled by default
+      out->network.http.sse_max_clients = 3;            // Default 3 clients
+      out->network.http.sse_check_interval_ms = 100;    // 10 Hz change detection
+      out->network.http.sse_heartbeat_ms = 15000;       // 15s heartbeat
 
       // Update schema version
       out->schema_version = 10;
@@ -261,6 +264,19 @@ bool config_load_from_nvs(PersistConfig* out) {
 
       debug_println("CONFIG LOAD: Migration 10→11 complete");
       // Note: CRC will be invalid, but we'll recalculate on next save
+    }
+
+    if (out->schema_version == 11) {
+      debug_println("CONFIG LOAD: Migrating schema 11 → 12 (SSE config fields)");
+
+      out->network.http.sse_enabled = 1;               // SSE enabled by default
+      out->network.http.sse_max_clients = 3;            // Default 3 clients
+      out->network.http.sse_check_interval_ms = 100;    // 10 Hz change detection
+      out->network.http.sse_heartbeat_ms = 15000;       // 15s heartbeat
+
+      out->schema_version = 12;
+
+      debug_println("CONFIG LOAD: Migration 11→12 complete");
     } else if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);

@@ -298,7 +298,10 @@ typedef struct __attribute__((packed)) {
   uint8_t priority;                             // Task priority: 0=LOW, 1=NORMAL, 2=HIGH
   uint8_t tls_enabled;                          // HTTPS/TLS via custom wrapper (FEAT-016)
   uint16_t sse_port;                            // SSE server port (v7.0.0, default 81, 0=disabled)
-  uint8_t reserved[1];                          // Alignment/future use
+  uint8_t  sse_enabled;                         // SSE server enabled (1) or disabled (0) (v7.0.2)
+  uint8_t  sse_max_clients;                     // Max simultaneous SSE clients (1-5, default 3) (v7.0.2)
+  uint16_t sse_check_interval_ms;               // Change detection interval ms (50-5000, default 100) (v7.0.2)
+  uint16_t sse_heartbeat_ms;                    // Heartbeat interval ms (1000-60000, default 15000) (v7.0.2)
 } HttpConfig;
 
 /* ============================================================================

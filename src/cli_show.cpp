@@ -31,6 +31,7 @@
 #include "ethernet_driver.h"
 #include "http_server.h"
 #include "https_wrapper.h"
+#include "sse_events.h"
 #include <WiFi.h>
 #include "debug_flags.h"
 #include "debug.h"
@@ -70,6 +71,7 @@ void cli_cmd_show_config(const char *section) {
   bool show_telnet   = show_all || show_section_match(section, "TELNET");
   bool show_ethernet = show_all || show_section_match(section, "ETHERNET") || show_section_match(section, "ETH");
   bool show_http     = show_all || show_section_match(section, "HTTP") || show_section_match(section, "API");
+  bool show_sse      = show_all || show_section_match(section, "SSE");
   bool show_modules  = show_all || show_section_match(section, "MODULE");
   bool show_persist  = show_all || show_section_match(section, "PERSIST");
   bool show_logic    = show_all || show_section_match(section, "LOGIC") || show_section_match(section, "ST");
@@ -866,6 +868,48 @@ void cli_cmd_show_config(const char *section) {
   } // end show_http
 
   // =========================================================================
+  // API SSE
+  // =========================================================================
+  if (show_sse) {
+  debug_println("\n[API SSE]");
+  debug_print("  server: ");
+  debug_println(g_persist_config.network.http.sse_enabled ? "enabled" : "disabled");
+
+  debug_print("  port: ");
+  if (g_persist_config.network.http.sse_port == 0) {
+    debug_print("auto (");
+    extern uint16_t sse_get_port(void);
+    uint16_t sp = sse_get_port();
+    debug_print_uint(sp > 0 ? sp : g_persist_config.network.http.port + 1);
+    debug_println(")");
+  } else {
+    debug_print_uint(g_persist_config.network.http.sse_port);
+    debug_println("");
+  }
+
+  debug_print("  max-clients: ");
+  uint8_t mc = g_persist_config.network.http.sse_max_clients;
+  debug_print_uint((mc >= 1 && mc <= 5) ? mc : 3);
+  debug_println("");
+
+  debug_print("  interval: ");
+  uint16_t ci = g_persist_config.network.http.sse_check_interval_ms;
+  debug_print_uint((ci >= 50 && ci <= 5000) ? ci : 100);
+  debug_println(" ms");
+
+  debug_print("  heartbeat: ");
+  uint16_t hb = g_persist_config.network.http.sse_heartbeat_ms;
+  debug_print_uint((hb >= 1000 && hb <= 60000) ? hb : 15000);
+  debug_println(" ms");
+
+  extern int sse_get_client_count(void);
+  debug_print("  active-clients: ");
+  debug_print_uint(sse_get_client_count());
+  debug_println("");
+
+  } // end show_sse
+
+  // =========================================================================
   // MODULES
   // =========================================================================
   if (show_modules) {
@@ -1115,6 +1159,32 @@ void cli_cmd_show_config(const char *section) {
     }
   }
   } // end show_http
+
+  if (show_sse) {
+  // API SSE config
+  debug_println("\n# API SSE");
+  debug_println(g_persist_config.network.http.sse_enabled ? "set sse enable" : "set sse disable");
+  if (g_persist_config.network.http.sse_enabled) {
+    debug_print("set sse port ");
+    debug_print_uint(g_persist_config.network.http.sse_port);
+    debug_println("");
+
+    debug_print("set sse max-clients ");
+    uint8_t mc2 = g_persist_config.network.http.sse_max_clients;
+    debug_print_uint((mc2 >= 1 && mc2 <= 5) ? mc2 : 3);
+    debug_println("");
+
+    debug_print("set sse interval ");
+    uint16_t ci2 = g_persist_config.network.http.sse_check_interval_ms;
+    debug_print_uint((ci2 >= 50 && ci2 <= 5000) ? ci2 : 100);
+    debug_println("");
+
+    debug_print("set sse heartbeat ");
+    uint16_t hb2 = g_persist_config.network.http.sse_heartbeat_ms;
+    debug_print_uint((hb2 >= 1000 && hb2 <= 60000) ? hb2 : 15000);
+    debug_println("");
+  }
+  } // end show_sse config
 
   if (show_logic) {
   // ST Logic execution interval + enable/disable status
@@ -2958,6 +3028,111 @@ void cli_cmd_show_http(void) {
   debug_println("  set http username <user>");
   debug_println("  set http password <pass>");
   debug_println("  save (to persist changes)\n");
+}
+
+/* ============================================================================
+ * SHOW SSE (v7.0.2)
+ * ============================================================================ */
+
+void cli_cmd_show_sse(void) {
+  debug_println("\n=== SSE SERVER STATUS ===");
+
+  // Server running state
+  debug_print("Server Status: ");
+  extern uint16_t sse_get_port(void);
+  extern int sse_get_client_count(void);
+  uint16_t port = sse_get_port();
+  if (port > 0) {
+    debug_println("RUNNING");
+  } else {
+    debug_println("STOPPED");
+  }
+
+  // Configuration
+  debug_println("\n--- Configuration ---");
+  debug_print("SSE: ");
+  debug_println(g_persist_config.network.http.sse_enabled ? "ENABLED" : "DISABLED");
+
+  debug_print("Port: ");
+  if (g_persist_config.network.http.sse_port == 0) {
+    debug_print("auto (");
+    debug_print_uint(port > 0 ? port : g_persist_config.network.http.port + 1);
+    debug_println(")");
+  } else {
+    debug_print_uint(g_persist_config.network.http.sse_port);
+    debug_println("");
+  }
+
+  debug_print("Max Clients: ");
+  uint8_t max_c = g_persist_config.network.http.sse_max_clients;
+  debug_print_uint((max_c >= 1 && max_c <= 5) ? max_c : 3);
+  debug_println("");
+
+  debug_print("Check Interval: ");
+  uint16_t intv = g_persist_config.network.http.sse_check_interval_ms;
+  debug_print_uint((intv >= 50 && intv <= 5000) ? intv : 100);
+  debug_println(" ms");
+
+  debug_print("Heartbeat: ");
+  uint16_t hb = g_persist_config.network.http.sse_heartbeat_ms;
+  debug_print_uint((hb >= 1000 && hb <= 60000) ? hb : 15000);
+  debug_println(" ms");
+
+  // Runtime
+  debug_println("\n--- Runtime ---");
+  debug_print("Active Clients: ");
+  int client_count = sse_get_client_count();
+  debug_print_uint(client_count);
+  debug_println("");
+
+  debug_print("Listening Port: ");
+  if (port > 0) {
+    debug_print_uint(port);
+    debug_println("");
+  } else {
+    debug_println("N/A (not running)");
+  }
+
+  // Connected clients with IP addresses
+  if (client_count > 0) {
+    extern int sse_get_client_info(SseClientInfoPublic *out);
+    SseClientInfoPublic clients[SSE_MAX_CLIENTS];
+    sse_get_client_info(clients);
+
+    debug_println("\n--- Connected Clients ---");
+    for (int i = 0; i < SSE_MAX_CLIENTS; i++) {
+      if (clients[i].active) {
+        uint32_t ip = clients[i].ip_addr;
+        uint32_t uptime_s = (millis() - clients[i].connected_ms) / 1000;
+        char line[80];
+        snprintf(line, sizeof(line), "  [%d] fd=%d  ip=%d.%d.%d.%d  connected=%lus",
+          i, clients[i].fd,
+          (int)(ip & 0xFF), (int)((ip >> 8) & 0xFF),
+          (int)((ip >> 16) & 0xFF), (int)((ip >> 24) & 0xFF),
+          (unsigned long)uptime_s);
+        debug_println(line);
+      }
+    }
+  }
+
+  // Topics
+  debug_println("\n--- Topics ---");
+  debug_println("  counters  - Counter value changes");
+  debug_println("  timers    - Timer state changes");
+  debug_println("  registers - Register/coil changes (hr, ir, coils, di)");
+  debug_println("  system    - System events (heap, uptime)");
+
+  // Commands
+  debug_println("\nCommands:");
+  debug_println("  set sse enable|disable");
+  debug_println("  set sse port <port|0>");
+  debug_println("  set sse max-clients <1-5>");
+  debug_println("  set sse interval <50-5000>");
+  debug_println("  set sse heartbeat <1000-60000>");
+  debug_println("  set sse disconnect all       - Disconnect all clients");
+  debug_println("  set sse disconnect <slot>    - Disconnect specific client");
+  debug_println("  save (to persist changes)");
+  debug_println("  reboot (to apply changes)\n");
 }
 
 /* ============================================================================
