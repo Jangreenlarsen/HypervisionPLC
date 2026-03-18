@@ -203,6 +203,8 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "ETHERNET") || str_eq_i(s, "ETH")) return "ETHERNET";
   if (str_eq_i(s, "HTTP") || str_eq_i(s, "REST") || str_eq_i(s, "API")) return "HTTP";
   if (str_eq_i(s, "SSE")) return "SSE";
+  if (str_eq_i(s, "RATE-LIMIT") || str_eq_i(s, "RATELIMIT") || str_eq_i(s, "RATE_LIMIT") || str_eq_i(s, "RL")) return "RATE-LIMIT";
+  if (str_eq_i(s, "METRICS") || str_eq_i(s, "PROMETHEUS") || str_eq_i(s, "PROM")) return "METRICS";
   if (str_eq_i(s, "BACKUP")) return "BACKUP";
   if (str_eq_i(s, "ENABLE")) return "ENABLE";
   if (str_eq_i(s, "DISABLE")) return "DISABLE";
@@ -266,6 +268,8 @@ static void print_show_help(void) {
   debug_println("  show modbus-master   - Vis Modbus Master config (v4.4+)");
   debug_println("  show modbus-slave    - Vis Modbus Slave config (v4.4.1+)");
   debug_println("  show sse             - Vis SSE server status (v7.0.2+)");
+  debug_println("  show rate-limit      - Vis rate limiting status (v7.1.0+)");
+  debug_println("  show metrics         - Vis Prometheus metrics endpoint (v7.1.0+)");
   debug_println("  show backup          - Vis backup/restore URL");
   debug_println("  show version         - Vis firmware version");
   debug_println("  show echo            - Vis echo status");
@@ -291,6 +295,7 @@ static void print_set_help(void) {
   debug_println("  set modbus-master ?     - Vis Modbus Master kommandoer (v4.4+)");
   debug_println("  set modbus-slave ?      - Vis Modbus Slave kommandoer (v4.4.1+)");
   debug_println("  set sse ?               - Vis SSE server kommandoer (v7.0.2+)");
+  debug_println("  set rate-limit enable|disable - Rate limiting (v7.1.0+)");
   debug_println("  set echo <on|off>       - Sæt remote echo");
   debug_println("");
 }
@@ -702,6 +707,12 @@ bool cli_parser_execute(char* line) {
     } else if (!strcmp(what, "SSE")) {
       cli_cmd_show_sse();
       return true;
+    } else if (!strcmp(what, "RATE-LIMIT")) {
+      cli_cmd_show_rate_limit();
+      return true;
+    } else if (!strcmp(what, "METRICS")) {
+      cli_cmd_show_metrics();
+      return true;
     } else if (!strcmp(what, "BACKUP")) {
       cli_cmd_show_backup();
       return true;
@@ -1089,6 +1100,13 @@ bool cli_parser_execute(char* line) {
         return true;
       }
       cli_cmd_set_sse(argc - 2, argv + 2);
+      return true;
+    } else if (!strcmp(what, "RATE-LIMIT")) {
+      if (argc < 3) {
+        debug_println("Usage: set rate-limit enable|disable");
+        return false;
+      }
+      cli_cmd_set_rate_limit(argc - 2, argv + 2);
       return true;
     } else if (!strcmp(what, "PERSIST")) {
       // Check for help

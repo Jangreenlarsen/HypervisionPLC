@@ -303,6 +303,12 @@ void cli_cmd_set_ethernet(uint8_t argc, char* argv[]);
 void cli_cmd_set_http(uint8_t argc, char* argv[]);
 
 /**
+ * @brief Handle "set rate-limit" command (v7.1.0+)
+ *   set rate-limit enable|disable
+ */
+void cli_cmd_set_rate_limit(uint8_t argc, char* argv[]);
+
+/**
  * @brief Handle "set sse" command (SSE server configuration) (v7.0.2+)
  *   set sse enable|disable
  *   set sse port 81

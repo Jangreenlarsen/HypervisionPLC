@@ -4,6 +4,63 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.1.0] - 2026-03-18 (Prometheus Metrics + Persist API + Rate Limiting + CLI)
+
+### NEW FEATURES
+
+**FEAT-032: Prometheus Metrics endpoint**
+- `GET /api/metrics` — Prometheus text exposition format (v0.0.4)
+- Metrics: uptime, free heap, WiFi RSSI, Modbus request/error counts, HTTP stats, SSE clients, counter values, timer states, watchdog info
+- Content-Type: `text/plain; version=0.0.4; charset=utf-8`
+- Heap-allokeret 4096-byte buffer med PROM_APPEND macro
+
+**FEAT-022: Persistence Group Management REST API**
+- `GET /api/persist/groups` — List alle persistence groups
+- `GET /api/persist/groups/{name}` — Hent specifik group med register værdier
+- `POST /api/persist/groups/{name}` — Opret/modificér group (add/remove registers)
+- `DELETE /api/persist/groups/{name}` — Slet group
+- `POST /api/persist/save` — Gem groups til NVS (`{"group":"name"}` eller `{"all":true}`)
+- `POST /api/persist/restore` — Gendan groups fra NVS
+
+**FEAT-028: Request Rate Limiting**
+- Token bucket algoritme per klient IP-adresse
+- 30 requests burst, 10 requests/sec refill rate
+- Max 8 samtidige klienter tracked (ældste slot genbruges)
+- Returnerer HTTP 429 Too Many Requests ved overbelastning
+- `set rate-limit enable|disable` CLI kommando
+- Integreret i CHECK_AUTH macro (alle autentificerede endpoints)
+
+### CLI COMMANDS (v7.1.0)
+
+- `show rate-limit` — Rate limiting status og konfiguration
+- `set rate-limit enable|disable` — Aktivér/deaktivér rate limiting
+- `show metrics` — Prometheus metrics endpoint info og tilgængelige metrics
+- `show config rate` — Sektionsfiltreret visning af rate limiting
+- `show http` opdateret med nye API endpoints og rate limiting status
+- `show config` inkluderer [Rate Limiting] sektion
+- Aliases: `ratelimit`, `rate_limit`, `rl` → `RATE-LIMIT`; `prometheus`, `prom` → `METRICS`
+
+### FIXES
+
+- API v1 routing-tabel manglede 7 endpoints (bulk read, heartbeat, SSE status, version)
+- `max_uri_handlers` øget fra 64 til 80 (72 registrerede handlers)
+
+### FILES CHANGED
+
+| File | Change |
+|------|--------|
+| `src/api_handlers.cpp` | ~400 linjer: metrics handler, persist CRUD, rate limiter, v1 routes |
+| `include/api_handlers.h` | 12 nye handler-deklarationer |
+| `src/http_server.cpp` | 8 nye URI registreringer, max_uri_handlers 64→80 |
+| `src/cli_show.cpp` | `show rate-limit`, `show metrics`, show config sektioner |
+| `src/cli_commands.cpp` | `set rate-limit` handler |
+| `src/cli_parser.cpp` | Dispatch + normalize_alias for RATE-LIMIT, METRICS |
+| `include/cli_show.h` | 2 nye show deklarationer |
+| `include/cli_commands.h` | 1 ny set deklaration |
+| `include/constants.h` | Version → 7.1.0 |
+
+---
+
 ## [6.3.0] - 2026-03-16 (REST API Udvidelse — CORS, Bulk, Debug, Telnet, Watchdog)
 
 ### NEW FEATURES

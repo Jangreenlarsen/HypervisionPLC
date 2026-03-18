@@ -147,6 +147,16 @@ void cli_cmd_show_watchdog(void);
 void cli_cmd_show_backup(void);
 
 /**
+ * @brief Handle "show rate-limit" command (Rate limiting status) (v7.1.0+)
+ */
+void cli_cmd_show_rate_limit(void);
+
+/**
+ * @brief Handle "show metrics" command (Prometheus metrics endpoint info) (v7.1.0+)
+ */
+void cli_cmd_show_metrics(void);
+
+/**
  * @brief Handle "read reg <id> <antal>" command
  * @param argc Argument count (must be 2)
  * @param argv Argument array (argv[0] = start addr, argv[1] = count)

@@ -60,7 +60,7 @@ Each layer has **ONE responsibility**. No circular dependencies.
 | File | Purpose |
 |------|---------|
 | `http_server.cpp/h` | HTTP server init, URI registrering, TLS (optional) |
-| `api_handlers.cpp/h` | Alle REST API handlers (56+ endpoints) |
+| `api_handlers.cpp/h` | Alle REST API handlers (72+ endpoints) |
 
 **Key Principle:** API handlers kalder direkte ned i Layer 4-5 (registers, engines). Kører i separat FreeRTOS task, blokerer ikke Modbus.
 
@@ -69,7 +69,10 @@ Each layer has **ONE responsibility**. No circular dependencies.
 - Bulk register read/write (hr, ir, coils, di)
 - ST Logic debug API (pause/step/breakpoint/snapshot)
 - Telnet, hostname, watchdog, heartbeat endpoints
-- 56+ registrerede URI handlers (max_uri_handlers: 64)
+- 72+ registrerede URI handlers (max_uri_handlers: 80)
+- Prometheus metrics endpoint (`GET /api/metrics`)
+- Persistence Group REST API (CRUD + save/restore)
+- Token bucket rate limiting per klient IP
 
 ---
 
@@ -571,7 +574,7 @@ pio clean && pio run # Clean rebuild
 
 ---
 
-**Last Updated:** 2026-03-16
-**Version:** v6.3.0
-**Build:** #1380
+**Last Updated:** 2026-03-18
+**Version:** v7.1.0
+**Build:** #1432
 **Status:** ✅ Active & Complete

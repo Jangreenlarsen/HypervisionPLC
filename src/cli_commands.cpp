@@ -2505,6 +2505,33 @@ void cli_cmd_set_sse(uint8_t argc, char* argv[]) {
   debug_println("Hint: Use 'save' to persist, 'reboot' to apply changes");
 }
 
+/* ============================================================================
+ * SET RATE-LIMIT (v7.1.0 - FEAT-028)
+ * ============================================================================ */
+
+void cli_cmd_set_rate_limit(uint8_t argc, char* argv[]) {
+  if (argc < 1) {
+    debug_println("Usage: set rate-limit enable|disable");
+    return;
+  }
+
+  const char* option = argv[0];
+
+  if (!strcmp(option, "enable") || !strcmp(option, "enabled") || !strcmp(option, "on")) {
+    extern void http_rate_limit_set_enabled(bool enabled);
+    http_rate_limit_set_enabled(true);
+    debug_println("Rate limiting enabled");
+  } else if (!strcmp(option, "disable") || !strcmp(option, "disabled") || !strcmp(option, "off")) {
+    extern void http_rate_limit_set_enabled(bool enabled);
+    http_rate_limit_set_enabled(false);
+    debug_println("Rate limiting disabled");
+  } else {
+    debug_print("SET RATE-LIMIT: unknown option '");
+    debug_print(option);
+    debug_println("' (use: enable, disable)");
+  }
+}
+
 void cli_cmd_ping(uint8_t argc, char* argv[]) {
   if (argc < 1) {
     debug_println("Brug: ping <ip/hostname> [count]");

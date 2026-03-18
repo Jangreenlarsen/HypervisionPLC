@@ -270,6 +270,7 @@
 - **FEAT-032:** `GET /api/metrics` — Prometheus text format med system, HTTP, Modbus, SSE, network, counter, timer, watchdog metrics
 - **FEAT-022:** Persistence Group Management API — `GET/POST/DELETE /api/persist/groups/{name}` + save/restore endpoints
 - **FEAT-028:** Token bucket rate limiter per klient IP (30 burst, 10/sec) — returnerer 429 Too Many Requests
+- **CLI:** `show rate-limit`, `set rate-limit enable|disable`, `show metrics` + sektioner i `show config` og `show http`
 - **FIX:** API v1 routing-tabel manglede 7 endpoints (bulk read, heartbeat, SSE status, version)
 - **FIX:** max_uri_handlers øget fra 64 til 80 (72 registrerede handlers)
 

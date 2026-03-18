@@ -72,6 +72,7 @@ void cli_cmd_show_config(const char *section) {
   bool show_ethernet = show_all || show_section_match(section, "ETHERNET") || show_section_match(section, "ETH");
   bool show_http     = show_all || show_section_match(section, "HTTP") || show_section_match(section, "API");
   bool show_sse      = show_all || show_section_match(section, "SSE");
+  bool show_ratelimit = show_all || show_section_match(section, "RATE") || show_section_match(section, "RATELIMIT");
   bool show_modules  = show_all || show_section_match(section, "MODULE");
   bool show_persist  = show_all || show_section_match(section, "PERSIST");
   bool show_logic    = show_all || show_section_match(section, "LOGIC") || show_section_match(section, "ST");
@@ -910,6 +911,20 @@ void cli_cmd_show_config(const char *section) {
   } // end show_sse
 
   // =========================================================================
+  // RATE LIMITING (v7.1.0)
+  // =========================================================================
+  if (show_ratelimit) {
+  debug_println("\n[Rate Limiting]");
+  extern bool http_rate_limit_is_enabled(void);
+  debug_print("  status: ");
+  debug_println(http_rate_limit_is_enabled() ? "enabled" : "disabled");
+  debug_println("  algorithm: token-bucket");
+  debug_println("  bucket-size: 30");
+  debug_println("  refill-rate: 10 req/s");
+  debug_println("  max-clients: 8");
+  } // end show_ratelimit
+
+  // =========================================================================
   // MODULES
   // =========================================================================
   if (show_modules) {
@@ -1185,6 +1200,13 @@ void cli_cmd_show_config(const char *section) {
     debug_println("");
   }
   } // end show_sse config
+
+  if (show_ratelimit) {
+  // Rate Limiting config
+  extern bool http_rate_limit_is_enabled(void);
+  debug_println("\n# Rate Limiting");
+  debug_println(http_rate_limit_is_enabled() ? "set rate-limit enable" : "set rate-limit disable");
+  } // end show_ratelimit config
 
   if (show_logic) {
   // ST Logic execution interval + enable/disable status
@@ -3018,6 +3040,15 @@ void cli_cmd_show_http(void) {
   debug_println("  GET  /api/logic/{1-4}      - Single program");
   debug_println("  GET  /api/logic/{1-4}/source  - Download ST code");
   debug_println("  POST /api/logic/{1-4}/source  - Upload ST code");
+  debug_println("  GET  /api/metrics            - Prometheus metrics");
+  debug_println("  GET  /api/persist/groups     - Persistence groups");
+  debug_println("  POST /api/persist/save       - Save groups to NVS");
+  debug_println("  POST /api/persist/restore    - Restore groups from NVS");
+
+  // Rate limiting
+  extern bool http_rate_limit_is_enabled(void);
+  debug_print("\nRate Limiting: ");
+  debug_println(http_rate_limit_is_enabled() ? "ENABLED" : "DISABLED");
 
   // Commands
   debug_println("\nCommands:");
@@ -4037,5 +4068,67 @@ void cli_cmd_show_backup(void) {
   debug_println("\nIndhold: Modbus, WiFi, HTTP, counters, timers,");
   debug_println("         registers, coils, var_maps, ST Logic source.");
   debug_println("         Passwords inkluderet i backup.");
+  debug_println("");
+}
+
+/* ============================================================================
+ * SHOW RATE-LIMIT (v7.1.0)
+ * ============================================================================ */
+
+void cli_cmd_show_rate_limit(void) {
+  debug_println("\n=== RATE LIMITING ===");
+
+  extern bool http_rate_limit_is_enabled(void);
+  debug_print("Status: ");
+  debug_println(http_rate_limit_is_enabled() ? "ENABLED" : "DISABLED");
+
+  debug_println("\n--- Configuration ---");
+  debug_println("Algorithm: Token Bucket");
+  debug_println("Bucket Size: 30 requests");
+  debug_println("Refill Rate: 10 requests/sec");
+  debug_println("Max Tracked Clients: 8");
+
+  debug_println("\n--- Info ---");
+  debug_println("Rate limiting applies per client IP address.");
+  debug_println("When bucket is empty, API returns HTTP 429.");
+  debug_println("Oldest client slot is reused when table is full.");
+
+  debug_println("\nCommands:");
+  debug_println("  set rate-limit enable");
+  debug_println("  set rate-limit disable");
+  debug_println("  save (to persist changes)\n");
+}
+
+/* ============================================================================
+ * SHOW METRICS (v7.1.0)
+ * ============================================================================ */
+
+void cli_cmd_show_metrics(void) {
+  debug_println("\n=== PROMETHEUS METRICS ===");
+
+  debug_println("Endpoint: GET /api/metrics");
+  debug_println("Format: Prometheus text exposition (v0.0.4)");
+  debug_println("Content-Type: text/plain; version=0.0.4; charset=utf-8");
+
+  debug_println("\n--- Available Metrics ---");
+  debug_println("  esp32_uptime_seconds         - System uptime");
+  debug_println("  esp32_free_heap_bytes        - Free heap memory");
+  debug_println("  esp32_wifi_rssi_dbm          - Wi-Fi signal strength");
+  debug_println("  esp32_modbus_requests_total  - Modbus request count");
+  debug_println("  esp32_modbus_errors_total    - Modbus error count");
+  debug_println("  esp32_http_requests_total    - HTTP request count");
+  debug_println("  esp32_counter_value          - Counter values (per ID)");
+  debug_println("  esp32_timer_active           - Timer active state (per ID)");
+
+  uint32_t ip = network_manager_get_local_ip();
+  if (ip != 0) {
+    const char *proto = g_persist_config.network.http.tls_enabled ? "https" : "http";
+    uint16_t port = g_persist_config.network.http.port;
+    char url[80];
+    snprintf(url, sizeof(url), "\nURL: %s://%d.%d.%d.%d:%d/api/metrics",
+             proto, (int)(ip & 0xFF), (int)((ip >> 8) & 0xFF),
+             (int)((ip >> 16) & 0xFF), (int)((ip >> 24) & 0xFF), port);
+    debug_println(url);
+  }
   debug_println("");
 }

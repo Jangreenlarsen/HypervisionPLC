@@ -1,6 +1,6 @@
 # Modbus RTU Server (ESP32)
 
-**Version:** v6.3.0 | **Build:** #1380 | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
+**Version:** v7.1.0 | **Build:** #1432 | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
 
 En komplet, modulær **Modbus RTU Server** implementation til ESP32-WROOM-32 mikrocontroller med **dual Modbus interfaces** (Slave + Master), ST Structured Text Logic programmering med IEC 61131-3 type system, Wi-Fi netværk, **HTTP REST API** for Node-RED integration, telnet CLI interface, og komplet Modbus register dokumentation.
 
@@ -839,18 +839,26 @@ set logic debug:false            # Disable debug output
 - **Graceful Disconnect:** `exit` command
 - **Session Timeout:** Configurable inactivity timeout
 
-#### HTTP REST API (v6.0.0+, udvidet v6.3.0)
+#### HTTP REST API (v6.0.0+, udvidet v7.1.0)
 - **Port:** 80 (default, konfigurerbar)
 - **Protocol:** HTTP/1.1 med JSON responses
 - **Authentication:** Optional Basic Auth
 - **CORS:** Fuld cross-origin support (v6.3.0) — browser dashboards kan kalde API direkte
+- **Rate Limiting:** Token bucket per klient IP (v7.1.0) — 30 burst, 10/sec refill, HTTP 429
+- **API Versioning:** `/api/v1/*` prefix support (v7.0.0) — backward-kompatibelt
 - **Use Cases:**
   - Node-RED integration via HTTP Request nodes
+  - Prometheus/Grafana monitoring via metrics endpoint
   - Web dashboards og visualisering
   - Third-party system integration
   - Remote monitoring og control
-- **Endpoints:** 56+ endpoints — se [docs/REST_API.md](docs/REST_API.md) for komplet dokumentation
-- **v6.3.0 Nye Endpoints:**
+- **Endpoints:** 72+ endpoints — se [docs/REST_API.md](docs/REST_API.md) for komplet dokumentation
+- **v7.1.0 Nye Endpoints:**
+  - `GET /api/metrics` — Prometheus text format metrics (uptime, heap, HTTP, Modbus, counters, timers)
+  - `GET/POST/DELETE /api/persist/groups/{name}` — Persistence group CRUD
+  - `POST /api/persist/save` — Save register groups to NVS
+  - `POST /api/persist/restore` — Restore register groups from NVS
+- **v6.3.0 Endpoints:**
   - `GET/POST /api/telnet` — Telnet konfiguration
   - `GET/POST /api/hostname` — Hostname konfiguration
   - `GET /api/system/watchdog` — Watchdog status
@@ -890,7 +898,10 @@ set http port <port>           # Set HTTP port (default: 80)
 set http auth on|off           # Enable/disable Basic Auth
 set http username <user>       # Set auth username
 set http password <pass>       # Set auth password
-show http                      # Show HTTP status & statistics
+set rate-limit enable|disable  # Enable/disable API rate limiting (v7.1.0)
+show http                      # Show HTTP status, endpoints & rate limiting
+show rate-limit                # Show rate limiting status & config (v7.1.0)
+show metrics                   # Show Prometheus metrics endpoint info (v7.1.0)
 show backup                   # Show backup/restore URLs & instructions
 ```
 
@@ -3609,6 +3620,13 @@ empty := CTD(dispense, reload, 50);              (* Count down from 50 *)
 
 ## 📝 Version History
 
+- **v7.1.0** (2026-03-18) - 📊 Prometheus Metrics + Persist API + Rate Limiting + CLI
+  - **FEAT-032: Prometheus Metrics** — `GET /api/metrics` i text exposition format (uptime, heap, HTTP, Modbus, counters, timers, watchdog)
+  - **FEAT-022: Persistence Group API** — `GET/POST/DELETE /api/persist/groups/{name}` + `/api/persist/save` + `/api/persist/restore`
+  - **FEAT-028: Rate Limiting** — Token bucket per klient IP (30 burst, 10/sec refill), returnerer HTTP 429 Too Many Requests
+  - **CLI:** `show rate-limit`, `set rate-limit enable|disable`, `show metrics` + sektioner i `show config` og `show http`
+  - **FIX:** API v1 routing-tabel manglede 7 endpoints (bulk read, heartbeat, SSE status, version)
+  - **FIX:** `max_uri_handlers` øget fra 64 til 80 (72 registrerede handlers)
 - **v7.0.3** (2026-03-18) - 🎛️ SSE CLI management + konfigurerbare parametre
   - `set sse` / `show sse` CLI sektioner (enable/disable/port/max-clients/interval/heartbeat)
   - Klient-registry med IP-tracking: `show sse` viser tilsluttede klienter med IP og uptime
