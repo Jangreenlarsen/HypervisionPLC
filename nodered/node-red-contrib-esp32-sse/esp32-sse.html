@@ -1,0 +1,228 @@
+<script type="text/javascript">
+    RED.nodes.registerType('esp32-sse', {
+        category: 'ESP32',
+        color: '#4FC3F7',
+        defaults: {
+            name: {value: ""},
+            host: {value: "10.1.32.20", required: true},
+            port: {value: 1800, required: true, validate: RED.validators.number()},
+            path: {value: "/api/events?subscribe=registers&hr=0-31&coils=0-255&ir=0-31&di=0-255"},
+            autoConnect: {value: true},
+            reconnectInterval: {value: 5000, validate: RED.validators.number()},
+            filterEvent: {value: "all"}
+        },
+        credentials: {
+            username: {type: "text"},
+            password: {type: "password"}
+        },
+        inputs: 1,
+        outputs: 2,
+        outputLabels: ["events", "status"],
+        icon: "bridge.svg",
+        paletteLabel: "ESP32 SSE",
+        label: function() {
+            return this.name || "ESP32 SSE " + this.host + ":" + this.port;
+        },
+        oneditprepare: function() {
+            // Build path from checkboxes
+            var node = this;
+            var pathField = $("#node-input-path");
+
+            function buildPath() {
+                var topics = [];
+                if ($("#sse-topic-registers").is(":checked")) topics.push("registers");
+                if ($("#sse-topic-counters").is(":checked")) topics.push("counters");
+                if ($("#sse-topic-timers").is(":checked")) topics.push("timers");
+                if ($("#sse-topic-system").is(":checked")) topics.push("system");
+
+                if (topics.length === 0 || topics.length === 4) {
+                    topics = ["all"];
+                }
+
+                var path = "/api/events?subscribe=" + topics.join(",");
+
+                var hr = $("#sse-hr-range").val().trim();
+                var ir = $("#sse-ir-range").val().trim();
+                var coils = $("#sse-coils-range").val().trim();
+                var di = $("#sse-di-range").val().trim();
+
+                if (hr) path += "&hr=" + hr;
+                if (ir) path += "&ir=" + ir;
+                if (coils) path += "&coils=" + coils;
+                if (di) path += "&di=" + di;
+
+                pathField.val(path);
+            }
+
+            // Parse existing path into UI
+            var currentPath = pathField.val() || "";
+            var params = {};
+            var qmark = currentPath.indexOf("?");
+            if (qmark >= 0) {
+                var qs = currentPath.substring(qmark + 1);
+                qs.split("&").forEach(function(p) {
+                    var kv = p.split("=");
+                    if (kv.length === 2) params[kv[0]] = kv[1];
+                });
+            }
+
+            var subs = (params.subscribe || "all").split(",");
+            $("#sse-topic-registers").prop("checked", subs.indexOf("all") >= 0 || subs.indexOf("registers") >= 0);
+            $("#sse-topic-counters").prop("checked", subs.indexOf("all") >= 0 || subs.indexOf("counters") >= 0);
+            $("#sse-topic-timers").prop("checked", subs.indexOf("all") >= 0 || subs.indexOf("timers") >= 0);
+            $("#sse-topic-system").prop("checked", subs.indexOf("all") >= 0 || subs.indexOf("system") >= 0);
+            $("#sse-hr-range").val(params.hr || "");
+            $("#sse-ir-range").val(params.ir || "");
+            $("#sse-coils-range").val(params.coils || "");
+            $("#sse-di-range").val(params.di || "");
+
+            // Bind change events
+            $(".sse-path-input").on("change keyup", buildPath);
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="esp32-sse">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="ESP32 SSE">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-host"><i class="fa fa-globe"></i> Host</label>
+        <input type="text" id="node-input-host" placeholder="10.1.32.20">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-port"><i class="fa fa-plug"></i> SSE Port</label>
+        <input type="number" id="node-input-port" placeholder="1800">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-username"><i class="fa fa-user"></i> Username</label>
+        <input type="text" id="node-input-username" placeholder="api_user">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-password"><i class="fa fa-lock"></i> Password</label>
+        <input type="password" id="node-input-password">
+    </div>
+
+    <div class="form-row" style="border-top: 1px solid #ddd; padding-top: 10px; margin-top: 10px;">
+        <label style="width: 100%; font-weight: bold;">Subscribe Topics</label>
+    </div>
+    <div class="form-row" style="margin-left: 20px;">
+        <label style="width: auto; margin-right: 15px;">
+            <input type="checkbox" id="sse-topic-registers" class="sse-path-input" checked> Registers
+        </label>
+        <label style="width: auto; margin-right: 15px;">
+            <input type="checkbox" id="sse-topic-counters" class="sse-path-input" checked> Counters
+        </label>
+        <label style="width: auto; margin-right: 15px;">
+            <input type="checkbox" id="sse-topic-timers" class="sse-path-input" checked> Timers
+        </label>
+        <label style="width: auto;">
+            <input type="checkbox" id="sse-topic-system" class="sse-path-input" checked> System
+        </label>
+    </div>
+
+    <div class="form-row" style="border-top: 1px solid #ddd; padding-top: 10px; margin-top: 10px;">
+        <label style="width: 100%; font-weight: bold;">Register Watch (address ranges)</label>
+    </div>
+    <div class="form-row">
+        <label for="sse-hr-range" style="width: 120px;">HR (0-159)</label>
+        <input type="text" id="sse-hr-range" class="sse-path-input" placeholder="0-31" style="width: 60%;">
+    </div>
+    <div class="form-row">
+        <label for="sse-ir-range" style="width: 120px;">IR (0-159)</label>
+        <input type="text" id="sse-ir-range" class="sse-path-input" placeholder="0-31" style="width: 60%;">
+    </div>
+    <div class="form-row">
+        <label for="sse-coils-range" style="width: 120px;">Coils (0-255)</label>
+        <input type="text" id="sse-coils-range" class="sse-path-input" placeholder="0-255" style="width: 60%;">
+    </div>
+    <div class="form-row">
+        <label for="sse-di-range" style="width: 120px;">DI (0-255)</label>
+        <input type="text" id="sse-di-range" class="sse-path-input" placeholder="0-255" style="width: 60%;">
+    </div>
+
+    <div class="form-row" style="border-top: 1px solid #ddd; padding-top: 10px; margin-top: 10px;">
+        <label style="width: 100%; font-weight: bold;">Options</label>
+    </div>
+    <div class="form-row">
+        <label for="node-input-filterEvent"><i class="fa fa-filter"></i> Event Filter</label>
+        <select id="node-input-filterEvent">
+            <option value="all">All Events</option>
+            <option value="register">Registers Only</option>
+            <option value="counter">Counters Only</option>
+            <option value="timer">Timers Only</option>
+            <option value="heartbeat">Heartbeat Only</option>
+        </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-autoConnect"><i class="fa fa-bolt"></i> Auto-connect</label>
+        <input type="checkbox" id="node-input-autoConnect" checked style="width: auto;">
+        <span style="margin-left: 5px;">Connect on deploy</span>
+    </div>
+    <div class="form-row">
+        <label for="node-input-reconnectInterval"><i class="fa fa-refresh"></i> Reconnect</label>
+        <input type="number" id="node-input-reconnectInterval" placeholder="5000" style="width: 80px;"> ms
+    </div>
+
+    <div class="form-row" style="border-top: 1px solid #ddd; padding-top: 10px; margin-top: 10px;">
+        <label for="node-input-path"><i class="fa fa-link"></i> Full Path</label>
+        <input type="text" id="node-input-path" style="font-family: monospace; font-size: 11px;">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="esp32-sse">
+    <p>Connects to an ESP32 Modbus RTU Server via Server-Sent Events (SSE) for real-time register, counter and timer updates.</p>
+
+    <h3>Configuration</h3>
+    <dl class="message-properties">
+        <dt>Host <span class="property-type">string</span></dt>
+        <dd>IP address of the ESP32 device</dd>
+        <dt>SSE Port <span class="property-type">number</span></dt>
+        <dd>SSE server port (default: 81, configurable via <code>set sse port</code>)</dd>
+        <dt>Username / Password</dt>
+        <dd>HTTP Basic Auth credentials</dd>
+        <dt>Topics</dt>
+        <dd>Select which event types to subscribe to</dd>
+        <dt>Register Watch</dt>
+        <dd>Address ranges to monitor. Supports individual (<code>0,5,10</code>), ranges (<code>0-31</code>), or mixed (<code>0,5,10-15</code>). Max 32 per type.</dd>
+    </dl>
+
+    <h3>Outputs</h3>
+    <p><b>Output 1 — Events:</b> Register, counter, and timer change events</p>
+    <dl class="message-properties">
+        <dt>payload.register <span class="property-type">number</span></dt>
+        <dd>Register address (for register events)</dd>
+        <dt>payload.value <span class="property-type">number|boolean</span></dt>
+        <dd>Current value</dd>
+        <dt>payload.type <span class="property-type">string</span></dt>
+        <dd>"holding", "input", "coils", or "dis input"</dd>
+        <dt>topic <span class="property-type">string</span></dt>
+        <dd>e.g. <code>register/hr/0</code>, <code>counter/1</code>, <code>timer/2</code></dd>
+    </dl>
+
+    <p><b>Output 2 — Status:</b> Heartbeat and connection events</p>
+
+    <h3>Input Control</h3>
+    <p>Send <code>msg.payload</code> to control the connection:</p>
+    <ul>
+        <li><code>"connect"</code> or <code>"start"</code> — Connect to SSE</li>
+        <li><code>"disconnect"</code> or <code>"stop"</code> — Disconnect</li>
+        <li><code>"reconnect"</code> — Force reconnect</li>
+        <li>Any other value — Connect if not already connected</li>
+    </ul>
+
+    <h3>Details</h3>
+    <p>The node uses a persistent HTTP connection to receive Server-Sent Events from the ESP32. It automatically reconnects on disconnect with configurable interval.</p>
+    <p>The node status dot shows connection state:</p>
+    <ul>
+        <li><b>Green</b> — Connected and receiving events</li>
+        <li><b>Yellow</b> — Connecting or waiting to reconnect</li>
+        <li><b>Red</b> — Disconnected or error</li>
+        <li><b>Grey</b> — Manually stopped</li>
+    </ul>
+</script>
