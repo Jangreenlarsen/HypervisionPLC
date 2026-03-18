@@ -390,10 +390,11 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.0.3"
+#define PROJECT_VERSION     "7.1.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.1.0 (2026-03-18): FEAT-022 Persist Group API + FEAT-028 Rate Limiting + FEAT-032 Prometheus Metrics
  * v7.0.3 (2026-03-18): SSE CLI management + konfigurerbare SSE parametre
  *                      - FEAT: CLI `set sse` / `show sse` sektioner (enable/disable/port/max-clients/interval/heartbeat)
  *                      - FEAT: SSE klient-registry med IP-tracking per slot

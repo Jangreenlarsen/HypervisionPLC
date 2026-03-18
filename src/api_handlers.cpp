@@ -14,6 +14,7 @@
 #include <esp_http_server.h>
 #include <esp_log.h>
 #include <lwip/inet.h>
+#include <lwip/sockets.h>
 
 #include "api_handlers.h"
 #include "http_server.h"
@@ -24,6 +25,7 @@
 #include "counter_engine.h"
 #include "counter_config.h"
 #include "timer_engine.h"
+#include "timer_config.h"
 #include "st_logic_config.h"
 #include "wifi_driver.h"
 #include "ethernet_driver.h"
@@ -39,6 +41,8 @@
 #include "st_debug.h"
 #include "watchdog_monitor.h"
 #include "heartbeat.h"
+#include "registers_persist.h"
+#include "sse_events.h"
 
 static const char *TAG = "API_HDLR";
 
@@ -49,6 +53,9 @@ extern void http_server_stat_client_error(void);
 extern void http_server_stat_server_error(void);
 extern void http_server_stat_auth_failure(void);
 extern bool http_server_check_auth(httpd_req_t *req);
+
+// FEAT-028: Rate limiting (implemented later in this file)
+bool http_rate_limit_check(httpd_req_t *req);
 
 // Forward declarations for handlers used in suffix routing (defined later in this file)
 esp_err_t api_handler_logic_source_get(httpd_req_t *req);
@@ -164,6 +171,9 @@ esp_err_t api_send_json(httpd_req_t *req, const char *json_str)
     CHECK_API_ENABLED(req); \
     if (!http_server_check_auth(req)) { \
       return api_send_error(req, 401, "Authentication required"); \
+    } \
+    if (!http_rate_limit_check(req)) { \
+      return api_send_error(req, 429, "Too many requests"); \
     } \
   } while(0)
 
@@ -4674,6 +4684,547 @@ esp_err_t api_handler_api_version(httpd_req_t *req)
 }
 
 /* ============================================================================
+ * FEAT-032: GET /api/metrics — Prometheus Metrics Endpoint (v7.0.4)
+ *
+ * Returns metrics in Prometheus text exposition format (text/plain).
+ * Scrape-ready for Prometheus/Grafana integration.
+ * ============================================================================ */
+
+esp_err_t api_handler_metrics(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  // Buffer for Prometheus text format — use stack-allocated buffer
+  char *buf = (char *)malloc(4096);
+  if (!buf) {
+    return api_send_error(req, 500, "Out of memory");
+  }
+  int pos = 0;
+  int remaining = 4096;
+
+  #define PROM_APPEND(...) do { \
+    int n = snprintf(buf + pos, remaining, __VA_ARGS__); \
+    if (n > 0 && n < remaining) { pos += n; remaining -= n; } \
+  } while(0)
+
+  // --- System metrics ---
+  PROM_APPEND("# HELP esp32_uptime_seconds Device uptime in seconds\n");
+  PROM_APPEND("# TYPE esp32_uptime_seconds gauge\n");
+  PROM_APPEND("esp32_uptime_seconds %lu\n", (unsigned long)(millis() / 1000));
+
+  PROM_APPEND("# HELP esp32_heap_free_bytes Free heap memory in bytes\n");
+  PROM_APPEND("# TYPE esp32_heap_free_bytes gauge\n");
+  PROM_APPEND("esp32_heap_free_bytes %lu\n", (unsigned long)ESP.getFreeHeap());
+
+  PROM_APPEND("# HELP esp32_heap_min_free_bytes Minimum free heap since boot\n");
+  PROM_APPEND("# TYPE esp32_heap_min_free_bytes gauge\n");
+  PROM_APPEND("esp32_heap_min_free_bytes %lu\n", (unsigned long)ESP.getMinFreeHeap());
+
+  // --- HTTP API metrics ---
+  const HttpServerStats *stats = http_server_get_stats();
+  if (stats) {
+    PROM_APPEND("# HELP http_requests_total Total HTTP API requests\n");
+    PROM_APPEND("# TYPE http_requests_total counter\n");
+    PROM_APPEND("http_requests_total %lu\n", stats->total_requests);
+
+    PROM_APPEND("# HELP http_requests_success_total Successful HTTP responses (2xx)\n");
+    PROM_APPEND("# TYPE http_requests_success_total counter\n");
+    PROM_APPEND("http_requests_success_total %lu\n", stats->successful_requests);
+
+    PROM_APPEND("# HELP http_requests_client_errors_total Client error responses (4xx)\n");
+    PROM_APPEND("# TYPE http_requests_client_errors_total counter\n");
+    PROM_APPEND("http_requests_client_errors_total %lu\n", stats->client_errors);
+
+    PROM_APPEND("# HELP http_requests_server_errors_total Server error responses (5xx)\n");
+    PROM_APPEND("# TYPE http_requests_server_errors_total counter\n");
+    PROM_APPEND("http_requests_server_errors_total %lu\n", stats->server_errors);
+
+    PROM_APPEND("# HELP http_auth_failures_total Authentication failures\n");
+    PROM_APPEND("# TYPE http_auth_failures_total counter\n");
+    PROM_APPEND("http_auth_failures_total %lu\n", stats->auth_failures);
+  }
+
+  // --- Modbus Slave metrics ---
+  PROM_APPEND("# HELP modbus_slave_requests_total Total Modbus slave requests\n");
+  PROM_APPEND("# TYPE modbus_slave_requests_total counter\n");
+  PROM_APPEND("modbus_slave_requests_total %lu\n", g_persist_config.modbus_slave.total_requests);
+
+  PROM_APPEND("# HELP modbus_slave_success_total Successful Modbus slave responses\n");
+  PROM_APPEND("# TYPE modbus_slave_success_total counter\n");
+  PROM_APPEND("modbus_slave_success_total %lu\n", g_persist_config.modbus_slave.successful_requests);
+
+  PROM_APPEND("# HELP modbus_slave_crc_errors_total Modbus slave CRC errors\n");
+  PROM_APPEND("# TYPE modbus_slave_crc_errors_total counter\n");
+  PROM_APPEND("modbus_slave_crc_errors_total %lu\n", g_persist_config.modbus_slave.crc_errors);
+
+  PROM_APPEND("# HELP modbus_slave_exceptions_total Modbus slave exception responses\n");
+  PROM_APPEND("# TYPE modbus_slave_exceptions_total counter\n");
+  PROM_APPEND("modbus_slave_exceptions_total %lu\n", g_persist_config.modbus_slave.exception_errors);
+
+  // --- Modbus Master metrics ---
+  PROM_APPEND("# HELP modbus_master_requests_total Total Modbus master requests\n");
+  PROM_APPEND("# TYPE modbus_master_requests_total counter\n");
+  PROM_APPEND("modbus_master_requests_total %lu\n", g_modbus_master_config.total_requests);
+
+  PROM_APPEND("# HELP modbus_master_success_total Successful Modbus master responses\n");
+  PROM_APPEND("# TYPE modbus_master_success_total counter\n");
+  PROM_APPEND("modbus_master_success_total %lu\n", g_modbus_master_config.successful_requests);
+
+  PROM_APPEND("# HELP modbus_master_timeout_errors_total Modbus master timeout errors\n");
+  PROM_APPEND("# TYPE modbus_master_timeout_errors_total counter\n");
+  PROM_APPEND("modbus_master_timeout_errors_total %lu\n", g_modbus_master_config.timeout_errors);
+
+  PROM_APPEND("# HELP modbus_master_crc_errors_total Modbus master CRC errors\n");
+  PROM_APPEND("# TYPE modbus_master_crc_errors_total counter\n");
+  PROM_APPEND("modbus_master_crc_errors_total %lu\n", g_modbus_master_config.crc_errors);
+
+  // --- SSE metrics ---
+  PROM_APPEND("# HELP sse_clients_active Active SSE client connections\n");
+  PROM_APPEND("# TYPE sse_clients_active gauge\n");
+  PROM_APPEND("sse_clients_active %d\n", sse_get_client_count());
+
+  // --- Network metrics ---
+  PROM_APPEND("# HELP wifi_connected WiFi connection status (1=connected, 0=disconnected)\n");
+  PROM_APPEND("# TYPE wifi_connected gauge\n");
+  PROM_APPEND("wifi_connected %d\n", wifi_driver_is_connected() ? 1 : 0);
+
+  int rssi = wifi_driver_get_rssi();
+  if (wifi_driver_is_connected() && rssi != 0) {
+    PROM_APPEND("# HELP wifi_rssi_dbm WiFi signal strength in dBm\n");
+    PROM_APPEND("# TYPE wifi_rssi_dbm gauge\n");
+    PROM_APPEND("wifi_rssi_dbm %d\n", rssi);
+  }
+
+  PROM_APPEND("# HELP ethernet_connected Ethernet connection status (1=connected, 0=disconnected)\n");
+  PROM_APPEND("# TYPE ethernet_connected gauge\n");
+  PROM_APPEND("ethernet_connected %d\n", ethernet_driver_is_connected() ? 1 : 0);
+
+  // --- Counter metrics ---
+  PROM_APPEND("# HELP counter_value Current counter values\n");
+  PROM_APPEND("# TYPE counter_value gauge\n");
+  for (int i = 0; i < MAX_COUNTERS; i++) {
+    CounterConfig cfg;
+    if (counter_engine_get_config(i + 1, &cfg) && cfg.enabled) {
+      uint64_t val = counter_engine_get_value(i + 1);
+      PROM_APPEND("counter_value{id=\"%d\"} %llu\n", i + 1, (unsigned long long)val);
+    }
+  }
+
+  // --- Timer metrics ---
+  PROM_APPEND("# HELP timer_output Current timer output coil state (1=on, 0=off)\n");
+  PROM_APPEND("# TYPE timer_output gauge\n");
+  for (int i = 0; i < MAX_TIMERS; i++) {
+    TimerConfig cfg;
+    if (timer_engine_get_config(i + 1, &cfg) && cfg.enabled) {
+      uint8_t coil_val = registers_get_coil(cfg.output_coil);
+      PROM_APPEND("timer_output{id=\"%d\"} %d\n", i + 1, coil_val ? 1 : 0);
+    }
+  }
+
+  // --- Watchdog metrics ---
+  WatchdogState *wd = watchdog_get_state();
+  if (wd) {
+    PROM_APPEND("# HELP watchdog_reboot_count Total reboots tracked by watchdog\n");
+    PROM_APPEND("# TYPE watchdog_reboot_count counter\n");
+    PROM_APPEND("watchdog_reboot_count %lu\n", wd->reboot_counter);
+  }
+
+  // --- Firmware info ---
+  PROM_APPEND("# HELP firmware_info Firmware version info\n");
+  PROM_APPEND("# TYPE firmware_info gauge\n");
+  PROM_APPEND("firmware_info{version=\"%s\",build=\"%d\"} 1\n", PROJECT_VERSION, BUILD_NUMBER);
+
+  #undef PROM_APPEND
+
+  // Send as text/plain (Prometheus format)
+  httpd_resp_set_type(req, "text/plain; version=0.0.4; charset=utf-8");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_sendstr(req, buf);
+  free(buf);
+
+  http_server_stat_success();
+  return ESP_OK;
+}
+
+/* ============================================================================
+ * FEAT-022: Persistence Group Management API (v7.0.4)
+ *
+ * REST endpoints for managing persistence groups:
+ *   GET    /api/persist/groups         — List all groups
+ *   GET    /api/persist/groups/*       — Get single group detail
+ *   POST   /api/persist/groups/*       — Create/modify group
+ *   DELETE /api/persist/groups/*       — Delete group
+ *   POST   /api/persist/save           — Save group(s)
+ *   POST   /api/persist/restore        — Restore group(s)
+ * ============================================================================ */
+
+esp_err_t api_handler_persist_groups_list(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  PersistentRegisterData *pr = &g_persist_config.persist_regs;
+
+  char *buf = (char *)malloc(2048);
+  if (!buf) return api_send_error(req, 500, "Out of memory");
+
+  int pos = 0;
+  pos += snprintf(buf + pos, 2048 - pos,
+    "{\"enabled\":%s,\"group_count\":%d,\"max_groups\":%d,\"auto_load_enabled\":%s,\"groups\":[",
+    pr->enabled ? "true" : "false",
+    pr->group_count,
+    PERSIST_MAX_GROUPS,
+    pr->auto_load_enabled ? "true" : "false");
+
+  for (int i = 0; i < pr->group_count && i < PERSIST_MAX_GROUPS; i++) {
+    PersistGroup *grp = &pr->groups[i];
+    if (i > 0) pos += snprintf(buf + pos, 2048 - pos, ",");
+    pos += snprintf(buf + pos, 2048 - pos,
+      "{\"id\":%d,\"name\":\"%s\",\"reg_count\":%d,\"max_regs\":%d,\"last_save_ms\":%lu}",
+      i + 1, grp->name, grp->reg_count, PERSIST_GROUP_MAX_REGS,
+      (unsigned long)grp->last_save_ms);
+  }
+
+  pos += snprintf(buf + pos, 2048 - pos, "]}");
+
+  esp_err_t ret = api_send_json(req, buf);
+  free(buf);
+  return ret;
+}
+
+esp_err_t api_handler_persist_group_single(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  // Extract group name from URI: /api/persist/groups/<name>
+  const char *prefix = "/api/persist/groups/";
+  const char *uri = req->uri;
+  if (strncmp(uri, prefix, strlen(prefix)) != 0) {
+    return api_send_error(req, 400, "Invalid persist group URI");
+  }
+  const char *group_name = uri + strlen(prefix);
+
+  if (strlen(group_name) == 0 || strlen(group_name) > 15) {
+    return api_send_error(req, 400, "Invalid group name");
+  }
+
+  PersistGroup *grp = registers_persist_group_find(group_name);
+  if (!grp) {
+    return api_send_error(req, 404, "Group not found");
+  }
+
+  // Find group ID
+  PersistentRegisterData *pr = &g_persist_config.persist_regs;
+  int group_id = 0;
+  for (int i = 0; i < pr->group_count; i++) {
+    if (&pr->groups[i] == grp) { group_id = i + 1; break; }
+  }
+
+  char *buf = (char *)malloc(1024);
+  if (!buf) return api_send_error(req, 500, "Out of memory");
+
+  int pos = 0;
+  pos += snprintf(buf + pos, 1024 - pos,
+    "{\"id\":%d,\"name\":\"%s\",\"reg_count\":%d,\"max_regs\":%d,\"last_save_ms\":%lu,\"registers\":[",
+    group_id, grp->name, grp->reg_count, PERSIST_GROUP_MAX_REGS,
+    (unsigned long)grp->last_save_ms);
+
+  for (int i = 0; i < grp->reg_count && i < PERSIST_GROUP_MAX_REGS; i++) {
+    if (i > 0) pos += snprintf(buf + pos, 1024 - pos, ",");
+    pos += snprintf(buf + pos, 1024 - pos,
+      "{\"addr\":%d,\"saved_value\":%d,\"current_value\":%d}",
+      grp->reg_addresses[i], grp->reg_values[i],
+      registers_get_holding_register(grp->reg_addresses[i]));
+  }
+
+  pos += snprintf(buf + pos, 1024 - pos, "]}");
+
+  esp_err_t ret = api_send_json(req, buf);
+  free(buf);
+  return ret;
+}
+
+esp_err_t api_handler_persist_group_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  // Extract group name from URI
+  const char *prefix = "/api/persist/groups/";
+  const char *uri = req->uri;
+  if (strncmp(uri, prefix, strlen(prefix)) != 0) {
+    return api_send_error(req, 400, "Invalid persist group URI");
+  }
+  const char *group_name = uri + strlen(prefix);
+
+  if (strlen(group_name) == 0 || strlen(group_name) > 15) {
+    return api_send_error(req, 400, "Invalid group name (max 15 chars)");
+  }
+
+  // Read body
+  char content[512];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    return api_send_error(req, 400, "Failed to read request body");
+  }
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, content);
+  if (error) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  // Create group if doesn't exist
+  PersistGroup *grp = registers_persist_group_find(group_name);
+  if (!grp) {
+    if (!registers_persist_group_create(group_name)) {
+      return api_send_error(req, 409, "Cannot create group (max groups reached)");
+    }
+    grp = registers_persist_group_find(group_name);
+    if (!grp) {
+      return api_send_error(req, 500, "Group creation failed");
+    }
+  }
+
+  // Add registers if specified: {"registers": [0, 1, 5, 10]}
+  if (doc.containsKey("registers")) {
+    JsonArray regs = doc["registers"].as<JsonArray>();
+    int added = 0;
+    for (JsonVariant v : regs) {
+      uint16_t addr = v.as<uint16_t>();
+      if (registers_persist_group_add_reg(group_name, addr)) {
+        added++;
+      }
+    }
+  }
+
+  // Remove registers if specified: {"remove": [5, 10]}
+  if (doc.containsKey("remove")) {
+    JsonArray regs = doc["remove"].as<JsonArray>();
+    for (JsonVariant v : regs) {
+      uint16_t addr = v.as<uint16_t>();
+      registers_persist_group_remove_reg(group_name, addr);
+    }
+  }
+
+  // Enable persistence if not already
+  if (!registers_persist_is_enabled()) {
+    registers_persist_set_enabled(true);
+  }
+
+  // Return updated group
+  return api_handler_persist_group_single(req);
+}
+
+esp_err_t api_handler_persist_group_delete(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  const char *prefix = "/api/persist/groups/";
+  const char *uri = req->uri;
+  if (strncmp(uri, prefix, strlen(prefix)) != 0) {
+    return api_send_error(req, 400, "Invalid persist group URI");
+  }
+  const char *group_name = uri + strlen(prefix);
+
+  if (!registers_persist_group_find(group_name)) {
+    return api_send_error(req, 404, "Group not found");
+  }
+
+  if (!registers_persist_group_delete(group_name)) {
+    return api_send_error(req, 500, "Failed to delete group");
+  }
+
+  char buf[128];
+  snprintf(buf, sizeof(buf), "{\"status\":200,\"message\":\"Group '%s' deleted\"}", group_name);
+  return api_send_json(req, buf);
+}
+
+esp_err_t api_handler_persist_save(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  char content[128];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    // No body = save all
+    registers_persist_save_all_groups();
+    g_persist_config.crc16 = config_calculate_crc16(&g_persist_config);
+    if (config_save_to_nvs(&g_persist_config)) {
+      return api_send_json(req, "{\"status\":200,\"message\":\"All groups saved to NVS\"}");
+    }
+    return api_send_error(req, 500, "NVS write failed");
+  }
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  // {"group": "name"} or {"group_id": 1} or {"all": true}
+  if (doc.containsKey("group")) {
+    const char *name = doc["group"].as<const char*>();
+    if (!registers_persist_group_save(name)) {
+      return api_send_error(req, 404, "Group not found");
+    }
+  } else if (doc.containsKey("group_id")) {
+    uint8_t id = doc["group_id"].as<uint8_t>();
+    if (!registers_persist_group_save_by_id(id)) {
+      return api_send_error(req, 404, "Group not found");
+    }
+  } else {
+    registers_persist_save_all_groups();
+  }
+
+  g_persist_config.crc16 = config_calculate_crc16(&g_persist_config);
+  if (config_save_to_nvs(&g_persist_config)) {
+    return api_send_json(req, "{\"status\":200,\"message\":\"Saved to NVS\"}");
+  }
+  return api_send_error(req, 500, "NVS write failed");
+}
+
+esp_err_t api_handler_persist_restore(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  char content[128];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    // No body = restore all
+    if (registers_persist_restore_all_groups()) {
+      return api_send_json(req, "{\"status\":200,\"message\":\"All groups restored\"}");
+    }
+    return api_send_error(req, 500, "Restore failed");
+  }
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  if (doc.containsKey("group")) {
+    const char *name = doc["group"].as<const char*>();
+    if (!registers_persist_group_restore(name)) {
+      return api_send_error(req, 404, "Group not found");
+    }
+  } else if (doc.containsKey("group_id")) {
+    uint8_t id = doc["group_id"].as<uint8_t>();
+    if (!registers_persist_group_restore_by_id(id)) {
+      return api_send_error(req, 404, "Group not found");
+    }
+  } else {
+    if (!registers_persist_restore_all_groups()) {
+      return api_send_error(req, 500, "Restore failed");
+    }
+  }
+
+  return api_send_json(req, "{\"status\":200,\"message\":\"Restored\"}");
+}
+
+/* ============================================================================
+ * FEAT-028: Request Rate Limiting (v7.0.4)
+ *
+ * Token bucket rate limiter per client IP.
+ * Default: 30 requests/second burst, refill 10/sec.
+ * Returns 429 Too Many Requests when exceeded.
+ * ============================================================================ */
+
+#define RATE_LIMIT_MAX_CLIENTS  8
+#define RATE_LIMIT_BUCKET_SIZE  30   // Max burst
+#define RATE_LIMIT_REFILL_RATE  10   // Tokens per second
+
+typedef struct {
+  uint32_t ip_addr;          // Client IP (network byte order)
+  uint16_t tokens;           // Available tokens
+  uint32_t last_refill_ms;   // Last token refill time
+} RateLimitEntry;
+
+static RateLimitEntry rate_limit_table[RATE_LIMIT_MAX_CLIENTS];
+static bool rate_limit_enabled = true;
+
+// Find or create entry for client IP
+static RateLimitEntry* rate_limit_find(uint32_t ip)
+{
+  uint32_t now = millis();
+  int oldest_idx = 0;
+  uint32_t oldest_time = UINT32_MAX;
+
+  for (int i = 0; i < RATE_LIMIT_MAX_CLIENTS; i++) {
+    if (rate_limit_table[i].ip_addr == ip) {
+      return &rate_limit_table[i];
+    }
+    if (rate_limit_table[i].last_refill_ms < oldest_time) {
+      oldest_time = rate_limit_table[i].last_refill_ms;
+      oldest_idx = i;
+    }
+  }
+
+  // Not found — reuse oldest slot
+  RateLimitEntry *e = &rate_limit_table[oldest_idx];
+  e->ip_addr = ip;
+  e->tokens = RATE_LIMIT_BUCKET_SIZE;
+  e->last_refill_ms = now;
+  return e;
+}
+
+// Check rate limit for a request. Returns true if allowed.
+bool http_rate_limit_check(httpd_req_t *req)
+{
+  if (!rate_limit_enabled) return true;
+
+  // Get client IP from socket
+  int sockfd = httpd_req_to_sockfd(req);
+  struct sockaddr_in addr;
+  socklen_t addr_len = sizeof(addr);
+  if (getpeername(sockfd, (struct sockaddr *)&addr, &addr_len) != 0) {
+    return true;  // Can't get IP — allow
+  }
+
+  uint32_t ip = addr.sin_addr.s_addr;
+  RateLimitEntry *e = rate_limit_find(ip);
+
+  // Refill tokens based on elapsed time
+  uint32_t now = millis();
+  uint32_t elapsed_ms = now - e->last_refill_ms;
+  if (elapsed_ms > 0) {
+    uint32_t new_tokens = (elapsed_ms * RATE_LIMIT_REFILL_RATE) / 1000;
+    if (new_tokens > 0) {
+      e->tokens = (e->tokens + new_tokens > RATE_LIMIT_BUCKET_SIZE)
+                    ? RATE_LIMIT_BUCKET_SIZE
+                    : e->tokens + new_tokens;
+      e->last_refill_ms = now;
+    }
+  }
+
+  // Consume a token
+  if (e->tokens > 0) {
+    e->tokens--;
+    return true;
+  }
+
+  return false;  // Rate limited
+}
+
+void http_rate_limit_set_enabled(bool enabled)
+{
+  rate_limit_enabled = enabled;
+}
+
+bool http_rate_limit_is_enabled(void)
+{
+  return rate_limit_enabled;
+}
+
+/* ============================================================================
  * FEAT-030: /api/v1/* Dispatch Handlers (v7.0.0)
  *
  * These handlers receive requests for /api/v1/... URIs, strip the "/v1"
@@ -4753,6 +5304,21 @@ extern esp_err_t api_handler_ethernet_get(httpd_req_t *req);
 extern esp_err_t api_handler_ethernet_post(httpd_req_t *req);
 extern esp_err_t api_handler_system_backup(httpd_req_t *req);
 extern esp_err_t api_handler_system_restore(httpd_req_t *req);
+extern esp_err_t api_handler_hr_bulk_read(httpd_req_t *req);
+extern esp_err_t api_handler_ir_bulk_read(httpd_req_t *req);
+extern esp_err_t api_handler_coils_bulk_read(httpd_req_t *req);
+extern esp_err_t api_handler_di_bulk_read(httpd_req_t *req);
+extern esp_err_t api_handler_heartbeat(httpd_req_t *req);
+extern esp_err_t api_handler_sse_status(httpd_req_t *req);
+extern esp_err_t api_handler_api_version(httpd_req_t *req);
+extern esp_err_t api_handler_gpio_config_delete(httpd_req_t *req);
+extern esp_err_t api_handler_metrics(httpd_req_t *req);
+extern esp_err_t api_handler_persist_groups_list(httpd_req_t *req);
+extern esp_err_t api_handler_persist_group_single(httpd_req_t *req);
+extern esp_err_t api_handler_persist_group_post(httpd_req_t *req);
+extern esp_err_t api_handler_persist_group_delete(httpd_req_t *req);
+extern esp_err_t api_handler_persist_save(httpd_req_t *req);
+extern esp_err_t api_handler_persist_restore(httpd_req_t *req);
 
 // Routing table — order matters (more specific first)
 static const V1Route v1_routes[] = {
@@ -4784,10 +5350,24 @@ static const V1Route v1_routes[] = {
   {"/api/system/restore",   true,  HTTP_POST,   api_handler_system_restore},
   {"/api/http",             true,  HTTP_POST,   api_handler_http_config_post},
   {"/api/logic/settings",   true,  HTTP_POST,   api_handler_logic_settings_post},
+  {"/api/events/status",    true,  HTTP_GET,    api_handler_sse_status},
+  {"/api/version",          true,  HTTP_GET,    api_handler_api_version},
+  {"/api/metrics",          true,  HTTP_GET,    api_handler_metrics},
+  {"/api/persist/groups",   true,  HTTP_GET,    api_handler_persist_groups_list},
+  {"/api/persist/save",     true,  HTTP_POST,   api_handler_persist_save},
+  {"/api/persist/restore",  true,  HTTP_POST,   api_handler_persist_restore},
 
   // Bulk register operations (before wildcards)
+  {"/api/registers/hr",     true,  HTTP_GET,    api_handler_hr_bulk_read},
+  {"/api/registers/ir",     true,  HTTP_GET,    api_handler_ir_bulk_read},
+  {"/api/registers/coils",  true,  HTTP_GET,    api_handler_coils_bulk_read},
+  {"/api/registers/di",     true,  HTTP_GET,    api_handler_di_bulk_read},
   {"/api/registers/hr/bulk", true,  HTTP_POST,  api_handler_hr_bulk_write},
   {"/api/registers/coils/bulk", true, HTTP_POST, api_handler_coils_bulk_write},
+
+  // Heartbeat (before gpio wildcard — more specific match first)
+  {"/api/gpio/2/heartbeat", true,  HTTP_GET,    api_handler_heartbeat},
+  {"/api/gpio/2/heartbeat", true,  HTTP_POST,   api_handler_heartbeat},
 
   // Wildcard prefix matches
   {"/api/counters/",        false, HTTP_GET,    api_handler_counter_single},
@@ -4811,6 +5391,9 @@ static const V1Route v1_routes[] = {
   {"/api/modbus/",          false, HTTP_GET,    api_handler_modbus_get},
   {"/api/modbus/",          false, HTTP_POST,   api_handler_modbus_post},
   {"/api/wifi/",            false, HTTP_POST,   api_handler_wifi_post},
+  {"/api/persist/groups/",  false, HTTP_GET,    api_handler_persist_group_single},
+  {"/api/persist/groups/",  false, HTTP_POST,   api_handler_persist_group_post},
+  {"/api/persist/groups/",  false, HTTP_DELETE,  api_handler_persist_group_delete},
 
   // Sentinel
   {NULL, false, -1, NULL}

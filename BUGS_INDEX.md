@@ -238,17 +238,17 @@
 | FEAT-019 | Telnet Configuration API endpoint | ✅ DONE+TESTET | 🟡 HIGH | v6.3.0 | `GET/POST /api/telnet` — Telnet konfiguration via REST API. Testet 4/4 PASS (Build #1384) |
 | FEAT-020 | ST Logic Debug API endpoints | ✅ DONE+TESTET | 🟡 HIGH | v6.3.0 | `POST /api/logic/{id}/debug/pause\|continue\|step\|breakpoint\|stop` + `GET .../debug/state` — Fuld debug kontrol via API. Testet 8/8 PASS (Build #1384) |
 | FEAT-021 | Bulk Register Operations API | ✅ DONE+TESTET | 🟡 HIGH | v6.3.0 | `GET /api/registers/hr?start=0&count=100` + `POST /api/registers/hr/bulk` + IR/coils/DI bulk read/write. Testet 12/12 PASS (Build #1384) |
-| FEAT-022 | Persistence Group Management API | ❌ OPEN | 🟠 MEDIUM | v6.4.0 | `GET/POST/DELETE /api/persist/groups/{name}` — CLI `set persist` kommandoer har ingen API ækvivalent. Vigtig for avanceret konfigurationsstyring via web |
+| FEAT-022 | Persistence Group Management API | ✅ DONE | 🟠 MEDIUM | v7.1.0 | `GET/POST/DELETE /api/persist/groups/{name}` + `/api/persist/save` + `/api/persist/restore` — fuld REST API for persistence groups |
 | FEAT-023 | SSE Real-Time Events | ✅ DONE+TESTET | 🟠 MEDIUM | v7.0.3 | Raw TCP multi-klient SSE med CLI management. `set sse`/`show sse` config+status. Klient-registry med IP-tracking, `disconnect all\|<slot>`. Konfigurerbar watch HR/IR/Coils/DI. NVS-persisteret config (schema 12) |
 | FEAT-024 | Hostname API endpoint | ✅ DONE+TESTET | 🟠 MEDIUM | v6.3.0 | `GET/POST /api/hostname` — Hostname ændring via REST API. Testet 3/3 PASS (Build #1384) |
 | FEAT-025 | Watchdog Status API endpoint | ✅ DONE+TESTET | 🟠 MEDIUM | v6.3.0 | `GET /api/system/watchdog` — Reboot count, reset reason, heap stats, uptime. Testet 2/2 PASS (Build #1384) |
 | FEAT-026 | GPIO2 Heartbeat Control API | ✅ DONE+TESTET | 🔵 LOW | v6.3.0 | `GET/POST /api/gpio/2/heartbeat` — Enable/disable heartbeat LED. BUG-236 fixed. Testet 3/3 PASS (Build #1384) |
 | FEAT-027 | CORS Headers support | ✅ DONE+TESTET | 🟠 MEDIUM | v6.3.0 | `Access-Control-Allow-Origin: *` på alle API responses + OPTIONS preflight. Testet 3/3 PASS (Build #1384) |
-| FEAT-028 | Request Rate Limiting | ❌ OPEN | 🟠 MEDIUM | v7.0.0 | Max requests/sekund per klient IP — beskytter mod API misbrug/overbelastning på resource-begrænset ESP32. Token bucket eller sliding window algoritme |
+| FEAT-028 | Request Rate Limiting | ✅ DONE | 🟠 MEDIUM | v7.1.0 | Token bucket rate limiter per klient IP (30 burst, 10/sec refill). Returnerer 429 Too Many Requests ved overbelastning |
 | FEAT-029 | OpenAPI/Swagger Schema endpoint | ❌ OPEN | 🔵 LOW | v7.0.0 | `GET /api/schema` returnerer maskinlæsbar OpenAPI 3.0 spec — muliggør automatisk klient-kodegenerering (Python, JS, C#). Stort JSON dokument, kan kræve chunked response |
 | FEAT-030 | API Versioning | ✅ DONE+TESTET | 🔵 LOW | v7.0.0 | `GET /api/version` + `/api/v1/*` dispatcher med URI rewriting. Alle eksisterende endpoints tilgængelige via v1 prefix. Backward-kompatibelt. Testet 32/32 PASS (Build #1389) |
 | FEAT-031 | Firmware OTA via API | ❌ OPEN | 🟡 HIGH | v7.0.0 | `POST /api/system/ota` — firmware upload endpoint for fjern-opdatering uden fysisk adgang. Kræver OTA partition, checksum validering, rollback support. Stor feature med sikkerhedsimplikationer |
-| FEAT-032 | Prometheus Metrics endpoint | ❌ OPEN | 🔵 LOW | v7.0.0 | `GET /api/metrics` i Prometheus text format — integration med Grafana/monitoring stacks. Eksponerer: uptime, heap, counters, timers, modbus stats, API request counts |
+| FEAT-032 | Prometheus Metrics endpoint | ✅ DONE | 🔵 LOW | v7.1.0 | `GET /api/metrics` i Prometheus text format — eksponerer: uptime, heap, HTTP stats, Modbus slave/master stats, SSE clients, WiFi/Ethernet, counters, timers, watchdog, firmware info |
 | FEAT-033 | Request Audit Log | ❌ OPEN | 🔵 LOW | v7.0.0 | `GET /api/system/logs` — ringbuffer med sidste 50-100 API requests (timestamp, path, method, status, IP). Vigtig for fejlfinding og sikkerhedsovervågning. RAM-begrænset på ESP32 |
 
 ## Quick Lookup by Category
@@ -259,12 +259,19 @@
 - **FEAT-019:** ✅ Telnet Configuration API — 4/4 testet PASS
 - **FEAT-020:** ✅ ST Logic Debug API — 8/8 testet PASS
 - **FEAT-021:** ✅ Bulk Register Operations — 12/12 testet PASS
-- **FEAT-022:** ❌ Persistence Group Management API (→ v6.4.0)
+- **FEAT-022:** ✅ Persistence Group Management API (v7.1.0)
 - **FEAT-024:** ✅ Hostname API — 3/3 testet PASS
 - **FEAT-025:** ✅ Watchdog Status API — 2/2 testet PASS
 - **FEAT-026:** ✅ Heartbeat Control API — 3/3 testet PASS (BUG-236 fixed)
 - **FEAT-027:** ✅ CORS Headers — 3/3 testet PASS
 - **Test:** 34/34 PASS (100%) — se `tests/API_V630_TEST_RESULTS.md`
+
+**v7.1.0 — Prometheus Metrics + Persist API + Rate Limiting (2026-03-18):**
+- **FEAT-032:** `GET /api/metrics` — Prometheus text format med system, HTTP, Modbus, SSE, network, counter, timer, watchdog metrics
+- **FEAT-022:** Persistence Group Management API — `GET/POST/DELETE /api/persist/groups/{name}` + save/restore endpoints
+- **FEAT-028:** Token bucket rate limiter per klient IP (30 burst, 10/sec) — returnerer 429 Too Many Requests
+- **FIX:** API v1 routing-tabel manglede 7 endpoints (bulk read, heartbeat, SSE status, version)
+- **FIX:** max_uri_handlers øget fra 64 til 80 (72 registrerede handlers)
 
 **v7.0.3 — SSE CLI Management (2026-03-18):**
 - **FEAT:** `set sse` / `show sse` CLI sektioner med fuld konfiguration
@@ -282,10 +289,10 @@
 - **Test:** 40/40 PASS (100%) — se `tests/FEAT023_FEAT030_TEST_RESULTS.md`
 
 **v7.x.0 — Planned:**
-- **FEAT-028:** Request Rate Limiting 🟠 MEDIUM
+- **FEAT-028:** ✅ Request Rate Limiting (v7.1.0)
 - **FEAT-029:** OpenAPI/Swagger Schema endpoint 🔵 LOW
 - **FEAT-031:** Firmware OTA via API 🟡 HIGH
-- **FEAT-032:** Prometheus Metrics endpoint 🔵 LOW
+- **FEAT-032:** ✅ Prometheus Metrics endpoint (v7.1.0)
 - **FEAT-033:** Request Audit Log 🔵 LOW
 
 ### ⚠️ CRITICAL Bugs (MUST FIX)

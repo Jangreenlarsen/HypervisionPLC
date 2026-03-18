@@ -271,6 +271,22 @@ esp_err_t api_handler_sse_status(httpd_req_t *req);
 /** FEAT-030: GET /api/version — API version info */
 esp_err_t api_handler_api_version(httpd_req_t *req);
 
+/** FEAT-032: GET /api/metrics — Prometheus metrics */
+esp_err_t api_handler_metrics(httpd_req_t *req);
+
+/** FEAT-022: Persistence Group Management API */
+esp_err_t api_handler_persist_groups_list(httpd_req_t *req);
+esp_err_t api_handler_persist_group_single(httpd_req_t *req);
+esp_err_t api_handler_persist_group_post(httpd_req_t *req);
+esp_err_t api_handler_persist_group_delete(httpd_req_t *req);
+esp_err_t api_handler_persist_save(httpd_req_t *req);
+esp_err_t api_handler_persist_restore(httpd_req_t *req);
+
+/** FEAT-028: Rate limiting */
+bool http_rate_limit_check(httpd_req_t *req);
+void http_rate_limit_set_enabled(bool enabled);
+bool http_rate_limit_is_enabled(void);
+
 /** FEAT-030: /api/v1/* dispatchers — forward to existing handlers */
 esp_err_t api_v1_dispatch_get(httpd_req_t *req);
 esp_err_t api_v1_dispatch_post(httpd_req_t *req);

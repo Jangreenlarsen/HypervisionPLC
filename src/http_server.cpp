@@ -112,6 +112,14 @@ extern esp_err_t api_handler_api_version(httpd_req_t *req);
 extern esp_err_t api_v1_dispatch_get(httpd_req_t *req);
 extern esp_err_t api_v1_dispatch_post(httpd_req_t *req);
 extern esp_err_t api_v1_dispatch_delete(httpd_req_t *req);
+// v7.0.4 FEAT-032 Prometheus + FEAT-022 Persist API
+extern esp_err_t api_handler_metrics(httpd_req_t *req);
+extern esp_err_t api_handler_persist_groups_list(httpd_req_t *req);
+extern esp_err_t api_handler_persist_group_single(httpd_req_t *req);
+extern esp_err_t api_handler_persist_group_post(httpd_req_t *req);
+extern esp_err_t api_handler_persist_group_delete(httpd_req_t *req);
+extern esp_err_t api_handler_persist_save(httpd_req_t *req);
+extern esp_err_t api_handler_persist_restore(httpd_req_t *req);
 
 /* ============================================================================
  * URI DEFINITIONS
@@ -585,6 +593,52 @@ static const httpd_uri_t uri_api_version = {
   .user_ctx = NULL
 };
 
+// FEAT-032: Prometheus metrics endpoint
+static const httpd_uri_t uri_metrics = {
+  .uri      = "/api/metrics",
+  .method   = HTTP_GET,
+  .handler  = api_handler_metrics,
+  .user_ctx = NULL
+};
+
+// FEAT-022: Persistence group management API
+static const httpd_uri_t uri_persist_groups_list = {
+  .uri      = "/api/persist/groups",
+  .method   = HTTP_GET,
+  .handler  = api_handler_persist_groups_list,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_persist_group_get = {
+  .uri      = "/api/persist/groups/*",
+  .method   = HTTP_GET,
+  .handler  = api_handler_persist_group_single,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_persist_group_post = {
+  .uri      = "/api/persist/groups/*",
+  .method   = HTTP_POST,
+  .handler  = api_handler_persist_group_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_persist_group_delete = {
+  .uri      = "/api/persist/groups/*",
+  .method   = HTTP_DELETE,
+  .handler  = api_handler_persist_group_delete,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_persist_save = {
+  .uri      = "/api/persist/save",
+  .method   = HTTP_POST,
+  .handler  = api_handler_persist_save,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_persist_restore = {
+  .uri      = "/api/persist/restore",
+  .method   = HTTP_POST,
+  .handler  = api_handler_persist_restore,
+  .user_ctx = NULL
+};
+
 // FEAT-030: /api/v1/* dispatchers (forward to existing handlers)
 static const httpd_uri_t uri_v1_get = {
   .uri      = "/api/v1/*",
@@ -665,7 +719,7 @@ int http_server_start(const HttpConfig *config)
     // Plain HTTP mode
     httpd_config_t httpd_config = HTTPD_DEFAULT_CONFIG();
     httpd_config.server_port = config->port;
-    httpd_config.max_uri_handlers = 64;
+    httpd_config.max_uri_handlers = 80;
     httpd_config.stack_size = 8192;
     httpd_config.uri_match_fn = httpd_uri_match_wildcard;
 
@@ -762,6 +816,15 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_sse_status);
   // v7.0.0: FEAT-030 API version endpoint
   httpd_register_uri_handler(http_state.server, &uri_api_version);
+  // v7.0.4: FEAT-032 Prometheus metrics
+  httpd_register_uri_handler(http_state.server, &uri_metrics);
+  // v7.0.4: FEAT-022 Persistence group API
+  httpd_register_uri_handler(http_state.server, &uri_persist_groups_list);
+  httpd_register_uri_handler(http_state.server, &uri_persist_group_get);
+  httpd_register_uri_handler(http_state.server, &uri_persist_group_post);
+  httpd_register_uri_handler(http_state.server, &uri_persist_group_delete);
+  httpd_register_uri_handler(http_state.server, &uri_persist_save);
+  httpd_register_uri_handler(http_state.server, &uri_persist_restore);
   // v7.0.0: FEAT-030 /api/v1/* dispatchers
   httpd_register_uri_handler(http_state.server, &uri_v1_get);
   httpd_register_uri_handler(http_state.server, &uri_v1_post);
