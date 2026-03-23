@@ -26,6 +26,7 @@
 #include "cli_commands_modbus_slave.h"
 #include "st_logic_config.h"
 #include "debug.h"
+#include "gpio_driver.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -149,6 +150,8 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "READ") || str_eq_i(s, "RD") || str_eq_i(s, "R")) return "READ";
   if (str_eq_i(s, "WRITE") || str_eq_i(s, "WR") || str_eq_i(s, "W")) return "WRITE";
   if (str_eq_i(s, "COMMANDS") || str_eq_i(s, "CMDS")) return "COMMANDS";
+  if (str_eq_i(s, "TEST")) return "TEST";
+  if (str_eq_i(s, "SR")) return "SR";
 
   // Nouns
   if (str_eq_i(s, "COUNTER") || str_eq_i(s, "CNT") || str_eq_i(s, "CNTR")) return "COUNTER";
@@ -1592,6 +1595,18 @@ bool cli_parser_execute(char* line) {
   } else if (!strcmp(cmd, "DEFAULTS")) {
     cli_cmd_defaults();
     return true;
+
+  } else if (!strcmp(cmd, "TEST")) {
+    if (argc >= 2 && !strcmp(normalize_alias(argv[1]), "SR")) {
+      if (argc >= 3 && !strcmp(normalize_alias(argv[2]), "INPUT")) {
+        gpio_driver_test_sr_input();
+      } else {
+        gpio_driver_test_sr();
+      }
+      return true;
+    }
+    debug_println("TEST: unknown target (use: test sr, test sr input)");
+    return false;
 
   } else if (!strcmp(cmd, "REBOOT")) {
     cli_cmd_reboot();

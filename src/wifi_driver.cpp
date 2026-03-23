@@ -104,6 +104,12 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Wi-Fi connected to AP");
         wifi_state.state = WIFI_STATE_CONNECTED;
         wifi_state.reconnect_retries = 0;
+
+        // Apply static IP if configured (must happen before DHCP assigns an address)
+        if (wifi_state.use_static_ip) {
+          ESP_LOGI(TAG, "Applying static IP configuration...");
+          wifi_driver_apply_static_ip();
+        }
         break;
 
       case WIFI_EVENT_STA_DISCONNECTED: {

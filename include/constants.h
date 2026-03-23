@@ -263,6 +263,77 @@ typedef enum {
   #define W5500_SPI_HOST      SPI2_HOST
   #define W5500_SPI_CLOCK_HZ  (8 * 1000 * 1000)   // 8 MHz (ekstern, længere ledninger)
 
+#elif defined(BOARD_ES32D26)
+  // Eletechsup ES32D26 IO Board (ESP32-D0WD-V3 rev3.1, 38-pin)
+  // 8DO (relæer via SN74HC595), 8DI (via SN74HC165), 8AI, 2AO
+  // Ingen knapper (modsat ES32A08)
+  // Onboard RS485 transceiver: UART0 (GPIO1/3), DIR=GPIO21
+  // Shift registers (595): GPIO12(DATA), GPIO22(CLK), GPIO23(LATCH), GPIO13(OE)
+  // Shift registers (165): GPIO0(DATA), GPIO2(CLK), GPIO15(LOAD)
+  // Analog inputs: GPIO14, 27, 32, 33 (voltage), GPIO34, 35, 36, 39 (current)
+  // Analog outputs: GPIO25(DAC1), GPIO26(DAC2)
+  // Ledige GPIOs: 4, 5(boot), 16, 17, 18, 19
+  // OBS: Ingen ledig LED — GPIO2 brugt til 74HC165 CLK, GPIO15 til 74HC165 LOAD
+  #define PIN_LED             -1    // Ingen ledig LED (GPIO2 optaget af 74HC165)
+  // Modbus RTU via onboard RS485 transceiver (UART remapped via GPIO matrix)
+  // OBS: Delt med USB debug serial — kun én aktiv ad gangen
+  #define PIN_UART1_RX        3     // Onboard RS485 RX
+  #define PIN_UART1_TX        1     // Onboard RS485 TX
+  #define PIN_RS485_DIR       21    // Onboard RS485 DE/RE
+  // Counter interrupt pins — IKKE tilgængelige
+  // HW-ISR counter mode kan ikke bruges på dette board
+  #define PIN_INT1            -1
+  #define PIN_INT2            -1
+  #define PIN_INT3            -1
+  #define PIN_INT4            -1
+  // I2C — ikke tilgængelig (ingen ledige I2C-egnede pins)
+  #define PIN_I2C_SDA         -1
+  #define PIN_I2C_SCL         -1
+  // W5500 SPI (ekstern modul, bruger ledige GPIOs: 4, 5, 16, 17, 18, 19)
+  #define PIN_SPI_MISO        19    // VSPI MISO (ledig)
+  #define PIN_SPI_MOSI        17    // Remapped MOSI (ledig)
+  #define PIN_SPI_CLK         18    // VSPI CLK  (ledig)
+  #define PIN_SPI_CS          5     // Chip Select (ledig, ⚠️ strapping pin)
+  #define PIN_W5500_INT       4     // Interrupt (ledig)
+  #define PIN_W5500_RST       16    // Hardware Reset (ledig)
+  #define W5500_SPI_HOST      SPI3_HOST   // VSPI
+  #define W5500_SPI_CLOCK_HZ  (8 * 1000 * 1000)   // 8 MHz (ekstern modul)
+  // Analog Inputs — Spænding (onboard signal conditioning)
+  #define PIN_AI_V1           14    // Vi1: 0-10V (ADC2_CH6, ⚠️ ikke med WiFi)
+  #define PIN_AI_V2           33    // Vi2: 0-10V (ADC1_CH5, ✅ OK med WiFi)
+  #define PIN_AI_V3           27    // Vi3: 0-10V (ADC2_CH7, ⚠️ ikke med WiFi)
+  #define PIN_AI_V4           32    // Vi4: 0-10V (ADC1_CH4, ✅ OK med WiFi)
+  // Analog Inputs — Strøm (onboard signal conditioning)
+  #define PIN_AI_I1           34    // Ii1: 4-20mA (ADC1_CH6, input-only)
+  #define PIN_AI_I2           39    // Ii2: 4-20mA (ADC1_CH3, input-only)
+  #define PIN_AI_I3           36    // Ii3: 4-20mA (ADC1_CH0, input-only)
+  #define PIN_AI_I4           35    // Ii4: 4-20mA (ADC1_CH7, input-only)
+  // Analog Outputs (onboard DAC)
+  #define PIN_AO1             25    // AO1: Vo1/Io1 (DAC1)
+  #define PIN_AO2             26    // AO2: Vo2/Io2 (DAC2)
+  // Status LED — ikke tilgængelig (GPIO15 brugt til 74HC165 LOAD)
+  #define PIN_STATUS_LED      -1
+  // Shift Register hardware pins — SN74HC595 (relæ-udgange) — VERIFIED med multimeter
+  #define PIN_SR_OUT_DATA     12    // SN74HC595 pin 14: SER (serial data)
+  #define PIN_SR_OUT_CLOCK    22    // SN74HC595 pin 11: SRCLK (shift clock)
+  #define PIN_SR_OUT_LATCH    23    // SN74HC595 pin 12: RCLK (storage/latch clock)
+  #define PIN_SR_OUT_OE       13    // SN74HC595 pin 13: OE (output enable, active LOW)
+  // Shift Register hardware pins — SN74HC165 (digitale inputs)
+  #define PIN_SR_IN_LOAD      0     // SN74HC165 pin 1: SH/LD (parallel load, active LOW) ⚠️ strapping pin
+  #define PIN_SR_IN_CLOCK     2     // SN74HC165 pin 2: CLK (clock) ⚠️ strapping pin
+  #define PIN_SR_IN_DATA      15    // SN74HC165 pin 9: QH (serial data out) ⚠️ strapping pin
+  #define SR_OUT_COUNT        1     // ES32D26: 1x 74HC595 (8 relæer, CH1-CH8)
+  #define SR_IN_COUNT         1     // ES32D26: 1x 74HC165 (8 opto-inputs, IN1-IN8)
+  // Virtual GPIO ranges for shift register I/O (1-indexed)
+  // GPIO 101-108: Shift register inputs  (SN74HC165 IN1-IN8)
+  // GPIO 201-208: Shift register outputs (SN74HC595 CH1-CH8 relæer)
+  #define VGPIO_SR_INPUT_BASE   101   // Virtual GPIO 101 = IN1, 102 = IN2, ...
+  #define VGPIO_SR_INPUT_COUNT  (SR_IN_COUNT * 8)
+  #define VGPIO_SR_OUTPUT_BASE  201   // Virtual GPIO 201 = CH1, 202 = CH2, ...
+  #define VGPIO_SR_OUTPUT_COUNT (SR_OUT_COUNT * 8)
+  // Shift register feature flag
+  #define SHIFT_REGISTER_ENABLED
+
 #elif defined(BOARD_ESP32_30PIN)
   // ESP32-WROOM-32 30-pin DevKit (DEFAULT)
   #define PIN_LED             2
