@@ -252,6 +252,10 @@
 | FEAT-031 | Firmware OTA via API | ❌ OPEN | 🟡 HIGH | v7.0.0 | `POST /api/system/ota` — firmware upload endpoint for fjern-opdatering uden fysisk adgang. Kræver OTA partition, checksum validering, rollback support. Stor feature med sikkerhedsimplikationer |
 | FEAT-032 | Prometheus Metrics endpoint | ✅ DONE | 🔵 LOW | v7.1.0 | `GET /api/metrics` i Prometheus text format — eksponerer: uptime, heap, HTTP stats, Modbus slave/master stats, SSE clients, WiFi/Ethernet, counters, timers, watchdog, firmware info |
 | FEAT-033 | Request Audit Log | ❌ OPEN | 🔵 LOW | v7.0.0 | `GET /api/system/logs` — ringbuffer med sidste 50-100 API requests (timestamp, path, method, status, IP). Vigtig for fejlfinding og sikkerhedsovervågning. RAM-begrænset på ESP32 |
+| FEAT-034 | ES32D26 Analog spændings-input (0-10V) | ❌ OPEN | 🟡 HIGH | v7.2.0 | 4x 0-10V analog input via onboard signal conditioning. Vi1=GPIO14 (ADC2), Vi2=GPIO33 (ADC1), Vi3=GPIO27 (ADC2), Vi4=GPIO32 (ADC1). Kræver: ADC kalibrering, skalering til engineering units, Modbus register mapping. OBS: ADC2 (Vi1/Vi3) virker IKKE med WiFi aktiv — kun ADC1 (Vi2/Vi4) er pålidelige |
+| FEAT-035 | ES32D26 Analog strøm-input (4-20mA) | ❌ OPEN | 🟡 HIGH | v7.2.0 | 4x 4-20mA strøm-input via onboard shunt-modstand. Ii1=GPIO34, Ii2=GPIO39, Ii3=GPIO36, Ii4=GPIO35. Alle ADC1 — virker med WiFi. Kræver: ADC kalibrering, nul-punkt offset, skalering 4-20mA → engineering units, Modbus register mapping |
+| FEAT-036 | ES32D26 Analog output (DAC 0-10V) | ❌ OPEN | 🟠 MEDIUM | v7.2.0 | 2x analog output via ESP32 DAC. AO1=GPIO25 (DAC1), AO2=GPIO26 (DAC2). Onboard signal conditioning 0-10V. Kræver: DAC driver, skalering, Modbus holding register mapping for output setpoint |
+| FEAT-037 | ES32D26 Analog Modbus register mapping | ❌ OPEN | 🟡 HIGH | v7.2.0 | Mapping af analog I/O til Modbus registre: AI → Input Registers (skaleret INT/REAL), AO → Holding Registers. CLI: `set analog`, `show analog`. Konfigurerbar skalering, filtrering, polling interval |
 
 ## Quick Lookup by Category
 
@@ -297,6 +301,12 @@
 - **FEAT-031:** Firmware OTA via API 🟡 HIGH
 - **FEAT-032:** ✅ Prometheus Metrics endpoint (v7.1.0)
 - **FEAT-033:** Request Audit Log 🔵 LOW
+
+**v7.2.0 — ES32D26 Analog I/O (Planned):**
+- **FEAT-034:** 4x 0-10V spændings-input (Vi1-Vi4) — ADC kalibrering + skalering 🟡 HIGH
+- **FEAT-035:** 4x 4-20mA strøm-input (Ii1-Ii4) — ADC kalibrering + offset 🟡 HIGH
+- **FEAT-036:** 2x analog output DAC (AO1-AO2) — 0-10V via DAC1/DAC2 🟠 MEDIUM
+- **FEAT-037:** Analog Modbus register mapping + CLI (`set analog`/`show analog`) 🟡 HIGH
 
 ### ⚠️ CRITICAL Bugs (MUST FIX)
 - **BUG-001:** ST Logic vars not visible in Modbus (IR 220-251)
