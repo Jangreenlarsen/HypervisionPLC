@@ -1384,12 +1384,18 @@ bool cli_parser_execute(char* line) {
           const char* mval = normalize_alias(argv[3]);
           if (!strcmp(mval, "SLAVE")) {
             g_persist_config.modbus_mode = MODBUS_MODE_SLAVE;
+            g_persist_config.modbus_slave.enabled = true;
+            g_persist_config.modbus_master.enabled = false;
             debug_println("Modbus mode sat til: SLAVE");
+            debug_println("  slave=enabled, master=disabled");
             debug_println("  Kraever 'save' + reboot for at tage effekt");
             return true;
           } else if (!strcmp(mval, "MASTER")) {
             g_persist_config.modbus_mode = MODBUS_MODE_MASTER;
+            g_persist_config.modbus_slave.enabled = false;
+            g_persist_config.modbus_master.enabled = true;
             debug_println("Modbus mode sat til: MASTER");
+            debug_println("  slave=disabled, master=enabled");
 #if MODBUS_SINGLE_TRANSCEIVER
             debug_println("  ADVARSEL: USB console tabes naar RS485 aktiveres!");
             debug_println("  Brug WiFi/Telnet for konsol-adgang i master mode");
@@ -1398,7 +1404,10 @@ bool cli_parser_execute(char* line) {
             return true;
           } else if (!strcmp(mval, "OFF")) {
             g_persist_config.modbus_mode = MODBUS_MODE_OFF;
+            g_persist_config.modbus_slave.enabled = false;
+            g_persist_config.modbus_master.enabled = false;
             debug_println("Modbus mode sat til: OFF (RS485 deaktiveret)");
+            debug_println("  slave=disabled, master=disabled");
             debug_println("  Kraever 'save' + reboot for at tage effekt");
             return true;
           } else {

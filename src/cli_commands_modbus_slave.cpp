@@ -14,7 +14,16 @@
 
 void cli_cmd_set_modbus_slave_enabled(bool enabled) {
   g_persist_config.modbus_slave.enabled = enabled;
-  Serial.printf("[OK] Modbus Slave %s (takes effect on reboot)\n", enabled ? "ENABLED" : "DISABLED");
+  // Sync modbus_mode to stay consistent
+  if (enabled) {
+    g_persist_config.modbus_mode = MODBUS_MODE_SLAVE;
+    g_persist_config.modbus_master.enabled = false;
+  } else if (!g_persist_config.modbus_master.enabled) {
+    g_persist_config.modbus_mode = MODBUS_MODE_OFF;
+  }
+  Serial.printf("[OK] Modbus Slave %s (mode: %s)\n", enabled ? "ENABLED" : "DISABLED",
+    g_persist_config.modbus_mode == MODBUS_MODE_SLAVE ? "slave" :
+    g_persist_config.modbus_mode == MODBUS_MODE_MASTER ? "master" : "off");
   Serial.println("NOTE: Use 'save' to persist to NVS");
 }
 
