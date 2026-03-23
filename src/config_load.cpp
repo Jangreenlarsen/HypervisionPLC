@@ -69,6 +69,15 @@ static void config_init_defaults(PersistConfig* cfg) {
   cfg->ao1_mode = AO_MODE_VOLTAGE;        // Default: 0-10V
   cfg->ao2_mode = AO_MODE_VOLTAGE;        // Default: 0-10V
 
+  // UART selection defaults (board-dependent)
+#if defined(BOARD_ES32D26)
+  cfg->modbus_slave_uart = 2;             // ES32D26: UART2 (Serial2) on GPIO1/3
+  cfg->modbus_master_uart = 2;            // ES32D26: UART2 (shared transceiver)
+#else
+  cfg->modbus_slave_uart = 1;             // Other boards: UART1 (Serial1) on GPIO4/5
+  cfg->modbus_master_uart = 1;            // Other boards: UART1 (Serial1) on GPIO25/26
+#endif
+
   // Initialize network config with defaults (v3.0+)
   network_config_init_defaults(&cfg->network);
 
@@ -292,6 +301,14 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->modbus_mode = MODBUS_MODE_SLAVE;   // Default: slave (backward compatible)
       out->ao1_mode = AO_MODE_VOLTAGE;        // Default: 0-10V
       out->ao2_mode = AO_MODE_VOLTAGE;        // Default: 0-10V
+      // UART selection defaults
+#if defined(BOARD_ES32D26)
+      out->modbus_slave_uart = 2;             // ES32D26: UART2
+      out->modbus_master_uart = 2;            // ES32D26: UART2 (shared)
+#else
+      out->modbus_slave_uart = 1;             // Other: UART1
+      out->modbus_master_uart = 1;            // Other: UART1
+#endif
 
       out->schema_version = 13;
 

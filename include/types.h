@@ -493,8 +493,12 @@ typedef struct __attribute__((packed)) {
   uint8_t ao1_mode;      // AnalogOutputMode: 0=voltage (0-10V), 1=current (4-20mA)
   uint8_t ao2_mode;      // AnalogOutputMode: 0=voltage (0-10V), 1=current (4-20mA)
 
+  // UART selection for Modbus slave/master (v7.2.0+)
+  uint8_t modbus_slave_uart;   // 0=UART0(Serial), 1=UART1(Serial1), 2=UART2(Serial2)
+  uint8_t modbus_master_uart;  // 0=UART0(Serial), 1=UART1(Serial1), 2=UART2(Serial2)
+
   // Reserved for future features
-  uint8_t reserved[4];  // Reserved space for future use (reduced from 7)
+  uint8_t reserved[2];  // Reserved space for future use (reduced from 4)
 
   // CRC checksum (last)
   uint16_t crc16;

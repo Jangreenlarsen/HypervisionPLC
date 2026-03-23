@@ -3389,6 +3389,10 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   doc["ao1_mode"] = g_persist_config.ao1_mode;
   doc["ao2_mode"] = g_persist_config.ao2_mode;
 
+  // ── UART SELECTION ──
+  doc["modbus_slave_uart"] = g_persist_config.modbus_slave_uart;
+  doc["modbus_master_uart"] = g_persist_config.modbus_master_uart;
+
   // ── NETWORK ──
   JsonObject network = doc["network"].to<JsonObject>();
   network["enabled"] = g_persist_config.network.enabled ? true : false;
@@ -3705,6 +3709,16 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
   if (doc.containsKey("ao2_mode")) {
     g_persist_config.ao2_mode = doc["ao2_mode"].as<uint8_t>();
     if (g_persist_config.ao2_mode > AO_MODE_CURRENT) g_persist_config.ao2_mode = AO_MODE_VOLTAGE;
+  }
+
+  // ── RESTORE UART SELECTION ──
+  if (doc.containsKey("modbus_slave_uart")) {
+    uint8_t u = doc["modbus_slave_uart"].as<uint8_t>();
+    if (u <= 2) g_persist_config.modbus_slave_uart = u;
+  }
+  if (doc.containsKey("modbus_master_uart")) {
+    uint8_t u = doc["modbus_master_uart"].as<uint8_t>();
+    if (u <= 2) g_persist_config.modbus_master_uart = u;
   }
 
   // ── RESTORE MODBUS SLAVE ──

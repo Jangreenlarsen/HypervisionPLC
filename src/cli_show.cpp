@@ -302,6 +302,9 @@ void cli_cmd_show_config(const char *section) {
 #endif
   debug_print("Slave: ");
   debug_println(g_persist_config.modbus_slave.enabled ? "ENABLED" : "DISABLED");
+  debug_print("  UART: ");
+  debug_print_uint(g_persist_config.modbus_slave_uart);
+  debug_println("");
   debug_print("  Unit-ID: ");
   debug_print_uint(g_persist_config.modbus_slave.slave_id);
   debug_println("");
@@ -323,6 +326,9 @@ void cli_cmd_show_config(const char *section) {
   debug_print("Master: ");
   debug_println(g_persist_config.modbus_master.enabled ? "ENABLED" : "DISABLED");
   if (g_persist_config.modbus_master.enabled) {
+    debug_print("  UART: ");
+    debug_print_uint(g_persist_config.modbus_master_uart);
+    debug_println("");
     debug_print("  Baudrate: ");
     debug_print_uint(g_persist_config.modbus_master.baudrate);
     debug_println("");
@@ -1223,6 +1229,13 @@ void cli_cmd_show_config(const char *section) {
   if (g_persist_config.modbus_mode == MODBUS_MODE_MASTER) debug_println("master");
   else if (g_persist_config.modbus_mode == MODBUS_MODE_OFF) debug_println("off");
   else debug_println("slave");
+
+  debug_print("set modbus slave uart uart");
+  debug_print_uint(g_persist_config.modbus_slave_uart);
+  debug_println("");
+  debug_print("set modbus master uart uart");
+  debug_print_uint(g_persist_config.modbus_master_uart);
+  debug_println("");
 
   debug_println("\n# Modbus Slave");
   debug_print("set modbus-slave enabled ");

@@ -184,6 +184,10 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "VOLTAGE") || str_eq_i(s, "VOLT")) return "VOLTAGE";
   if (str_eq_i(s, "CURRENT") || str_eq_i(s, "CURR")) return "CURRENT";
   if (str_eq_i(s, "ANALOG")) return "ANALOG";
+  if (str_eq_i(s, "UART")) return "UART";
+  if (str_eq_i(s, "UART0")) return "UART0";
+  if (str_eq_i(s, "UART1")) return "UART1";
+  if (str_eq_i(s, "UART2")) return "UART2";
   if (str_eq_i(s, "ENABLED")) return "ENABLED";
   if (str_eq_i(s, "DISABLED")) return "DISABLED";
   if (str_eq_i(s, "INTERVAL")) return "INTERVAL";
@@ -1378,6 +1382,8 @@ bool cli_parser_execute(char* line) {
       }
     } else if (!strcmp(what, "MODBUS") || !strcmp(what, "MB")) {
       // set modbus mode slave|master|off
+      // set modbus slave uart uart0|uart1|uart2
+      // set modbus master uart uart0|uart1|uart2
       if (argc >= 4) {
         const char* subwhat = normalize_alias(argv[2]);
         if (!strcmp(subwhat, "MODE")) {
@@ -1417,17 +1423,57 @@ bool cli_parser_execute(char* line) {
           }
         }
       }
+      // set modbus slave uart <uart0|uart1|uart2>
+      // set modbus master uart <uart0|uart1|uart2>
+      if (argc >= 5) {
+        const char* role = normalize_alias(argv[2]);
+        const char* subcmd = normalize_alias(argv[3]);
+        if (!strcmp(subcmd, "UART")) {
+          const char* uval = normalize_alias(argv[4]);
+          uint8_t uart_num = 255;
+          if (!strcmp(uval, "UART0") || !strcmp(uval, "0")) uart_num = 0;
+          else if (!strcmp(uval, "UART1") || !strcmp(uval, "1")) uart_num = 1;
+          else if (!strcmp(uval, "UART2") || !strcmp(uval, "2")) uart_num = 2;
+
+          if (uart_num > 2) {
+            debug_println("SET MODBUS UART: ugyldigt valg");
+            debug_println("  Gyldige: uart0, uart1, uart2");
+            return false;
+          }
+
+          if (!strcmp(role, "SLAVE")) {
+            g_persist_config.modbus_slave_uart = uart_num;
+            debug_printf("Modbus Slave UART sat til: UART%u\n", uart_num);
+            if (uart_num == 0) {
+              debug_println("  ADVARSEL: UART0 deles med USB console!");
+            }
+            debug_println("  Kraever 'save' + reboot for at tage effekt");
+            return true;
+          } else if (!strcmp(role, "MASTER")) {
+            g_persist_config.modbus_master_uart = uart_num;
+            debug_printf("Modbus Master UART sat til: UART%u\n", uart_num);
+            if (uart_num == 0) {
+              debug_println("  ADVARSEL: UART0 deles med USB console!");
+            }
+            debug_println("  Kraever 'save' + reboot for at tage effekt");
+            return true;
+          }
+        }
+      }
       // set modbus ? — help
       if (argc >= 3) {
         const char* subwhat = normalize_alias(argv[2]);
         if (!strcmp(subwhat, "HELP") || !strcmp(subwhat, "?")) {
           debug_println("");
           debug_println("Available 'set modbus' commands:");
-          debug_println("  set modbus mode slave|master|off  - Saet Modbus transceiver mode");
+          debug_println("  set modbus mode slave|master|off       - Saet transceiver mode");
+          debug_println("  set modbus slave uart uart0|uart1|uart2 - Slave UART valg");
+          debug_println("  set modbus master uart uart0|uart1|uart2 - Master UART valg");
+          debug_println("");
+          debug_printf("  Nuvaerende: slave=UART%u, master=UART%u\n",
+            g_persist_config.modbus_slave_uart, g_persist_config.modbus_master_uart);
 #if MODBUS_SINGLE_TRANSCEIVER
           debug_println("  (ES32D26: kun en RS485 — slave ELLER master, ikke begge)");
-#else
-          debug_println("  (Dette board har dual-UART — slave+master koerer samtidig)");
 #endif
           debug_println("");
           return true;
@@ -1435,6 +1481,7 @@ bool cli_parser_execute(char* line) {
       }
       debug_println("SET MODBUS: missing parameters");
       debug_println("  Usage: set modbus mode slave|master|off");
+      debug_println("  Usage: set modbus slave|master uart uart0|uart1|uart2");
       debug_println("  Brug 'set modbus ?' for hjaelp");
       return false;
 
