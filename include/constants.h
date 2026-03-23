@@ -461,10 +461,14 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.1.0"
+#define PROJECT_VERSION     "7.1.1"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.1.1 (2026-03-23): BUG-237 WiFi static IP fix + BUG-238 74HC165 pin-mapping fix (ES32D26)
+ *                      - FIX: wifi_driver_apply_static_ip() kaldes nu i WIFI_EVENT_STA_CONNECTED
+ *                      - FIX: 74HC165 DATA/LOAD pin-mapping byttet (GPIO0=LOAD, GPIO15=DATA)
+ *                      - FEAT: 'test sr input' CLI kommando til 74HC165 diagnostik
  * v7.1.0 (2026-03-18): FEAT-022 Persist Group API + FEAT-028 Rate Limiting + FEAT-032 Prometheus Metrics
  * v7.0.3 (2026-03-18): SSE CLI management + konfigurerbare SSE parametre
  *                      - FEAT: CLI `set sse` / `show sse` sektioner (enable/disable/port/max-clients/interval/heartbeat)
