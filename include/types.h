@@ -357,6 +357,25 @@ typedef struct __attribute__((packed)) {
 } NetworkConfig;
 
 /* ============================================================================
+ * MODBUS MODE (ES32D26 single-transceiver: slave OR master, not both)
+ * ============================================================================ */
+
+typedef enum {
+  MODBUS_MODE_SLAVE  = 0,   // Default: Modbus RTU slave
+  MODBUS_MODE_MASTER = 1,   // Modbus RTU master (ST Logic driven)
+  MODBUS_MODE_OFF    = 2    // RS485 disabled (USB console only on ES32D26)
+} ModbusMode;
+
+/* ============================================================================
+ * ANALOG OUTPUT MODE (ES32D26 AO1/AO2 DIP switch SW1 config)
+ * ============================================================================ */
+
+typedef enum {
+  AO_MODE_VOLTAGE = 0,      // 0-10V output (default)
+  AO_MODE_CURRENT = 1       // 4-20mA output
+} AnalogOutputMode;
+
+/* ============================================================================
  * MODBUS MASTER CONFIGURATION
  * ============================================================================ */
 
@@ -467,8 +486,15 @@ typedef struct __attribute__((packed)) {
   // Module enable/disable flags (v6.2.0+)
   uint8_t module_flags;  // Bitmask: MODULE_FLAG_* constants
 
+  // Modbus mode (v7.2.0+ ES32D26 single-transceiver support)
+  uint8_t modbus_mode;   // ModbusMode enum: 0=slave, 1=master, 2=off
+
+  // Analog output mode (v7.2.0+ ES32D26 AO1/AO2 DIP switch SW1)
+  uint8_t ao1_mode;      // AnalogOutputMode: 0=voltage (0-10V), 1=current (4-20mA)
+  uint8_t ao2_mode;      // AnalogOutputMode: 0=voltage (0-10V), 1=current (4-20mA)
+
   // Reserved for future features
-  uint8_t reserved[7];  // Reserved space for future use
+  uint8_t reserved[4];  // Reserved space for future use (reduced from 7)
 
   // CRC checksum (last)
   uint16_t crc16;

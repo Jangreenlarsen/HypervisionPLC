@@ -7,6 +7,10 @@
 
 #include "modbus_master.h"
 #include <HardwareSerial.h>
+#if MODBUS_SINGLE_TRANSCEIVER
+#include "uart_driver.h"
+#include "gpio_driver.h"
+#endif
 
 /* ============================================================================
  * GLOBAL CONFIGURATION
@@ -31,18 +35,25 @@ modbus_master_config_t g_modbus_master_config = {
  * HARDWARE SERIAL
  * ============================================================================ */
 
-HardwareSerial ModbusSerial(1); // UART1
+#if !MODBUS_SINGLE_TRANSCEIVER
+HardwareSerial ModbusSerial(1); // UART1 — dedicated master port (non-ES32D26)
+#endif
 
 /* ============================================================================
  * INITIALIZATION
  * ============================================================================ */
 
 void modbus_master_init() {
+#if MODBUS_SINGLE_TRANSCEIVER
+  // ES32D26: shared transceiver — DIR pin already configured by uart_driver
+  // Nothing to do here; uart1_init() handles UART setup
+#else
   // Configure DE/RE pin (MAX485 direction control)
   pinMode(MODBUS_MASTER_DE_PIN, OUTPUT);
   digitalWrite(MODBUS_MASTER_DE_PIN, LOW); // Receive mode
+#endif
 
-  // Initialize UART1 if enabled
+  // Initialize UART if enabled
   if (g_modbus_master_config.enabled) {
     modbus_master_reconfigure();
   }
@@ -54,7 +65,11 @@ void modbus_master_set_enabled(bool enabled) {
   if (enabled) {
     modbus_master_reconfigure();
   } else {
+#if MODBUS_SINGLE_TRANSCEIVER
+    uart1_stop();
+#else
     ModbusSerial.end();
+#endif
   }
 }
 
@@ -63,6 +78,14 @@ void modbus_master_reconfigure() {
     return;
   }
 
+#if MODBUS_SINGLE_TRANSCEIVER
+  // ES32D26: reuse shared UART via uart_driver
+  uart1_stop();
+  uart1_init(g_modbus_master_config.baudrate);
+  // DIR pin setup
+  pinMode(MODBUS_MASTER_DE_PIN, OUTPUT);
+  digitalWrite(MODBUS_MASTER_DE_PIN, LOW); // Receive mode
+#else
   // Stop existing UART
   ModbusSerial.end();
 
@@ -90,6 +113,7 @@ void modbus_master_reconfigure() {
   while (ModbusSerial.available()) {
     ModbusSerial.read();
   }
+#endif
 }
 
 void modbus_master_reset_stats() {
@@ -137,17 +161,26 @@ mb_error_code_t modbus_master_send_request(
   }
 
   // Flush RX buffer
+#if MODBUS_SINGLE_TRANSCEIVER
+  uart1_flush_rx();
+#else
   while (ModbusSerial.available()) {
     ModbusSerial.read();
   }
+#endif
 
   // Set DE/RE to transmit mode
   digitalWrite(MODBUS_MASTER_DE_PIN, HIGH);
   delayMicroseconds(50); // Small delay for transceiver switching
 
   // Send request
+#if MODBUS_SINGLE_TRANSCEIVER
+  uart1_write_buffer(request, request_len);
+  uart1_flush_tx();
+#else
   ModbusSerial.write(request, request_len);
   ModbusSerial.flush(); // Wait for TX complete
+#endif
 
   // Set DE/RE to receive mode
   delayMicroseconds(50);
@@ -166,9 +199,18 @@ mb_error_code_t modbus_master_send_request(
     }
 
     // Check for available data
+#if MODBUS_SINGLE_TRANSCEIVER
+    if (uart1_available()) {
+      int b = uart1_read();
+      if (b >= 0) {
+        response[bytes_received++] = (uint8_t)b;
+        start_time = millis();
+      }
+#else
     if (ModbusSerial.available()) {
       response[bytes_received++] = ModbusSerial.read();
       start_time = millis(); // Reset timeout on each received byte
+#endif
 
       // Check if we have minimum response (slave_id + function + data + CRC)
       if (bytes_received >= 5) {

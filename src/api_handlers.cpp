@@ -1678,6 +1678,12 @@ esp_err_t api_handler_config_get(httpd_req_t *req)
   sys["hostname"] = g_persist_config.hostname;
   sys["schema_version"] = g_persist_config.schema_version;
 
+  // ── MODBUS MODE ──
+  const char *mode_str = "slave";
+  if (g_persist_config.modbus_mode == MODBUS_MODE_MASTER) mode_str = "master";
+  else if (g_persist_config.modbus_mode == MODBUS_MODE_OFF) mode_str = "off";
+  doc["modbus_mode"] = mode_str;
+
   // ── MODBUS SLAVE ──
   JsonObject slave = doc["modbus_slave"].to<JsonObject>();
   slave["enabled"] = g_persist_config.modbus_slave.enabled ? true : false;
@@ -1704,6 +1710,11 @@ esp_err_t api_handler_config_get(httpd_req_t *req)
     master["inter_frame_delay_ms"] = g_persist_config.modbus_master.inter_frame_delay;
     master["max_requests_per_cycle"] = g_persist_config.modbus_master.max_requests_per_cycle;
   }
+
+  // ── ANALOG OUTPUTS (AO mode) ──
+  JsonObject ao = doc["analog_outputs"].to<JsonObject>();
+  ao["ao1_mode"] = g_persist_config.ao1_mode == AO_MODE_CURRENT ? "current" : "voltage";
+  ao["ao2_mode"] = g_persist_config.ao2_mode == AO_MODE_CURRENT ? "current" : "voltage";
 
   // ── NETWORK ──
   JsonObject network = doc["network"].to<JsonObject>();
@@ -3352,6 +3363,9 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   doc["schema_version"] = g_persist_config.schema_version;
   doc["hostname"] = g_persist_config.hostname;
 
+  // ── MODBUS MODE ──
+  doc["modbus_mode"] = g_persist_config.modbus_mode;
+
   // ── MODBUS SLAVE ──
   JsonObject slave = doc["modbus_slave"].to<JsonObject>();
   slave["enabled"] = g_persist_config.modbus_slave.enabled ? true : false;
@@ -3370,6 +3384,10 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   master["timeout_ms"] = g_persist_config.modbus_master.timeout_ms;
   master["inter_frame_delay"] = g_persist_config.modbus_master.inter_frame_delay;
   master["max_requests_per_cycle"] = g_persist_config.modbus_master.max_requests_per_cycle;
+
+  // ── ANALOG OUTPUTS ──
+  doc["ao1_mode"] = g_persist_config.ao1_mode;
+  doc["ao2_mode"] = g_persist_config.ao2_mode;
 
   // ── NETWORK ──
   JsonObject network = doc["network"].to<JsonObject>();
@@ -3669,6 +3687,24 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
   int backup_ver = doc["backup_version"] | 0;
   if (backup_ver != 1) {
     return api_send_error(req, 400, "Unsupported backup_version");
+  }
+
+  // ── RESTORE MODBUS MODE ──
+  if (doc.containsKey("modbus_mode")) {
+    g_persist_config.modbus_mode = doc["modbus_mode"].as<uint8_t>();
+    if (g_persist_config.modbus_mode > MODBUS_MODE_OFF) {
+      g_persist_config.modbus_mode = MODBUS_MODE_SLAVE;  // Sanitize
+    }
+  }
+
+  // ── RESTORE AO MODE ──
+  if (doc.containsKey("ao1_mode")) {
+    g_persist_config.ao1_mode = doc["ao1_mode"].as<uint8_t>();
+    if (g_persist_config.ao1_mode > AO_MODE_CURRENT) g_persist_config.ao1_mode = AO_MODE_VOLTAGE;
+  }
+  if (doc.containsKey("ao2_mode")) {
+    g_persist_config.ao2_mode = doc["ao2_mode"].as<uint8_t>();
+    if (g_persist_config.ao2_mode > AO_MODE_CURRENT) g_persist_config.ao2_mode = AO_MODE_VOLTAGE;
   }
 
   // ── RESTORE MODBUS SLAVE ──

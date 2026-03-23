@@ -74,26 +74,57 @@ void setup() {
   Serial.println("NVS: Initialized");
 
   // Initialize watchdog monitor (v4.0+)
+  Serial.print("Watchdog: ");
   watchdog_init();  // 30s timeout, auto-restart on hang
+  Serial.println("OK");
 
   // Load configuration from NVS
+  Serial.print("Config: Loading... ");
   config_load_from_nvs(&g_persist_config);
+  Serial.println("OK");
 
   // Initialize hardware drivers
-  gpio_driver_init();       // GPIO system (RS485 DIR on GPIO15)
+  Serial.print("GPIO: ");
+  gpio_driver_init();       // GPIO system + shift registers (ES32D26)
+  Serial.println("OK");
+  Serial.print("UART: ");
   uart_driver_init();       // UART0/UART1 initialization
+  Serial.println("OK");
 
   // Initialize subsystems (with default configs)
+  Serial.print("Subsystems: ");
   counter_engine_init();    // Counter feature (SW/SW-ISR/HW modes)
   timer_engine_init();      // Timer feature (4 modes)
   st_logic_init(st_logic_get_state());  // ST Logic Mode (4 independent programs)
-  modbus_server_init(g_persist_config.modbus_slave.slave_id);    // Modbus RTU server (UART0, from config)
+
+  // Modbus mode-based initialization (v7.2.0+)
+  uint8_t mb_mode = g_persist_config.modbus_mode;
+#if MODBUS_SINGLE_TRANSCEIVER
+  // ES32D26: single transceiver — slave OR master, not both
+  if (mb_mode == MODBUS_MODE_SLAVE) {
+    modbus_server_init(g_persist_config.modbus_slave.slave_id);
+    Serial.println("Modbus: SLAVE mode (RS485 shared transceiver)");
+  } else if (mb_mode == MODBUS_MODE_MASTER) {
+    modbus_master_init();
+    Serial.println("Modbus: MASTER mode (RS485 shared transceiver)");
+    Serial.println("  OBS: USB console tabt naar RS485 aktiveres");
+  } else {
+    Serial.println("Modbus: OFF (RS485 disabled, USB console aktiv)");
+  }
+#else
+  // Other boards: dual-UART — slave and master can run simultaneously
+  modbus_server_init(g_persist_config.modbus_slave.slave_id);    // Modbus RTU server (UART0)
   modbus_master_init();     // Modbus RTU master (UART1, separate RS485 port)
+#endif
+
   heartbeat_init();         // LED blink on GPIO2
   sse_init();               // SSE real-time events (v7.0.0)
+  Serial.println("OK");
 
   // Load ST Logic programs from persistent config
+  Serial.print("ST Logic: ");
   st_logic_load_from_persist_config(&g_persist_config);
+  Serial.println("OK");
 
   // v5.1.0 - Reallocate IR pool for loaded programs (based on EXPORT flags in bytecode)
   ir_pool_reallocate_all(st_logic_get_state());
@@ -176,7 +207,14 @@ void loop() {
   cli_remote_loop();
 
   // Modbus server (primary function - handles FC01-10)
+  // On single-transceiver boards: only run if mode == SLAVE
+#if MODBUS_SINGLE_TRANSCEIVER
+  if (g_persist_config.modbus_mode == MODBUS_MODE_SLAVE) {
+    modbus_server_loop();
+  }
+#else
   modbus_server_loop();
+#endif
 
   // CLI interface (responsive while Modbus runs)
   if (g_serial_console) {
@@ -191,6 +229,9 @@ void loop() {
   registers_update_dynamic_registers();
   registers_update_dynamic_coils();
 
+  // Læs shift register inputs (ES32D26: SN74HC165 digitale inputs → cache)
+  gpio_driver_poll_inputs();
+
   // UNIFIED VARIABLE MAPPING: Read INPUT bindings (GPIO + ST variables)
   // This must happen BEFORE st_logic_engine_loop() to provide fresh inputs
   gpio_mapping_read_before_st_logic();
@@ -201,6 +242,10 @@ void loop() {
   // UNIFIED VARIABLE MAPPING: Write OUTPUT bindings (GPIO + ST variables)
   // This must happen AFTER st_logic_engine_loop() to push results to registers
   gpio_mapping_write_after_st_logic();
+
+  // Flush shift register outputs (ES32D26: cache → SN74HC595 relæer)
+  // Skal ske EFTER write_after_st_logic() så nye output-værdier når hardware med det samme
+  gpio_driver_flush_outputs();
 
   // Update ST Logic status registers (200-251) - MUST be after execution to get fresh values
   // BUG-008 FIX: Moved here to ensure IR 220-251 contain current iteration's results

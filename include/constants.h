@@ -197,7 +197,7 @@ typedef enum {
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   12      // Current config schema version (v7.0.2: SSE config fields)
+#define CONFIG_SCHEMA_VERSION   13      // Current config schema version (v7.2.0: modbus_mode + ao_mode)
 #define CONFIG_CRC_SEED         0xFFFF  // CRC16 initial value
 
 /* ============================================================================
@@ -425,10 +425,21 @@ typedef enum {
  * MODBUS MASTER CONFIGURATION (UART1)
  * ============================================================================ */
 
-// Hardware pins (fixed)
-#define MODBUS_MASTER_TX_PIN      25    // UART1 TX
-#define MODBUS_MASTER_RX_PIN      26    // UART1 RX
-#define MODBUS_MASTER_DE_PIN      27    // MAX485 DE/RE control
+// Hardware pins — board-dependent
+#if defined(BOARD_ES32D26)
+  // ES32D26: Single RS485 transceiver shared with slave (GPIO1/3/21)
+  // Master reuses uart1_* functions — no separate HardwareSerial
+  #define MODBUS_SINGLE_TRANSCEIVER 1
+  #define MODBUS_MASTER_TX_PIN      PIN_UART1_TX   // GPIO1 (shared)
+  #define MODBUS_MASTER_RX_PIN      PIN_UART1_RX   // GPIO3 (shared)
+  #define MODBUS_MASTER_DE_PIN      PIN_RS485_DIR  // GPIO21 (shared)
+#else
+  // Other boards: dedicated UART1 for master (separate RS485 port)
+  #define MODBUS_SINGLE_TRANSCEIVER 0
+  #define MODBUS_MASTER_TX_PIN      25    // UART1 TX
+  #define MODBUS_MASTER_RX_PIN      26    // UART1 RX
+  #define MODBUS_MASTER_DE_PIN      27    // MAX485 DE/RE control
+#endif
 
 // Default configuration
 #define MODBUS_MASTER_DEFAULT_BAUDRATE     9600
@@ -461,10 +472,17 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.1.1"
+#define PROJECT_VERSION     "7.2.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.2.0 (2026-03-23): Modbus UART refaktor (ES32D26 single-transceiver) + AO mode config
+ *                      - FEAT: Modbus mode CLI: set modbus mode slave|master|off
+ *                      - FEAT: ES32D26 shared RS485 transceiver — slave ELLER master (MODBUS_SINGLE_TRANSCEIVER)
+ *                      - FEAT: AO output mode CLI: set ao1|ao2 mode voltage|current (DIP switch SW1 config)
+ *                      - FEAT: modbus_mode, ao1_mode, ao2_mode i PersistConfig (schema 12→13)
+ *                      - FEAT: Backup/restore + REST API support for nye felter
+ *                      - FIX: Modbus Master bruger ikke laengere GPIO25/26 paa ES32D26 (DAC outputs)
  * v7.1.1 (2026-03-23): BUG-237 WiFi static IP fix + BUG-238 74HC165 pin-mapping fix (ES32D26)
  *                      - FIX: wifi_driver_apply_static_ip() kaldes nu i WIFI_EVENT_STA_CONNECTED
  *                      - FIX: 74HC165 DATA/LOAD pin-mapping byttet (GPIO0=LOAD, GPIO15=DATA)

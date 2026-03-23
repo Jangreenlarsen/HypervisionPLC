@@ -172,9 +172,18 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "WATCHDOG") || str_eq_i(s, "WDG")) return "WATCHDOG";
   if (str_eq_i(s, "VERBOSE") || str_eq_i(s, "VERB")) return "VERBOSE";
 
-  // Modbus Master/Slave commands
+  // Modbus Master/Slave/Mode commands
   if (str_eq_i(s, "MODBUS-MASTER") || str_eq_i(s, "MB-MASTER")) return "MODBUS-MASTER";
   if (str_eq_i(s, "MODBUS-SLAVE") || str_eq_i(s, "MB-SLAVE")) return "MODBUS-SLAVE";
+  if (str_eq_i(s, "MODBUS") || str_eq_i(s, "MB")) return "MODBUS";
+  if (str_eq_i(s, "MODE")) return "MODE";
+  if (str_eq_i(s, "SLAVE")) return "SLAVE";
+  if (str_eq_i(s, "MASTER")) return "MASTER";
+  if (str_eq_i(s, "AO1")) return "AO1";
+  if (str_eq_i(s, "AO2")) return "AO2";
+  if (str_eq_i(s, "VOLTAGE") || str_eq_i(s, "VOLT")) return "VOLTAGE";
+  if (str_eq_i(s, "CURRENT") || str_eq_i(s, "CURR")) return "CURRENT";
+  if (str_eq_i(s, "ANALOG")) return "ANALOG";
   if (str_eq_i(s, "ENABLED")) return "ENABLED";
   if (str_eq_i(s, "DISABLED")) return "DISABLED";
   if (str_eq_i(s, "INTERVAL")) return "INTERVAL";
@@ -295,8 +304,11 @@ static void print_set_help(void) {
   debug_println("  set debug ?             - Vis debug kommandoer");
   debug_println("  set logic interval:<ms> - Sæt ST Logic execution interval (2,5,10,20,25,50,75,100)");
   debug_println("  set persist ?           - Vis persistence kommandoer (v4.0+)");
+  debug_println("  set modbus mode <slave|master|off> - Modbus transceiver mode (v7.2+)");
   debug_println("  set modbus-master ?     - Vis Modbus Master kommandoer (v4.4+)");
   debug_println("  set modbus-slave ?      - Vis Modbus Slave kommandoer (v4.4.1+)");
+  debug_println("  set ao1 mode <voltage|current>    - AO1 output mode (v7.2+)");
+  debug_println("  set ao2 mode <voltage|current>    - AO2 output mode (v7.2+)");
   debug_println("  set sse ?               - Vis SSE server kommandoer (v7.0.2+)");
   debug_println("  set rate-limit enable|disable - Rate limiting (v7.1.0+)");
   debug_println("  set echo <on|off>       - Sæt remote echo");
@@ -1364,6 +1376,93 @@ bool cli_parser_execute(char* line) {
         debug_println("SET LOGIC: unknown subcommand");
         return false;
       }
+    } else if (!strcmp(what, "MODBUS") || !strcmp(what, "MB")) {
+      // set modbus mode slave|master|off
+      if (argc >= 4) {
+        const char* subwhat = normalize_alias(argv[2]);
+        if (!strcmp(subwhat, "MODE")) {
+          const char* mval = normalize_alias(argv[3]);
+          if (!strcmp(mval, "SLAVE")) {
+            g_persist_config.modbus_mode = MODBUS_MODE_SLAVE;
+            debug_println("Modbus mode sat til: SLAVE");
+            debug_println("  Kraever 'save' + reboot for at tage effekt");
+            return true;
+          } else if (!strcmp(mval, "MASTER")) {
+            g_persist_config.modbus_mode = MODBUS_MODE_MASTER;
+            debug_println("Modbus mode sat til: MASTER");
+#if MODBUS_SINGLE_TRANSCEIVER
+            debug_println("  ADVARSEL: USB console tabes naar RS485 aktiveres!");
+            debug_println("  Brug WiFi/Telnet for konsol-adgang i master mode");
+#endif
+            debug_println("  Kraever 'save' + reboot for at tage effekt");
+            return true;
+          } else if (!strcmp(mval, "OFF")) {
+            g_persist_config.modbus_mode = MODBUS_MODE_OFF;
+            debug_println("Modbus mode sat til: OFF (RS485 deaktiveret)");
+            debug_println("  Kraever 'save' + reboot for at tage effekt");
+            return true;
+          } else {
+            debug_println("SET MODBUS MODE: ugyldigt valg");
+            debug_println("  Gyldige: slave, master, off");
+            return false;
+          }
+        }
+      }
+      // set modbus ? — help
+      if (argc >= 3) {
+        const char* subwhat = normalize_alias(argv[2]);
+        if (!strcmp(subwhat, "HELP") || !strcmp(subwhat, "?")) {
+          debug_println("");
+          debug_println("Available 'set modbus' commands:");
+          debug_println("  set modbus mode slave|master|off  - Saet Modbus transceiver mode");
+#if MODBUS_SINGLE_TRANSCEIVER
+          debug_println("  (ES32D26: kun en RS485 — slave ELLER master, ikke begge)");
+#else
+          debug_println("  (Dette board har dual-UART — slave+master koerer samtidig)");
+#endif
+          debug_println("");
+          return true;
+        }
+      }
+      debug_println("SET MODBUS: missing parameters");
+      debug_println("  Usage: set modbus mode slave|master|off");
+      debug_println("  Brug 'set modbus ?' for hjaelp");
+      return false;
+
+    } else if (!strcmp(what, "AO1") || !strcmp(what, "AO2")) {
+      // set ao1 mode voltage|current / set ao2 mode voltage|current
+      bool is_ao1 = !strcmp(what, "AO1");
+      if (argc >= 4) {
+        const char* subwhat = normalize_alias(argv[2]);
+        if (!strcmp(subwhat, "MODE")) {
+          const char* mval = normalize_alias(argv[3]);
+          if (!strcmp(mval, "VOLTAGE")) {
+            if (is_ao1) g_persist_config.ao1_mode = AO_MODE_VOLTAGE;
+            else g_persist_config.ao2_mode = AO_MODE_VOLTAGE;
+            debug_print(is_ao1 ? "AO1" : "AO2");
+            debug_println(" mode sat til: VOLTAGE (0-10V)");
+            debug_println("  Kraever 'save' for at persistere");
+            return true;
+          } else if (!strcmp(mval, "CURRENT")) {
+            if (is_ao1) g_persist_config.ao1_mode = AO_MODE_CURRENT;
+            else g_persist_config.ao2_mode = AO_MODE_CURRENT;
+            debug_print(is_ao1 ? "AO1" : "AO2");
+            debug_println(" mode sat til: CURRENT (4-20mA)");
+            debug_println("  Kraever 'save' for at persistere");
+            return true;
+          } else {
+            debug_println("SET AO MODE: ugyldigt valg");
+            debug_println("  Gyldige: voltage, current");
+            return false;
+          }
+        }
+      }
+      debug_print("SET ");
+      debug_print(is_ao1 ? "AO1" : "AO2");
+      debug_println(": missing parameters");
+      debug_println("  Usage: set ao1 mode voltage|current");
+      return false;
+
     } else if (!strcmp(what, "MODBUS-MASTER") || !strcmp(what, "MB-MASTER")) {
       // Check for help request
       if (argc >= 3) {
@@ -1688,8 +1787,10 @@ bool cli_parser_execute(char* line) {
     debug_println("  set ethernet ?          - Ethernet (W5500) help");
     debug_println("  set debug ?             - Debug help");
     debug_println("  set persist ?           - Persistence help");
+    debug_println("  set modbus mode <mode>  - Transceiver mode (slave/master/off)");
     debug_println("  set modbus-master ?     - Modbus master help");
     debug_println("  set modbus-slave ?      - Modbus slave help");
+    debug_println("  set ao1|ao2 mode <mode> - AO output (voltage/current)");
     debug_println("  set hostname <name>     - Set hostname");
     debug_println("  set echo on|off         - Remote echo\n");
 

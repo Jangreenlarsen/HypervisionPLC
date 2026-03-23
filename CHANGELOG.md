@@ -4,6 +4,39 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.2.0] - 2026-03-23 (Modbus UART Refaktor + AO Mode Config)
+
+### NEW FEATURES
+
+**Modbus Single-Transceiver Support (ES32D26)**
+- `MODBUS_SINGLE_TRANSCEIVER` compile-time flag for ES32D26 board
+- Modbus Master bruger nu shared RS485 transceiver (GPIO1/3/21) via `uart1_*` funktioner
+- GPIO25/26 frigjort fra Modbus Master — nu kun DAC outputs (AO1/AO2)
+- CLI: `set modbus mode slave|master|off` — vælger RS485 rolle
+- Boot-init respekterer `modbus_mode`: kun slave ELLER master initialiseres
+- `modbus_server_loop()` springes over i master/off mode
+
+**Analog Output Mode Config (ES32D26 AO1/AO2)**
+- CLI: `set ao1 mode voltage|current` / `set ao2 mode voltage|current`
+- Matcher hardware DIP switch (SW1) position for korrekt DAC-skalering
+- `show config analog` viser AO1/AO2 mode (voltage/current)
+
+**Config & API**
+- PersistConfig: `modbus_mode`, `ao1_mode`, `ao2_mode` felter (fra reserved bytes)
+- Schema migration 12 → 13 med bagudkompatible defaults
+- REST API: backup/restore inkluderer nye felter
+- `show config modbus` viser Mode: SLAVE/MASTER/OFF
+- GPIO pin-visning tilpasset shared transceiver (ES32D26)
+
+### TECHNICAL
+
+- `modbus_master.cpp`: `#if MODBUS_SINGLE_TRANSCEIVER` conditional compilation
+- `main.cpp`: Mode-baseret init og loop guard
+- `cli_parser.cpp`: Nye aliases (MODBUS, MODE, AO1, AO2, VOLTAGE, CURRENT, ANALOG)
+- Begge build targets kompilerer: `es32d26` + `esp32`
+
+---
+
 ## [7.1.0] - 2026-03-18 (Prometheus Metrics + Persist API + Rate Limiting + CLI)
 
 ### NEW FEATURES

@@ -1,49 +1,54 @@
 # Modbus RTU Server (ESP32)
 
-**Version:** v7.1.0 | **Build:** #1432 | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
+**Version:** v7.2.0 | **Build:** #1519 | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
 
-En komplet, modulær **Modbus RTU Server** implementation til ESP32-WROOM-32 mikrocontroller med **dual Modbus interfaces** (Slave + Master), ST Structured Text Logic programmering med IEC 61131-3 type system, Wi-Fi netværk, **HTTP REST API** for Node-RED integration, telnet CLI interface, og komplet Modbus register dokumentation.
+En komplet, modulær **Modbus RTU Server** implementation til ESP32-WROOM-32 mikrocontroller med **Modbus interfaces** (Slave + Master), ST Structured Text Logic programmering med IEC 61131-3 type system, Wi-Fi netværk, **HTTP REST API** for Node-RED integration, telnet CLI interface, og komplet Modbus register dokumentation. Understøtter flere board-varianter inkl. **ES32D26** med shared RS485 transceiver, 8DI/8DO (shift registers), 8AI og 2AO (DAC).
 
 ---
 
 ## 🏗️ Architecture Overview
 
-ESP32'en fungerer som en **dual-mode Modbus gateway** med to separate RS-485 interfaces:
+ESP32'en fungerer som en **Modbus gateway** med konfigurerbare RS-485 interfaces:
 
-### 📥 Modbus Slave Interface (UART0)
+### 📥 Modbus Slave Interface
 **Formål:** Styring fra SCADA/HMI systemer
-- **Hardware:** UART0 (GPIO16 TX, GPIO17 RX, GPIO15 DE/RE)
+- **30-pin/38-pin boards:** UART0 (GPIO4 RX, GPIO5 TX, GPIO15 DE/RE) — dedikeret port
+- **ES32D26:** Shared onboard RS485 transceiver (GPIO3 RX, GPIO1 TX, GPIO21 DIR)
 - **Funktion:** ESP32'en agerer som Modbus Slave
 - **Use cases:**
   - SCADA læser/skriver counters, timers, ST Logic variabler
   - HMI visualisering af process data
   - PLC integration for fabriksautomatisering
-  - Remote monitoring og control
 
-### 📤 Modbus Master Interface (UART1)
+### 📤 Modbus Master Interface
 **Formål:** Styring af eksterne I/O boards og remote devices
-- **Hardware:** UART1 (GPIO25 TX, GPIO26 RX, GPIO27 DE/RE)
+- **30-pin/38-pin boards:** UART1 (GPIO25 TX, GPIO26 RX, GPIO27 DE/RE) — dedikeret port, kan køre **samtidig** med slave
+- **ES32D26:** Shared onboard RS485 transceiver (GPIO1/3/21) — **enten** slave **eller** master (konfigureres via `set modbus mode`)
 - **Funktion:** ESP32'en agerer som Modbus Master
 - **Use cases:**
   - Læs eksterne temperature sensorer
   - Styr remote I/O modules (relæer, analog inputs)
   - Poll multiple Modbus slaves
-  - Distributed I/O expansion
   - **Integration:** Via ST Logic builtin funktioner (MB_READ_*, MB_WRITE_*)
+
+### 📋 Board-varianter og Modbus
+
+| Board | Slave Port | Master Port | Samtidig? | Konfiguration |
+|-------|-----------|-------------|-----------|---------------|
+| ESP32 30-pin | GPIO 4/5/15 | GPIO 25/26/27 | Ja (dual UART) | `set modbus-slave/master enabled` |
+| ESP32 38-pin | GPIO 4/5/15 | GPIO 25/26/27 | Ja (dual UART) | `set modbus-slave/master enabled` |
+| **ES32D26** | GPIO 1/3/21 | GPIO 1/3/21 | **Nej** (shared) | `set modbus mode slave\|master\|off` |
 
 ### 🔄 Workflow Eksempel
 ```
-SCADA (Modbus Master)
-    ↕ UART0 (Slave)
+SCADA (Modbus Master)                      30-pin/38-pin boards:
+    ↕ UART0 (Slave, GPIO4/5)               Dual-UART = slave+master samtidig
 ESP32 Core
-    - Counters (4x)
-    - Timers (4x)
-    - ST Logic Programs (4x) ← Kan læse/skrive via UART1
-    ↕ UART1 (Master)
+    - Counters (4x)                        ES32D26:
+    - Timers (4x)                          Shared RS485 = slave ELLER master
+    - ST Logic Programs (4x)               Konfigureret via 'set modbus mode'
+    ↕ UART1 (Master, GPIO25/26)
 Remote I/O Boards (Modbus Slaves)
-    - Temperature sensors
-    - Relay modules
-    - Analog inputs
 ```
 
 ---
@@ -340,14 +345,13 @@ Historical test reports and analysis documents are preserved in `docs/ARCHIVED/`
 
 ## 🚀 Features
 
-### Modbus Slave Interface (UART0) - SCADA/HMI Control
+### Modbus Slave Interface - SCADA/HMI Control
 
 **ESP32'en som Modbus RTU Slave device** - styres af external SCADA/HMI/PLC systemer.
 
-#### Hardware (UART0)
-- **TX:** GPIO16
-- **RX:** GPIO17
-- **DE/RE:** GPIO15 (RS-485 Direction Enable)
+#### Hardware
+- **30-pin/38-pin:** UART on GPIO4 (RX), GPIO5 (TX), GPIO15 (DE/RE) — dedikeret port
+- **ES32D26:** Shared onboard RS485 on GPIO3 (RX), GPIO1 (TX), GPIO21 (DIR)
 
 #### Protocol Support
 - **Modbus RTU Function Codes:** FC01, FC02, FC03, FC04, FC05, FC06, FC0F (15), FC10 (16)
@@ -395,13 +399,12 @@ show modbus-slave  # Vis konfiguration
 
 **ESP32'en som Modbus RTU Master** - kan styre eksterne I/O boards, sensorer, og Modbus slave devices.
 
-**⭐ NYT I v4.4.0:** Separat RS-485 interface til distributed I/O expansion!
+**⭐ v7.2.0:** ES32D26 shared transceiver support — `set modbus mode master` skifter til master-rolle.
 
-#### Hardware (UART1)
-- **TX:** GPIO25
-- **RX:** GPIO26
-- **DE/RE:** GPIO27 (RS-485 Direction Enable)
-- **Note:** Komplet separat fra UART0 (Modbus Slave) - ingen deling!
+#### Hardware
+- **30-pin/38-pin:** UART1 on GPIO25 (TX), GPIO26 (RX), GPIO27 (DE/RE) — separat fra slave
+- **ES32D26:** Shared onboard RS485 on GPIO1/3/21 — konfigureres via `set modbus mode slave|master|off`
+- **Note:** På ES32D26 kører slave og master **ikke** samtidig (single transceiver)
 
 #### Protocol Support
 - **Modbus RTU Function Codes:** FC01-FC06
@@ -582,6 +585,43 @@ ST Logic Program:
   - Make control decisions
   - Write relay outputs via MB_WRITE_COIL()
   - Export aggregated data via Modbus Slave (UART0) til SCADA
+```
+
+---
+
+### ES32D26 Analog I/O (v7.2.0+)
+
+**Eletechsup ES32D26** boardet har onboard analog I/O med signal conditioning:
+
+#### Analog Inputs (8 kanaler)
+| Kanal | GPIO | Type | ADC | Note |
+|-------|------|------|-----|------|
+| AI1 (Vi1) | 14 | 0-10V spænding | ADC2_CH6 | Ikke med WiFi |
+| AI2 (Vi2) | 33 | 0-10V spænding | ADC1_CH5 | OK med WiFi |
+| AI3 (Vi3) | 27 | 0-10V spænding | ADC2_CH7 | Ikke med WiFi |
+| AI4 (Vi4) | 32 | 0-10V spænding | ADC1_CH4 | OK med WiFi |
+| AI5 (Ii1) | 34 | 4-20mA strøm | ADC1_CH6 | Input-only |
+| AI6 (Ii2) | 39 | 4-20mA strøm | ADC1_CH3 | Input-only |
+| AI7 (Ii3) | 36 | 4-20mA strøm | ADC1_CH0 | Input-only |
+| AI8 (Ii4) | 35 | 4-20mA strøm | ADC1_CH7 | Input-only |
+
+#### Analog Outputs (2 kanaler, DAC)
+| Kanal | GPIO | DAC | Område | Note |
+|-------|------|-----|--------|------|
+| AO1 (Vo1/Io1) | 25 | DAC1 | 0-255 | Hardware DIP switch (SW1) vælger V/I |
+| AO2 (Vo2/Io2) | 26 | DAC2 | 0-255 | Hardware DIP switch (SW1) vælger V/I |
+
+#### AO Mode Konfiguration (DIP switch SW1)
+Hver AO-udgang har en hardware DIP switch der vælger mellem spændings- eller strøm-output.
+Firmware skal matche DIP switch positionen:
+
+```bash
+set ao1 mode voltage    # 0-10V output (default)
+set ao1 mode current    # 4-20mA output
+set ao2 mode voltage
+set ao2 mode current
+show config analog      # Vis AO1/AO2 mode
+save                    # Gem til NVS
 ```
 
 ---

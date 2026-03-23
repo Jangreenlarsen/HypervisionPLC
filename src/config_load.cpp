@@ -62,6 +62,13 @@ static void config_init_defaults(PersistConfig* cfg) {
   cfg->modbus_master.crc_errors = 0;
   cfg->modbus_master.exception_errors = 0;
 
+  // Modbus mode (v7.2.0+ single-transceiver support)
+  cfg->modbus_mode = MODBUS_MODE_SLAVE;   // Default: slave mode
+
+  // Analog output mode (v7.2.0+ ES32D26 AO1/AO2)
+  cfg->ao1_mode = AO_MODE_VOLTAGE;        // Default: 0-10V
+  cfg->ao2_mode = AO_MODE_VOLTAGE;        // Default: 0-10V
+
   // Initialize network config with defaults (v3.0+)
   network_config_init_defaults(&cfg->network);
 
@@ -277,6 +284,18 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->schema_version = 12;
 
       debug_println("CONFIG LOAD: Migration 11→12 complete");
+    }
+
+    if (out->schema_version == 12) {
+      debug_println("CONFIG LOAD: Migrating schema 12 → 13 (modbus_mode + ao_mode)");
+
+      out->modbus_mode = MODBUS_MODE_SLAVE;   // Default: slave (backward compatible)
+      out->ao1_mode = AO_MODE_VOLTAGE;        // Default: 0-10V
+      out->ao2_mode = AO_MODE_VOLTAGE;        // Default: 0-10V
+
+      out->schema_version = 13;
+
+      debug_println("CONFIG LOAD: Migration 12→13 complete");
     } else if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);

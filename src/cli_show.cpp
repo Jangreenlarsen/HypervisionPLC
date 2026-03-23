@@ -73,6 +73,7 @@ void cli_cmd_show_config(const char *section) {
   bool show_http     = show_all || show_section_match(section, "HTTP") || show_section_match(section, "API");
   bool show_sse      = show_all || show_section_match(section, "SSE");
   bool show_ratelimit = show_all || show_section_match(section, "RATE") || show_section_match(section, "RATELIMIT");
+  bool show_analog   = show_all || show_section_match(section, "ANALOG") || show_section_match(section, "AO");
   bool show_modules  = show_all || show_section_match(section, "MODULE");
   bool show_persist  = show_all || show_section_match(section, "PERSIST");
   bool show_logic    = show_all || show_section_match(section, "LOGIC") || show_section_match(section, "ST");
@@ -106,6 +107,184 @@ void cli_cmd_show_config(const char *section) {
 
   debug_print("Hostname: ");
   debug_println(g_persist_config.hostname[0] ? g_persist_config.hostname : "(NOT SET)");
+
+  // Board / IO Board identification
+  debug_print("Board: ");
+#if defined(BOARD_ES32D26)
+  debug_println("Eletechsup ES32D26 (38-pin, 8DO/8DI/8AI/2AO)");
+#elif defined(BOARD_WAVESHARE_S3_ETH)
+  debug_println("Waveshare ESP32-S3-ETH (W5500 onboard)");
+#elif defined(BOARD_ESP32_38PIN)
+  debug_println("ESP32-WROOM-32 38-pin DevKit");
+#elif defined(BOARD_ESP32_30PIN)
+  debug_println("ESP32-WROOM-32 30-pin DevKit");
+#else
+  debug_println("Unknown");
+#endif
+
+  // ---- Static GPIO Pin Map ----
+  debug_println("\n[GPIO PIN MAP]");
+
+  // LED
+#if PIN_LED >= 0
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_LED);
+  debug_println("   LED");
+#else
+  debug_println("  LED: N/A (ingen ledig pin)");
+#endif
+#if defined(PIN_STATUS_LED) && PIN_STATUS_LED >= 0
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_STATUS_LED);
+  debug_println("  Status LED");
+#endif
+
+  // RS485 / Modbus UART
+  debug_println("  --- RS485 ---");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_UART1_TX);
+  debug_println("   RS485 TX");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_UART1_RX);
+  debug_println("   RS485 RX");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_RS485_DIR);
+  debug_println("  RS485 DIR (DE/RE)");
+
+  // Shift Register outputs (relæer)
+#ifdef SHIFT_REGISTER_ENABLED
+  debug_println("  --- Shift Register OUT (SN74HC595) ---");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_SR_OUT_DATA);
+  debug_println("  SR Data (SER)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_SR_OUT_CLOCK);
+  debug_println("  SR Clock (SRCLK)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_SR_OUT_LATCH);
+  debug_println("  SR Latch (RCLK)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_SR_OUT_OE);
+  debug_println("   SR Output Enable (OE)");
+  debug_print("  Chips: ");
+  debug_print_uint(SR_OUT_COUNT);
+  debug_print("x 74HC595 = ");
+  debug_print_uint(VGPIO_SR_OUTPUT_COUNT);
+  debug_print(" relay outputs CH1-CH");
+  debug_print_uint(VGPIO_SR_OUTPUT_COUNT);
+  debug_print(" (GPIO ");
+  debug_print_uint(VGPIO_SR_OUTPUT_BASE);
+  debug_print("-");
+  debug_print_uint(VGPIO_SR_OUTPUT_BASE + VGPIO_SR_OUTPUT_COUNT - 1);
+  debug_println(")");
+
+  debug_println("  --- Shift Register IN (SN74HC165) ---");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_SR_IN_DATA);
+  debug_println("   SR Data (QH)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_SR_IN_CLOCK);
+  debug_println("  SR Clock (CLK)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_SR_IN_LOAD);
+  debug_println("  SR Load (SH/LD)");
+  debug_print("  Chips: ");
+  debug_print_uint(SR_IN_COUNT);
+  debug_print("x 74HC165 = ");
+  debug_print_uint(VGPIO_SR_INPUT_COUNT);
+  debug_print(" inputs (GPIO ");
+  debug_print_uint(VGPIO_SR_INPUT_BASE);
+  debug_print("-");
+  debug_print_uint(VGPIO_SR_INPUT_BASE + VGPIO_SR_INPUT_COUNT - 1);
+  debug_println(")");
+#endif
+
+  // Analog inputs
+#if defined(PIN_AI_V1)
+  debug_println("  --- Analog Inputs ---");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_AI_V1);
+  debug_println("  V1 (0-10V, ADC1)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_AI_V2);
+  debug_println("  V2 (0-10V, ADC1)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_AI_V3);
+  debug_println("  V3 (0-10V, ADC2 *ikke med WiFi)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_AI_V4);
+  debug_println("  V4 (0-10V, ADC2 *ikke med WiFi)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_AI_I1);
+  debug_println("  I1 (4-20mA, ADC1)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_AI_I2);
+  debug_println("  I2 (4-20mA, ADC1)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_AI_I3);
+  debug_println("  I3 (4-20mA, ADC1)");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_AI_I4);
+  debug_println("  I4 (4-20mA, ADC1)");
+#endif
+
+  // W5500 Ethernet SPI
+#ifdef ETHERNET_W5500_ENABLED
+  debug_println("  --- W5500 Ethernet (SPI) ---");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_SPI_MISO);
+  debug_println("  SPI MISO");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_SPI_MOSI);
+  debug_println("  SPI MOSI");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_SPI_CLK);
+  debug_println("  SPI CLK");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_SPI_CS);
+  debug_println("  SPI CS");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_W5500_INT);
+  debug_println("  W5500 INT");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_W5500_RST);
+  debug_println("   W5500 RST");
+#else
+  debug_println("  Ethernet: Not compiled (-DETHERNET_W5500_ENABLED)");
+#endif
+
+  // Counter interrupt pins
+#if PIN_INT1 >= 0
+  debug_println("  --- Counter Interrupts ---");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_INT1);
+  debug_println("  INT1");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_INT2);
+  debug_println("  INT2");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_INT3);
+  debug_println("  INT3");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_INT4);
+  debug_println("  INT4");
+#else
+  debug_println("  Counter INT: Ikke tilgaengelig paa dette board");
+#endif
+
+  // I2C
+#if PIN_I2C_SDA >= 0
+  debug_println("  --- I2C ---");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_I2C_SDA);
+  debug_println("  I2C SDA");
+  debug_print("  GPIO ");
+  debug_print_uint(PIN_I2C_SCL);
+  debug_println("  I2C SCL");
+#else
+  debug_println("  I2C: Ikke tilgaengelig paa dette board");
+#endif
+
   debug_println("");
   } // end show_system
 
@@ -114,6 +293,13 @@ void cli_cmd_show_config(const char *section) {
   // =========================================================================
   if (show_modbus) {
   debug_println("[MODBUS]");
+  debug_print("Mode: ");
+  if (g_persist_config.modbus_mode == MODBUS_MODE_MASTER) debug_println("MASTER");
+  else if (g_persist_config.modbus_mode == MODBUS_MODE_OFF) debug_println("OFF");
+  else debug_println("SLAVE");
+#if MODBUS_SINGLE_TRANSCEIVER
+  debug_println("  (ES32D26: shared transceiver — slave ELLER master)");
+#endif
   debug_print("Slave: ");
   debug_println(g_persist_config.modbus_slave.enabled ? "ENABLED" : "DISABLED");
   debug_print("  Unit-ID: ");
@@ -160,6 +346,21 @@ void cli_cmd_show_config(const char *section) {
   }
   debug_println("");
   } // end show_modbus
+
+  // =========================================================================
+  // ANALOG (ES32D26 AO1/AO2 mode)
+  // =========================================================================
+#if defined(BOARD_ES32D26)
+  if (show_analog) {
+  debug_println("[ANALOG OUTPUTS]");
+  debug_print("AO1 (GPIO25/DAC1): ");
+  debug_println(g_persist_config.ao1_mode == AO_MODE_CURRENT ? "CURRENT (4-20mA)" : "VOLTAGE (0-10V)");
+  debug_print("AO2 (GPIO26/DAC2): ");
+  debug_println(g_persist_config.ao2_mode == AO_MODE_CURRENT ? "CURRENT (4-20mA)" : "VOLTAGE (0-10V)");
+  debug_println("  (Saet via DIP switch SW1 + 'set ao1|ao2 mode voltage|current')");
+  debug_println("");
+  } // end show_analog
+#endif
 
   // =========================================================================
   // COUNTERS
@@ -378,6 +579,19 @@ void cli_cmd_show_config(const char *section) {
 
   debug_println("hardware pins:");
   debug_println("  GPIO 2  - LED (heartbeat/user)");
+#if MODBUS_SINGLE_TRANSCEIVER
+  // ES32D26: shared transceiver — show based on modbus_mode
+  if (g_persist_config.modbus_mode != MODBUS_MODE_OFF) {
+    char buf[80];
+    const char* role = (g_persist_config.modbus_mode == MODBUS_MODE_MASTER) ? "Master" : "Slave";
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - RS485 RX (Modbus %s, shared)", PIN_UART1_RX, role);
+    debug_println(buf);
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - RS485 TX (Modbus %s, shared)", PIN_UART1_TX, role);
+    debug_println(buf);
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - RS485 DIR (Modbus %s)", PIN_RS485_DIR, role);
+    debug_println(buf);
+  }
+#else
   if (g_persist_config.modbus_slave.enabled) {
     char buf[64];
     snprintf(buf, sizeof(buf), "  GPIO %-2d - UART1 RX (Modbus Slave)", PIN_UART1_RX);
@@ -396,6 +610,7 @@ void cli_cmd_show_config(const char *section) {
     snprintf(buf, sizeof(buf), "  GPIO %-2d - RS485 DE/RE (Modbus Master)", MODBUS_MASTER_DE_PIN);
     debug_println(buf);
   }
+#endif
   for (uint8_t i = 0; i < COUNTER_COUNT; i++) {
     const CounterConfig &cc = g_persist_config.counters[i];
     if (cc.enabled && cc.hw_mode == COUNTER_HW_PCNT && cc.hw_gpio > 0) {
@@ -1002,7 +1217,14 @@ void cli_cmd_show_config(const char *section) {
   }
 
   if (show_modbus) {
-  debug_println("# Modbus Slave");
+  // Modbus Mode
+  debug_println("# Modbus Mode");
+  debug_print("set modbus mode ");
+  if (g_persist_config.modbus_mode == MODBUS_MODE_MASTER) debug_println("master");
+  else if (g_persist_config.modbus_mode == MODBUS_MODE_OFF) debug_println("off");
+  else debug_println("slave");
+
+  debug_println("\n# Modbus Slave");
   debug_print("set modbus-slave enabled ");
   debug_println(g_persist_config.modbus_slave.enabled ? "on" : "off");
   if (g_persist_config.modbus_slave.enabled) {
@@ -1052,6 +1274,16 @@ void cli_cmd_show_config(const char *section) {
     debug_println("");
   }
   } // end show_modbus
+
+#if defined(BOARD_ES32D26)
+  if (show_analog) {
+  debug_println("\n# Analog Outputs (ES32D26)");
+  debug_print("set ao1 mode ");
+  debug_println(g_persist_config.ao1_mode == AO_MODE_CURRENT ? "current" : "voltage");
+  debug_print("set ao2 mode ");
+  debug_println(g_persist_config.ao2_mode == AO_MODE_CURRENT ? "current" : "voltage");
+  } // end show_analog
+#endif
 
   if (show_system) {
   // Hostname
@@ -2457,6 +2689,21 @@ void cli_cmd_show_gpio(void) {
   debug_println("  Kommandoer: 'set gpio 2 enable' / 'set gpio 2 disable'");
   debug_println("");
 
+#if MODBUS_SINGLE_TRANSCEIVER
+  // ES32D26: shared RS485 transceiver
+  if (g_persist_config.modbus_mode != MODBUS_MODE_OFF) {
+    const char* role = (g_persist_config.modbus_mode == MODBUS_MODE_MASTER) ? "Master" : "Slave";
+    char buf[80];
+    debug_printf("RS485 (Modbus %s, shared transceiver):\n", role);
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - RX", PIN_UART1_RX);
+    debug_println(buf);
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - TX", PIN_UART1_TX);
+    debug_println(buf);
+    snprintf(buf, sizeof(buf), "  GPIO %-2d - DIR", PIN_RS485_DIR);
+    debug_println(buf);
+    debug_println("");
+  }
+#else
   // Modbus Slave pins (kun hvis enabled)
   if (g_persist_config.modbus_slave.enabled) {
     debug_println("UART1 (Modbus Slave):");
@@ -2482,6 +2729,7 @@ void cli_cmd_show_gpio(void) {
     debug_println(buf);
     debug_println("");
   }
+#endif
 
   // PCNT Counter pins (kun hvis counter enabled med hw_gpio konfigureret)
   {
@@ -2569,6 +2817,15 @@ void cli_cmd_show_gpio_pin(uint8_t pin) {
   bool is_reserved = false;
   char reservation_buf[64];
 
+#if MODBUS_SINGLE_TRANSCEIVER
+  // ES32D26: shared transceiver pins reserved when mode != OFF
+  if (g_persist_config.modbus_mode != MODBUS_MODE_OFF) {
+    const char* role = (g_persist_config.modbus_mode == MODBUS_MODE_MASTER) ? "Master" : "Slave";
+    if (pin == PIN_UART1_RX) { snprintf(reservation_buf, sizeof(reservation_buf), "RS485 RX (Modbus %s)", role); is_reserved = true; }
+    else if (pin == PIN_UART1_TX) { snprintf(reservation_buf, sizeof(reservation_buf), "RS485 TX (Modbus %s)", role); is_reserved = true; }
+    else if (pin == PIN_RS485_DIR) { snprintf(reservation_buf, sizeof(reservation_buf), "RS485 DIR (Modbus %s)", role); is_reserved = true; }
+  }
+#else
   // Modbus Slave pins
   if (g_persist_config.modbus_slave.enabled) {
     if (pin == PIN_UART1_RX) { snprintf(reservation_buf, sizeof(reservation_buf), "UART1 RX (Modbus Slave)"); is_reserved = true; }
@@ -2582,6 +2839,7 @@ void cli_cmd_show_gpio_pin(uint8_t pin) {
     else if (pin == MODBUS_MASTER_RX_PIN) { snprintf(reservation_buf, sizeof(reservation_buf), "UART RX (Modbus Master)"); is_reserved = true; }
     else if (pin == MODBUS_MASTER_DE_PIN) { snprintf(reservation_buf, sizeof(reservation_buf), "RS485 DE/RE (Modbus Master)"); is_reserved = true; }
   }
+#endif
 
   // Counter PCNT pins
   if (!is_reserved) {
