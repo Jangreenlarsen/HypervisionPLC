@@ -1156,6 +1156,28 @@ void cli_cmd_show_config(const char *section) {
   debug_println((g_persist_config.module_flags & MODULE_FLAG_TIMERS_DISABLED) ? "disabled" : "enabled");
   debug_print("  st-logic: ");
   debug_println((g_persist_config.module_flags & MODULE_FLAG_ST_LOGIC_DISABLED) ? "disabled" : "enabled");
+  debug_print("  ethernet: ");
+  debug_println(g_persist_config.network.ethernet.enabled ? "enabled" : "disabled");
+
+  // RS485 UART pin config
+  debug_println("  [RS485 UART1]");
+  if (g_persist_config.uart1_tx_pin != 0xFF) {
+    debug_printf("    TX=GPIO%u  RX=GPIO%u", g_persist_config.uart1_tx_pin, g_persist_config.uart1_rx_pin);
+    if (g_persist_config.uart1_dir_pin != 0xFF)
+      debug_printf("  DIR=GPIO%u", g_persist_config.uart1_dir_pin);
+    debug_println("");
+  } else {
+    debug_printf("    (board default: TX=GPIO%u RX=GPIO%u DIR=GPIO%u)\n", PIN_UART1_TX, PIN_UART1_RX, PIN_RS485_DIR);
+  }
+  debug_println("  [RS485 UART2]");
+  if (g_persist_config.uart2_tx_pin != 0xFF) {
+    debug_printf("    TX=GPIO%u  RX=GPIO%u", g_persist_config.uart2_tx_pin, g_persist_config.uart2_rx_pin);
+    if (g_persist_config.uart2_dir_pin != 0xFF)
+      debug_printf("  DIR=GPIO%u", g_persist_config.uart2_dir_pin);
+    debug_println("");
+  } else {
+    debug_printf("    (board default: TX=GPIO%u RX=GPIO%u DIR=GPIO%u)\n", PIN_UART1_TX, PIN_UART1_RX, PIN_RS485_DIR);
+  }
 
   } // end show_modules
 
@@ -1297,6 +1319,26 @@ void cli_cmd_show_config(const char *section) {
   debug_println(g_persist_config.ao2_mode == AO_MODE_CURRENT ? "current" : "voltage");
   } // end show_analog
 #endif
+
+  if (show_modules) {
+  debug_println("\n# Hardware Modules");
+  // UART1 pin config
+  if (g_persist_config.uart1_tx_pin != 0xFF) {
+    debug_printf("set modul rs485 uart1 tx %u rx %u", g_persist_config.uart1_tx_pin, g_persist_config.uart1_rx_pin);
+    if (g_persist_config.uart1_dir_pin != 0xFF)
+      debug_printf(" dir %u", g_persist_config.uart1_dir_pin);
+    debug_println("");
+  }
+  // UART2 pin config
+  if (g_persist_config.uart2_tx_pin != 0xFF) {
+    debug_printf("set modul rs485 uart2 tx %u rx %u", g_persist_config.uart2_tx_pin, g_persist_config.uart2_rx_pin);
+    if (g_persist_config.uart2_dir_pin != 0xFF)
+      debug_printf(" dir %u", g_persist_config.uart2_dir_pin);
+    debug_println("");
+  }
+  debug_print("set modul ethernet ");
+  debug_println(g_persist_config.network.ethernet.enabled ? "enable" : "disable");
+  } // end show_modules
 
   if (show_system) {
   // Hostname

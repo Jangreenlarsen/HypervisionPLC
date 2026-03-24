@@ -21,18 +21,32 @@ All notable changes to this project are documented in this file.
 - Matcher hardware DIP switch (SW1) position for korrekt DAC-skalering
 - `show config analog` viser AO1/AO2 mode (voltage/current)
 
+**Runtime UART Selection**
+- CLI: `set modbus slave uart uart0|uart1|uart2` — slave UART periferi valg
+- CLI: `set modbus master uart uart0|uart1|uart2` — master UART periferi valg
+- Board-afhængige defaults: ES32D26=UART2, andre=UART1
+
+**Hardware Modul Config (FEAT-041)**
+- CLI: `set modul rs485 uart1|uart2 tx <pin> rx <pin> dir <pin>` — konfigurerbare UART pins
+- CLI: `set modul ethernet enable|disable` — W5500 SPI enable/disable
+- ESP32 GPIO matrix: enhver UART kan remappes til enhver GPIO
+- 0xFF = brug board default pins fra constants.h
+- `show config modules` viser pin-konfiguration per UART
+
 **Config & API**
-- PersistConfig: `modbus_mode`, `ao1_mode`, `ao2_mode` felter (fra reserved bytes)
-- Schema migration 12 → 13 med bagudkompatible defaults
-- REST API: backup/restore inkluderer nye felter
-- `show config modbus` viser Mode: SLAVE/MASTER/OFF
+- PersistConfig: `modbus_mode`, `ao1_mode`, `ao2_mode`, UART selection, pin config felter
+- Schema migration 12→13→14 med bagudkompatible defaults
+- REST API: backup/restore inkluderer alle nye felter
+- `show config modbus` viser Mode: SLAVE/MASTER/OFF + UART valg
 - GPIO pin-visning tilpasset shared transceiver (ES32D26)
 
 ### TECHNICAL
 
 - `modbus_master.cpp`: `#if MODBUS_SINGLE_TRANSCEIVER` conditional compilation
+- `uart_driver.cpp`: Runtime pin resolution fra config (0xFF=board default)
+- `uart_get_slave_dir_pin()` / `uart_get_master_dir_pin()` — dynamisk DIR pin opslag
 - `main.cpp`: Mode-baseret init og loop guard
-- `cli_parser.cpp`: Nye aliases (MODBUS, MODE, AO1, AO2, VOLTAGE, CURRENT, ANALOG)
+- `cli_parser.cpp`: Nye aliases (MODBUS, MODE, AO1, AO2, VOLTAGE, CURRENT, ANALOG, MODUL, RS485, TX, RX, DIR)
 - Begge build targets kompilerer: `es32d26` + `esp32`
 
 ---

@@ -78,6 +78,14 @@ static void config_init_defaults(PersistConfig* cfg) {
   cfg->modbus_master_uart = 1;            // Other boards: UART1 (Serial1) on GPIO25/26
 #endif
 
+  // UART pin config: 0xFF = use board defaults from constants.h
+  cfg->uart1_tx_pin = 0xFF;
+  cfg->uart1_rx_pin = 0xFF;
+  cfg->uart1_dir_pin = 0xFF;
+  cfg->uart2_tx_pin = 0xFF;
+  cfg->uart2_rx_pin = 0xFF;
+  cfg->uart2_dir_pin = 0xFF;
+
   // Initialize network config with defaults (v3.0+)
   network_config_init_defaults(&cfg->network);
 
@@ -313,6 +321,22 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->schema_version = 13;
 
       debug_println("CONFIG LOAD: Migration 12→13 complete");
+    }
+
+    if (out->schema_version == 13) {
+      debug_println("CONFIG LOAD: Migrating schema 13 → 14 (UART pin config)");
+
+      // 0xFF = use board default pins from constants.h
+      out->uart1_tx_pin = 0xFF;
+      out->uart1_rx_pin = 0xFF;
+      out->uart1_dir_pin = 0xFF;
+      out->uart2_tx_pin = 0xFF;
+      out->uart2_rx_pin = 0xFF;
+      out->uart2_dir_pin = 0xFF;
+
+      out->schema_version = 14;
+
+      debug_println("CONFIG LOAD: Migration 13→14 complete");
     } else if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);

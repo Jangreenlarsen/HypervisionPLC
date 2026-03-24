@@ -3393,6 +3393,14 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   doc["modbus_slave_uart"] = g_persist_config.modbus_slave_uart;
   doc["modbus_master_uart"] = g_persist_config.modbus_master_uart;
 
+  // ── UART PIN CONFIG ──
+  doc["uart1_tx_pin"] = g_persist_config.uart1_tx_pin;
+  doc["uart1_rx_pin"] = g_persist_config.uart1_rx_pin;
+  doc["uart1_dir_pin"] = g_persist_config.uart1_dir_pin;
+  doc["uart2_tx_pin"] = g_persist_config.uart2_tx_pin;
+  doc["uart2_rx_pin"] = g_persist_config.uart2_rx_pin;
+  doc["uart2_dir_pin"] = g_persist_config.uart2_dir_pin;
+
   // ── NETWORK ──
   JsonObject network = doc["network"].to<JsonObject>();
   network["enabled"] = g_persist_config.network.enabled ? true : false;
@@ -3720,6 +3728,14 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
     uint8_t u = doc["modbus_master_uart"].as<uint8_t>();
     if (u <= 2) g_persist_config.modbus_master_uart = u;
   }
+
+  // ── RESTORE UART PIN CONFIG ──
+  if (doc.containsKey("uart1_tx_pin"))  g_persist_config.uart1_tx_pin  = doc["uart1_tx_pin"].as<uint8_t>();
+  if (doc.containsKey("uart1_rx_pin"))  g_persist_config.uart1_rx_pin  = doc["uart1_rx_pin"].as<uint8_t>();
+  if (doc.containsKey("uart1_dir_pin")) g_persist_config.uart1_dir_pin = doc["uart1_dir_pin"].as<uint8_t>();
+  if (doc.containsKey("uart2_tx_pin"))  g_persist_config.uart2_tx_pin  = doc["uart2_tx_pin"].as<uint8_t>();
+  if (doc.containsKey("uart2_rx_pin"))  g_persist_config.uart2_rx_pin  = doc["uart2_rx_pin"].as<uint8_t>();
+  if (doc.containsKey("uart2_dir_pin")) g_persist_config.uart2_dir_pin = doc["uart2_dir_pin"].as<uint8_t>();
 
   // ── RESTORE MODBUS SLAVE ──
   if (doc.containsKey("modbus_slave")) {

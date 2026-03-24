@@ -6,9 +6,10 @@
  */
 
 #include "modbus_master.h"
+#include "uart_driver.h"
+#include "config_struct.h"
 #include <HardwareSerial.h>
 #if MODBUS_SINGLE_TRANSCEIVER
-#include "uart_driver.h"
 #include "gpio_driver.h"
 #endif
 
@@ -49,8 +50,8 @@ void modbus_master_init() {
   // Nothing to do here; uart1_init() handles UART setup
 #else
   // Configure DE/RE pin (MAX485 direction control)
-  pinMode(MODBUS_MASTER_DE_PIN, OUTPUT);
-  digitalWrite(MODBUS_MASTER_DE_PIN, LOW); // Receive mode
+  pinMode(uart_get_master_dir_pin(), OUTPUT);
+  digitalWrite(uart_get_master_dir_pin(), LOW); // Receive mode
 #endif
 
   // Initialize UART if enabled
@@ -83,8 +84,8 @@ void modbus_master_reconfigure() {
   uart1_stop();
   uart1_init(g_modbus_master_config.baudrate);
   // DIR pin setup
-  pinMode(MODBUS_MASTER_DE_PIN, OUTPUT);
-  digitalWrite(MODBUS_MASTER_DE_PIN, LOW); // Receive mode
+  pinMode(uart_get_master_dir_pin(), OUTPUT);
+  digitalWrite(uart_get_master_dir_pin(), LOW); // Receive mode
 #else
   // Stop existing UART
   ModbusSerial.end();
@@ -100,12 +101,19 @@ void modbus_master_reconfigure() {
     config = (g_modbus_master_config.stop_bits == 2) ? SERIAL_8N2 : SERIAL_8N1;
   }
 
-  // Start UART1
+  // Start UART — resolve pins from config (0xFF=board default)
+  uint8_t mu = g_persist_config.modbus_master_uart;
+  uint8_t rx = (mu == 2 && g_persist_config.uart2_rx_pin != 0xFF) ? g_persist_config.uart2_rx_pin :
+               (mu == 1 && g_persist_config.uart1_rx_pin != 0xFF) ? g_persist_config.uart1_rx_pin :
+               MODBUS_MASTER_RX_PIN;
+  uint8_t tx = (mu == 2 && g_persist_config.uart2_tx_pin != 0xFF) ? g_persist_config.uart2_tx_pin :
+               (mu == 1 && g_persist_config.uart1_tx_pin != 0xFF) ? g_persist_config.uart1_tx_pin :
+               MODBUS_MASTER_TX_PIN;
   ModbusSerial.begin(
     g_modbus_master_config.baudrate,
     config,
-    MODBUS_MASTER_RX_PIN,
-    MODBUS_MASTER_TX_PIN
+    rx,
+    tx
   );
 
   // Flush any pending data
@@ -170,7 +178,7 @@ mb_error_code_t modbus_master_send_request(
 #endif
 
   // Set DE/RE to transmit mode
-  digitalWrite(MODBUS_MASTER_DE_PIN, HIGH);
+  digitalWrite(uart_get_master_dir_pin(), HIGH);
   delayMicroseconds(50); // Small delay for transceiver switching
 
   // Send request
@@ -184,7 +192,7 @@ mb_error_code_t modbus_master_send_request(
 
   // Set DE/RE to receive mode
   delayMicroseconds(50);
-  digitalWrite(MODBUS_MASTER_DE_PIN, LOW);
+  digitalWrite(uart_get_master_dir_pin(), LOW);
 
   // Wait for response with timeout
   uint32_t start_time = millis();

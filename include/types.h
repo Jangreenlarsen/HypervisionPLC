@@ -497,8 +497,14 @@ typedef struct __attribute__((packed)) {
   uint8_t modbus_slave_uart;   // 0=UART0(Serial), 1=UART1(Serial1), 2=UART2(Serial2)
   uint8_t modbus_master_uart;  // 0=UART0(Serial), 1=UART1(Serial1), 2=UART2(Serial2)
 
-  // Reserved for future features
-  uint8_t reserved[2];  // Reserved space for future use (reduced from 4)
+  // UART pin configuration per peripheral (v7.2.0+ schema 14)
+  // 0xFF = use board default from constants.h
+  uint8_t uart1_tx_pin;        // UART1 TX pin (0xFF=default)
+  uint8_t uart1_rx_pin;        // UART1 RX pin (0xFF=default)
+  uint8_t uart1_dir_pin;       // UART1 RS485 DIR pin (0xFF=default)
+  uint8_t uart2_tx_pin;        // UART2 TX pin (0xFF=default)
+  uint8_t uart2_rx_pin;        // UART2 RX pin (0xFF=default)
+  uint8_t uart2_dir_pin;       // UART2 RS485 DIR pin (0xFF=default)
 
   // CRC checksum (last)
   uint16_t crc16;

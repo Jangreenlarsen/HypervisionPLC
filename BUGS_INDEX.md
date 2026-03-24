@@ -256,6 +256,10 @@
 | FEAT-035 | ES32D26 Analog strøm-input (4-20mA) | ❌ OPEN | 🟡 HIGH | v7.2.0 | 4x 4-20mA strøm-input via onboard shunt-modstand. Ii1=GPIO34, Ii2=GPIO39, Ii3=GPIO36, Ii4=GPIO35. Alle ADC1 — virker med WiFi. Kræver: ADC kalibrering, nul-punkt offset, skalering 4-20mA → engineering units, Modbus register mapping |
 | FEAT-036 | ES32D26 Analog output (DAC 0-10V) | ❌ OPEN | 🟠 MEDIUM | v7.2.0 | 2x analog output via ESP32 DAC. AO1=GPIO25 (DAC1), AO2=GPIO26 (DAC2). Onboard signal conditioning 0-10V. Kræver: DAC driver, skalering, Modbus holding register mapping for output setpoint |
 | FEAT-037 | ES32D26 Analog Modbus register mapping | ❌ OPEN | 🟡 HIGH | v7.2.0 | Mapping af analog I/O til Modbus registre: AI → Input Registers (skaleret INT/REAL), AO → Holding Registers. CLI: `set analog`, `show analog`. Konfigurerbar skalering, filtrering, polling interval |
+| FEAT-038 | Modbus mode refaktor (single-transceiver) | ✅ DONE | 🟡 HIGH | v7.2.0 | ES32D26 deler én RS485 transceiver (GPIO1/3/21) mellem slave og master. `set modbus mode slave\|master\|off`. Bidirektionel sync med enabled flags. Conditional compilation via `MODBUS_SINGLE_TRANSCEIVER`. Master bruger `uart1_*` abstraktion på ES32D26 |
+| FEAT-039 | AO mode config (DIP switch SW1) | ✅ DONE | 🟠 MEDIUM | v7.2.0 | ES32D26 AO1/AO2 hardware DIP switch mode konfiguration. `set ao1\|ao2 mode voltage\|current`. Config-infrastruktur for fremtidig DAC driver (FEAT-036) |
+| FEAT-040 | Runtime UART selection | ✅ DONE | 🟡 HIGH | v7.2.0 | `set modbus slave\|master uart uart0\|uart1\|uart2` — runtime-konfigurerbar UART perifer for Modbus slave/master. Board-afhængige defaults (ES32D26: UART2, andre: UART1) |
+| FEAT-041 | Hardware modul config (RS485 pins + Ethernet) | ✅ DONE | 🟡 HIGH | v7.2.0 | `set modul rs485 uart1\|uart2 tx <pin> rx <pin> dir <pin>` — konfigurerbare UART pins via ESP32 GPIO matrix. `set modul ethernet enable\|disable`. Schema 14 med pin config felter. Backup/restore support |
 
 ## Quick Lookup by Category
 
@@ -301,6 +305,13 @@
 - **FEAT-031:** Firmware OTA via API 🟡 HIGH
 - **FEAT-032:** ✅ Prometheus Metrics endpoint (v7.1.0)
 - **FEAT-033:** Request Audit Log 🔵 LOW
+
+**v7.2.0 — ES32D26 Modbus Refaktor + Hardware Modul Config (2026-03-23):**
+- **FEAT-038:** ✅ Modbus mode refaktor — single-transceiver support for ES32D26 (slave/master/off)
+- **FEAT-039:** ✅ AO mode config — DIP switch SW1 voltage/current konfiguration
+- **FEAT-040:** ✅ Runtime UART selection — `set modbus slave|master uart uart0|uart1|uart2`
+- **FEAT-041:** ✅ Hardware modul config — `set modul rs485 uart<N> tx rx dir` + `set modul ethernet enable|disable`
+- Schema migration 12→13→14 (modbus_mode, ao_mode, UART pin config)
 
 **v7.2.0 — ES32D26 Analog I/O (Planned):**
 - **FEAT-034:** 4x 0-10V spændings-input (Vi1-Vi4) — ADC kalibrering + skalering 🟡 HIGH

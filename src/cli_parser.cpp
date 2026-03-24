@@ -188,6 +188,12 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "UART0")) return "UART0";
   if (str_eq_i(s, "UART1")) return "UART1";
   if (str_eq_i(s, "UART2")) return "UART2";
+  if (str_eq_i(s, "MODUL") || str_eq_i(s, "MODULE")) return "MODUL";
+  if (str_eq_i(s, "RS485")) return "RS485";
+  if (str_eq_i(s, "ETHERNET") || str_eq_i(s, "ETH")) return "ETHERNET";
+  if (str_eq_i(s, "TX")) return "TX";
+  if (str_eq_i(s, "RX")) return "RX";
+  if (str_eq_i(s, "DIR")) return "DIR";
   if (str_eq_i(s, "ENABLED")) return "ENABLED";
   if (str_eq_i(s, "DISABLED")) return "DISABLED";
   if (str_eq_i(s, "INTERVAL")) return "INTERVAL";
@@ -313,6 +319,7 @@ static void print_set_help(void) {
   debug_println("  set modbus-slave ?      - Vis Modbus Slave kommandoer (v4.4.1+)");
   debug_println("  set ao1 mode <voltage|current>    - AO1 output mode (v7.2+)");
   debug_println("  set ao2 mode <voltage|current>    - AO2 output mode (v7.2+)");
+  debug_println("  set modul ?             - Hardware modul config (RS485/Ethernet) (v7.2+)");
   debug_println("  set sse ?               - Vis SSE server kommandoer (v7.0.2+)");
   debug_println("  set rate-limit enable|disable - Rate limiting (v7.1.0+)");
   debug_println("  set echo <on|off>       - Sæt remote echo");
@@ -1518,6 +1525,122 @@ bool cli_parser_execute(char* line) {
       debug_println(": missing parameters");
       debug_println("  Usage: set ao1 mode voltage|current");
       return false;
+
+    } else if (!strcmp(what, "MODUL") || !strcmp(what, "MODULE")) {
+      // set modul rs485 uart1 tx <pin> rx <pin> dir <pin>
+      // set modul rs485 uart2 tx <pin> rx <pin> dir <pin>
+      // set modul ethernet enable|disable
+      if (argc < 4) {
+        debug_println("SET MODUL: missing parameters");
+        debug_println("  set modul rs485 uart1|uart2 tx <pin> rx <pin> dir <pin>");
+        debug_println("  set modul ethernet enable|disable");
+        return false;
+      }
+
+      const char* modtype = normalize_alias(argv[2]);
+
+      if (!strcmp(modtype, "RS485")) {
+        // set modul rs485 uart1|uart2 [tx <pin> rx <pin> dir <pin>]
+        if (argc < 4) {
+          debug_println("  Usage: set modul rs485 uart1|uart2 tx <pin> rx <pin> dir <pin>");
+          return false;
+        }
+        const char* uval = normalize_alias(argv[3]);
+        uint8_t uart_num = 255;
+        if (!strcmp(uval, "UART1") || !strcmp(uval, "1")) uart_num = 1;
+        else if (!strcmp(uval, "UART2") || !strcmp(uval, "2")) uart_num = 2;
+
+        if (uart_num != 1 && uart_num != 2) {
+          debug_println("SET MODUL RS485: kun uart1 eller uart2");
+          debug_println("  (UART0 er reserveret til USB console)");
+          return false;
+        }
+
+        // Parse optional tx/rx/dir pin assignments
+        uint8_t tx_pin = 0xFF, rx_pin = 0xFF, dir_pin = 0xFF;
+        for (uint8_t i = 4; i < argc - 1; i++) {
+          const char* key = normalize_alias(argv[i]);
+          uint8_t pin = (uint8_t)atoi(argv[i + 1]);
+          if (!strcmp(key, "TX")) { tx_pin = pin; i++; }
+          else if (!strcmp(key, "RX")) { rx_pin = pin; i++; }
+          else if (!strcmp(key, "DIR")) { dir_pin = pin; i++; }
+        }
+
+        // Validate at least tx+rx specified when any pin is given
+        if ((tx_pin != 0xFF || rx_pin != 0xFF) && (tx_pin == 0xFF || rx_pin == 0xFF)) {
+          debug_println("SET MODUL RS485: baade TX og RX skal angives");
+          debug_println("  set modul rs485 uart1 tx 16 rx 17 dir 4");
+          return false;
+        }
+
+        // Store pin config
+        if (uart_num == 1) {
+          g_persist_config.uart1_tx_pin = tx_pin;
+          g_persist_config.uart1_rx_pin = rx_pin;
+          g_persist_config.uart1_dir_pin = dir_pin;
+        } else {
+          g_persist_config.uart2_tx_pin = tx_pin;
+          g_persist_config.uart2_rx_pin = rx_pin;
+          g_persist_config.uart2_dir_pin = dir_pin;
+        }
+
+        debug_printf("RS485 modul konfigureret paa UART%u", uart_num);
+        if (tx_pin != 0xFF) {
+          debug_printf("  TX=GPIO%u, RX=GPIO%u", tx_pin, rx_pin);
+          if (dir_pin != 0xFF) {
+            debug_printf(", DIR=GPIO%u", dir_pin);
+          }
+        } else {
+          debug_print(" (board default pins)");
+        }
+        debug_println("");
+        debug_println("  Kraever 'save' + reboot for at tage effekt");
+        return true;
+
+      } else if (!strcmp(modtype, "ETHERNET")) {
+        // set modul ethernet enable|disable
+        const char* enval = normalize_alias(argv[3]);
+        if (!strcmp(enval, "ENABLED") || !strcmp(enval, "ENABLE") ||
+            !strcmp(enval, "ON") || !strcmp(enval, "1")) {
+          g_persist_config.network.ethernet.enabled = 1;
+          debug_println("Ethernet (W5500) aktiveret");
+          debug_println("  GPIO 4,5,16,17,18,19 reserveret til SPI");
+          debug_println("  Kraever 'save' + reboot for at tage effekt");
+          return true;
+        } else if (!strcmp(enval, "DISABLED") || !strcmp(enval, "DISABLE") ||
+                   !strcmp(enval, "OFF") || !strcmp(enval, "0")) {
+          g_persist_config.network.ethernet.enabled = 0;
+          debug_println("Ethernet (W5500) deaktiveret");
+          debug_println("  GPIO 4,5,16,17,18,19 frigivet");
+          debug_println("  Kraever 'save' + reboot for at tage effekt");
+          return true;
+        } else {
+          debug_println("SET MODUL ETHERNET: ugyldigt valg");
+          debug_println("  Gyldige: enable, disable");
+          return false;
+        }
+
+      } else if (!strcmp(modtype, "HELP") || !strcmp(modtype, "?")) {
+        debug_println("");
+        debug_println("Available 'set modul' commands:");
+        debug_println("  set modul rs485 uart1 tx <pin> rx <pin> dir <pin>");
+        debug_println("  set modul rs485 uart2 tx <pin> rx <pin> dir <pin>");
+        debug_println("  set modul rs485 uart1              (reset to board defaults)");
+        debug_println("  set modul ethernet enable|disable");
+        debug_println("");
+        debug_println("Eksempel:");
+        debug_println("  set modul rs485 uart1 tx 16 rx 17 dir 4");
+        debug_println("  set modul rs485 uart2 tx 1 rx 3 dir 21");
+        debug_println("  set modul ethernet disable");
+        debug_println("");
+        return true;
+
+      } else {
+        debug_println("SET MODUL: ukendt modultype");
+        debug_println("  Gyldige: rs485, ethernet");
+        debug_println("  Brug 'set modul ?' for hjaelp");
+        return false;
+      }
 
     } else if (!strcmp(what, "MODBUS-MASTER") || !strcmp(what, "MB-MASTER")) {
       // Check for help request

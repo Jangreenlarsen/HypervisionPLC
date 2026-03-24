@@ -34,10 +34,41 @@ void uart_driver_init(void);
 void uart0_init(uint32_t baudrate);
 
 /**
- * @brief Initialize UART1 (Modbus RTU) on GPIO4/5
+ * @brief Initialize UART1 (Modbus RTU) on configured pins
  * @param baudrate Baud rate (e.g., 115200)
+ * NOTE: On ES32D26, not called at boot (shares GPIO1/3 with USB)
  */
 void uart1_init(uint32_t baudrate);
+
+/**
+ * @brief Stop Modbus Slave UART and release pins
+ * On ES32D26: reclaims GPIO1/3 for USB console
+ */
+void uart1_stop(void);
+
+/**
+ * @brief Check if Modbus Slave UART is active
+ * @return true if initialized and running
+ */
+bool uart1_is_active(void);
+
+/**
+ * @brief Get resolved RS485 DIR pin for Modbus Slave
+ * Returns configured pin or board default from constants.h
+ */
+uint8_t uart_get_slave_dir_pin(void);
+
+/**
+ * @brief Get resolved RS485 DIR pin for Modbus Master
+ * Returns configured pin or board default from constants.h
+ */
+uint8_t uart_get_master_dir_pin(void);
+
+/**
+ * @brief Get active TX/RX pins (resolved from config or defaults)
+ */
+uint8_t uart_get_active_tx_pin(void);
+uint8_t uart_get_active_rx_pin(void);
 
 /* ============================================================================
  * UART0 (DEBUG) OPERATIONS

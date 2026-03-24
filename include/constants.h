@@ -197,7 +197,7 @@ typedef enum {
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   13      // Current config schema version (v7.2.0: modbus_mode + ao_mode)
+#define CONFIG_SCHEMA_VERSION   14      // Current config schema version (v7.2.0: modbus_mode + ao_mode + pin config)
 #define CONFIG_CRC_SEED         0xFFFF  // CRC16 initial value
 
 /* ============================================================================
