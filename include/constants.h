@@ -472,10 +472,22 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.2.2"
+#define PROJECT_VERSION     "7.3.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.3.0 (2026-03-25): FEAT-038 Web-based ST Logic Editor
+ *                      - FEAT: Embedded web editor served at /editor (HTML/CSS/JS in PROGMEM)
+ *                      - FEAT: Program slot selector (1-4) with compile status indicators
+ *                      - FEAT: Code editor with line numbers, Tab indent, Ctrl+S to compile
+ *                      - FEAT: Live pool usage meter (8KB shared source pool)
+ *                      - FEAT: ST language keyword reference sidebar
+ *                      - FEAT: Enable/disable toggle, delete, save config from browser
+ *                      - FEAT: Login modal with Basic Auth (uses existing API auth)
+ *                      - FEAT: Compile error feedback with timestamped output log
+ *                      - FIX: GPIO metrics #ifdef guard for SHIFT_REGISTER_ENABLED
+ *                      - Zero runtime RAM impact (all HTML in flash/PROGMEM)
+ *                      - Uses existing /api/logic/* endpoints — no new API needed
  * v7.2.2 (2026-03-25): FEAT-032 Extended Prometheus metrics
  *                      - FEAT: ST Logic metrics (execution_count, error_count, exec_time_us, min/max/overruns per slot)
  *                      - FEAT: Counter frequency (Hz) per counter

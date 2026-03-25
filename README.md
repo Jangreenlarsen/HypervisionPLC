@@ -1,6 +1,6 @@
 # Modbus RTU Server (ESP32)
 
-**Version:** v7.2.0 | **Build:** #1519 | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
+**Version:** v7.3.0 | **Build:** Auto | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
 
 En komplet, modulær **Modbus RTU Server** implementation til ESP32-WROOM-32 mikrocontroller med **Modbus interfaces** (Slave + Master), ST Structured Text Logic programmering med IEC 61131-3 type system, Wi-Fi netværk, **HTTP REST API** for Node-RED integration, telnet CLI interface, og komplet Modbus register dokumentation. Understøtter flere board-varianter inkl. **ES32D26** med shared RS485 transceiver, 8DI/8DO (shift registers), 8AI og 2AO (DAC).
 
@@ -66,6 +66,7 @@ Remote I/O Boards (Modbus Slaves)
 | **Get started** | [Quick Start](#quick-start-first-boot) or [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md) |
 | **Understand features** | [README.md](#) (this file) or [docs/FEATURE_GUIDE.md](docs/FEATURE_GUIDE.md) |
 | **Configure Modbus** | [MODBUS_REGISTER_MAP.md](MODBUS_REGISTER_MAP.md) |
+| **Edit ST Logic in browser** | [README.md → Web Editor](#web-baseret-st-logic-editor-v730) |
 | **Learn ST Logic** | [docs/ST_USAGE_GUIDE.md](docs/ST_USAGE_GUIDE.md) or [docs/README_ST_LOGIC.md](docs/README_ST_LOGIC.md) |
 | **Debug ST programs** | [ST_DEBUG_GUIDE.md](ST_DEBUG_GUIDE.md) |
 | **Use REST API** | [docs/REST_API.md](docs/REST_API.md) |
@@ -1027,6 +1028,39 @@ curl -u api_user:password http://10.1.1.30/api/metrics
 ```
 
 Se [docs/REST_API.md](docs/REST_API.md#prometheus-metrics) for komplet metrics-reference.
+
+#### Web-baseret ST Logic Editor (v7.3.0)
+
+En komplet kode-editor til ST Logic programmer direkte i browseren. Tilgaes via:
+
+```
+http://<esp32-ip>/editor
+```
+
+**Features:**
+- Program slot selector (1-4) med farvekodede kompileringsstatus-indikatorer
+- Kode-editor med linje-numre, Tab-indent (2 spaces) og Ctrl+S genvej til kompilering
+- Live pool usage meter — viser forbrug af 8KB shared source pool med farveadvarsler
+- ST language reference sidebar med noegleord, typer, operatorer, timer/taeller-blokke og Modbus I/O
+- Kompileringsfejl feedback med tidsstemplet output log
+- Enable/disable toggle, slet program og gem config til NVS — alt fra browseren
+- Login dialog med HTTP Basic Auth (bruger samme credentials som REST API)
+- Catppuccin Mocha dark theme optimeret til embedded programmering
+
+**Brug:**
+1. Aaben `http://<esp32-ip>/editor` i en browser
+2. Log ind med API-credentials (default: `api_user` / password)
+3. Vaelg program slot (1-4) via tabs
+4. Skriv eller rediger ST-kode i editoren
+5. Tryk **Kompiler** (eller Ctrl+S) — koden uploades og kompileres paa ESP32
+6. Aktiver programmet med **Aktiveret** checkbox
+7. Tryk **Gem Config** for at persistere til NVS flash (overlever reboot)
+
+**Teknisk:**
+- Zero runtime RAM impact — al HTML/CSS/JS lagret i flash (PROGMEM, ~12KB)
+- Bruger eksisterende `/api/logic/*` REST API endpoints — ingen nye API'er
+- Responsivt design — sidebar skjules automatisk paa smaa skaerme
+- Heap-optimeret kompilering: JSON-ressourcer frigives foer compile starter
 
 #### Network Configuration Persistence
 - **NVS Storage:** All network settings saved to non-volatile storage

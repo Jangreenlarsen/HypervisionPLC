@@ -18,6 +18,7 @@
 #include "http_server.h"
 #include "https_wrapper.h"
 #include "api_handlers.h"
+#include "web_editor.h"
 #include "constants.h"
 #include "debug.h"
 
@@ -573,6 +574,14 @@ static const httpd_uri_t uri_cors_preflight_root = {
   .user_ctx = NULL
 };
 
+// v7.2.3: Web-based ST Logic editor
+static const httpd_uri_t uri_editor = {
+  .uri      = "/editor",
+  .method   = HTTP_GET,
+  .handler  = web_editor_handler,
+  .user_ctx = NULL
+};
+
 /* ============================================================================
  * v7.0.0 URI DEFINITIONS (FEAT-023 SSE, FEAT-030 API Versioning)
  * ============================================================================ */
@@ -722,6 +731,7 @@ int http_server_start(const HttpConfig *config)
     httpd_config.max_uri_handlers = 80;
     httpd_config.stack_size = 8192;
     httpd_config.uri_match_fn = httpd_uri_match_wildcard;
+    httpd_config.lru_purge_enable = true;  // BUG-241: Auto-close idle keep-alive connections to reduce heap fragmentation
 
     esp_err_t err = httpd_start(&http_state.server, &httpd_config);
     if (err != ESP_OK) {
@@ -829,6 +839,8 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_v1_get);
   httpd_register_uri_handler(http_state.server, &uri_v1_post);
   httpd_register_uri_handler(http_state.server, &uri_v1_delete);
+  // v7.2.3: Web-based ST Logic editor (served outside /api/ namespace)
+  httpd_register_uri_handler(http_state.server, &uri_editor);
 
   http_state.running = 1;
   ESP_LOGI(TAG, "HTTP server started on port %d", config->port);

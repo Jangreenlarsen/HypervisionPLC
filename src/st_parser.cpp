@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esp_system.h"  // esp_get_free_heap_size()
+#include "esp_heap_caps.h"  // BUG-241: heap_caps_get_largest_free_block()
 #include <ctype.h>
 #include <errno.h>     // BUG-069/070: For overflow detection
 #include <stdint.h>    // BUG-069: For INT32_MAX/MIN
@@ -73,24 +74,37 @@ static void parser_error(st_parser_t *parser, const char *msg) {
 
 // AST node pool allocator — eliminates heap fragmentation from many small mallocs.
 // One large block, sequential allocation. Freed all-at-once via ast_pool_free().
-// Pool adapts to available heap: reserves 6 KB for compiler, max 512 nodes.
+// Pool adapts to available heap with fallback for fragmented memory.
+// BUG-241: Uses largest contiguous block + try-decreasing allocation to handle
+//          HTTP keep-alive fragmentation (web editor has 3 open connections).
 static st_ast_node_t *g_ast_pool = NULL;
 static uint16_t g_ast_pool_capacity = 0;
 static uint16_t g_ast_pool_used = 0;
 
 static bool ast_pool_init(void) {
   if (g_ast_pool) return true;  // Already initialized
-  uint32_t free_heap = esp_get_free_heap_size();
-  uint32_t reserve = 8000;  // Reserve for compiler (~4KB) + overhead
-  uint32_t available = (free_heap > reserve) ? (free_heap - reserve) : 0;
-  uint16_t max_nodes = available / sizeof(st_ast_node_t);
-  if (max_nodes > 512) max_nodes = 512;
-  if (max_nodes < 32) return false;
 
-  g_ast_pool = (st_ast_node_t *)malloc(max_nodes * sizeof(st_ast_node_t));
-  g_ast_pool_capacity = g_ast_pool ? max_nodes : 0;
-  g_ast_pool_used = 0;
-  return g_ast_pool != NULL;
+  // Use largest contiguous free block (not total free heap) to handle fragmentation.
+  // Reserve 6KB for compiler struct + bytecode allocation that follows.
+  uint32_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  uint32_t reserve = 6000;
+  uint32_t available = (largest_block > reserve) ? (largest_block - reserve) : 0;
+  uint16_t ideal_nodes = available / sizeof(st_ast_node_t);
+  if (ideal_nodes > 512) ideal_nodes = 512;
+
+  // Try decreasing sizes until malloc succeeds (fragmentation-safe)
+  static const uint16_t try_sizes[] = {512, 256, 128, 64, 32};
+  for (int i = 0; i < 5; i++) {
+    uint16_t nodes = try_sizes[i];
+    if (nodes > ideal_nodes) continue;  // Skip sizes too large for available memory
+    g_ast_pool = (st_ast_node_t *)malloc(nodes * sizeof(st_ast_node_t));
+    if (g_ast_pool) {
+      g_ast_pool_capacity = nodes;
+      g_ast_pool_used = 0;
+      return true;
+    }
+  }
+  return false;  // Even 32 nodes couldn't be allocated (~7.7KB)
 }
 
 void ast_pool_free(void) {
@@ -1701,10 +1715,17 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
 
 st_program_t *st_parser_parse_program(st_parser_t *parser) {
   // Initialize AST node pool (one contiguous block, no fragmentation)
-  if (!ast_pool_init()) return NULL;
+  if (!ast_pool_init()) {
+    parser_error(parser, "Insufficient heap for AST pool (need ~5KB free)");
+    return NULL;
+  }
 
   st_program_t *program = (st_program_t *)malloc(sizeof(st_program_t));
-  if (!program) { ast_pool_free(); return NULL; }
+  if (!program) {
+    parser_error(parser, "Insufficient heap for program struct");
+    ast_pool_free();
+    return NULL;
+  }
 
   memset(program, 0, sizeof(*program));
   strncpy(program->name, "Logic", sizeof(program->name) - 1);  // Default program name

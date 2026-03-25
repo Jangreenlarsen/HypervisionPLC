@@ -859,6 +859,7 @@ esp_err_t api_handler_logic(httpd_req_t *req)
     p["name"] = prog->name;
     p["enabled"] = prog->enabled ? true : false;
     p["compiled"] = prog->compiled ? true : false;
+    p["source_size"] = prog->source_size;
     p["execution_count"] = prog->execution_count;
     p["error_count"] = prog->error_count;
 
@@ -1088,71 +1089,77 @@ esp_err_t api_handler_logic_source_post(httpd_req_t *req)
     return api_send_error(req, 400, "Request too large (max 8KB)");
   }
 
-  // Allocate buffer for request body
-  char *content = (char *)malloc(content_len + 1);
-  if (!content) {
-    return api_send_error(req, 500, "Out of memory");
-  }
-
-  // Read request body
-  int received = 0;
-  while (received < content_len) {
-    int ret = httpd_req_recv(req, content + received, content_len - received);
-    if (ret <= 0) {
-      free(content);
-      return api_send_error(req, 400, "Failed to read request body");
+  // Phase 1: Read HTTP body, parse JSON, extract source, upload to pool.
+  // All temporary allocations are freed before Phase 2 (compile).
+  uint32_t source_len = 0;
+  bool upload_ok = false;
+  {
+    char *content = (char *)malloc(content_len + 1);
+    if (!content) {
+      return api_send_error(req, 500, "Out of memory");
     }
-    received += ret;
-  }
-  content[content_len] = '\0';
 
-  // Parse JSON
-  JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, content);
-  if (error) {
+    int received = 0;
+    while (received < (int)content_len) {
+      int ret = httpd_req_recv(req, content + received, content_len - received);
+      if (ret <= 0) {
+        free(content);
+        return api_send_error(req, 400, "Failed to read request body");
+      }
+      received += ret;
+    }
+    content[content_len] = '\0';
+
+    // Parse JSON in inner scope — JsonDocument destructor frees heap on scope exit
+    {
+      JsonDocument doc;
+      DeserializationError error = deserializeJson(doc, content);
+      if (error) {
+        free(content);
+        return api_send_error(req, 400, "Invalid JSON");
+      }
+
+      if (!doc.containsKey("source")) {
+        free(content);
+        return api_send_error(req, 400, "Missing 'source' field");
+      }
+
+      const char *source = doc["source"].as<const char *>();
+      if (!source || strlen(source) == 0) {
+        free(content);
+        return api_send_error(req, 400, "Empty source code");
+      }
+
+      // Upload to source pool (memcpy's the data)
+      source_len = strlen(source);
+      upload_ok = st_logic_upload(state, id - 1, source, source_len);
+    } // <-- JsonDocument destructor frees ArduinoJson heap here
+
     free(content);
-    return api_send_error(req, 400, "Invalid JSON");
+  } // <-- content freed here
+
+  if (!upload_ok) {
+    st_logic_program_config_t *prog = &state->programs[id - 1];
+    return api_send_error(req, 500, prog->last_error[0] ? prog->last_error : "Upload failed");
   }
 
-  if (!doc.containsKey("source")) {
-    free(content);
-    return api_send_error(req, 400, "Missing 'source' field");
-  }
-
-  const char *source = doc["source"].as<const char *>();
-  if (!source || strlen(source) == 0) {
-    free(content);
-    return api_send_error(req, 400, "Empty source code");
-  }
-
-  // Upload source code
-  uint32_t source_len = strlen(source);
-  bool success = st_logic_upload(state, id - 1, source, source_len);
-  free(content);
-
-  if (!success) {
-    return api_send_error(req, 500, "Failed to upload - pool full or compile error");
-  }
-
-  // Auto-compile after upload (BUG-210: was missing)
+  // Phase 2: Compile — all temporary buffers are freed, maximum heap available
   st_logic_compile(state, id - 1);
 
-  // Build success response
+  // Phase 3: Build response
   st_logic_program_config_t *prog = &state->programs[id - 1];
 
-  JsonDocument resp;
-  resp["status"] = 200;
-  resp["id"] = id;
-  resp["name"] = prog->name;
-  resp["compiled"] = prog->compiled ? true : false;
-  resp["source_size"] = source_len;
-
-  if (prog->last_error[0] != '\0') {
-    resp["error"] = prog->last_error;
-  }
-
-  char buf[512];
-  serializeJson(resp, buf, sizeof(buf));
+  char buf[256];
+  snprintf(buf, sizeof(buf),
+    "{\"status\":200,\"id\":%d,\"name\":\"%s\",\"compiled\":%s,"
+    "\"source_size\":%lu,\"instr_count\":%u%s%s%s}",
+    id, prog->name,
+    prog->compiled ? "true" : "false",
+    (unsigned long)source_len,
+    (unsigned)prog->bytecode.instr_count,
+    (!prog->compiled && prog->last_error[0]) ? ",\"compile_error\":\"" : "",
+    (!prog->compiled && prog->last_error[0]) ? prog->last_error : "",
+    (!prog->compiled && prog->last_error[0]) ? "\"" : "");
 
   return api_send_json(req, buf);
 }
@@ -1186,6 +1193,12 @@ esp_err_t api_handler_system_save(httpd_req_t *req)
 {
   http_server_stat_request();
   CHECK_AUTH(req);
+
+  // Copy ST Logic programs to persistent config before saving (same as CLI save)
+  st_logic_save_to_persist_config(&g_persist_config);
+
+  // Calculate CRC before saving
+  g_persist_config.crc16 = config_calculate_crc16(&g_persist_config);
 
   bool success = config_save_to_nvs(&g_persist_config);
 
@@ -4959,6 +4972,7 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
     }
   }
 
+#ifdef SHIFT_REGISTER_ENABLED
   // --- GPIO Digital Input metrics (74HC165, GPIO 101-108) ---
   PROM_APPEND("# HELP gpio_digital_input Digital input state (1=high, 0=low)\n");
   PROM_APPEND("# TYPE gpio_digital_input gauge\n");
@@ -4974,6 +4988,7 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
     uint8_t pin = VGPIO_SR_OUTPUT_BASE + i;
     PROM_APPEND("gpio_digital_output{pin=\"%d\"} %d\n", pin, gpio_read(pin) ? 1 : 0);
   }
+#endif
 
   // --- Modbus Register metrics (non-zero holding & input registers) ---
   PROM_APPEND("# HELP modbus_holding_register Modbus holding register value\n");

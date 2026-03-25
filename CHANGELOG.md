@@ -4,6 +4,46 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.3.0] - 2026-03-25 (Web-based ST Logic Editor)
+
+### NEW FEATURES
+
+**FEAT-042: Embedded Web Editor for ST Logic Programs**
+- `GET /editor` — komplet ST Logic editor direkte i browseren
+- Program slot selector (1-4) med kompileringsstatus-indikatorer (grøn/rød)
+- Code editor med linje-numre, Tab-indent (2 spaces), Ctrl+S til kompilering
+- Live pool usage meter (8KB shared source pool) med farve-advarsler
+- ST language keyword reference sidebar (nøgleord, typer, operatorer, timers, I/O)
+- Enable/disable toggle, slet program, gem config til NVS — alt fra browseren
+- Login modal med Basic Auth (bruger eksisterende API-credentials)
+- Kompileringsfejl feedback med tidsstemplet output log
+- Catppuccin Mocha dark theme — optimeret til embedded development
+- Zero runtime RAM impact — al HTML/CSS/JS lagret i flash (PROGMEM)
+- Bruger eksisterende `/api/logic/*` REST endpoints — ingen nye API'er nødvendige
+
+### BUG FIXES
+
+- **BUG-241:** ST compile fejler via HTTP API pga heap-fragmentering fra keep-alive connections
+  - `heap_caps_get_largest_free_block()` i stedet for `esp_get_free_heap_size()` i AST pool
+  - Try-decreasing allocation: 512 → 256 → 128 → 64 → 32 nodes (fragmentation-safe)
+  - `lru_purge_enable=true` for auto-close idle HTTP keep-alive connections
+  - JSON scope-blok i source_post handler frigør ArduinoJson FØR compile
+- **BUG-242:** Tom parse error besked ved AST pool allokerings-fejl — tilføjet fejlbesked
+- **BUG-243:** API `/api/system/save` gemte ikke ST Logic programmer — manglede `st_logic_save_to_persist_config()` + CRC
+- **BUG-244:** `GET /api/logic` manglede `source_size` felt — web editor kunne ikke se hvilke slots har kode
+- **BUG-245:** `show status` virkede kun med uppercase — tilføjet STATUS/STAT i normalize_alias()
+- FIX: GPIO metrics `#ifdef SHIFT_REGISTER_ENABLED` guard — VGPIO_SR_* konstanter kun tilgængelige på ES32D26 board
+
+### TECHNICAL
+
+- Ny filer: `src/web_editor.cpp`, `include/web_editor.h`
+- Route registreret i `http_server.cpp` som `/editor` (udenfor `/api/` namespace)
+- ~12KB flash footprint for embedded HTML/CSS/JS
+- Responsive design — sidebar skjules automatisk på mobile skærme
+- `instr_count` tilføjet i POST source compile response
+
+---
+
 ## [7.2.2] - 2026-03-25 (Extended Prometheus Metrics)
 
 ### NEW FEATURES

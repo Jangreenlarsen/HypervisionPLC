@@ -227,6 +227,7 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "SSE")) return "SSE";
   if (str_eq_i(s, "RATE-LIMIT") || str_eq_i(s, "RATELIMIT") || str_eq_i(s, "RATE_LIMIT") || str_eq_i(s, "RL")) return "RATE-LIMIT";
   if (str_eq_i(s, "METRICS") || str_eq_i(s, "PROMETHEUS") || str_eq_i(s, "PROM")) return "METRICS";
+  if (str_eq_i(s, "STATUS") || str_eq_i(s, "STAT")) return "STATUS";
   if (str_eq_i(s, "BACKUP")) return "BACKUP";
   if (str_eq_i(s, "ENABLE")) return "ENABLE";
   if (str_eq_i(s, "DISABLE")) return "DISABLE";
