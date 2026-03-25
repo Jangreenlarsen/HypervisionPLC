@@ -4417,21 +4417,74 @@ void cli_cmd_show_rate_limit(void) {
  * ============================================================================ */
 
 void cli_cmd_show_metrics(void) {
-  debug_println("\n=== PROMETHEUS METRICS ===");
+  debug_println("\n=== PROMETHEUS METRICS (v7.2.2) ===");
 
   debug_println("Endpoint: GET /api/metrics");
   debug_println("Format: Prometheus text exposition (v0.0.4)");
   debug_println("Content-Type: text/plain; version=0.0.4; charset=utf-8");
 
-  debug_println("\n--- Available Metrics ---");
-  debug_println("  esp32_uptime_seconds         - System uptime");
-  debug_println("  esp32_free_heap_bytes        - Free heap memory");
-  debug_println("  esp32_wifi_rssi_dbm          - Wi-Fi signal strength");
-  debug_println("  esp32_modbus_requests_total  - Modbus request count");
-  debug_println("  esp32_modbus_errors_total    - Modbus error count");
-  debug_println("  esp32_http_requests_total    - HTTP request count");
-  debug_println("  esp32_counter_value          - Counter values (per ID)");
-  debug_println("  esp32_timer_active           - Timer active state (per ID)");
+  debug_println("\n--- System ---");
+  debug_println("  esp32_uptime_seconds          gauge    Device uptime");
+  debug_println("  esp32_heap_free_bytes         gauge    Free heap memory");
+  debug_println("  esp32_heap_min_free_bytes     gauge    Min heap since boot");
+
+  debug_println("\n--- HTTP ---");
+  debug_println("  http_requests_total           counter  Total HTTP requests");
+  debug_println("  http_requests_success_total   counter  Successful (2xx)");
+  debug_println("  http_requests_client_errors   counter  Client errors (4xx)");
+  debug_println("  http_requests_server_errors   counter  Server errors (5xx)");
+  debug_println("  http_auth_failures_total      counter  Auth failures");
+
+  debug_println("\n--- Modbus ---");
+  debug_println("  modbus_slave_requests_total   counter  Slave requests");
+  debug_println("  modbus_slave_crc_errors_total counter  Slave CRC errors");
+  debug_println("  modbus_master_requests_total  counter  Master requests");
+  debug_println("  modbus_master_timeout_errors  counter  Master timeouts");
+  debug_println("  modbus_master_crc_errors      counter  Master CRC errors");
+
+  debug_println("\n--- Counters ---");
+  debug_println("  counter_value{id}             gauge    Counter value");
+  debug_println("  counter_frequency_hz{id}      gauge    Measured Hz");
+
+  debug_println("\n--- Timers ---");
+  debug_println("  timer_output{id}              gauge    Coil output (0/1)");
+  debug_println("  timer_is_running{id}          gauge    Active state (0/1)");
+  debug_println("  timer_current_phase{id}       gauge    Phase (0-3)");
+
+  debug_println("\n--- ST Logic ---");
+  debug_println("  st_logic_enabled              gauge    Engine enabled");
+  debug_println("  st_logic_total_cycles         counter  Total cycles");
+  debug_println("  st_logic_cycle_overruns       counter  Cycle overruns");
+  debug_println("  st_logic_execution_count{s,n} counter  Program executions");
+  debug_println("  st_logic_error_count{s,n}     counter  Program errors");
+  debug_println("  st_logic_exec_time_us{s,n}    gauge    Last exec time (us)");
+  debug_println("  st_logic_min_exec_us{s,n}     gauge    Min exec time (us)");
+  debug_println("  st_logic_max_exec_us{s,n}     gauge    Max exec time (us)");
+  debug_println("  st_logic_overrun_count{s,n}   counter  Program overruns");
+
+  debug_println("\n--- GPIO ---");
+  debug_println("  gpio_digital_input{pin}       gauge    DI 101-108 (74HC165)");
+  debug_println("  gpio_digital_output{pin}      gauge    DO 201-208 (74HC595)");
+
+  debug_println("\n--- Modbus Registers ---");
+  debug_println("  modbus_holding_register{addr} gauge    HR (non-zero only)");
+  debug_println("  modbus_input_register{addr}   gauge    IR (non-zero only)");
+
+  debug_println("\n--- Persistence ---");
+  debug_println("  persist_group_reg_count{grp}  gauge    Regs per group");
+  debug_println("  persist_group_last_save_ms    gauge    Last save time");
+
+  debug_println("\n--- Network ---");
+  debug_println("  wifi_connected                gauge    WiFi (0/1)");
+  debug_println("  wifi_rssi_dbm                 gauge    Signal strength");
+  debug_println("  ethernet_connected            gauge    Ethernet (0/1)");
+  debug_println("  telnet_connected              gauge    Telnet (0/1)");
+  debug_println("  wifi_reconnect_retries        counter  Reconnect count");
+  debug_println("  sse_clients_active            gauge    SSE clients");
+
+  debug_println("\n--- Other ---");
+  debug_println("  watchdog_reboot_count         counter  Reboot count");
+  debug_println("  firmware_info{ver,build}      gauge    Version info");
 
   uint32_t ip = network_manager_get_local_ip();
   if (ip != 0) {
@@ -4443,5 +4496,6 @@ void cli_cmd_show_metrics(void) {
              (int)((ip >> 16) & 0xFF), (int)((ip >> 24) & 0xFF), port);
     debug_println(url);
   }
-  debug_println("");
+
+  debug_printf("\nTotal: 45+ metrics (only enabled/non-zero items exported)\n\n");
 }
