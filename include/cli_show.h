@@ -157,6 +157,13 @@ void cli_cmd_show_rate_limit(void);
 void cli_cmd_show_metrics(void);
 
 /**
+ * @brief Handle "show status" command (runtime status overview) (v7.2.2+)
+ * Shows uptime, heap, WiFi, Modbus stats, counters, timers, ST Logic, GPIO state.
+ * Complements "show config" which shows only persistent configuration.
+ */
+void cli_cmd_show_status(void);
+
+/**
  * @brief Handle "read reg <id> <antal>" command
  * @param argc Argument count (must be 2)
  * @param argv Argument array (argv[0] = start addr, argv[1] = count)

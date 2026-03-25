@@ -35,6 +35,9 @@
 #include <WiFi.h>
 #include "debug_flags.h"
 #include "debug.h"
+#include "wifi_driver.h"
+#include "gpio_driver.h"
+#include "modbus_master.h"
 #include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
@@ -4498,4 +4501,192 @@ void cli_cmd_show_metrics(void) {
   }
 
   debug_printf("\nTotal: 45+ metrics (only enabled/non-zero items exported)\n\n");
+}
+
+/* ============================================================================
+ * SHOW STATUS (v7.2.2) — Runtime status overview
+ * Complements "show config" which shows persistent configuration only.
+ * ============================================================================ */
+
+void cli_cmd_show_status(void) {
+  debug_println("\n=== RUNTIME STATUS ===\n");
+
+  // --- System ---
+  debug_println("[SYSTEM]");
+  debug_print("  Version: ");
+  debug_print(PROJECT_VERSION);
+  debug_print(" Build #");
+  debug_print_uint(BUILD_NUMBER);
+  debug_println("");
+
+  uint32_t uptime_s = millis() / 1000;
+  uint32_t days = uptime_s / 86400;
+  uint32_t hours = (uptime_s % 86400) / 3600;
+  uint32_t mins = (uptime_s % 3600) / 60;
+  uint32_t secs = uptime_s % 60;
+  debug_printf("  Uptime: %lud %02lu:%02lu:%02lu\n", days, hours, mins, secs);
+
+  debug_printf("  Heap free: %lu bytes\n", (unsigned long)ESP.getFreeHeap());
+  debug_printf("  Heap min:  %lu bytes\n", (unsigned long)ESP.getMinFreeHeap());
+  debug_println("");
+
+  // --- Network ---
+  debug_println("[NETWORK]");
+  debug_print("  WiFi: ");
+  if (wifi_driver_is_connected()) {
+    uint32_t ip = network_manager_get_local_ip();
+    char ip_str[16];
+    network_config_ip_to_str(ip, ip_str);
+    debug_print("CONNECTED  IP=");
+    debug_print(ip_str);
+    int rssi = wifi_driver_get_rssi();
+    debug_printf("  RSSI=%d dBm", rssi);
+  } else {
+    debug_print("DISCONNECTED");
+  }
+  debug_println("");
+
+  debug_print("  Ethernet: ");
+  debug_println(ethernet_driver_is_connected() ? "CONNECTED" : "DISCONNECTED");
+
+  const NetworkState *net = network_manager_get_state();
+  if (net) {
+    debug_print("  Telnet: ");
+    debug_println(net->telnet_client_connected ? "CONNECTED" : "no client");
+  }
+
+  extern int sse_get_client_count(void);
+  debug_printf("  SSE clients: %d\n", sse_get_client_count());
+  debug_println("");
+
+  // --- HTTP ---
+  const HttpServerStats *stats = http_server_get_stats();
+  if (stats) {
+    debug_println("[HTTP API]");
+    debug_printf("  Requests: %lu total, %lu ok, %lu client-err, %lu server-err\n",
+                 stats->total_requests, stats->successful_requests,
+                 stats->client_errors, stats->server_errors);
+    debug_printf("  Auth failures: %lu\n", stats->auth_failures);
+    debug_println("");
+  }
+
+  // --- Modbus ---
+  debug_println("[MODBUS]");
+  debug_print("  Slave: ");
+  if (g_persist_config.modbus_slave.enabled) {
+    debug_printf("req=%lu ok=%lu crc=%lu exc=%lu\n",
+                 g_persist_config.modbus_slave.total_requests,
+                 g_persist_config.modbus_slave.successful_requests,
+                 g_persist_config.modbus_slave.crc_errors,
+                 g_persist_config.modbus_slave.exception_errors);
+  } else {
+    debug_println("DISABLED");
+  }
+
+  debug_print("  Master: ");
+  if (g_persist_config.modbus_master.enabled) {
+    debug_printf("req=%lu ok=%lu timeout=%lu crc=%lu\n",
+                 g_modbus_master_config.total_requests,
+                 g_modbus_master_config.successful_requests,
+                 g_modbus_master_config.timeout_errors,
+                 g_modbus_master_config.crc_errors);
+  } else {
+    debug_println("DISABLED");
+  }
+  debug_println("");
+
+  // --- Counters ---
+  debug_println("[COUNTERS]");
+  bool any_counter = false;
+  for (uint8_t id = 1; id <= COUNTER_COUNT; id++) {
+    CounterConfig cfg;
+    if (counter_engine_get_config(id, &cfg) && cfg.enabled) {
+      any_counter = true;
+      uint64_t val = counter_engine_get_value(id);
+      uint16_t hz = counter_frequency_get(id);
+      debug_printf("  Counter %d: value=%llu  freq=%u Hz\n", id, (unsigned long long)val, (unsigned)hz);
+    }
+  }
+  if (!any_counter) debug_println("  (none enabled)");
+  debug_println("");
+
+  // --- Timers ---
+  debug_println("[TIMERS]");
+  bool any_timer = false;
+  for (uint8_t id = 1; id <= TIMER_COUNT; id++) {
+    TimerConfig cfg;
+    if (timer_engine_get_config(id, &cfg) && cfg.enabled) {
+      any_timer = true;
+      uint8_t phase = 0, active = 0;
+      timer_engine_get_runtime(id, &phase, &active);
+      uint8_t coil_val = registers_get_coil(cfg.output_coil);
+      debug_printf("  Timer %d: %s  phase=%d  coil=%d  output=%d\n",
+                   id, active ? "RUNNING" : "STOPPED", phase, cfg.output_coil, coil_val);
+    }
+  }
+  if (!any_timer) debug_println("  (none enabled)");
+  debug_println("");
+
+  // --- ST Logic ---
+  st_logic_engine_state_t *logic = st_logic_get_state();
+  if (logic) {
+    debug_println("[ST LOGIC]");
+    debug_printf("  Engine: %s  interval=%lu ms  cycles=%lu  overruns=%lu\n",
+                 logic->enabled ? "ENABLED" : "DISABLED",
+                 (unsigned long)logic->execution_interval_ms,
+                 (unsigned long)logic->total_cycles,
+                 (unsigned long)logic->cycle_overrun_count);
+
+    for (uint8_t i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
+      st_logic_program_config_t *prog = &logic->programs[i];
+      if (prog->source_size > 0 || prog->compiled) {
+        debug_printf("  Slot %d [%s]: %s  exec=%u  err=%u  last=%lu us  min=%lu  max=%lu us\n",
+                     i + 1, prog->name,
+                     prog->enabled ? "ON" : "OFF",
+                     (unsigned)prog->execution_count,
+                     (unsigned)prog->error_count,
+                     (unsigned long)prog->last_execution_us,
+                     (unsigned long)prog->min_execution_us,
+                     (unsigned long)prog->max_execution_us);
+        if (prog->error_count > 0 && prog->last_error[0]) {
+          debug_printf("         Last error: %s\n", prog->last_error);
+        }
+      }
+    }
+    debug_println("");
+  }
+
+  // --- GPIO (digital I/O) ---
+#ifdef SHIFT_REGISTER_ENABLED
+  debug_println("[GPIO]");
+  debug_print("  DI (101-108): ");
+  for (int i = 0; i < VGPIO_SR_INPUT_COUNT; i++) {
+    debug_print_uint(gpio_read(VGPIO_SR_INPUT_BASE + i));
+    if (i < VGPIO_SR_INPUT_COUNT - 1) debug_print(" ");
+  }
+  debug_println("");
+
+  debug_print("  DO (201-208): ");
+  for (int i = 0; i < VGPIO_SR_OUTPUT_COUNT; i++) {
+    debug_print_uint(gpio_read(VGPIO_SR_OUTPUT_BASE + i));
+    if (i < VGPIO_SR_OUTPUT_COUNT - 1) debug_print(" ");
+  }
+  debug_println("");
+  debug_println("");
+#endif
+
+  // --- Watchdog ---
+  WatchdogState *wd = watchdog_get_state();
+  if (wd) {
+    debug_println("[WATCHDOG]");
+    debug_printf("  Enabled: %s  reboots=%lu\n",
+                 wd->enabled ? "YES" : "NO", (unsigned long)wd->reboot_counter);
+    if (wd->last_error[0]) {
+      debug_printf("  Last error: %s\n", wd->last_error);
+    }
+    debug_println("");
+  }
+
+  debug_println("(Use 'show config' for persistent configuration)");
+  debug_println("");
 }

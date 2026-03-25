@@ -708,34 +708,29 @@ void cli_cmd_set_hostname(const char* hostname) {
 }
 
 void cli_cmd_set_baud(uint32_t baud) {
-  // Validate baudrate
+  debug_println("DEPRECATED: Use 'set modbus-slave baudrate <value>' instead");
+  // Still works for backward compatibility
   if (baud < 300 || baud > 115200) {
     debug_println("SET BAUD: invalid baud rate (must be 300-115200)");
     return;
   }
-
-  // Update configuration
   g_persist_config.modbus_slave.baudrate = baud;
-
   debug_print("Baud rate set to: ");
   debug_print_uint(baud);
-  debug_println(" (will apply on next boot)");
-  debug_println("NOTE: Use 'save' to persist to NVS");
+  debug_println("");
 }
 
 void cli_cmd_set_id(uint8_t id) {
+  debug_println("DEPRECATED: Use 'set modbus-slave slave-id <value>' instead");
+  // Still works for backward compatibility
   if (id > 247) {
     debug_println("SET ID: invalid slave ID (must be 0-247)");
     return;
   }
-
-  // Update configuration
   g_persist_config.modbus_slave.slave_id = id;
-
   debug_print("Slave ID set to: ");
   debug_print_uint(id);
-  debug_println(" (will apply on next boot)");
-  debug_println("NOTE: Use 'save' to persist to NVS");
+  debug_println("");
 }
 
 void cli_cmd_set_reg(uint16_t addr, uint16_t value) {
@@ -958,8 +953,31 @@ void cli_cmd_save(void) {
 
   if (success) {
     debug_println("SAVE: Configuration saved successfully");
+    debug_printf("  Schema: v%d  CRC: 0x%04X  Size: %u bytes\n",
+                 g_persist_config.schema_version, g_persist_config.crc16,
+                 (unsigned)sizeof(PersistConfig));
 
-    // Count enabled counters and timers
+    // --- System ---
+    debug_printf("  [System] hostname=%s  echo=%s  gpio2=%s\n",
+                 g_persist_config.hostname[0] ? g_persist_config.hostname : "(default)",
+                 g_persist_config.remote_echo ? "on" : "off",
+                 g_persist_config.gpio2_user_mode ? "user" : "heartbeat");
+
+    // --- Modbus ---
+    const char *mode_str = "slave";
+    if (g_persist_config.modbus_mode == MODBUS_MODE_MASTER) mode_str = "master";
+    else if (g_persist_config.modbus_mode == MODBUS_MODE_OFF) mode_str = "off";
+    debug_printf("  [Modbus] mode=%s  slave=%s(id=%d,baud=%lu,uart%d)  master=%s(baud=%lu,uart%d)\n",
+                 mode_str,
+                 g_persist_config.modbus_slave.enabled ? "on" : "off",
+                 g_persist_config.modbus_slave.slave_id,
+                 g_persist_config.modbus_slave.baudrate,
+                 g_persist_config.modbus_slave_uart,
+                 g_persist_config.modbus_master.enabled ? "on" : "off",
+                 g_persist_config.modbus_master.baudrate,
+                 g_persist_config.modbus_master_uart);
+
+    // --- Counters & Timers ---
     uint8_t enabled_counters = 0, enabled_timers = 0;
     for (uint8_t i = 0; i < COUNTER_COUNT; i++) {
       if (g_persist_config.counters[i].enabled) enabled_counters++;
@@ -967,38 +985,75 @@ void cli_cmd_save(void) {
     for (uint8_t i = 0; i < TIMER_COUNT; i++) {
       if (g_persist_config.timers[i].enabled) enabled_timers++;
     }
+    debug_printf("  [Counters] %d enabled\n", enabled_counters);
+    debug_printf("  [Timers] %d enabled\n", enabled_timers);
 
-    // Count active GPIO/ST variable mappings (source_type != 0xff means active)
-    uint8_t active_mappings = 0;
+    // --- Registers & Coils ---
+    debug_printf("  [Registers] %d static, %d dynamic\n",
+                 g_persist_config.static_reg_count, g_persist_config.dynamic_reg_count);
+    debug_printf("  [Coils] %d static, %d dynamic\n",
+                 g_persist_config.static_coil_count, g_persist_config.dynamic_coil_count);
+
+    // --- Variable Mappings ---
+    uint8_t gpio_maps = 0, st_maps = 0;
     uint8_t safe_var_map_count = g_persist_config.var_map_count;
-    if (safe_var_map_count > 32) safe_var_map_count = 32;  // BUG-140 style clamp
+    if (safe_var_map_count > 32) safe_var_map_count = 32;
     for (uint8_t i = 0; i < safe_var_map_count; i++) {
-      if (g_persist_config.var_maps[i].source_type != 0xff) {
-        active_mappings++;
+      if (g_persist_config.var_maps[i].source_type == MAPPING_SOURCE_GPIO) gpio_maps++;
+      else if (g_persist_config.var_maps[i].source_type == MAPPING_SOURCE_ST_VAR) st_maps++;
+    }
+    debug_printf("  [Mappings] %d gpio, %d st-logic (%d total)\n", gpio_maps, st_maps, safe_var_map_count);
+
+    // --- Network ---
+    debug_printf("  [WiFi] %s  ssid=%s  dhcp=%s\n",
+                 g_persist_config.network.enabled ? "on" : "off",
+                 g_persist_config.network.ssid[0] ? g_persist_config.network.ssid : "(none)",
+                 g_persist_config.network.dhcp_enabled ? "on" : "off");
+    debug_printf("  [Telnet] %s  port=%d\n",
+                 g_persist_config.network.telnet_enabled ? "on" : "off",
+                 g_persist_config.network.telnet_port);
+    debug_printf("  [Ethernet] %s  dhcp=%s\n",
+                 g_persist_config.network.ethernet.enabled ? "on" : "off",
+                 g_persist_config.network.ethernet.dhcp_enabled ? "on" : "off");
+
+    // --- HTTP & SSE ---
+    debug_printf("  [HTTP] %s  port=%d  auth=%s  tls=%s\n",
+                 g_persist_config.network.http.enabled ? "on" : "off",
+                 g_persist_config.network.http.port,
+                 g_persist_config.network.http.auth_enabled ? "on" : "off",
+                 g_persist_config.network.http.tls_enabled ? "on" : "off");
+    debug_printf("  [SSE] %s  max-clients=%d\n",
+                 g_persist_config.network.http.sse_enabled ? "on" : "off",
+                 g_persist_config.network.http.sse_max_clients);
+
+    // --- ST Logic ---
+    uint8_t logic_count = 0;
+    st_logic_engine_state_t *logic = st_logic_get_state();
+    if (logic) {
+      for (uint8_t i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
+        if (logic->programs[i].source_size > 0) logic_count++;
       }
     }
+    debug_printf("  [ST Logic] interval=%lu ms  programs=%d\n",
+                 (unsigned long)g_persist_config.st_logic_interval_ms, logic_count);
 
-    debug_print("  - ");
-    debug_print_uint(enabled_counters);
-    debug_println(" counters");
-    debug_print("  - ");
-    debug_print_uint(enabled_timers);
-    debug_println(" timers");
-    debug_print("  - ");
-    debug_print_uint(g_persist_config.static_reg_count);
-    debug_println(" static registers");
-    debug_print("  - ");
-    debug_print_uint(g_persist_config.dynamic_reg_count);
-    debug_println(" dynamic registers");
-    debug_print("  - ");
-    debug_print_uint(g_persist_config.static_coil_count);
-    debug_println(" static coils");
-    debug_print("  - ");
-    debug_print_uint(g_persist_config.dynamic_coil_count);
-    debug_println(" dynamic coils");
-    debug_print("  - ");
-    debug_print_uint(active_mappings);
-    debug_println(" variable mappings");
+    // --- Persistence ---
+    uint8_t grp_count = g_persist_config.persist_regs.group_count;
+    if (grp_count > PERSIST_MAX_GROUPS) grp_count = PERSIST_MAX_GROUPS;
+    debug_printf("  [Persist] %s  groups=%d\n",
+                 g_persist_config.persist_regs.enabled ? "on" : "off", grp_count);
+
+    // --- Modules ---
+    debug_printf("  [Modules] counters=%s  timers=%s  st-logic=%s\n",
+                 (g_persist_config.module_flags & MODULE_FLAG_COUNTERS_DISABLED) ? "off" : "on",
+                 (g_persist_config.module_flags & MODULE_FLAG_TIMERS_DISABLED) ? "off" : "on",
+                 (g_persist_config.module_flags & MODULE_FLAG_ST_LOGIC_DISABLED) ? "off" : "on");
+
+#if defined(BOARD_ES32D26)
+    debug_printf("  [Analog] ao1=%s  ao2=%s\n",
+                 g_persist_config.ao1_mode == AO_MODE_CURRENT ? "current" : "voltage",
+                 g_persist_config.ao2_mode == AO_MODE_CURRENT ? "current" : "voltage");
+#endif
   } else {
     debug_println("SAVE: Failed to save configuration");
   }
