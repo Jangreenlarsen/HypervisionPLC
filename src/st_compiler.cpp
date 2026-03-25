@@ -1225,7 +1225,11 @@ static bool st_compiler_compile_function_def(st_compiler_t *compiler, st_ast_nod
     return false;
   }
 
-  st_function_def_t *def = &node->data.function_def;
+  st_function_def_t *def = node->function_def;
+  if (!def) {
+    st_compiler_error(compiler, "NULL function definition");
+    return false;
+  }
 
   // Check for duplicate function name
   if (st_func_registry_lookup(compiler->func_registry, def->func_name) != 0xFF) {
@@ -1356,10 +1360,25 @@ static bool st_compiler_compile_function_def(st_compiler_t *compiler, st_ast_nod
  * MAIN COMPILATION
  * ============================================================================ */
 
-st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t *program) {
+st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t *program,
+                                           st_bytecode_program_t *output) {
   if (!program) {
     st_compiler_error(compiler, "NULL program");
     return NULL;
+  }
+
+  // Set up bytecode output buffer
+  if (output) {
+    // Write directly to pre-allocated output buffer (avoids ~8 KB internal array)
+    memset(output, 0, sizeof(*output));
+    compiler->bytecode = output->instructions;
+  } else {
+    // Fallback: allocate temporary instructions buffer
+    compiler->bytecode = (st_bytecode_instr_t *)malloc(1024 * sizeof(st_bytecode_instr_t));
+    if (!compiler->bytecode) {
+      st_compiler_error(compiler, "Memory allocation failed for bytecode buffer");
+      return NULL;
+    }
   }
 
   // Phase 1: Build symbol table from variable declarations
@@ -1443,22 +1462,30 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
   }
 
   // Phase 4: Build bytecode program structure
-  st_bytecode_program_t *bytecode = (st_bytecode_program_t *)malloc(sizeof(*bytecode));
+  st_bytecode_program_t *bytecode = output;
   if (!bytecode) {
-    st_compiler_error(compiler, "Memory allocation failed");
-    return NULL;
+    bytecode = (st_bytecode_program_t *)malloc(sizeof(*bytecode));
+    if (!bytecode) {
+      // Free fallback bytecode buffer
+      free(compiler->bytecode);
+      compiler->bytecode = NULL;
+      st_compiler_error(compiler, "Memory allocation failed");
+      return NULL;
+    }
+    memset(bytecode, 0, sizeof(*bytecode));
+    // Copy instructions from temporary buffer to allocated output
+    memcpy(bytecode->instructions, compiler->bytecode,
+           compiler->bytecode_ptr * sizeof(st_bytecode_instr_t));
+    free(compiler->bytecode);
+    compiler->bytecode = NULL;
   }
+  // When output != NULL, instructions were already written directly — no copy needed
 
-  memset(bytecode, 0, sizeof(*bytecode));
   strncpy(bytecode->name, program->name, sizeof(bytecode->name) - 1);
   bytecode->name[sizeof(bytecode->name) - 1] = '\0';
   bytecode->enabled = 1;
   bytecode->instr_count = compiler->bytecode_ptr;
   bytecode->var_count = compiler->symbol_table.count;
-
-  // Copy bytecode instructions
-  memcpy(bytecode->instructions, compiler->bytecode,
-         compiler->bytecode_ptr * sizeof(st_bytecode_instr_t));
 
   // Copy variable declarations
   bytecode->exported_var_count = 0;  // v5.1.0 - IR pool export count

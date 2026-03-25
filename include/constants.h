@@ -472,10 +472,17 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.2.0"
+#define PROJECT_VERSION     "7.2.1"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.2.1 (2026-03-25): BUG-239 Modbus Master config sync + BUG-240 ST compiler memory optimering
+ *                      - FIX: BUG-239 Modbus Master runtime config synced fra NVS ved boot
+ *                      - FIX: BUG-240 ST compiler 5x memory optimering:
+ *                        AST node 1920→140 bytes, pool allocator, direct bytecode output,
+ *                        compiler bytecode pointer, parser early-free
+ *                        Max ST program: 21→34 IF-blokke (+62%), min heap 47→80 KB (+70%)
+ *                      - DOC: DM56A04 display tutorial + ST size test
  * v7.2.0 (2026-03-23): Modbus UART refaktor (ES32D26 single-transceiver) + AO mode config
  *                      - FEAT: Modbus mode CLI: set modbus mode slave|master|off
  *                      - FEAT: ES32D26 shared RS485 transceiver — slave ELLER master (MODBUS_SINGLE_TRANSCEIVER)

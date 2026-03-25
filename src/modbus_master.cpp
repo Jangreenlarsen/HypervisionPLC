@@ -45,6 +45,18 @@ HardwareSerial ModbusSerial(1); // UART1 — dedicated master port (non-ES32D26)
  * ============================================================================ */
 
 void modbus_master_init() {
+  // BUG-239 FIX: Sync runtime config from persistent config at boot
+  // g_modbus_master_config is initialized with .enabled=false at compile time,
+  // but g_persist_config.modbus_master contains the NVS-loaded values.
+  // Without this sync, modbus_master_send_request() always returns MB_NOT_ENABLED.
+  g_modbus_master_config.enabled = g_persist_config.modbus_master.enabled;
+  g_modbus_master_config.baudrate = g_persist_config.modbus_master.baudrate;
+  g_modbus_master_config.parity = g_persist_config.modbus_master.parity;
+  g_modbus_master_config.stop_bits = g_persist_config.modbus_master.stop_bits;
+  g_modbus_master_config.timeout_ms = g_persist_config.modbus_master.timeout_ms;
+  g_modbus_master_config.inter_frame_delay = g_persist_config.modbus_master.inter_frame_delay;
+  g_modbus_master_config.max_requests_per_cycle = g_persist_config.modbus_master.max_requests_per_cycle;
+
 #if MODBUS_SINGLE_TRANSCEIVER
   // ES32D26: shared transceiver — DIR pin already configured by uart_driver
   // Nothing to do here; uart1_init() handles UART setup

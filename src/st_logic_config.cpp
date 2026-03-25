@@ -268,38 +268,41 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
 
   if (!program) {
     snprintf(prog->last_error, sizeof(prog->last_error), "Parse error: %s", g_parser->error_msg);
+    // Pool may not have been freed if parse failed partway — ensure cleanup
+    extern void ast_pool_free(void);
+    ast_pool_free();
     free(g_parser);
     g_parser = NULL;
     free(source_code);
     return false;
   }
+
+  // Free parser and source BEFORE compiler allocation to reduce heap pressure.
+  // Parser and source are no longer needed — AST (program) holds all parsed data.
+  free(g_parser);
+  g_parser = NULL;
+  free(source_code);
+  source_code = NULL;
 
   g_compiler = (st_compiler_t *)malloc(sizeof(st_compiler_t));
   if (!g_compiler) {
     snprintf(prog->last_error, sizeof(prog->last_error), "Insufficient heap for compiler");
     st_program_free(program);
-    free(g_parser);
-    g_parser = NULL;
-    free(source_code);
     return false;
   }
 
   st_compiler_init(g_compiler);
-  st_bytecode_program_t *bytecode = st_compiler_compile(g_compiler, program);
+  // Compile directly into prog->bytecode to avoid 10.5 KB intermediate malloc
+  st_bytecode_program_t *bytecode = st_compiler_compile(g_compiler, program, &prog->bytecode);
 
   if (!bytecode) {
     snprintf(prog->last_error, sizeof(prog->last_error), "Compile error: %s", g_compiler->error_msg);
     st_program_free(program);
     free(g_compiler);
     g_compiler = NULL;
-    free(g_parser);
-    g_parser = NULL;
-    free(source_code);
     return false;
   }
 
-  // Store compiled bytecode in config
-  memcpy(&prog->bytecode, bytecode, sizeof(*bytecode));
   prog->compiled = 1;
   prog->execution_count = 0;
   prog->error_count = 0;
@@ -333,14 +336,11 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
   }
 
   st_program_free(program);
-  free(bytecode);
+  // bytecode points to prog->bytecode (no free needed)
 
-  // Free dynamically allocated parser and compiler
+  // Free compiler (parser and source already freed before compilation)
   free(g_compiler);
   g_compiler = NULL;
-  free(g_parser);
-  g_parser = NULL;
-  free(source_code);  // BUG-212: Free null-terminated copy
 
   return true;
 }

@@ -231,8 +231,7 @@ typedef struct {
 } st_function_call_t;
 
 typedef struct {
-  char condition[256];      // Condition (for simple parsing)
-  st_ast_node_t *condition_expr; // Parsed expression (future)
+  st_ast_node_t *condition_expr; // Parsed condition expression
   st_ast_node_t *then_body; // Statements in THEN block
   st_ast_node_t *else_body; // Statements in ELSE block (NULL if no ELSE)
 } st_if_stmt_t;
@@ -332,7 +331,7 @@ typedef struct st_ast_node {
     st_repeat_stmt_t repeat_stmt;
     st_remote_write_t remote_write;  // v4.6.0: MB_WRITE_XXX(id, addr) := value
     st_return_stmt_t return_stmt;    // FEAT-003: RETURN statement
-    st_function_def_t function_def;  // FEAT-003: FUNCTION/FUNCTION_BLOCK definition
+    // function_def moved out of union — heap-allocated via pointer below
 
     st_binary_op_t binary_op;
     st_unary_op_t unary_op;
@@ -340,6 +339,10 @@ typedef struct st_ast_node {
     st_variable_ref_t variable;
     st_function_call_t function_call;
   } data;
+
+  // Heap-allocated only for ST_AST_FUNCTION_DEF / ST_AST_FUNCTION_BLOCK_DEF nodes.
+  // Moved out of union to reduce st_ast_node_t from ~1920 to ~140 bytes (93% smaller).
+  st_function_def_t *function_def;
 
   struct st_ast_node *next;  // Linked list of statements
 } st_ast_node_t;

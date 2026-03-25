@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "esp_system.h"  // esp_get_free_heap_size()
 #include <ctype.h>
 #include <errno.h>     // BUG-069/070: For overflow detection
 #include <stdint.h>    // BUG-069: For INT32_MAX/MIN
@@ -70,10 +71,41 @@ static void parser_error(st_parser_t *parser, const char *msg) {
  * AST NODE ALLOCATION
  * ============================================================================ */
 
-static st_ast_node_t *ast_node_alloc(st_ast_node_type_t type, uint32_t line) {
-  st_ast_node_t *node = (st_ast_node_t *)malloc(sizeof(st_ast_node_t));
-  if (!node) return NULL;
+// AST node pool allocator — eliminates heap fragmentation from many small mallocs.
+// One large block, sequential allocation. Freed all-at-once via ast_pool_free().
+// Pool adapts to available heap: reserves 6 KB for compiler, max 512 nodes.
+static st_ast_node_t *g_ast_pool = NULL;
+static uint16_t g_ast_pool_capacity = 0;
+static uint16_t g_ast_pool_used = 0;
 
+static bool ast_pool_init(void) {
+  if (g_ast_pool) return true;  // Already initialized
+  uint32_t free_heap = esp_get_free_heap_size();
+  uint32_t reserve = 8000;  // Reserve for compiler (~4KB) + overhead
+  uint32_t available = (free_heap > reserve) ? (free_heap - reserve) : 0;
+  uint16_t max_nodes = available / sizeof(st_ast_node_t);
+  if (max_nodes > 512) max_nodes = 512;
+  if (max_nodes < 32) return false;
+
+  g_ast_pool = (st_ast_node_t *)malloc(max_nodes * sizeof(st_ast_node_t));
+  g_ast_pool_capacity = g_ast_pool ? max_nodes : 0;
+  g_ast_pool_used = 0;
+  return g_ast_pool != NULL;
+}
+
+void ast_pool_free(void) {
+  if (g_ast_pool) {
+    free(g_ast_pool);
+    g_ast_pool = NULL;
+  }
+  g_ast_pool_capacity = 0;
+  g_ast_pool_used = 0;
+}
+
+static st_ast_node_t *ast_node_alloc(st_ast_node_type_t type, uint32_t line) {
+  if (!g_ast_pool || g_ast_pool_used >= g_ast_pool_capacity) return NULL;
+
+  st_ast_node_t *node = &g_ast_pool[g_ast_pool_used++];
   memset(node, 0, sizeof(*node));
   node->type = type;
   node->line = line;
@@ -83,94 +115,82 @@ static st_ast_node_t *ast_node_alloc(st_ast_node_type_t type, uint32_t line) {
 void st_ast_node_free(st_ast_node_t *node) {
   if (!node) return;
 
-  // Free children based on node type
+  // With pool allocator, only free heap-allocated sub-objects (function_def).
+  // Pool nodes are freed all-at-once via ast_pool_free().
+  // We still walk the tree to find and free function_def pointers.
+
   switch (node->type) {
     case ST_AST_BINARY_OP:
       st_ast_node_free(node->data.binary_op.left);
       st_ast_node_free(node->data.binary_op.right);
       break;
-
     case ST_AST_UNARY_OP:
       st_ast_node_free(node->data.unary_op.operand);
       break;
-
     case ST_AST_IF:
       st_ast_node_free(node->data.if_stmt.condition_expr);
       st_ast_node_free(node->data.if_stmt.then_body);
       st_ast_node_free(node->data.if_stmt.else_body);
       break;
-
     case ST_AST_CASE:
       st_ast_node_free(node->data.case_stmt.expr);
-      // Free all case branches
       for (uint8_t i = 0; i < node->data.case_stmt.branch_count; i++) {
         st_ast_node_free(node->data.case_stmt.branches[i].body);
       }
-      // Free ELSE body
       st_ast_node_free(node->data.case_stmt.else_body);
       break;
-
     case ST_AST_FOR:
       st_ast_node_free(node->data.for_stmt.start);
       st_ast_node_free(node->data.for_stmt.end);
       st_ast_node_free(node->data.for_stmt.step);
       st_ast_node_free(node->data.for_stmt.body);
       break;
-
     case ST_AST_WHILE:
       st_ast_node_free(node->data.while_stmt.condition);
       st_ast_node_free(node->data.while_stmt.body);
       break;
-
     case ST_AST_REPEAT:
       st_ast_node_free(node->data.repeat_stmt.body);
       st_ast_node_free(node->data.repeat_stmt.condition);
       break;
-
     case ST_AST_ASSIGNMENT:
       st_ast_node_free(node->data.assignment.expr);
       break;
-
-    case ST_AST_REMOTE_WRITE:  // v4.6.0
+    case ST_AST_REMOTE_WRITE:
       st_ast_node_free(node->data.remote_write.slave_id);
       st_ast_node_free(node->data.remote_write.address);
       st_ast_node_free(node->data.remote_write.value);
       break;
-
     case ST_AST_FUNCTION_CALL:
-      // Free all function arguments
       for (uint8_t i = 0; i < node->data.function_call.arg_count; i++) {
         st_ast_node_free(node->data.function_call.args[i]);
       }
       break;
-
-    // FEAT-003: User-defined function support
     case ST_AST_RETURN:
       st_ast_node_free(node->data.return_stmt.expr);
       break;
-
     case ST_AST_FUNCTION_DEF:
     case ST_AST_FUNCTION_BLOCK_DEF:
-      // Free function body
-      st_ast_node_free(node->data.function_def.body);
+      if (node->function_def) {
+        st_ast_node_free(node->function_def->body);
+        free(node->function_def);
+      }
       break;
-
     default:
       break;
   }
 
-  // Free next statement in list
   if (node->next) {
     st_ast_node_free(node->next);
   }
-
-  free(node);
+  // Node itself is NOT freed — it belongs to the pool
 }
 
 void st_program_free(st_program_t *program) {
   if (!program) return;
-  st_ast_node_free(program->body);
-  free(program);
+  st_ast_node_free(program->body);  // Walk tree to free function_def pointers
+  ast_pool_free();                   // Free entire AST pool in one call
+  free(program);                     // program struct is heap-allocated
 }
 
 /* ============================================================================
@@ -1489,14 +1509,23 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
     return NULL;
   }
 
+  // Heap-allocate function_def (moved out of union to reduce node size)
+  node->function_def = (st_function_def_t *)malloc(sizeof(st_function_def_t));
+  if (!node->function_def) {
+    parser_error(parser, "Out of memory for function_def");
+    free(node);
+    return NULL;
+  }
+  memset(node->function_def, 0, sizeof(st_function_def_t));
+
   // Copy function name
-  strncpy(node->data.function_def.func_name, parser->current_token.value, 63);
-  node->data.function_def.func_name[63] = '\0';
-  node->data.function_def.is_function_block = is_function_block ? 1 : 0;
-  node->data.function_def.param_count = 0;
-  node->data.function_def.local_count = 0;
-  node->data.function_def.body = NULL;
-  node->data.function_def.return_type = ST_TYPE_NONE;  // Default for FB
+  strncpy(node->function_def->func_name, parser->current_token.value, 63);
+  node->function_def->func_name[63] = '\0';
+  node->function_def->is_function_block = is_function_block ? 1 : 0;
+  node->function_def->param_count = 0;
+  node->function_def->local_count = 0;
+  node->function_def->body = NULL;
+  node->function_def->return_type = ST_TYPE_NONE;  // Default for FB
   parser_advance(parser);
 
   // For FUNCTION: parse return type (: TYPE)
@@ -1509,19 +1538,19 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
 
     // Parse return type
     if (parser_match(parser, ST_TOK_BOOL)) {
-      node->data.function_def.return_type = ST_TYPE_BOOL;
+      node->function_def->return_type = ST_TYPE_BOOL;
       parser_advance(parser);
     } else if (parser_match(parser, ST_TOK_INT_KW)) {
-      node->data.function_def.return_type = ST_TYPE_INT;
+      node->function_def->return_type = ST_TYPE_INT;
       parser_advance(parser);
     } else if (parser_match(parser, ST_TOK_DINT_KW)) {
-      node->data.function_def.return_type = ST_TYPE_DINT;
+      node->function_def->return_type = ST_TYPE_DINT;
       parser_advance(parser);
     } else if (parser_match(parser, ST_TOK_DWORD)) {
-      node->data.function_def.return_type = ST_TYPE_DWORD;
+      node->function_def->return_type = ST_TYPE_DWORD;
       parser_advance(parser);
     } else if (parser_match(parser, ST_TOK_REAL_KW)) {
-      node->data.function_def.return_type = ST_TYPE_REAL;
+      node->function_def->return_type = ST_TYPE_REAL;
       parser_advance(parser);
     } else {
       parser_error(parser, "Expected return type (BOOL, INT, DINT, DWORD, REAL)");
@@ -1562,22 +1591,22 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
       st_variable_decl_t *var;
       if (var_section == ST_TOK_VAR_INPUT || var_section == ST_TOK_VAR_OUTPUT || var_section == ST_TOK_VAR_IN_OUT) {
         // Parameter
-        if (node->data.function_def.param_count >= 8) {
+        if (node->function_def->param_count >= 8) {
           parser_error(parser, "Too many function parameters (max 8)");
           st_ast_node_free(node);
           return NULL;
         }
-        var = &node->data.function_def.params[node->data.function_def.param_count++];
+        var = &node->function_def->params[node->function_def->param_count++];
         var->is_input = (var_section == ST_TOK_VAR_INPUT || var_section == ST_TOK_VAR_IN_OUT);
         var->is_output = (var_section == ST_TOK_VAR_OUTPUT || var_section == ST_TOK_VAR_IN_OUT);
       } else {
         // Local variable
-        if (node->data.function_def.local_count >= 16) {
+        if (node->function_def->local_count >= 16) {
           parser_error(parser, "Too many local variables (max 16)");
           st_ast_node_free(node);
           return NULL;
         }
-        var = &node->data.function_def.locals[node->data.function_def.local_count++];
+        var = &node->function_def->locals[node->function_def->local_count++];
         var->is_input = 0;
         var->is_output = 0;
       }
@@ -1646,7 +1675,7 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
   }
 
   // Parse function body (statements)
-  node->data.function_def.body = st_parser_parse_statements(parser);
+  node->function_def->body = st_parser_parse_statements(parser);
 
   // Expect END_FUNCTION or END_FUNCTION_BLOCK
   st_token_type_t expected_end = is_function_block ? ST_TOK_END_FUNCTION_BLOCK : ST_TOK_END_FUNCTION;
@@ -1671,8 +1700,11 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
  * ============================================================================ */
 
 st_program_t *st_parser_parse_program(st_parser_t *parser) {
+  // Initialize AST node pool (one contiguous block, no fragmentation)
+  if (!ast_pool_init()) return NULL;
+
   st_program_t *program = (st_program_t *)malloc(sizeof(st_program_t));
-  if (!program) return NULL;
+  if (!program) { ast_pool_free(); return NULL; }
 
   memset(program, 0, sizeof(*program));
   strncpy(program->name, "Logic", sizeof(program->name) - 1);  // Default program name
