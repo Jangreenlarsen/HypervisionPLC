@@ -894,7 +894,7 @@ set logic debug:false            # Disable debug output
   - Remote monitoring og control
 - **Endpoints:** 72+ endpoints — se [docs/REST_API.md](docs/REST_API.md) for komplet dokumentation
 - **v7.1.0 Nye Endpoints:**
-  - `GET /api/metrics` — Prometheus text format metrics (uptime, heap, HTTP, Modbus, counters, timers)
+  - `GET /api/metrics` — Prometheus text format metrics (45+ metrics: system, HTTP, Modbus, counters, timers, ST Logic, GPIO, registers, persistence, network)
   - `GET/POST/DELETE /api/persist/groups/{name}` — Persistence group CRUD
   - `POST /api/persist/save` — Save register groups to NVS
   - `POST /api/persist/restore` — Restore register groups from NVS
@@ -976,6 +976,57 @@ show backup    # Shows download URL with current IP + curl examples
 - **Passwords:** WiFi, HTTP, and telnet passwords included (needed for full restore)
 - **Restore behavior:** Full replace (not merge), saves to NVS + SPIFFS, calls `config_apply()`
 - **Versioning:** `backup_version: 1` field for future compatibility
+
+#### Prometheus Metrics (v7.1.0+, udvidet v7.2.2)
+
+`GET /api/metrics` eksponerer 45+ metrics i Prometheus text exposition format. Bruges til overvagning med Prometheus + Grafana.
+
+**Metrics kategorier:**
+
+| Kategori | Eksempler |
+|----------|-----------|
+| **System** | `esp32_uptime_seconds`, `esp32_heap_free_bytes`, `esp32_heap_min_free_bytes` |
+| **HTTP** | `http_requests_total`, `http_auth_failures_total` |
+| **Modbus** | `modbus_slave_requests_total`, `modbus_master_timeout_errors_total` |
+| **Counters** | `counter_value{id="1"}`, `counter_frequency_hz{id="1"}` |
+| **Timers** | `timer_output{id="1"}`, `timer_is_running{id="1"}`, `timer_current_phase{id="1"}` |
+| **ST Logic** | `st_logic_execution_count{slot="1"}`, `st_logic_exec_time_us{slot="1"}`, `st_logic_error_count{slot="1"}` |
+| **GPIO** | `gpio_digital_input{pin="101"}`, `gpio_digital_output{pin="201"}` |
+| **Modbus Regs** | `modbus_holding_register{addr="100"}`, `modbus_input_register{addr="220"}` |
+| **Persistence** | `persist_group_reg_count{group="motors"}` |
+| **Network** | `wifi_rssi_dbm`, `telnet_connected`, `wifi_reconnect_retries` |
+| **Watchdog** | `watchdog_reboot_count` |
+| **Firmware** | `firmware_info{version="7.2.2",build="1581"}` |
+
+**Prometheus setup:**
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: 'esp32_modbus'
+    scrape_interval: 15s
+    metrics_path: /api/metrics
+    basic_auth:
+      username: api_user
+      password: 'password'
+    static_configs:
+      - targets: ['10.1.1.30']
+```
+
+**Grafana PromQL eksempler:**
+```promql
+esp32_heap_free_bytes                                          # Heap over tid
+rate(modbus_master_success_total[5m]) / rate(modbus_master_requests_total[5m]) * 100  # Success rate %
+st_logic_exec_time_us{slot="1"}                                # ST Logic timing
+counter_frequency_hz{id="1"}                                   # Counter frekvens
+gpio_digital_input{pin="101"}                                  # Digital input
+```
+
+**curl test:**
+```bash
+curl -u api_user:password http://10.1.1.30/api/metrics
+```
+
+Se [docs/REST_API.md](docs/REST_API.md#prometheus-metrics) for komplet metrics-reference.
 
 #### Network Configuration Persistence
 - **NVS Storage:** All network settings saved to non-volatile storage

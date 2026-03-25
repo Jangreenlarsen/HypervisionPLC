@@ -354,6 +354,13 @@ bool timer_engine_get_config(uint8_t id, TimerConfig* out) {
   return timer_config_get(id, out);
 }
 
+bool timer_engine_get_runtime(uint8_t id, uint8_t* out_phase, uint8_t* out_active) {
+  if (id < 1 || id > TIMER_COUNT) return false;
+  if (out_phase)  *out_phase  = timer_state[id - 1].current_phase;
+  if (out_active) *out_active = timer_state[id - 1].is_active;
+  return true;
+}
+
 /* ============================================================================
  * COIL WRITE CALLBACK
  * ============================================================================ */

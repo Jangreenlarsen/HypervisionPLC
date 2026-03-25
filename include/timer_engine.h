@@ -86,5 +86,14 @@ void timer_engine_clear_alarms(void);
  */
 bool timer_engine_get_config(uint8_t id, TimerConfig* out);
 
+/**
+ * @brief Get timer runtime state (phase, active flag)
+ * @param id Timer ID (1-4)
+ * @param out_phase Current phase (0-3)
+ * @param out_active Is timer active (0/1)
+ * @return true if valid ID
+ */
+bool timer_engine_get_runtime(uint8_t id, uint8_t* out_phase, uint8_t* out_active);
+
 #endif // TIMER_ENGINE_H
 

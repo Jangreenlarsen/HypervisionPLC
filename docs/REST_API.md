@@ -1,6 +1,6 @@
 # HTTP REST API Documentation
 
-**Version:** v6.3.0 | **Feature:** FEAT-011, FEAT-019–027
+**Version:** v7.2.2 | **Feature:** FEAT-011, FEAT-019–027, FEAT-032
 
 ESP32 Modbus RTU Server's HTTP REST API giver nem integration med Node-RED, web dashboards, og andre HTTP-baserede systemer.
 
@@ -24,6 +24,7 @@ ESP32 Modbus RTU Server's HTTP REST API giver nem integration med Node-RED, web 
    - [Watchdog (v6.3.0)](#watchdog)
    - [Heartbeat (v6.3.0)](#heartbeat)
    - [CORS (v6.3.0)](#cors)
+   - [Prometheus Metrics (v7.1.0+)](#prometheus-metrics)
 5. [Response Format](#response-format)
 6. [Error Handling](#error-handling)
 7. [Node-RED Integration](#node-red-integration)
@@ -879,6 +880,132 @@ curl -X OPTIONS http://192.168.1.100/api/status -i
 # HTTP/1.1 204 No Content
 # Access-Control-Allow-Origin: *
 # ...
+```
+
+---
+
+### Prometheus Metrics
+
+*Tilføjet i v7.1.0 (FEAT-032), udvidet i v7.2.2*
+
+`GET /api/metrics` returnerer alle system-metrics i Prometheus text exposition format (v0.0.4).
+Response er `text/plain`, ikke JSON.
+
+#### Request
+```bash
+curl -u api_user:password http://192.168.1.100/api/metrics
+```
+
+#### Response (eksempel)
+```
+# HELP esp32_uptime_seconds Device uptime in seconds
+# TYPE esp32_uptime_seconds gauge
+esp32_uptime_seconds 4259
+# HELP esp32_heap_free_bytes Free heap memory in bytes
+# TYPE esp32_heap_free_bytes gauge
+esp32_heap_free_bytes 94904
+...
+```
+
+#### Tilgaengelige metrics (v7.2.2)
+
+| Kategori | Metric | Type | Labels | Beskrivelse |
+|----------|--------|------|--------|-------------|
+| **System** | `esp32_uptime_seconds` | gauge | — | Oppetid i sekunder |
+| | `esp32_heap_free_bytes` | gauge | — | Ledig heap-hukommelse |
+| | `esp32_heap_min_free_bytes` | gauge | — | Minimum heap siden boot |
+| **HTTP** | `http_requests_total` | counter | — | Totale HTTP requests |
+| | `http_requests_success_total` | counter | — | Succesfulde (2xx) |
+| | `http_requests_client_errors_total` | counter | — | Klientfejl (4xx) |
+| | `http_requests_server_errors_total` | counter | — | Serverfejl (5xx) |
+| | `http_auth_failures_total` | counter | — | Mislykkede login |
+| **Modbus Slave** | `modbus_slave_requests_total` | counter | — | Totale slave requests |
+| | `modbus_slave_success_total` | counter | — | Succesfulde |
+| | `modbus_slave_crc_errors_total` | counter | — | CRC fejl |
+| | `modbus_slave_exceptions_total` | counter | — | Exception responses |
+| **Modbus Master** | `modbus_master_requests_total` | counter | — | Totale master requests |
+| | `modbus_master_success_total` | counter | — | Succesfulde |
+| | `modbus_master_timeout_errors_total` | counter | — | Timeout fejl |
+| | `modbus_master_crc_errors_total` | counter | — | CRC fejl |
+| **SSE** | `sse_clients_active` | gauge | — | Aktive SSE klienter |
+| **Network** | `wifi_connected` | gauge | — | WiFi status (0/1) |
+| | `wifi_rssi_dbm` | gauge | — | WiFi signalstyrke (dBm) |
+| | `ethernet_connected` | gauge | — | Ethernet status (0/1) |
+| | `telnet_connected` | gauge | — | Telnet klient (0/1) |
+| | `wifi_reconnect_retries` | counter | — | WiFi reconnect forsog |
+| **Counters** | `counter_value` | gauge | `id` | Aktuel taellervaerdi |
+| | `counter_frequency_hz` | gauge | `id` | Maalt frekvens (Hz) |
+| **Timers** | `timer_output` | gauge | `id` | Timer coil output (0/1) |
+| | `timer_is_running` | gauge | `id` | Timer aktiv (0/1) |
+| | `timer_current_phase` | gauge | `id` | Timer fase (0-3) |
+| **ST Logic** | `st_logic_enabled` | gauge | — | Engine enabled (0/1) |
+| | `st_logic_total_cycles` | counter | — | Totale exekveringscykler |
+| | `st_logic_cycle_overruns` | counter | — | Cykler over interval |
+| | `st_logic_execution_count` | counter | `slot`, `name` | Programkorsler |
+| | `st_logic_error_count` | counter | `slot`, `name` | Programfejl |
+| | `st_logic_exec_time_us` | gauge | `slot`, `name` | Sidste exekveringstid (us) |
+| | `st_logic_min_exec_us` | gauge | `slot`, `name` | Min exekveringstid (us) |
+| | `st_logic_max_exec_us` | gauge | `slot`, `name` | Max exekveringstid (us) |
+| | `st_logic_overrun_count` | counter | `slot`, `name` | Program overruns |
+| **GPIO** | `gpio_digital_input` | gauge | `pin` | Digital input (101-108) |
+| | `gpio_digital_output` | gauge | `pin` | Digital output (201-208) |
+| **Modbus Regs** | `modbus_holding_register` | gauge | `addr` | Holding register (kun non-zero) |
+| | `modbus_input_register` | gauge | `addr` | Input register (kun non-zero) |
+| **Persistence** | `persist_group_reg_count` | gauge | `group` | Registre i gruppen |
+| | `persist_group_last_save_ms` | gauge | `group` | Sidste save tidspunkt |
+| **Watchdog** | `watchdog_reboot_count` | counter | — | Totale reboots |
+| **Firmware** | `firmware_info` | gauge | `version`, `build` | Firmware version (altid 1) |
+
+#### Prometheus scrape konfiguration
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: 'esp32_modbus'
+    scrape_interval: 15s
+    metrics_path: /api/metrics
+    basic_auth:
+      username: api_user
+      password: 'ChangeMe123!'
+    static_configs:
+      - targets: ['10.1.1.30']
+        labels:
+          device: 'es32d26'
+          location: 'produktion'
+```
+
+#### Grafana dashboard eksempler
+
+**PromQL queries:**
+```promql
+# Heap over tid
+esp32_heap_free_bytes
+
+# Modbus master success rate (%)
+rate(modbus_master_success_total[5m]) / rate(modbus_master_requests_total[5m]) * 100
+
+# ST Logic exekveringstid per program
+st_logic_exec_time_us
+
+# GPIO input status
+gpio_digital_input{pin="101"}
+
+# Counter frekvens
+counter_frequency_hz{id="1"}
+```
+
+#### Python eksempel
+
+```python
+import requests
+
+r = requests.get("http://10.1.1.30/api/metrics",
+                 auth=("api_user", "ChangeMe123!"))
+
+for line in r.text.split('\n'):
+    if not line.startswith('#') and line.strip():
+        metric, value = line.rsplit(' ', 1)
+        print(f"{metric}: {value}")
 ```
 
 ---

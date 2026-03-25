@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.2.2] - 2026-03-25 (Extended Prometheus Metrics)
+
+### NEW FEATURES
+
+**FEAT-032 Extended: Prometheus Metrics (45+ metrics)**
+- `GET /api/metrics` udvidet fra 20 til 45+ metrics
+- ST Logic: `st_logic_execution_count`, `st_logic_error_count`, `st_logic_exec_time_us`, `st_logic_min_exec_us`, `st_logic_max_exec_us`, `st_logic_overrun_count` (per program slot)
+- ST Logic global: `st_logic_enabled`, `st_logic_total_cycles`, `st_logic_cycle_overruns`
+- Counter: `counter_frequency_hz` (maalt Hz per counter)
+- Timer: `timer_is_running`, `timer_current_phase` (runtime state per timer)
+- GPIO: `gpio_digital_input{pin="101-108"}`, `gpio_digital_output{pin="201-208"}` (74HC165/74HC595)
+- Modbus registers: `modbus_holding_register{addr}`, `modbus_input_register{addr}` (kun non-zero vaerdier)
+- Persistence: `persist_group_reg_count`, `persist_group_last_save_ms` (per gruppe)
+- Network: `telnet_connected`, `wifi_reconnect_retries`
+- Buffer foroeget 4KB -> 8KB for udvidede metrics
+
+### TECHNICAL
+- `timer_engine_get_runtime()` ny getter for timer phase/active state
+- `#include "counter_frequency.h"` tilfojet i api_handlers.cpp
+- Alle nye metrics folger Prometheus naming conventions med labels
+
+---
+
 ## [7.2.0] - 2026-03-23 (Modbus UART Refaktor + AO Mode Config)
 
 ### NEW FEATURES

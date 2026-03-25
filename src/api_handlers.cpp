@@ -24,6 +24,7 @@
 #include "registers.h"
 #include "counter_engine.h"
 #include "counter_config.h"
+#include "counter_frequency.h"
 #include "timer_engine.h"
 #include "timer_config.h"
 #include "st_logic_config.h"
@@ -4761,13 +4762,13 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   http_server_stat_request();
   CHECK_AUTH(req);
 
-  // Buffer for Prometheus text format — use stack-allocated buffer
-  char *buf = (char *)malloc(4096);
+  // Buffer for Prometheus text format (8KB for expanded metrics)
+  char *buf = (char *)malloc(8192);
   if (!buf) {
     return api_send_error(req, 500, "Out of memory");
   }
   int pos = 0;
-  int remaining = 4096;
+  int remaining = 8192;
 
   #define PROM_APPEND(...) do { \
     int n = snprintf(buf + pos, remaining, __VA_ARGS__); \
@@ -4866,25 +4867,144 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   PROM_APPEND("# TYPE ethernet_connected gauge\n");
   PROM_APPEND("ethernet_connected %d\n", ethernet_driver_is_connected() ? 1 : 0);
 
-  // --- Counter metrics ---
+  const NetworkState *net_state = network_manager_get_state();
+  if (net_state) {
+    PROM_APPEND("# HELP telnet_connected Telnet client connection status (1=connected, 0=disconnected)\n");
+    PROM_APPEND("# TYPE telnet_connected gauge\n");
+    PROM_APPEND("telnet_connected %d\n", net_state->telnet_client_connected ? 1 : 0);
+
+    PROM_APPEND("# HELP wifi_reconnect_retries WiFi reconnect retry count\n");
+    PROM_APPEND("# TYPE wifi_reconnect_retries counter\n");
+    PROM_APPEND("wifi_reconnect_retries %lu\n", (unsigned long)net_state->wifi_reconnect_retries);
+  }
+
+  // --- Counter metrics (expanded) ---
   PROM_APPEND("# HELP counter_value Current counter values\n");
   PROM_APPEND("# TYPE counter_value gauge\n");
-  for (int i = 0; i < MAX_COUNTERS; i++) {
+  PROM_APPEND("# HELP counter_frequency_hz Measured counter frequency in Hz\n");
+  PROM_APPEND("# TYPE counter_frequency_hz gauge\n");
+  for (int i = 0; i < COUNTER_COUNT; i++) {
     CounterConfig cfg;
     if (counter_engine_get_config(i + 1, &cfg) && cfg.enabled) {
       uint64_t val = counter_engine_get_value(i + 1);
       PROM_APPEND("counter_value{id=\"%d\"} %llu\n", i + 1, (unsigned long long)val);
+      uint16_t hz = counter_frequency_get(i + 1);
+      PROM_APPEND("counter_frequency_hz{id=\"%d\"} %u\n", i + 1, (unsigned)hz);
     }
   }
 
-  // --- Timer metrics ---
+  // --- Timer metrics (expanded) ---
   PROM_APPEND("# HELP timer_output Current timer output coil state (1=on, 0=off)\n");
   PROM_APPEND("# TYPE timer_output gauge\n");
-  for (int i = 0; i < MAX_TIMERS; i++) {
+  PROM_APPEND("# HELP timer_is_running Timer active state (1=running, 0=stopped)\n");
+  PROM_APPEND("# TYPE timer_is_running gauge\n");
+  PROM_APPEND("# HELP timer_current_phase Timer current phase (0-3)\n");
+  PROM_APPEND("# TYPE timer_current_phase gauge\n");
+  for (int i = 0; i < TIMER_COUNT; i++) {
     TimerConfig cfg;
     if (timer_engine_get_config(i + 1, &cfg) && cfg.enabled) {
       uint8_t coil_val = registers_get_coil(cfg.output_coil);
       PROM_APPEND("timer_output{id=\"%d\"} %d\n", i + 1, coil_val ? 1 : 0);
+      uint8_t phase = 0, active = 0;
+      timer_engine_get_runtime(i + 1, &phase, &active);
+      PROM_APPEND("timer_is_running{id=\"%d\"} %d\n", i + 1, active ? 1 : 0);
+      PROM_APPEND("timer_current_phase{id=\"%d\"} %d\n", i + 1, phase);
+    }
+  }
+
+  // --- ST Logic metrics ---
+  st_logic_engine_state_t *logic_state = st_logic_get_state();
+  if (logic_state) {
+    PROM_APPEND("# HELP st_logic_enabled ST Logic engine global enabled state\n");
+    PROM_APPEND("# TYPE st_logic_enabled gauge\n");
+    PROM_APPEND("st_logic_enabled %d\n", logic_state->enabled ? 1 : 0);
+
+    PROM_APPEND("# HELP st_logic_total_cycles Total ST Logic execution cycles\n");
+    PROM_APPEND("# TYPE st_logic_total_cycles counter\n");
+    PROM_APPEND("st_logic_total_cycles %lu\n", (unsigned long)logic_state->total_cycles);
+
+    PROM_APPEND("# HELP st_logic_cycle_overruns Total cycle overruns (cycle > interval)\n");
+    PROM_APPEND("# TYPE st_logic_cycle_overruns counter\n");
+    PROM_APPEND("st_logic_cycle_overruns %lu\n", (unsigned long)logic_state->cycle_overrun_count);
+
+    PROM_APPEND("# HELP st_logic_execution_count Program execution count\n");
+    PROM_APPEND("# TYPE st_logic_execution_count counter\n");
+    PROM_APPEND("# HELP st_logic_error_count Program error count\n");
+    PROM_APPEND("# TYPE st_logic_error_count counter\n");
+    PROM_APPEND("# HELP st_logic_exec_time_us Last execution time in microseconds\n");
+    PROM_APPEND("# TYPE st_logic_exec_time_us gauge\n");
+    PROM_APPEND("# HELP st_logic_min_exec_us Minimum execution time in microseconds\n");
+    PROM_APPEND("# TYPE st_logic_min_exec_us gauge\n");
+    PROM_APPEND("# HELP st_logic_max_exec_us Maximum execution time in microseconds\n");
+    PROM_APPEND("# TYPE st_logic_max_exec_us gauge\n");
+    PROM_APPEND("# HELP st_logic_overrun_count Program overrun count\n");
+    PROM_APPEND("# TYPE st_logic_overrun_count counter\n");
+
+    for (int i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
+      st_logic_program_config_t *prog = st_logic_get_program(logic_state, i);
+      if (prog && prog->enabled) {
+        PROM_APPEND("st_logic_execution_count{slot=\"%d\",name=\"%s\"} %u\n",
+                     i + 1, prog->name, (unsigned)prog->execution_count);
+        PROM_APPEND("st_logic_error_count{slot=\"%d\",name=\"%s\"} %u\n",
+                     i + 1, prog->name, (unsigned)prog->error_count);
+        PROM_APPEND("st_logic_exec_time_us{slot=\"%d\",name=\"%s\"} %lu\n",
+                     i + 1, prog->name, (unsigned long)prog->last_execution_us);
+        PROM_APPEND("st_logic_min_exec_us{slot=\"%d\",name=\"%s\"} %lu\n",
+                     i + 1, prog->name, (unsigned long)prog->min_execution_us);
+        PROM_APPEND("st_logic_max_exec_us{slot=\"%d\",name=\"%s\"} %lu\n",
+                     i + 1, prog->name, (unsigned long)prog->max_execution_us);
+        PROM_APPEND("st_logic_overrun_count{slot=\"%d\",name=\"%s\"} %lu\n",
+                     i + 1, prog->name, (unsigned long)prog->overrun_count);
+      }
+    }
+  }
+
+  // --- GPIO Digital Input metrics (74HC165, GPIO 101-108) ---
+  PROM_APPEND("# HELP gpio_digital_input Digital input state (1=high, 0=low)\n");
+  PROM_APPEND("# TYPE gpio_digital_input gauge\n");
+  for (int i = 0; i < VGPIO_SR_INPUT_COUNT; i++) {
+    uint8_t pin = VGPIO_SR_INPUT_BASE + i;
+    PROM_APPEND("gpio_digital_input{pin=\"%d\"} %d\n", pin, gpio_read(pin) ? 1 : 0);
+  }
+
+  // --- GPIO Digital Output metrics (74HC595, GPIO 201-208) ---
+  PROM_APPEND("# HELP gpio_digital_output Digital output state (1=high, 0=low)\n");
+  PROM_APPEND("# TYPE gpio_digital_output gauge\n");
+  for (int i = 0; i < VGPIO_SR_OUTPUT_COUNT; i++) {
+    uint8_t pin = VGPIO_SR_OUTPUT_BASE + i;
+    PROM_APPEND("gpio_digital_output{pin=\"%d\"} %d\n", pin, gpio_read(pin) ? 1 : 0);
+  }
+
+  // --- Modbus Register metrics (non-zero holding & input registers) ---
+  PROM_APPEND("# HELP modbus_holding_register Modbus holding register value\n");
+  PROM_APPEND("# TYPE modbus_holding_register gauge\n");
+  for (int addr = 0; addr < HOLDING_REGS_SIZE; addr++) {
+    uint16_t val = registers_get_holding_register(addr);
+    if (val != 0) {
+      PROM_APPEND("modbus_holding_register{addr=\"%d\"} %u\n", addr, (unsigned)val);
+    }
+  }
+
+  PROM_APPEND("# HELP modbus_input_register Modbus input register value\n");
+  PROM_APPEND("# TYPE modbus_input_register gauge\n");
+  for (int addr = 0; addr < INPUT_REGS_SIZE; addr++) {
+    uint16_t val = registers_get_input_register(addr);
+    if (val != 0) {
+      PROM_APPEND("modbus_input_register{addr=\"%d\"} %u\n", addr, (unsigned)val);
+    }
+  }
+
+  // --- Persistence Group metrics ---
+  PersistentRegisterData *pr = &g_persist_config.persist_regs;
+  if (pr->enabled && pr->group_count > 0) {
+    PROM_APPEND("# HELP persist_group_reg_count Number of registers in persistence group\n");
+    PROM_APPEND("# TYPE persist_group_reg_count gauge\n");
+    PROM_APPEND("# HELP persist_group_last_save_ms Last save timestamp (ms since boot)\n");
+    PROM_APPEND("# TYPE persist_group_last_save_ms gauge\n");
+    for (int i = 0; i < pr->group_count && i < PERSIST_MAX_GROUPS; i++) {
+      PersistGroup *grp = &pr->groups[i];
+      PROM_APPEND("persist_group_reg_count{group=\"%s\"} %d\n", grp->name, grp->reg_count);
+      PROM_APPEND("persist_group_last_save_ms{group=\"%s\"} %lu\n", grp->name, (unsigned long)grp->last_save_ms);
     }
   }
 

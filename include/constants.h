@@ -472,10 +472,20 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.2.1"
+#define PROJECT_VERSION     "7.2.2"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.2.2 (2026-03-25): FEAT-032 Extended Prometheus metrics
+ *                      - FEAT: ST Logic metrics (execution_count, error_count, exec_time_us, min/max/overruns per slot)
+ *                      - FEAT: Counter frequency (Hz) per counter
+ *                      - FEAT: Timer runtime state (is_running, current_phase per timer)
+ *                      - FEAT: GPIO digital input/output state (74HC165 IN, 74HC595 DO)
+ *                      - FEAT: Modbus holding/input register values (non-zero)
+ *                      - FEAT: Persistence group metrics (reg_count, last_save_ms)
+ *                      - FEAT: Network metrics (telnet_connected, wifi_reconnect_retries)
+ *                      - FEAT: ST Logic global stats (total_cycles, cycle_overruns)
+ *                      - Buffer 4KB → 8KB for expanded metrics
  * v7.2.1 (2026-03-25): BUG-239 Modbus Master config sync + BUG-240 ST compiler memory optimering
  *                      - FIX: BUG-239 Modbus Master runtime config synced fra NVS ved boot
  *                      - FIX: BUG-240 ST compiler 5x memory optimering:
