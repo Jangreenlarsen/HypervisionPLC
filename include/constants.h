@@ -468,14 +468,29 @@ typedef enum {
 #define NVS_NAMESPACE_HTTP              "http"
 
 /* ============================================================================
+ * OTA FIRMWARE UPDATE (FEAT-031)
+ * ============================================================================ */
+
+#define OTA_CHUNK_SIZE          4096        // Flash write chunk size (one sector)
+#define OTA_MAX_FIRMWARE_SIZE   0x1A0000    // Must match OTA partition size (1.625MB)
+#define OTA_REBOOT_DELAY_MS     2000        // Delay before reboot after OTA
+
+/* ============================================================================
  * VERSION & BUILD
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.3.0"
+#define PROJECT_VERSION     "7.6.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.6.0 (2026-03-29): Bytecode persistens i SPIFFS + fasebaseret ST compiler
+ *                      - FEAT: Bytecode cache i /logic_N.bc (CRC32 validering)
+ *                      - FEAT: Boot indlæser cached bytecode (~2 KB peak vs 36-94 KB recompile)
+ *                      - FEAT: AST pool reserve 6→24 KB (function registry allokering virker nu)
+ *                      - FEAT: Segment compiler + source scanner for chunked compilation
+ *                      - FEAT: st_logic_compile_chunked() multi-pass pipeline
+ *                      - FIX: FUNCTION/FUNCTION_BLOCK kompilering fejlede pga. heap pressure
  * v7.3.0 (2026-03-25): FEAT-038 Web-based ST Logic Editor
  *                      - FEAT: Embedded web editor served at /editor (HTML/CSS/JS in PROGMEM)
  *                      - FEAT: Program slot selector (1-4) with compile status indicators
