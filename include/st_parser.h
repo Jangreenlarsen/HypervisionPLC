@@ -111,4 +111,20 @@ st_ast_node_t *st_parser_parse_function_def(st_parser_t *parser);
  */
 bool st_parser_is_function_def(st_parser_t *parser);
 
+/* ============================================================================
+ * AST POOL MANAGEMENT (for chunked compilation)
+ * ============================================================================ */
+
+/**
+ * @brief Initialize AST pool with specific size (for chunked compilation)
+ * @param max_nodes Maximum number of AST nodes (e.g., 32 for ~4.5 KB)
+ * @return true if allocation succeeded
+ */
+bool ast_pool_init_with_size(uint16_t max_nodes);
+
+/**
+ * @brief Free entire AST pool
+ */
+void ast_pool_free(void);
+
 #endif // ST_PARSER_H

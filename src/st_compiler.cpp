@@ -481,6 +481,10 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "HYSTERESIS") == 0) func_id = ST_BUILTIN_HYSTERESIS;
       else if (strcasecmp(node->data.function_call.func_name, "BLINK") == 0) func_id = ST_BUILTIN_BLINK;
       else if (strcasecmp(node->data.function_call.func_name, "FILTER") == 0) func_id = ST_BUILTIN_FILTER;
+      // v7.3.1: Bit manipulation
+      else if (strcasecmp(node->data.function_call.func_name, "BIT_SET") == 0) func_id = ST_BUILTIN_BIT_SET;
+      else if (strcasecmp(node->data.function_call.func_name, "BIT_CLR") == 0) func_id = ST_BUILTIN_BIT_CLR;
+      else if (strcasecmp(node->data.function_call.func_name, "BIT_TST") == 0) func_id = ST_BUILTIN_BIT_TST;
       else {
         // FEAT-003: Check function registry for user-defined functions
         if (compiler->func_registry) {
@@ -1367,18 +1371,19 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
     return NULL;
   }
 
-  // Set up bytecode output buffer
+  // Set up bytecode output buffer (always temp — instructions are dynamically sized)
   if (output) {
-    // Write directly to pre-allocated output buffer (avoids ~8 KB internal array)
-    memset(output, 0, sizeof(*output));
-    compiler->bytecode = output->instructions;
-  } else {
-    // Fallback: allocate temporary instructions buffer
-    compiler->bytecode = (st_bytecode_instr_t *)malloc(1024 * sizeof(st_bytecode_instr_t));
-    if (!compiler->bytecode) {
-      st_compiler_error(compiler, "Memory allocation failed for bytecode buffer");
-      return NULL;
+    // Free old dynamic instructions if recompiling
+    if (output->instructions) {
+      free(output->instructions);
+      output->instructions = NULL;
     }
+    memset(output, 0, sizeof(*output));
+  }
+  compiler->bytecode = (st_bytecode_instr_t *)malloc(1024 * sizeof(st_bytecode_instr_t));
+  if (!compiler->bytecode) {
+    st_compiler_error(compiler, "Memory allocation failed for bytecode buffer");
+    return NULL;
   }
 
   // Phase 1: Build symbol table from variable declarations
@@ -1466,20 +1471,28 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
   if (!bytecode) {
     bytecode = (st_bytecode_program_t *)malloc(sizeof(*bytecode));
     if (!bytecode) {
-      // Free fallback bytecode buffer
       free(compiler->bytecode);
       compiler->bytecode = NULL;
       st_compiler_error(compiler, "Memory allocation failed");
       return NULL;
     }
     memset(bytecode, 0, sizeof(*bytecode));
-    // Copy instructions from temporary buffer to allocated output
-    memcpy(bytecode->instructions, compiler->bytecode,
-           compiler->bytecode_ptr * sizeof(st_bytecode_instr_t));
+  }
+
+  // Allocate exact-size instructions array (saves ~8 KB per program vs fixed 1024)
+  uint16_t count = compiler->bytecode_ptr;
+  bytecode->instructions = (st_bytecode_instr_t *)malloc(count * sizeof(st_bytecode_instr_t));
+  if (!bytecode->instructions) {
     free(compiler->bytecode);
     compiler->bytecode = NULL;
+    if (!output) free(bytecode);
+    st_compiler_error(compiler, "Memory allocation failed for instructions");
+    return NULL;
   }
-  // When output != NULL, instructions were already written directly — no copy needed
+  memcpy(bytecode->instructions, compiler->bytecode, count * sizeof(st_bytecode_instr_t));
+  bytecode->instr_capacity = count;
+  free(compiler->bytecode);
+  compiler->bytecode = NULL;
 
   strncpy(bytecode->name, program->name, sizeof(bytecode->name) - 1);
   bytecode->name[sizeof(bytecode->name) - 1] = '\0';
@@ -1552,6 +1565,76 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
   g_line_map.valid = true;
 
   return bytecode;
+}
+
+/* ============================================================================
+ * CHUNKED COMPILATION (Fase 2)
+ * ============================================================================ */
+
+st_bytecode_instr_t *st_compiler_compile_segment(st_compiler_t *compiler,
+                                                  st_ast_node_t *nodes,
+                                                  bool emit_halt,
+                                                  uint16_t *out_count) {
+  if (!compiler || !out_count) return NULL;
+  *out_count = 0;
+
+  // Allocate temp buffer for this segment
+  compiler->bytecode = (st_bytecode_instr_t *)malloc(1024 * sizeof(st_bytecode_instr_t));
+  if (!compiler->bytecode) {
+    st_compiler_error(compiler, "Segment: malloc failed for bytecode buffer");
+    return NULL;
+  }
+  compiler->bytecode_ptr = 0;
+
+  // Compile all nodes in the list
+  st_ast_node_t *node = nodes;
+  while (node) {
+    if (node->type == ST_AST_FUNCTION_DEF || node->type == ST_AST_FUNCTION_BLOCK_DEF) {
+      if (!st_compiler_compile_function_def(compiler, node)) {
+        free(compiler->bytecode);
+        compiler->bytecode = NULL;
+        return NULL;
+      }
+    } else {
+      st_ast_node_t *saved_next = node->next;
+      node->next = NULL;
+      if (!st_compiler_compile_node(compiler, node)) {
+        node->next = saved_next;
+        free(compiler->bytecode);
+        compiler->bytecode = NULL;
+        return NULL;
+      }
+      node->next = saved_next;
+    }
+    node = node->next;
+  }
+
+  if (emit_halt) {
+    st_compiler_emit(compiler, ST_OP_HALT);
+  }
+
+  // Copy to exact-size array
+  uint16_t count = compiler->bytecode_ptr;
+  if (count == 0) {
+    free(compiler->bytecode);
+    compiler->bytecode = NULL;
+    *out_count = 0;
+    return NULL;
+  }
+
+  st_bytecode_instr_t *result = (st_bytecode_instr_t *)malloc(count * sizeof(st_bytecode_instr_t));
+  if (!result) {
+    free(compiler->bytecode);
+    compiler->bytecode = NULL;
+    return NULL;
+  }
+  memcpy(result, compiler->bytecode, count * sizeof(st_bytecode_instr_t));
+
+  free(compiler->bytecode);
+  compiler->bytecode = NULL;
+
+  *out_count = count;
+  return result;
 }
 
 /* ============================================================================

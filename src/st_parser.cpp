@@ -85,9 +85,9 @@ static bool ast_pool_init(void) {
   if (g_ast_pool) return true;  // Already initialized
 
   // Use largest contiguous free block (not total free heap) to handle fragmentation.
-  // Reserve 6KB for compiler struct + bytecode allocation that follows.
+  // Reserve 24KB for compiler (~4KB) + bytecode buffer (~8KB) + function registry (~8KB) + overhead
   uint32_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-  uint32_t reserve = 6000;
+  uint32_t reserve = 24000;
   uint32_t available = (largest_block > reserve) ? (largest_block - reserve) : 0;
   uint16_t ideal_nodes = available / sizeof(st_ast_node_t);
   if (ideal_nodes > 512) ideal_nodes = 512;
@@ -114,6 +114,19 @@ void ast_pool_free(void) {
   }
   g_ast_pool_capacity = 0;
   g_ast_pool_used = 0;
+}
+
+bool ast_pool_init_with_size(uint16_t max_nodes) {
+  if (g_ast_pool) return true;  // Already initialized
+  if (max_nodes == 0) return false;
+  if (max_nodes > 512) max_nodes = 512;
+
+  g_ast_pool = (st_ast_node_t *)malloc(max_nodes * sizeof(st_ast_node_t));
+  if (!g_ast_pool) return false;
+
+  g_ast_pool_capacity = max_nodes;
+  g_ast_pool_used = 0;
+  return true;
 }
 
 static st_ast_node_t *ast_node_alloc(st_ast_node_type_t type, uint32_t line) {

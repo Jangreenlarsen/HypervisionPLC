@@ -47,7 +47,7 @@ typedef struct {
   uint16_t execution_count;   // Number of times executed (wraps at 65535)
   uint16_t error_count;       // Number of execution errors (wraps at 65535)
   uint32_t last_execution_us; // Last execution time (microseconds)
-  char last_error[128];       // Last error message
+  char last_error[64];        // Last error message (63 chars max)
 
   // BUG-005 FIX: Cache variable binding count (performance optimization)
   uint8_t binding_count;      // Number of variable bindings for this program
@@ -153,6 +153,18 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id);
  * The mapping engine will handle all I/O automatically.
  */
 // FUNCTION REMOVED - use VariableMapping system instead
+
+/**
+ * @brief Compile using chunked multi-pass pipeline (reduced peak heap)
+ *
+ * Uses small AST pool (~4.5 KB) per chunk instead of full pool (23-82 KB).
+ * Falls back to st_logic_compile() if no user functions in source.
+ *
+ * @param state Logic engine state
+ * @param program_id Program ID (0-3)
+ * @return true if successful
+ */
+bool st_logic_compile_chunked(st_logic_engine_state_t *state, uint8_t program_id);
 
 /**
  * @brief Enable/disable a logic program

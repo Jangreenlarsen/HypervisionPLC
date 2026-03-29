@@ -9,6 +9,9 @@
 #include "st_debug.h"  // FEAT-008: Reset debug state on delete/compile
 #include "register_allocator.h"
 #include "ir_pool_manager.h"  // v5.1.0 - IR pool management
+#include "st_bytecode_persist.h"  // Bytecode cache in SPIFFS
+#include "st_source_scanner.h"   // Chunked compilation pre-scanner
+#include "st_stateful.h"         // st_stateful_storage_t for chunked compile
 #include "debug.h"
 #include "debug_flags.h"
 #include <string.h>
@@ -217,10 +220,14 @@ bool st_logic_upload(st_logic_engine_state_t *state, uint8_t program_id,
   memcpy(&state->source_pool[prog->source_offset], source, source_size);
   prog->compiled = 0;  // Mark as needing compilation
 
+  // Invalidate bytecode cache (source changed)
+  st_bytecode_invalidate(program_id);
+
   return true;
 }
 
-bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
+// Internal monolithic compile (used as fallback from chunked path)
+static bool st_logic_compile_monolithic(st_logic_engine_state_t *state, uint8_t program_id) {
   if (program_id >= ST_LOGIC_MAX_PROGRAMS) return false;
 
   // FEAT-008: Reset debug state before recompiling (old snapshot is now invalid)
@@ -230,7 +237,13 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
 
   st_logic_program_config_t *prog = &state->programs[program_id];
 
-  // FEAT-003: Free old function registry if recompiling
+  // Free old dynamic allocations if recompiling
+  if (prog->bytecode.instructions) {
+    free(prog->bytecode.instructions);
+    prog->bytecode.instructions = NULL;
+    prog->bytecode.instr_count = 0;
+    prog->bytecode.instr_capacity = 0;
+  }
   if (prog->bytecode.func_registry) {
     free(prog->bytecode.func_registry);
     prog->bytecode.func_registry = NULL;
@@ -292,7 +305,7 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
   }
 
   st_compiler_init(g_compiler);
-  // Compile directly into prog->bytecode to avoid 10.5 KB intermediate malloc
+  // Compile into prog->bytecode (instructions dynamically allocated to exact size)
   st_bytecode_program_t *bytecode = st_compiler_compile(g_compiler, program, &prog->bytecode);
 
   if (!bytecode) {
@@ -336,13 +349,460 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
   }
 
   st_program_free(program);
-  // bytecode points to prog->bytecode (no free needed)
+  // bytecode points to prog->bytecode (struct not freed, instructions owned by bytecode)
 
   // Free compiler (parser and source already freed before compilation)
   free(g_compiler);
   g_compiler = NULL;
 
+  // Save compiled bytecode to SPIFFS cache for fast boot
+  const char *cache_source = st_logic_get_source_code(state, program_id);
+  if (cache_source && prog->source_size > 0) {
+    st_bytecode_save(program_id, &prog->bytecode, cache_source, prog->source_size);
+  }
+
   return true;
+}
+
+/* ============================================================================
+ * CHUNKED COMPILATION (Fase 2: reduced peak heap)
+ *
+ * Compiles ST programs in chunks using a small AST pool (~4.5 KB per chunk)
+ * instead of the full pool (23-82 KB). Each function is compiled separately,
+ * then segments are assembled with jump relocation.
+ *
+ * Peak heap: ~20 KB vs 36-94 KB for monolithic compilation.
+ * ============================================================================ */
+
+// Small AST pool size for chunked compilation (32 nodes × ~144 bytes = ~4.6 KB)
+#define CHUNK_AST_POOL_NODES 32
+
+/**
+ * @brief Relocate jump addresses in a bytecode segment
+ *
+ * After concatenating segments, jumps within each segment need their
+ * target addresses offset by the segment's base position in the final array.
+ */
+static void relocate_segment(st_bytecode_instr_t *instructions, uint16_t count, uint16_t base_offset) {
+  for (uint16_t i = 0; i < count; i++) {
+    st_bytecode_instr_t *instr = &instructions[i];
+    switch (instr->opcode) {
+      case ST_OP_JMP:
+      case ST_OP_JMP_IF_FALSE:
+      case ST_OP_JMP_IF_TRUE:
+        instr->arg.int_arg += base_offset;
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+/**
+ * @brief Compile ST program using chunked multi-pass pipeline
+ *
+ * Pipeline:
+ *   1. Pre-scan: find chunk boundaries (VAR, FUNCTION, main body)
+ *   2. VAR pass: parse variable declarations, build symbol table
+ *   3. Per-function: parse + compile each function to a segment
+ *   4. Main body: parse + compile main body to a segment
+ *   5. Assembly: concatenate segments with jump relocation
+ *
+ * Falls back to monolithic st_logic_compile() if source has no functions
+ * (chunking overhead not worth it for simple programs).
+ */
+bool st_logic_compile_chunked(st_logic_engine_state_t *state, uint8_t program_id) {
+  if (program_id >= ST_LOGIC_MAX_PROGRAMS) return false;
+
+  st_logic_program_config_t *prog = &state->programs[program_id];
+
+  // Get source code
+  const char *source_raw = st_logic_get_source_code(state, program_id);
+  if (!source_raw || prog->source_size == 0) {
+    snprintf(prog->last_error, sizeof(prog->last_error), "No source code uploaded");
+    return false;
+  }
+
+  // Create null-terminated copy
+  char *source_code = (char *)malloc(prog->source_size + 1);
+  if (!source_code) {
+    snprintf(prog->last_error, sizeof(prog->last_error), "Insufficient heap for source copy");
+    return false;
+  }
+  memcpy(source_code, source_raw, prog->source_size);
+  source_code[prog->source_size] = '\0';
+
+  // Step 1: Pre-scan for chunk boundaries (heap-allocated to avoid stack overflow)
+  st_scan_result_t *scan = (st_scan_result_t *)malloc(sizeof(st_scan_result_t));
+  if (!scan) {
+    snprintf(prog->last_error, sizeof(prog->last_error), "Insufficient heap for scanner");
+    free(source_code);
+    return false;
+  }
+  if (!st_source_scan(source_code, scan)) {
+    snprintf(prog->last_error, sizeof(prog->last_error), "Source scanner failed");
+    free(scan);
+    free(source_code);
+    return false;
+  }
+
+  // Count function chunks — if none, fall back to monolithic compile
+  uint8_t func_count = 0;
+  for (uint8_t i = 0; i < scan->chunk_count; i++) {
+    if (scan->chunks[i].type == ST_CHUNK_FUNCTION ||
+        scan->chunks[i].type == ST_CHUNK_FUNCTION_BLOCK) {
+      func_count++;
+    }
+  }
+
+  if (func_count == 0) {
+    // No functions — monolithic compile is simpler and equally efficient
+    free(scan);
+    free(source_code);
+    return st_logic_compile_monolithic(state, program_id);
+  }
+
+  debug_printf("[CHUNKED] Program %d: %d chunks (%d functions)\n",
+               program_id, scan->chunk_count, func_count);
+
+  // FEAT-008: Reset debug state before recompiling
+  st_debug_state_t *debug = &state->debugger[program_id];
+  st_debug_stop(debug);
+  st_debug_init(debug);
+
+  // Free old dynamic allocations if recompiling
+  if (prog->bytecode.instructions) {
+    free(prog->bytecode.instructions);
+    prog->bytecode.instructions = NULL;
+    prog->bytecode.instr_count = 0;
+    prog->bytecode.instr_capacity = 0;
+  }
+  if (prog->bytecode.func_registry) {
+    free(prog->bytecode.func_registry);
+    prog->bytecode.func_registry = NULL;
+  }
+
+  // Step 2: VAR pass — parse variable declarations with small AST pool
+  g_compiler = (st_compiler_t *)malloc(sizeof(st_compiler_t));
+  if (!g_compiler) {
+    snprintf(prog->last_error, sizeof(prog->last_error), "Insufficient heap for compiler");
+    free(source_code);
+    return false;
+  }
+  st_compiler_init(g_compiler);
+
+  // Parse full source for VAR declarations (uses small AST pool)
+  if (!ast_pool_init_with_size(CHUNK_AST_POOL_NODES)) {
+    snprintf(prog->last_error, sizeof(prog->last_error), "Chunked: AST pool alloc failed (VAR pass)");
+    free(g_compiler); g_compiler = NULL;
+    free(source_code);
+    return false;
+  }
+
+  g_parser = (st_parser_t *)malloc(sizeof(st_parser_t));
+  if (!g_parser) {
+    ast_pool_free();
+    snprintf(prog->last_error, sizeof(prog->last_error), "Insufficient heap for parser");
+    free(g_compiler); g_compiler = NULL;
+    free(source_code);
+    return false;
+  }
+
+  st_parser_init(g_parser, source_code);
+
+  // Parse full program to extract VAR declarations (uses small AST pool)
+  // st_parser_parse_program handles PROGRAM keyword, VAR blocks, and function defs
+  st_program_t *parsed_program = st_parser_parse_program(g_parser);
+  if (!parsed_program) {
+    snprintf(prog->last_error, sizeof(prog->last_error), "Chunked VAR parse: %s", g_parser->error_msg);
+    ast_pool_free();
+    free(g_parser); g_parser = NULL;
+    free(g_compiler); g_compiler = NULL;
+    free(scan);
+    free(source_code);
+    return false;
+  }
+
+  // Build symbol table from parsed variables
+  uint8_t var_count = parsed_program->var_count;
+  for (uint8_t i = 0; i < var_count; i++) {
+    st_variable_decl_t *var = &parsed_program->variables[i];
+    uint8_t idx = st_compiler_add_symbol(g_compiler, var->name, var->type,
+                                          var->is_input, var->is_output, var->is_exported);
+    if (idx == 0xFF) {
+      snprintf(prog->last_error, sizeof(prog->last_error), "Chunked: symbol table full");
+      st_program_free(parsed_program);
+      ast_pool_free();
+      free(g_compiler); g_compiler = NULL;
+      free(scan);
+      free(source_code);
+      return false;
+    }
+  }
+
+  // Free parsed program and AST pool — symbol table is built in compiler
+  st_program_free(parsed_program);
+  ast_pool_free();
+  free(g_parser);
+  g_parser = NULL;
+
+  debug_printf("[CHUNKED] VAR pass done: %d variables\n", var_count);
+
+  // Allocate function registry (builtins use CALL_BUILTIN opcode, not registry)
+  st_function_registry_t *registry = (st_function_registry_t *)malloc(sizeof(st_function_registry_t));
+  if (!registry) {
+    snprintf(prog->last_error, sizeof(prog->last_error), "Chunked: registry alloc failed");
+    free(g_compiler); g_compiler = NULL;
+    free(scan);
+    free(source_code);
+    return false;
+  }
+  memset(registry, 0, sizeof(*registry));
+  g_compiler->func_registry = registry;
+
+  // Step 3 + 4: Compile each function and main body as separate segments
+  // Collect segments in temporary arrays
+  struct {
+    st_bytecode_instr_t *instructions;
+    uint16_t count;
+    uint8_t chunk_index;  // index into scan.chunks
+  } segments[ST_MAX_CHUNKS];
+  uint8_t segment_count = 0;
+
+  for (uint8_t c = 0; c < scan->chunk_count; c++) {
+    st_chunk_t *chunk = &scan->chunks[c];
+
+    // Skip VAR blocks (already processed)
+    if (chunk->type == ST_CHUNK_VAR_BLOCK) continue;
+
+    // Extract chunk source substring
+    uint32_t chunk_len = chunk->end_offset - chunk->start_offset;
+    if (chunk_len == 0) continue;
+
+    char *chunk_source = (char *)malloc(chunk_len + 1);
+    if (!chunk_source) {
+      snprintf(prog->last_error, sizeof(prog->last_error), "Chunked: chunk source alloc failed");
+      goto chunked_cleanup;
+    }
+    memcpy(chunk_source, source_code + chunk->start_offset, chunk_len);
+    chunk_source[chunk_len] = '\0';
+
+    // Init small AST pool for this chunk
+    if (!ast_pool_init_with_size(CHUNK_AST_POOL_NODES)) {
+      snprintf(prog->last_error, sizeof(prog->last_error), "Chunked: AST pool alloc failed (chunk %d)", c);
+      free(chunk_source);
+      goto chunked_cleanup;
+    }
+
+    // Parse chunk
+    g_parser = (st_parser_t *)malloc(sizeof(st_parser_t));
+    if (!g_parser) {
+      ast_pool_free();
+      snprintf(prog->last_error, sizeof(prog->last_error), "Chunked: parser alloc failed");
+      free(chunk_source);
+      goto chunked_cleanup;
+    }
+    st_parser_init(g_parser, chunk_source);
+
+    st_ast_node_t *ast = NULL;
+    bool is_main = (chunk->type == ST_CHUNK_MAIN_BODY);
+
+    if (chunk->type == ST_CHUNK_FUNCTION || chunk->type == ST_CHUNK_FUNCTION_BLOCK) {
+      ast = st_parser_parse_function_def(g_parser);
+    } else if (is_main) {
+      ast = st_parser_parse_statements(g_parser);
+    }
+
+    if (!ast) {
+      snprintf(prog->last_error, sizeof(prog->last_error), "Chunked parse error (chunk %d): %s",
+               c, g_parser->error_msg);
+      ast_pool_free();
+      free(g_parser); g_parser = NULL;
+      free(chunk_source);
+      goto chunked_cleanup;
+    }
+
+    // Reset compiler bytecode pointer for this segment
+    g_compiler->bytecode_ptr = 0;
+
+    // Compile segment
+    uint16_t seg_count = 0;
+    st_bytecode_instr_t *seg_instr = st_compiler_compile_segment(
+        g_compiler, ast, is_main /* emit_halt for main body */, &seg_count);
+
+    ast_pool_free();
+    free(g_parser);
+    g_parser = NULL;
+    free(chunk_source);
+
+    if (!seg_instr && seg_count == 0 && !is_main) {
+      // Empty function — skip
+      continue;
+    }
+
+    if (!seg_instr) {
+      snprintf(prog->last_error, sizeof(prog->last_error), "Chunked compile error (chunk %d): %s",
+               c, g_compiler->error_msg);
+      goto chunked_cleanup;
+    }
+
+    segments[segment_count].instructions = seg_instr;
+    segments[segment_count].count = seg_count;
+    segments[segment_count].chunk_index = c;
+    segment_count++;
+
+    debug_printf("[CHUNKED] Chunk %d (%s): %u instructions\n",
+                 c, chunk->name[0] ? chunk->name : "main", seg_count);
+  }
+
+  // Step 5: Assemble segments
+  {
+    // Calculate total instruction count
+    uint16_t total_instr = 0;
+    for (uint8_t s = 0; s < segment_count; s++) {
+      total_instr += segments[s].count;
+    }
+
+    if (total_instr == 0) {
+      snprintf(prog->last_error, sizeof(prog->last_error), "Chunked: no instructions generated");
+      goto chunked_cleanup;
+    }
+
+    // Allocate final instruction array
+    prog->bytecode.instructions = (st_bytecode_instr_t *)malloc(total_instr * sizeof(st_bytecode_instr_t));
+    if (!prog->bytecode.instructions) {
+      snprintf(prog->last_error, sizeof(prog->last_error), "Chunked: final instr alloc failed (%u)", total_instr);
+      goto chunked_cleanup;
+    }
+
+    // Copy and relocate each segment
+    uint16_t offset = 0;
+    for (uint8_t s = 0; s < segment_count; s++) {
+      memcpy(&prog->bytecode.instructions[offset], segments[s].instructions,
+             segments[s].count * sizeof(st_bytecode_instr_t));
+
+      // Relocate jumps if not at offset 0
+      if (offset > 0) {
+        relocate_segment(&prog->bytecode.instructions[offset], segments[s].count, offset);
+      }
+
+      // Update function registry entries for this segment
+      st_chunk_t *chunk = &scan->chunks[segments[s].chunk_index];
+      if (chunk->type == ST_CHUNK_FUNCTION || chunk->type == ST_CHUNK_FUNCTION_BLOCK) {
+        // Find function in registry by name and update bytecode_addr
+        for (uint8_t f = registry->builtin_count; f < registry->builtin_count + registry->user_count; f++) {
+          if (strcmp(registry->functions[f].name, chunk->name) == 0) {
+            registry->functions[f].bytecode_addr += offset;
+            break;
+          }
+        }
+      }
+
+      offset += segments[s].count;
+
+      // Free segment
+      free(segments[s].instructions);
+      segments[s].instructions = NULL;
+    }
+
+    prog->bytecode.instr_count = total_instr;
+    prog->bytecode.instr_capacity = total_instr;
+
+    // Copy symbol table to bytecode
+    prog->bytecode.var_count = g_compiler->symbol_table.count;
+    prog->bytecode.exported_var_count = 0;
+    for (int i = 0; i < g_compiler->symbol_table.count; i++) {
+      st_symbol_t *sym = &g_compiler->symbol_table.symbols[i];
+      prog->bytecode.variables[i].int_val = 0;
+      strncpy(prog->bytecode.var_names[i], sym->name, sizeof(prog->bytecode.var_names[i]) - 1);
+      prog->bytecode.var_names[i][sizeof(prog->bytecode.var_names[i]) - 1] = '\0';
+      prog->bytecode.var_types[i] = sym->type;
+      prog->bytecode.var_export_flags[i] = sym->is_exported;
+      if (sym->is_exported) prog->bytecode.exported_var_count++;
+    }
+
+    // Set program name
+    if (scan->has_program_keyword && scan->program_name[0]) {
+      strncpy(prog->bytecode.name, scan->program_name, sizeof(prog->bytecode.name) - 1);
+    } else {
+      snprintf(prog->bytecode.name, sizeof(prog->bytecode.name), "Logic%d", program_id + 1);
+    }
+    prog->bytecode.enabled = 1;
+
+    // Transfer function registry
+    prog->bytecode.func_registry = registry;
+    g_compiler->func_registry = NULL;
+
+    // Allocate stateful storage if needed
+    if (g_compiler->edge_instance_count > 0 ||
+        g_compiler->timer_instance_count > 0 ||
+        g_compiler->counter_instance_count > 0) {
+      st_stateful_storage_t *stateful = (st_stateful_storage_t *)malloc(sizeof(st_stateful_storage_t));
+      if (stateful) {
+        st_stateful_init(stateful);
+        stateful->edge_count = g_compiler->edge_instance_count;
+        stateful->timer_count = g_compiler->timer_instance_count;
+        stateful->counter_count = g_compiler->counter_instance_count;
+        prog->bytecode.stateful = (struct st_stateful_storage*)stateful;
+      }
+    } else {
+      prog->bytecode.stateful = NULL;
+    }
+
+    prog->compiled = 1;
+    prog->execution_count = 0;
+    prog->error_count = 0;
+
+    // IR pool allocation
+    if (prog->ir_pool_offset != 65535) {
+      ir_pool_free(state, program_id);
+    }
+    uint8_t ir_size_needed = ir_pool_calculate_size(&prog->bytecode);
+    if (ir_size_needed > 0) {
+      ir_pool_allocate(state, program_id, ir_size_needed);
+    } else {
+      prog->ir_pool_offset = 65535;
+      prog->ir_pool_size = 0;
+    }
+
+    // Save bytecode cache
+    const char *cache_source = st_logic_get_source_code(state, program_id);
+    if (cache_source && prog->source_size > 0) {
+      st_bytecode_save(program_id, &prog->bytecode, cache_source, prog->source_size);
+    }
+
+    free(g_compiler);
+    g_compiler = NULL;
+    free(scan);
+    free(source_code);
+
+    debug_printf("[CHUNKED] Assembly complete: %u total instructions\n", total_instr);
+    return true;
+  }
+
+chunked_cleanup:
+  // Free any remaining segments
+  for (uint8_t s = 0; s < segment_count; s++) {
+    if (segments[s].instructions) {
+      free(segments[s].instructions);
+    }
+  }
+  if (registry && g_compiler && g_compiler->func_registry == registry) {
+    free(registry);
+  }
+  if (g_compiler) {
+    g_compiler->func_registry = NULL;
+    free(g_compiler);
+    g_compiler = NULL;
+  }
+  free(scan);
+  free(source_code);
+  return false;
+}
+
+/* Public API: uses monolithic compile with bytecode caching */
+bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
+  return st_logic_compile_monolithic(state, program_id);
 }
 
 /* ============================================================================
@@ -387,12 +847,19 @@ bool st_logic_delete(st_logic_engine_state_t *state, uint8_t program_id) {
   st_debug_stop(debug);
   st_debug_init(debug);
 
+  // Invalidate bytecode cache
+  st_bytecode_invalidate(program_id);
+
   // Free pool allocations
   st_logic_pool_free(state, program_id);
   ir_pool_free(state, program_id);  // v5.1.0 - Free IR pool
 
-  // FEAT-003: Free function registry before clearing program
+  // Free dynamic bytecode allocations before clearing program
   st_logic_program_config_t *prog = &state->programs[program_id];
+  if (prog->bytecode.instructions) {
+    free(prog->bytecode.instructions);
+    prog->bytecode.instructions = NULL;
+  }
   if (prog->bytecode.func_registry) {
     free(prog->bytecode.func_registry);
     prog->bytecode.func_registry = NULL;
@@ -688,26 +1155,58 @@ bool st_logic_load_from_nvs(void) {
       prog->compiled = 0;  // Mark as needing recompilation
       file.close();
 
-      if (dbg->config_load) {
-        debug_print("  Program ");
-        debug_print_uint(i);
-        debug_print(": loaded ");
-        debug_print_uint(prog->source_size);
-        debug_print(" bytes, enabled=");
-        debug_print_uint(prog->enabled);
-        debug_print(", compiling...");
-      }
+      // Try loading cached bytecode first (avoids 36-94 KB peak heap)
+      const char *pool_source = st_logic_get_source_code(state, i);
+      if (pool_source && st_bytecode_load(i, &prog->bytecode, pool_source, prog->source_size)) {
+        prog->compiled = 1;
+        prog->bytecode.enabled = prog->enabled;
 
-      // Immediately compile the program
-      if (st_logic_compile(state, i)) {
+        // Allocate IR pool for EXPORT variables (same as in st_logic_compile)
+        uint8_t ir_size_needed = ir_pool_calculate_size(&prog->bytecode);
+        if (ir_size_needed > 0) {
+          uint8_t ir_offset = ir_pool_allocate(state, i, ir_size_needed);
+          if (ir_offset == 255) {
+            prog->ir_pool_offset = 65535;
+            prog->ir_pool_size = 0;
+          }
+        } else {
+          prog->ir_pool_offset = 65535;
+          prog->ir_pool_size = 0;
+        }
+
         if (dbg->config_load) {
-          debug_println(" OK");
+          debug_print("  Program ");
+          debug_print_uint(i);
+          debug_print(": loaded ");
+          debug_print_uint(prog->source_size);
+          debug_print(" bytes, bytecode cached (");
+          debug_print_uint(prog->bytecode.instr_count);
+          debug_println(" instr)");
         }
         loaded_count++;
       } else {
+        // Cache miss or invalid — full compile
         if (dbg->config_load) {
-          debug_print(" FAILED: ");
-          debug_println(prog->last_error);
+          debug_print("  Program ");
+          debug_print_uint(i);
+          debug_print(": loaded ");
+          debug_print_uint(prog->source_size);
+          debug_print(" bytes, enabled=");
+          debug_print_uint(prog->enabled);
+          debug_print(", compiling...");
+        }
+
+        // Compile (uses chunked for functions, monolithic for simple programs)
+        if (st_logic_compile(state, i)) {
+          if (dbg->config_load) {
+            debug_println(" OK");
+          }
+          loaded_count++;
+        } else {
+          if (dbg->config_load) {
+            debug_print(" FAILED: ");
+            debug_println(prog->last_error);
+          }
         }
       }
     } else {

@@ -219,6 +219,27 @@ void st_bytecode_print(st_bytecode_program_t *bytecode);
 const char *st_opcode_to_string(st_opcode_t opcode);
 
 /* ============================================================================
+ * CHUNKED COMPILATION (Fase 2: per-function compilation)
+ * ============================================================================ */
+
+/**
+ * @brief Compile AST nodes to a bytecode segment (addresses start from 0)
+ *
+ * Used for chunked compilation: compile one function or main body at a time.
+ * The caller is responsible for jump relocation when assembling segments.
+ *
+ * @param compiler Compiler state (symbol table must be pre-populated)
+ * @param nodes AST node list to compile
+ * @param emit_halt If true, emit HALT at end of segment
+ * @param out_count Output: number of instructions in segment
+ * @return Malloc'd instruction array (caller must free), NULL on error
+ */
+st_bytecode_instr_t *st_compiler_compile_segment(st_compiler_t *compiler,
+                                                  st_ast_node_t *nodes,
+                                                  bool emit_halt,
+                                                  uint16_t *out_count);
+
+/* ============================================================================
  * LINE MAP (for source-level debugging breakpoints)
  * Generated during compilation, used by debugger.
  * ============================================================================ */

@@ -184,14 +184,16 @@ timer_engine.cpp/h       ← State machines (modes 1-4)
 
 #### ST Logic Engine
 ```
-st_logic_config.cpp/h    ← Program config, persistence
+st_logic_config.cpp/h    ← Program config, persistence, chunked compilation
   ↓
 st_logic_engine.cpp/h    ← Execution loop, scheduler (MAIN)
-  ├→ st_compiler.cpp/h         (ST source → bytecode compiler)
-  ├→ st_parser.cpp/h           (ST syntax parser)
+  ├→ st_compiler.cpp/h         (ST source → bytecode compiler + segment compiler)
+  ├→ st_parser.cpp/h           (ST syntax parser, configurable AST pool)
   ├→ st_lexer.cpp/h            (ST tokenizer)
   ├→ st_vm.cpp/h               (Virtual machine executor)
   ├→ st_debug.cpp/h            (Debugger: breakpoints, step, inspect) ⭐ v5.3.0
+  ├→ st_bytecode_persist.cpp/h (Bytecode cache i SPIFFS, CRC32 validering) ⭐ v7.6.0
+  ├→ st_source_scanner.cpp/h   (Chunk boundary finder for multi-pass compile) ⭐ v7.6.0
   └→ cli_commands_logic.cpp    (CLI interface)
 
 gpio_mapping.cpp/h       ← Variable binding system (shared with GPIO)
@@ -205,6 +207,8 @@ gpio_mapping.cpp/h       ← Variable binding system (shared with GPIO)
 - Unified mapping system (ST vars ↔ Modbus registers/coils)
 - **Interactive Debugger (v5.3.0):** Pause, step, breakpoints, variable inspection
 - **User-Defined Functions (v6.1.0 FEAT-003):** FUNCTION/FUNCTION_BLOCK support
+- **Bytecode Persistens (v7.6.0):** Cached bytecode i SPIFFS, ~2 KB boot vs 36-94 KB recompile
+- **Chunked Compilation (v7.6.0):** Per-function segment compiler med jump relocation
 
 **Registers:**
 - IR 200-203: Status (enabled, compiled, error)
