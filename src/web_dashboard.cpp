@@ -252,13 +252,25 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 </div>
 <div class="card">
-<h2>Holding Register Map (HR 0-255)</h2>
+<h2>Holding Registers (HR 0-255)</h2>
 <div class="regview" id="regmapHR"></div>
+</div>
+<div class="card">
+<h2>Input Registers (IR 0-255)</h2>
+<div class="regview" id="regmapIR"></div>
+</div>
+<div class="card">
+<h2>Coils (0-255)</h2>
+<div class="regview" id="regmapCoils"></div>
+</div>
+<div class="card">
+<h2>Discrete Inputs (DI 0-255)</h2>
+<div class="regview" id="regmapDI"></div>
 </div>
 <div class="card">
 <h2>Allokerings-tabel</h2>
 <table class="tbl" id="allocTable">
-<thead><tr><th>Ejer</th><th>Type</th><th>Start</th><th>Slut</th><th>Antal</th></tr></thead>
+<thead><tr><th>Ejer</th><th>Type</th><th>Register</th><th>Start</th><th>Slut</th><th>Antal</th></tr></thead>
 <tbody id="allocBody"></tbody>
 </table>
 </div>
@@ -276,6 +288,7 @@ const HIST_MAX=120; // 120 samples × 3s = 6 min
 let history={heap:[],mbSlave:[],mbMaster:[]};
 let prevMbSlave=null,prevMbMaster=null;
 let alarms=[];
+let _stBindings=null;
 
 function showPage(page,btn){
   document.querySelectorAll('.page-view').forEach(p=>p.classList.remove('active'));
@@ -561,49 +574,21 @@ function updateRegisterViewer(m){
 }
 
 // === Register Map ===
-function updateRegisterMap(m){
-  if(!$('pageRegmap').classList.contains('active'))return;
-  // Build allocation map from known metrics
-  const alloc=new Array(256).fill(null);
-
-  // Counters use known register ranges
-  const cVals=gAll(m,'counter_value');
-  cVals.forEach(c=>{
-    const id=parseInt(c.labels.id)||1;
-    const base=(id-1)*4;// Counters typically start at HR base
-    for(let j=0;j<4;j++)if(base+j<256)alloc[base+j]={type:'counter',label:'Counter #'+id};
-  });
-
-  // ST Logic bindings (estimated from metrics)
-  const stExec=gAll(m,'st_logic_execution_count');
-  stExec.forEach(s=>{
-    const slot=parseInt(s.labels.slot)||1;
-    // IR pool starts at 220 for exports
-    const base=220+(slot-1)*8;
-    for(let j=0;j<8;j++)if(base+j<256)alloc[base+j]={type:'st',label:'ST #'+slot+' '+s.labels.name};
-  });
-
-  // System registers (0-9 typically)
-  for(let i=0;i<10;i++)if(!alloc[i])alloc[i]={type:'manual',label:'System'};
-
-  // Render map grid
-  const mapGrid=$('regmapHR');
+// Helper: render a 256-cell grid from an alloc array
+function renderMapGrid(el,alloc,prefix){
   let html='';
   for(let i=0;i<256;i++){
     const a=alloc[i];
     let cls='rc rm-free';
-    let title='HR['+i+'] Ledig';
-    if(a){
-      cls='rc rm-'+a.type;
-      title='HR['+i+'] '+a.label;
-    }
+    let title=prefix+'['+i+'] Ledig';
+    if(a){cls='rc rm-'+a.type;title=prefix+'['+i+'] '+a.label;}
     html+='<div class="'+cls+'" title="'+title+'">'+i+'</div>';
   }
-  mapGrid.innerHTML=html;
+  el.innerHTML=html;
+}
 
-  // Allocation table
-  const tbody=$('allocBody');
-  let thtml='';
+// Helper: collect ranges from alloc array for table
+function collectRanges(alloc,prefix){
   const ranges=[];
   let cur=null;
   for(let i=0;i<256;i++){
@@ -611,16 +596,147 @@ function updateRegisterMap(m){
     const key=a?a.type+':'+a.label:'free';
     if(!cur||cur.key!==key){
       if(cur)ranges.push(cur);
-      cur={key,type:a?a.type:'free',label:a?a.label:'Ledig',start:i,end:i};
+      cur={key,type:a?a.type:'free',label:a?a.label:'Ledig',start:i,end:i,prefix};
     }else{cur.end=i;}
   }
   if(cur)ranges.push(cur);
-  ranges.filter(r=>r.type!=='free').forEach(r=>{
-    thtml+='<tr><td>'+r.label+'</td><td><span class="rm rm-'+r.type+'">'+r.type+'</span></td><td>'+r.start+'</td><td>'+r.end+'</td><td>'+(r.end-r.start+1)+'</td></tr>';
-  });
-  tbody.innerHTML=thtml||'<tr><td colspan="5" class="empty-msg">Ingen allokeringer fundet</td></tr>';
+  return ranges.filter(r=>r.type!=='free');
 }
 
+function updateRegisterMap(m){
+  if(!$('pageRegmap').classList.contains('active'))return;
+
+  // === HR Allocation ===
+  const hrAlloc=new Array(256).fill(null);
+
+  // Counters: base=100+(id-1)*20, stride 20 per counter
+  const cVals=gAll(m,'counter_value');
+  cVals.forEach(c=>{
+    const id=parseInt(c.labels.id)||1;
+    const base=100+(id-1)*20;
+    const lbl='Counter #'+id;
+    for(let j=0;j<4;j++){if(base+j<256)hrAlloc[base+j]={type:'counter',label:lbl+' Value'};}
+    for(let j=4;j<8;j++){if(base+j<256)hrAlloc[base+j]={type:'counter',label:lbl+' Raw'};}
+    if(base+8<256)hrAlloc[base+8]={type:'counter',label:lbl+' Freq'};
+    if(base+10<256)hrAlloc[base+10]={type:'counter',label:lbl+' Ctrl'};
+    for(let j=11;j<15;j++){if(base+j<256)hrAlloc[base+j]={type:'counter',label:lbl+' Compare'};}
+  });
+
+  // Timers: ctrl_reg = 180+(id-1)*5
+  for(let id=1;id<=4;id++){
+    const base=180+(id-1)*5;
+    for(let j=0;j<5;j++){if(base+j<256)hrAlloc[base+j]={type:'timer',label:'Timer #'+id};}
+  }
+
+  // System registers (0-9)
+  for(let i=0;i<10;i++)if(!hrAlloc[i])hrAlloc[i]={type:'manual',label:'System'};
+
+  // ST Logic bindings → HR (input bindings with input_type=HR)
+  if(_stBindings&&_stBindings.bindings){
+    _stBindings.bindings.forEach(b=>{
+      if(b.register_type==='HR'){
+        const addr=b.register_addr;
+        const lbl='ST P'+b.program+' '+(b.name||('var'+b.var_index))+' ('+b.direction+')';
+        for(let j=0;j<(b.word_count||1);j++){
+          if(addr+j<256)hrAlloc[addr+j]={type:'st',label:lbl};
+        }
+      }
+    });
+  }
+
+  renderMapGrid($('regmapHR'),hrAlloc,'HR');
+
+  // === IR Allocation ===
+  const irAlloc=new Array(256).fill(null);
+
+  // ST Logic EXPORT pool: IR 220-251
+  const stExec=gAll(m,'st_logic_execution_count');
+  stExec.forEach(s=>{
+    const slot=parseInt(s.labels.slot)||1;
+    const base=220+(slot-1)*8;
+    const name=s.labels.name||('Program '+slot);
+    for(let j=0;j<8;j++)if(base+j<256)irAlloc[base+j]={type:'st',label:'ST #'+slot+' '+name};
+  });
+  // Mark IR 220-251 as ST pool even without active programs
+  for(let i=220;i<=251;i++)if(!irAlloc[i])irAlloc[i]={type:'st',label:'ST EXPORT Pool'};
+
+  renderMapGrid($('regmapIR'),irAlloc,'IR');
+
+  // === Coil Allocation ===
+  const coilAlloc=new Array(256).fill(null);
+
+  // Timer output coils (from metrics if available)
+  for(let id=1;id<=4;id++){
+    const val=g(m,'timer_value',{id:String(id)});
+    if(val!=null){
+      const coilBase=(id-1)*2;
+      coilAlloc[coilBase]={type:'timer',label:'Timer #'+id+' Output'};
+    }
+  }
+
+  // ST Logic bindings → Coil (output bindings with output_type=Coil)
+  if(_stBindings&&_stBindings.bindings){
+    _stBindings.bindings.forEach(b=>{
+      if(b.register_type==='Coil'){
+        const addr=b.register_addr;
+        const lbl='ST P'+b.program+' '+(b.name||('var'+b.var_index))+' (output)';
+        for(let j=0;j<(b.word_count||1);j++){
+          if(addr+j<256)coilAlloc[addr+j]={type:'st',label:lbl};
+        }
+      }
+    });
+  }
+
+  renderMapGrid($('regmapCoils'),coilAlloc,'Coil');
+
+  // === DI Allocation ===
+  const diAlloc=new Array(256).fill(null);
+
+  // Counter SW mode uses input_dis (DI index)
+  cVals.forEach(c=>{
+    const id=parseInt(c.labels.id)||1;
+    const diIdx=(id-1);
+    if(diIdx<256)diAlloc[diIdx]={type:'counter',label:'Counter #'+id+' Input'};
+  });
+
+  // ST Logic bindings → DI (input bindings with input_type=DI)
+  if(_stBindings&&_stBindings.bindings){
+    _stBindings.bindings.forEach(b=>{
+      if(b.register_type==='DI'){
+        const addr=b.register_addr;
+        const lbl='ST P'+b.program+' '+(b.name||('var'+b.var_index))+' (input)';
+        for(let j=0;j<(b.word_count||1);j++){
+          if(addr+j<256)diAlloc[addr+j]={type:'st',label:lbl};
+        }
+      }
+    });
+  }
+
+  renderMapGrid($('regmapDI'),diAlloc,'DI');
+
+  // === Combined Allocation Table ===
+  const allRanges=[
+    ...collectRanges(hrAlloc,'HR'),
+    ...collectRanges(irAlloc,'IR'),
+    ...collectRanges(coilAlloc,'Coil'),
+    ...collectRanges(diAlloc,'DI')
+  ];
+  const tbody=$('allocBody');
+  let thtml='';
+  allRanges.forEach(r=>{
+    thtml+='<tr><td>'+r.label+'</td><td><span class="rm rm-'+r.type+'">'+r.type+'</span></td><td>'+r.prefix+'</td><td>'+r.start+'</td><td>'+r.end+'</td><td>'+(r.end-r.start+1)+'</td></tr>';
+  });
+  tbody.innerHTML=thtml||'<tr><td colspan="6" class="empty-msg">Ingen allokeringer fundet</td></tr>';
+}
+
+async function fetchBindings(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    const r=await fetch('/api/bindings',opts);
+    if(r.ok){_stBindings=await r.json();}
+  }catch(e){}
+}
 async function fetchMetrics(){
   try{
     const r=await fetch('/api/metrics',{});
@@ -643,8 +759,10 @@ function init(){
   $('regHR').innerHTML=hrInit;
   $('regCoils').innerHTML=coilInit;
 
+  fetchBindings();
   fetchMetrics();
   refreshTimer=setInterval(fetchMetrics,3000);
+  setInterval(fetchBindings,15000);
 }
 init();
 

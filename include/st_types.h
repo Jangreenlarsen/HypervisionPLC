@@ -226,7 +226,7 @@ typedef struct {
 
 typedef struct {
   char func_name[64];       // Function name (e.g., "SAVE", "LOAD", "ABS")
-  st_ast_node_t *args[4];   // Function arguments (max 4 args)
+  st_ast_node_t *args[8];   // Function arguments (max 8 args, v7.7.2: was 4)
   uint8_t arg_count;        // Number of arguments
 } st_function_call_t;
 

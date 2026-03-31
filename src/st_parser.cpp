@@ -364,10 +364,10 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
           st_ast_node_free(node);
           return NULL;
         }
-        if (node->data.function_call.arg_count < 4) {
+        if (node->data.function_call.arg_count < 8) {
           node->data.function_call.args[node->data.function_call.arg_count++] = arg;
         } else {
-          parser_error(parser, "Too many function arguments (max 4)");
+          parser_error(parser, "Too many function arguments (max 8)");
           st_ast_node_free(arg);
           st_ast_node_free(node);
           return NULL;
@@ -382,10 +382,10 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
             st_ast_node_free(node);
             return NULL;
           }
-          if (node->data.function_call.arg_count < 4) {
+          if (node->data.function_call.arg_count < 8) {
             node->data.function_call.args[node->data.function_call.arg_count++] = arg;
           } else {
-            parser_error(parser, "Too many function arguments (max 4)");
+            parser_error(parser, "Too many function arguments (max 8)");
             st_ast_node_free(arg);
             st_ast_node_free(node);
             return NULL;
@@ -758,14 +758,14 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
       if (!parser_match(parser, ST_TOK_RPAREN)) {
         st_ast_node_t *arg = parser_parse_expression(parser);
         if (!arg) { st_ast_node_free(node); return NULL; }
-        if (node->data.function_call.arg_count < 4) {
+        if (node->data.function_call.arg_count < 8) {
           node->data.function_call.args[node->data.function_call.arg_count++] = arg;
         }
         while (parser_match(parser, ST_TOK_COMMA)) {
           parser_advance(parser);
           arg = parser_parse_expression(parser);
           if (!arg) { st_ast_node_free(node); return NULL; }
-          if (node->data.function_call.arg_count < 4) {
+          if (node->data.function_call.arg_count < 8) {
             node->data.function_call.args[node->data.function_call.arg_count++] = arg;
           }
         }

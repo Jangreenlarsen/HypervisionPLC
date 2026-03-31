@@ -14,6 +14,11 @@
 #include "st_builtin_counters.h"
 #include "st_builtin_latch.h"  // v4.7.3: SR/RS latches
 #include "st_builtin_signal.h"  // v4.8: Signal processing
+#include "counter_engine.h"     // v7.7.2: HW counter access
+#include "counter_config.h"     // v7.7.2: Counter config get/set
+#include "counter_frequency.h"  // v7.7.2: Frequency read
+#include "registers.h"          // v7.7.2: Register read/write for CNT_CTRL/STATUS
+#include "constants.h"          // v7.7.2: COUNTER_COUNT, HOLDING_REGS_SIZE
 #include "debug.h"
 #include <stdlib.h>
 #include <string.h>
@@ -922,15 +927,19 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
   st_builtin_func_t func_id = (st_builtin_func_t)instr->arg.builtin_call.func_id_low;
   uint8_t arg_count = st_builtin_arg_count(func_id);
 
-  st_value_t arg1 = {0}, arg2 = {0}, arg3 = {0}, arg4 = {0}, arg5 = {0};
+  st_value_t arg1 = {0}, arg2 = {0}, arg3 = {0}, arg4 = {0}, arg5 = {0}, arg6 = {0};
   st_datatype_t arg1_type = ST_TYPE_INT;
   st_datatype_t arg2_type = ST_TYPE_INT;
   st_datatype_t arg3_type = ST_TYPE_INT;
   st_datatype_t arg4_type = ST_TYPE_INT;
   st_datatype_t arg5_type = ST_TYPE_INT;
+  st_datatype_t arg6_type = ST_TYPE_INT;
 
-  // Pop arguments with type information (in reverse order: arg5, arg4, arg3, arg2, arg1)
-  // Stack layout: [arg1, arg2, arg3, arg4, arg5] (top)
+  // Pop arguments with type information (in reverse order: arg6..arg1)
+  // Stack layout: [arg1, arg2, arg3, arg4, arg5, arg6] (top)
+  if (arg_count >= 6) {
+    if (!st_vm_pop_typed(vm, &arg6, &arg6_type)) return false;
+  }
   if (arg_count >= 5) {
     if (!st_vm_pop_typed(vm, &arg5, &arg5_type)) return false;
   }
@@ -1444,6 +1453,229 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
 
     // BUG-153 FIX: Pass actual cycle time to filter
     result = st_builtin_filter(in_real, time_constant_int, instance, stateful->cycle_time_ms);
+  }
+  // v7.7.2: Hardware Counter Access functions
+  else if (func_id == ST_BUILTIN_CNT_SETUP) {
+    // CNT_SETUP(id, hw_mode, edge, direction, prescaler, gpio) → BOOL
+    // arg1=id, arg2=hw_mode, arg3=edge, arg4=direction, arg5=prescaler, arg6=gpio
+    int16_t cnt_id = (arg1_type == ST_TYPE_DINT) ? (int16_t)arg1.dint_val : arg1.int_val;
+    if (cnt_id < 1 || cnt_id > COUNTER_COUNT) {
+      result.bool_val = false;
+    } else {
+      CounterConfig cfg;
+      counter_config_get(cnt_id, &cfg);
+
+      // hw_mode: 0=SW, 1=SW_ISR, 2=HW_PCNT
+      int16_t hw_mode = (arg2_type == ST_TYPE_DINT) ? (int16_t)arg2.dint_val : arg2.int_val;
+      if (hw_mode >= 0 && hw_mode <= 2) cfg.hw_mode = (CounterHWMode)hw_mode;
+
+      // edge: 0=RISING, 1=FALLING, 2=BOTH
+      int16_t edge = (arg3_type == ST_TYPE_DINT) ? (int16_t)arg3.dint_val : arg3.int_val;
+      if (edge >= 0 && edge <= 2) cfg.edge_type = (CounterEdgeType)edge;
+
+      // direction: 0=UP, 1=DOWN
+      int16_t dir = (arg4_type == ST_TYPE_DINT) ? (int16_t)arg4.dint_val : arg4.int_val;
+      if (dir >= 0 && dir <= 1) cfg.direction = (CounterDirection)dir;
+
+      // prescaler
+      int16_t prescaler = (arg5_type == ST_TYPE_DINT) ? (int16_t)arg5.dint_val : arg5.int_val;
+      if (prescaler >= 1) cfg.prescaler = (uint16_t)prescaler;
+
+      // gpio
+      int16_t gpio = (arg6_type == ST_TYPE_DINT) ? (int16_t)arg6.dint_val : arg6.int_val;
+      if (gpio >= 0) {
+        if (hw_mode == COUNTER_HW_PCNT) {
+          cfg.hw_gpio = (uint8_t)gpio;
+        } else if (hw_mode == COUNTER_HW_SW_ISR) {
+          cfg.interrupt_pin = (uint8_t)gpio;
+        } else {
+          cfg.input_dis = (uint8_t)gpio;
+        }
+      }
+
+      result.bool_val = counter_engine_configure(cnt_id, &cfg);
+    }
+  }
+  else if (func_id == ST_BUILTIN_CNT_SETUP_ADV) {
+    // CNT_SETUP_ADV(id, scale, bit_width, debounce_ms, start_value) → BOOL
+    int16_t cnt_id = (arg1_type == ST_TYPE_DINT) ? (int16_t)arg1.dint_val : arg1.int_val;
+    if (cnt_id < 1 || cnt_id > COUNTER_COUNT) {
+      result.bool_val = false;
+    } else {
+      CounterConfig cfg;
+      counter_config_get(cnt_id, &cfg);
+
+      // scale factor
+      if (arg2_type == ST_TYPE_REAL) {
+        cfg.scale_factor = arg2.real_val;
+      } else if (arg2_type == ST_TYPE_DINT) {
+        cfg.scale_factor = (float)arg2.dint_val;
+      } else {
+        cfg.scale_factor = (float)arg2.int_val;
+      }
+
+      // bit_width: 8, 16, 32, 64
+      int16_t bw = (arg3_type == ST_TYPE_DINT) ? (int16_t)arg3.dint_val : arg3.int_val;
+      if (bw == 8 || bw == 16 || bw == 32 || bw == 64) cfg.bit_width = (uint8_t)bw;
+
+      // debounce_ms
+      int16_t db_ms = (arg4_type == ST_TYPE_DINT) ? (int16_t)arg4.dint_val : arg4.int_val;
+      if (db_ms > 0) {
+        cfg.debounce_enabled = 1;
+        cfg.debounce_ms = (uint16_t)db_ms;
+      } else {
+        cfg.debounce_enabled = 0;
+        cfg.debounce_ms = 0;
+      }
+
+      // start_value
+      if (arg5_type == ST_TYPE_DINT) {
+        cfg.start_value = (uint64_t)arg5.dint_val;
+      } else {
+        cfg.start_value = (uint64_t)arg5.int_val;
+      }
+
+      result.bool_val = counter_config_set(cnt_id, &cfg);
+    }
+  }
+  else if (func_id == ST_BUILTIN_CNT_SETUP_CMP) {
+    // CNT_SETUP_CMP(id, cmp_mode, cmp_value, cmp_source, reset_on_read) → BOOL
+    int16_t cnt_id = (arg1_type == ST_TYPE_DINT) ? (int16_t)arg1.dint_val : arg1.int_val;
+    if (cnt_id < 1 || cnt_id > COUNTER_COUNT) {
+      result.bool_val = false;
+    } else {
+      CounterConfig cfg;
+      counter_config_get(cnt_id, &cfg);
+
+      cfg.compare_enabled = 1;
+
+      // compare_mode: 0=>=, 1=>, 2=exact
+      int16_t cmp_mode = (arg2_type == ST_TYPE_DINT) ? (int16_t)arg2.dint_val : arg2.int_val;
+      if (cmp_mode >= 0 && cmp_mode <= 2) cfg.compare_mode = (uint8_t)cmp_mode;
+
+      // compare_value
+      if (arg3_type == ST_TYPE_DINT) {
+        cfg.compare_value = (uint64_t)arg3.dint_val;
+      } else {
+        cfg.compare_value = (uint64_t)arg3.int_val;
+      }
+
+      // compare_source: 0=raw, 1=prescaled, 2=scaled
+      int16_t cmp_src = (arg4_type == ST_TYPE_DINT) ? (int16_t)arg4.dint_val : arg4.int_val;
+      if (cmp_src >= 0 && cmp_src <= 2) cfg.compare_source = (uint8_t)cmp_src;
+
+      // reset_on_read
+      int16_t ror = (arg5_type == ST_TYPE_DINT) ? (int16_t)arg5.dint_val : arg5.int_val;
+      cfg.reset_on_read = (ror != 0) ? 1 : 0;
+
+      result.bool_val = counter_config_set(cnt_id, &cfg);
+    }
+  }
+  else if (func_id == ST_BUILTIN_CNT_ENABLE) {
+    // CNT_ENABLE(id, on_off) → BOOL
+    int16_t cnt_id = (arg1_type == ST_TYPE_DINT) ? (int16_t)arg1.dint_val : arg1.int_val;
+    int16_t on_off = (arg2_type == ST_TYPE_DINT) ? (int16_t)arg2.dint_val :
+                     (arg2_type == ST_TYPE_BOOL) ? (arg2.bool_val ? 1 : 0) : arg2.int_val;
+    if (cnt_id < 1 || cnt_id > COUNTER_COUNT) {
+      result.bool_val = false;
+    } else {
+      CounterConfig cfg;
+      counter_config_get(cnt_id, &cfg);
+      cfg.enabled = (on_off != 0) ? 1 : 0;
+      cfg.mode_enable = (on_off != 0) ? COUNTER_MODE_ENABLED : COUNTER_MODE_DISABLED;
+      result.bool_val = counter_engine_configure(cnt_id, &cfg);
+    }
+  }
+  else if (func_id == ST_BUILTIN_CNT_CTRL) {
+    // CNT_CTRL(id, cmd) → BOOL  (0=reset, 1=start, 2=stop)
+    int16_t cnt_id = (arg1_type == ST_TYPE_DINT) ? (int16_t)arg1.dint_val : arg1.int_val;
+    int16_t cmd = (arg2_type == ST_TYPE_DINT) ? (int16_t)arg2.dint_val : arg2.int_val;
+    if (cnt_id < 1 || cnt_id > COUNTER_COUNT) {
+      result.bool_val = false;
+    } else {
+      CounterConfig cfg;
+      if (!counter_config_get(cnt_id, &cfg) || cfg.ctrl_reg >= HOLDING_REGS_SIZE) {
+        result.bool_val = false;
+      } else {
+        uint16_t ctrl_val = registers_get_holding_register(cfg.ctrl_reg);
+        switch (cmd) {
+          case 0:  // Reset
+            counter_engine_reset(cnt_id);
+            result.bool_val = true;
+            break;
+          case 1:  // Start
+            ctrl_val |= (1 << 7);   // Set running bit
+            registers_set_holding_register(cfg.ctrl_reg, ctrl_val);
+            result.bool_val = true;
+            break;
+          case 2:  // Stop
+            ctrl_val &= ~(1 << 7);  // Clear running bit
+            registers_set_holding_register(cfg.ctrl_reg, ctrl_val);
+            result.bool_val = true;
+            break;
+          default:
+            result.bool_val = false;
+            break;
+        }
+      }
+    }
+  }
+  else if (func_id == ST_BUILTIN_CNT_VALUE) {
+    // CNT_VALUE(id) → DINT (scaled value from holding register)
+    int16_t cnt_id = (arg1_type == ST_TYPE_DINT) ? (int16_t)arg1.dint_val : arg1.int_val;
+    if (cnt_id < 1 || cnt_id > COUNTER_COUNT) {
+      result.dint_val = 0;
+    } else {
+      uint64_t raw = counter_engine_get_value(cnt_id);
+      CounterConfig cfg;
+      counter_config_get(cnt_id, &cfg);
+      double scale = (cfg.scale_factor > 0.0f) ? (double)cfg.scale_factor : 1.0;
+      double scaled = (double)raw * scale;
+      if (scaled > (double)INT32_MAX) scaled = (double)INT32_MAX;
+      if (scaled < (double)INT32_MIN) scaled = (double)INT32_MIN;
+      result.dint_val = (int32_t)(scaled + 0.5);
+    }
+  }
+  else if (func_id == ST_BUILTIN_CNT_RAW) {
+    // CNT_RAW(id) → DINT (raw counter value / prescaler)
+    int16_t cnt_id = (arg1_type == ST_TYPE_DINT) ? (int16_t)arg1.dint_val : arg1.int_val;
+    if (cnt_id < 1 || cnt_id > COUNTER_COUNT) {
+      result.dint_val = 0;
+    } else {
+      uint64_t raw = counter_engine_get_value(cnt_id);
+      CounterConfig cfg;
+      counter_config_get(cnt_id, &cfg);
+      if (cfg.prescaler > 1) raw = raw / cfg.prescaler;
+      if (raw > (uint64_t)INT32_MAX) raw = INT32_MAX;
+      result.dint_val = (int32_t)raw;
+    }
+  }
+  else if (func_id == ST_BUILTIN_CNT_FREQ) {
+    // CNT_FREQ(id) → INT (frequency in Hz)
+    int16_t cnt_id = (arg1_type == ST_TYPE_DINT) ? (int16_t)arg1.dint_val : arg1.int_val;
+    if (cnt_id < 1 || cnt_id > COUNTER_COUNT) {
+      result.int_val = 0;
+    } else {
+      result.int_val = (int16_t)counter_frequency_get(cnt_id);
+    }
+  }
+  else if (func_id == ST_BUILTIN_CNT_STATUS) {
+    // CNT_STATUS(id) → INT (bitfield: bit0=running, bit1=overflow, bit2=compare_hit)
+    int16_t cnt_id = (arg1_type == ST_TYPE_DINT) ? (int16_t)arg1.dint_val : arg1.int_val;
+    if (cnt_id < 1 || cnt_id > COUNTER_COUNT) {
+      result.int_val = 0;
+    } else {
+      CounterConfig cfg;
+      counter_config_get(cnt_id, &cfg);
+      int16_t status = 0;
+      if (cfg.ctrl_reg < HOLDING_REGS_SIZE) {
+        uint16_t ctrl_val = registers_get_holding_register(cfg.ctrl_reg);
+        if (ctrl_val & (1 << 7)) status |= 0x01;  // bit0: running
+        if (ctrl_val & (1 << 3)) status |= 0x02;  // bit1: overflow
+        if (ctrl_val & (1 << 4)) status |= 0x04;  // bit2: compare_hit
+      }
+      result.int_val = status;
+    }
   }
   else {
     result = st_builtin_call(func_id, arg1, arg2);

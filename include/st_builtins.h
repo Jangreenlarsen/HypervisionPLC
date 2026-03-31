@@ -106,6 +106,17 @@ typedef enum {
   ST_BUILTIN_MB_BUSY,       // MB_BUSY() → BOOL (requests pending in queue)
   ST_BUILTIN_MB_ERROR,      // MB_ERROR() → INT (last error code)
 
+  // Hardware Counter Access (v7.7.2)
+  ST_BUILTIN_CNT_SETUP,      // CNT_SETUP(id, hw_mode, edge, dir, prescaler, gpio) → BOOL
+  ST_BUILTIN_CNT_SETUP_ADV,  // CNT_SETUP_ADV(id, scale, bit_width, debounce_ms, start_value) → BOOL
+  ST_BUILTIN_CNT_SETUP_CMP,  // CNT_SETUP_CMP(id, cmp_mode, cmp_value, cmp_source, reset_on_read) → BOOL
+  ST_BUILTIN_CNT_ENABLE,     // CNT_ENABLE(id, on_off) → BOOL
+  ST_BUILTIN_CNT_CTRL,       // CNT_CTRL(id, cmd) → BOOL (0=reset, 1=start, 2=stop)
+  ST_BUILTIN_CNT_VALUE,      // CNT_VALUE(id) → DINT (scaled counter value)
+  ST_BUILTIN_CNT_RAW,        // CNT_RAW(id) → DINT (raw counter value)
+  ST_BUILTIN_CNT_FREQ,       // CNT_FREQ(id) → INT (frequency in Hz)
+  ST_BUILTIN_CNT_STATUS,     // CNT_STATUS(id) → INT (bitfield: bit0=running, bit1=overflow, bit2=compare_hit)
+
   ST_BUILTIN_COUNT          // Total number of built-ins
 } st_builtin_func_t;
 

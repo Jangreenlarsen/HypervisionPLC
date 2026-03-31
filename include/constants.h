@@ -499,10 +499,17 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.7.1.1"
+#define PROJECT_VERSION     "7.7.2"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.7.2 (2026-03-31): FEAT: HW Counter Access fra ST Logic
+ *                    - 9 nye ST builtins: CNT_SETUP, CNT_SETUP_ADV, CNT_SETUP_CMP,
+ *                      CNT_ENABLE, CNT_CTRL, CNT_VALUE, CNT_RAW, CNT_FREQ, CNT_STATUS
+ *                    - Konfigurer, styr og aflæs ESP32 HW counters direkte fra ST-programmer
+ *                    - Config fra ST afspejles i CLI (show counter) og NVS persistens
+ *                    - VM udvidet til max 6 argumenter (CNT_SETUP)
+ *                    - Web editor: autocomplete + hjælpepanel for CNT funktioner
  * v7.7.1.1 (2026-03-31): VAR initializer fix + Telnet RBAC + version i web UI
  *                    - FIX: VAR declarations med initial values (fx INT := 120) virker nu
  *                    - FIX: Telnet bruger RBAC når enabled, ellers lokal telnet user/pass

@@ -521,6 +521,20 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
       result = st_builtin_mb_error_func();
       break;
 
+    // Hardware Counter Access (v7.7.2) - multi-arg functions handled in VM
+    case ST_BUILTIN_CNT_SETUP:
+    case ST_BUILTIN_CNT_SETUP_ADV:
+    case ST_BUILTIN_CNT_SETUP_CMP:
+    case ST_BUILTIN_CNT_ENABLE:
+    case ST_BUILTIN_CNT_CTRL:
+    case ST_BUILTIN_CNT_VALUE:
+    case ST_BUILTIN_CNT_RAW:
+    case ST_BUILTIN_CNT_FREQ:
+    case ST_BUILTIN_CNT_STATUS:
+      // All handled directly in VM (st_vm.cpp)
+      result.int_val = 0;
+      break;
+
     default:
       // Unknown function - return zero
       break;
@@ -584,6 +598,15 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_SUCCESS:    return "MB_SUCCESS";
     case ST_BUILTIN_MB_BUSY:       return "MB_BUSY";
     case ST_BUILTIN_MB_ERROR:      return "MB_ERROR";
+    case ST_BUILTIN_CNT_SETUP:     return "CNT_SETUP";
+    case ST_BUILTIN_CNT_SETUP_ADV: return "CNT_SETUP_ADV";
+    case ST_BUILTIN_CNT_SETUP_CMP: return "CNT_SETUP_CMP";
+    case ST_BUILTIN_CNT_ENABLE:    return "CNT_ENABLE";
+    case ST_BUILTIN_CNT_CTRL:      return "CNT_CTRL";
+    case ST_BUILTIN_CNT_VALUE:     return "CNT_VALUE";
+    case ST_BUILTIN_CNT_RAW:       return "CNT_RAW";
+    case ST_BUILTIN_CNT_FREQ:      return "CNT_FREQ";
+    case ST_BUILTIN_CNT_STATUS:    return "CNT_STATUS";
     default:                       return "UNKNOWN";
   }
 }
@@ -682,6 +705,24 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_ERROR:      // MB_ERROR()
       return 0;
 
+    // Hardware Counter Access (v7.7.2)
+    case ST_BUILTIN_CNT_SETUP:     // CNT_SETUP(id, hw_mode, edge, dir, prescaler, gpio)
+      return 6;
+
+    case ST_BUILTIN_CNT_SETUP_ADV: // CNT_SETUP_ADV(id, scale, bit_width, debounce_ms, start_value)
+    case ST_BUILTIN_CNT_SETUP_CMP: // CNT_SETUP_CMP(id, cmp_mode, cmp_value, cmp_source, reset_on_read)
+      return 5;
+
+    case ST_BUILTIN_CNT_ENABLE:    // CNT_ENABLE(id, on_off)
+    case ST_BUILTIN_CNT_CTRL:      // CNT_CTRL(id, cmd)
+      return 2;
+
+    case ST_BUILTIN_CNT_VALUE:     // CNT_VALUE(id)
+    case ST_BUILTIN_CNT_RAW:       // CNT_RAW(id)
+    case ST_BUILTIN_CNT_FREQ:      // CNT_FREQ(id)
+    case ST_BUILTIN_CNT_STATUS:    // CNT_STATUS(id)
+      return 1;
+
     default:
       return 0;
   }
@@ -707,6 +748,11 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_READ_INPUT:     // MB_READ_INPUT → BOOL
     case ST_BUILTIN_MB_WRITE_COIL:     // MB_WRITE_COIL → BOOL (success flag)
     case ST_BUILTIN_MB_WRITE_HOLDING:  // MB_WRITE_HOLDING → BOOL (success flag)
+    case ST_BUILTIN_CNT_SETUP:         // CNT_SETUP → BOOL (success)
+    case ST_BUILTIN_CNT_SETUP_ADV:     // CNT_SETUP_ADV → BOOL (success)
+    case ST_BUILTIN_CNT_SETUP_CMP:     // CNT_SETUP_CMP → BOOL (success)
+    case ST_BUILTIN_CNT_ENABLE:        // CNT_ENABLE → BOOL (success)
+    case ST_BUILTIN_CNT_CTRL:          // CNT_CTRL → BOOL (success)
     case ST_BUILTIN_R_TRIG:            // R_TRIG → BOOL
     case ST_BUILTIN_F_TRIG:            // F_TRIG → BOOL
     case ST_BUILTIN_TON:               // TON → BOOL
@@ -719,6 +765,11 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_SUCCESS:        // MB_SUCCESS → BOOL
     case ST_BUILTIN_MB_BUSY:           // MB_BUSY → BOOL
       return ST_TYPE_BOOL;
+
+    // Returns DINT
+    case ST_BUILTIN_CNT_VALUE:         // CNT_VALUE → DINT (scaled counter value)
+    case ST_BUILTIN_CNT_RAW:           // CNT_RAW → DINT (raw counter value)
+      return ST_TYPE_DINT;
 
     // Returns DWORD
     case ST_BUILTIN_INT_TO_DWORD:
@@ -747,6 +798,8 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_READ_INPUT_REG: // MB_READ_INPUT_REG → INT
     case ST_BUILTIN_BIT_SET:           // BIT_SET → INT
     case ST_BUILTIN_BIT_CLR:           // BIT_CLR → INT
+    case ST_BUILTIN_CNT_FREQ:          // CNT_FREQ → INT (Hz)
+    case ST_BUILTIN_CNT_STATUS:        // CNT_STATUS → INT (bitfield)
     default:
       return ST_TYPE_INT;
   }

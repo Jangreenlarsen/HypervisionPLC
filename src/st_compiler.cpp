@@ -489,6 +489,16 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "MB_SUCCESS") == 0) func_id = ST_BUILTIN_MB_SUCCESS;
       else if (strcasecmp(node->data.function_call.func_name, "MB_BUSY") == 0) func_id = ST_BUILTIN_MB_BUSY;
       else if (strcasecmp(node->data.function_call.func_name, "MB_ERROR") == 0) func_id = ST_BUILTIN_MB_ERROR;
+      // v7.7.2: Hardware Counter Access
+      else if (strcasecmp(node->data.function_call.func_name, "CNT_SETUP") == 0) func_id = ST_BUILTIN_CNT_SETUP;
+      else if (strcasecmp(node->data.function_call.func_name, "CNT_SETUP_ADV") == 0) func_id = ST_BUILTIN_CNT_SETUP_ADV;
+      else if (strcasecmp(node->data.function_call.func_name, "CNT_SETUP_CMP") == 0) func_id = ST_BUILTIN_CNT_SETUP_CMP;
+      else if (strcasecmp(node->data.function_call.func_name, "CNT_ENABLE") == 0) func_id = ST_BUILTIN_CNT_ENABLE;
+      else if (strcasecmp(node->data.function_call.func_name, "CNT_CTRL") == 0) func_id = ST_BUILTIN_CNT_CTRL;
+      else if (strcasecmp(node->data.function_call.func_name, "CNT_VALUE") == 0) func_id = ST_BUILTIN_CNT_VALUE;
+      else if (strcasecmp(node->data.function_call.func_name, "CNT_RAW") == 0) func_id = ST_BUILTIN_CNT_RAW;
+      else if (strcasecmp(node->data.function_call.func_name, "CNT_FREQ") == 0) func_id = ST_BUILTIN_CNT_FREQ;
+      else if (strcasecmp(node->data.function_call.func_name, "CNT_STATUS") == 0) func_id = ST_BUILTIN_CNT_STATUS;
       else {
         // FEAT-003: Check function registry for user-defined functions
         if (compiler->func_registry) {

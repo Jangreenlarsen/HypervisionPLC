@@ -321,6 +321,8 @@
 | BUG-293 | mb_async_init() crash på ES32D26 i SLAVE mode | ✅ FIXED | 🔴 CRITICAL | v7.7.1.1 | `g_modbus_master_config.enabled` var true i NVS selvom master ikke initialiseret (SLAVE mode). Guard checkede forkert flag → crash ved "Sub". FIX: `#if MODBUS_SINGLE_TRANSCEIVER` checker nu `mb_mode == MODBUS_MODE_MASTER` direkte. (main.cpp) |
 | BUG-294 | Web editor manglede BEGIN/END/EXPORT keywords | ✅ FIXED | 🟠 MEDIUM | v7.7.1.1 | Autocomplete kendte ikke BEGIN, END, EXPORT. Modbus Master funktioner ufuldstændige (manglede MB_READ_COIL, MB_READ_INPUT_REG, MB_SUCCESS, MB_BUSY, MB_ERROR). FIX: Opdateret ST_KW og ST_FN lister + tilføjet Modbus Master hjælpe-sektion. (web_editor.cpp) |
 | BUG-295 | Version+build ikke vist i web System/Administration | ✅ FIXED | 🟠 MEDIUM | v7.7.1.1 | `/api/status` manglede `firmware` felt. Web UI overskrev firmware med bare version. OTA status brugte ESP-IDF app version. FIX: Tilføjet `firmware: "v7.7.1.1.XXXX"` i API + konsistent visning i web UI og OTA. (api_handlers.cpp, web_system.cpp, ota_handler.cpp) |
+| BUG-296 | ST parser max 4 function arguments — CTUD/SCALE/CNT fejler | ✅ FIXED | 🔴 CRITICAL | v7.7.2 | AST struct `args[4]` og parser `< 4` check begrænsede alle funktionskald til max 4 args. CTUD(5 args), SCALE(5 args) og nye CNT_SETUP(6 args) kunne aldrig kompilere. FIX: `args[4]→args[8]`, parser limit 4→8 (st_types.h:229, st_parser.cpp:367+385+761+768) |
+| BUG-297 | Web dashboard register map viser forkerte counter-adresser | ✅ FIXED | 🟡 HIGH | v7.7.2 | Register allokering brugte `(id-1)*4` fra HR0 (Counter 1→HR0-3). Korrekt er base=100+(id-1)*20 stride 20. Counter 1 er HR100-114, ikke HR0-3. FIX: Korrekt base+offset for value/raw/freq/ctrl/compare (web_dashboard.cpp:569-580) |
 
 ## Quick Lookup by Category
 
@@ -437,6 +439,16 @@
 - 32-entry cache, 16-deep request queue, request deduplication
 - `show modbus-master` viser async cache statistik + entries
 - Backward-kompatibel: eksisterende ST-programmer virker uændret
+
+**v7.7.2 — FEAT: HW Counter Access fra ST Logic (2026-03-31):**
+- **FEAT-071:** 9 nye ST builtins: CNT_SETUP, CNT_SETUP_ADV, CNT_SETUP_CMP, CNT_ENABLE, CNT_CTRL, CNT_VALUE, CNT_RAW, CNT_FREQ, CNT_STATUS
+- **FEAT-071:** Konfigurer, styr og aflæs ESP32 HW counters direkte fra ST-programmer
+- **FEAT-071:** Config fra ST afspejles i CLI (`show counter`) og NVS persistens
+- **FEAT-071:** VM udvidet til max 6 argumenter (CNT_SETUP)
+- **FEAT-071:** Web editor: autocomplete + hjælpepanel for CNT funktioner
+- **BUG-296:** ✅ ST parser max 4 function arguments — CTUD/SCALE/CNT_SETUP fejlede (args[4]→args[8])
+- **BUG-297:** ✅ Web dashboard register map viste Counter 1 ved HR0-3 i stedet for HR100-114
+- **FEAT-071:** Register map viser nu ST Logic variable bindings (HR/Coil/DI) fra /api/bindings
 
 **v7.7.1.1 — VAR Initializers + Telnet RBAC + Boot Fix (2026-03-31):**
 - **BUG-290:** ✅ VAR initial values (`INT := 120`) virker nu i compiler
