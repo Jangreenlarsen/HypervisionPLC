@@ -294,7 +294,7 @@ typedef struct {
  *   END_FUNCTION
  */
 typedef struct {
-  char func_name[64];                   // Function name
+  char func_name[32];                   // Function name (31 chars max)
   st_datatype_t return_type;            // Return type (ST_TYPE_NONE for void/FUNCTION_BLOCK)
 
   // Parameters (VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT)
@@ -358,7 +358,7 @@ typedef struct st_ast_node {
  * compilation and execution.
  */
 typedef struct {
-  char name[64];                        // Function name
+  char name[32];                        // Function name (31 chars max)
   st_datatype_t return_type;            // Return type (ST_TYPE_NONE for FB/void)
 
   // Parameter info
@@ -542,12 +542,13 @@ struct st_stateful_storage;
 
 /* Bytecode program (compiled) */
 typedef struct {
-  st_bytecode_instr_t instructions[1024]; // Max 1024 instructions (doubled from 512)
+  st_bytecode_instr_t *instructions;      // Dynamically allocated (exact instr_count size)
   uint16_t instr_count;
+  uint16_t instr_capacity;                // Allocated size (== instr_count after compile)
 
   // Variable memory
   st_value_t variables[32];  // Max 32 variables
-  char var_names[32][64];    // Variable names (for CLI binding by name)
+  char var_names[32][32];    // Variable names (for CLI binding by name, 31 chars max)
   st_datatype_t var_types[32]; // Variable types (BOOL, INT, etc.) - for bindings display
   uint8_t var_count;
 
@@ -561,7 +562,7 @@ typedef struct {
   // FEAT-003: Function registry for user-defined functions
   st_function_registry_t* func_registry;  // NULL if no user functions (heap-allocated)
 
-  char name[64];
+  char name[32];                        // Program name (31 chars max)
   uint8_t enabled;
 } st_bytecode_program_t;
 

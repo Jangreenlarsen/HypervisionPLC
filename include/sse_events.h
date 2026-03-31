@@ -89,6 +89,8 @@ typedef struct {
   int fd;
   uint32_t ip_addr;       // Network byte order
   uint32_t connected_ms;  // millis() at connect time
+  char username[24];      // RBAC username
+  uint8_t topics;         // Subscribed topic bitmask
 } SseClientInfoPublic;
 
 /**

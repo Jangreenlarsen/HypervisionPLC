@@ -27,6 +27,8 @@
 #include "st_logic_config.h"
 #include "debug.h"
 #include "gpio_driver.h"
+#include "rbac.h"
+#include "config_struct.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -246,7 +248,14 @@ static const char* normalize_alias(const char* s) {
   // Logic Mode subcommands
   if (str_eq_i(s, "UPLOAD")) return "UPLOAD";
   if (str_eq_i(s, "BIND")) return "BIND";
-  if (str_eq_i(s, "DELETE")) return "DELETE";
+  if (str_eq_i(s, "DELETE") || str_eq_i(s, "DEL")) return "DELETE";
+
+  // RBAC user management
+  if (str_eq_i(s, "USER") || str_eq_i(s, "USR") || str_eq_i(s, "RBAC")) return "USER";
+  if (str_eq_i(s, "USERS")) return "USERS";
+  if (str_eq_i(s, "PASSWORD") || str_eq_i(s, "PASS") || str_eq_i(s, "PW")) return "PASSWORD";
+  if (str_eq_i(s, "ROLES") || str_eq_i(s, "ROLE")) return "ROLES";
+  if (str_eq_i(s, "PRIVILEGE") || str_eq_i(s, "PRIV") || str_eq_i(s, "PRI")) return "PRIVILEGE";
 
   // Debug subcommands (FEAT-008)
   if (str_eq_i(s, "PAUSE")) return "PAUSE";
@@ -296,6 +305,8 @@ static void print_show_help(void) {
   debug_println("    show ethernet          - Ethernet (W5500) status");
   debug_println("    show http              - HTTP API status");
   debug_println("    show sse               - SSE server status");
+  debug_println("    show user              - Aktuel session info");
+  debug_println("    show users             - RBAC brugere og roller");
   debug_println("    show rate-limit        - Rate limiting status");
   debug_println("    show backup            - Backup/restore URL");
   debug_println("");
@@ -337,6 +348,12 @@ static void print_set_help(void) {
   debug_println("    set http ?                - HTTP API kommandoer");
   debug_println("    set sse ?                 - SSE server kommandoer");
   debug_println("    set rate-limit enable|disable - Rate limiting");
+  debug_println("");
+  debug_println("  Security:");
+  debug_println("    set user <name> password <pass> roles <roles> privilege <priv>");
+  debug_println("      roles: api,cli,editor,monitor or 'all'");
+  debug_println("      privilege: read, write, read/write (or rw)");
+  debug_println("    delete user <name>        - Slet bruger");
   debug_println("");
   debug_println("  Hardware:");
   debug_println("    set modul ?               - RS485 UART pins / Ethernet enable");
@@ -419,18 +436,28 @@ static void print_modbus_master_help(void) {
   debug_println("  set modbus-master stop-bits <1|2>         - Sæt stop bits (default: 1)");
   debug_println("  set modbus-master timeout <ms>            - Sæt timeout (default: 500ms)");
   debug_println("  set modbus-master inter-frame-delay <ms>  - Sæt inter-frame delay (default: 10ms)");
-  debug_println("  set modbus-master max-requests <count>    - Sæt max requests per cycle (default: 10)");
+  debug_println("  set modbus-master max-requests <count>    - Max MB_READ/MB_WRITE kald per ST cycle (default: 10)");
+  debug_println("                                             Begræns antal serielle Modbus requests per execution cycle");
+  debug_println("                                             (gælder samlet for alle 4 ST programmer)");
   debug_println("");
   debug_println("Hardware:");
   debug_println("  UART1: TX=GPIO25, RX=GPIO26, DE/RE=GPIO27");
   debug_println("");
   debug_println("ST Logic Functions:");
-  debug_println("  MB_READ_COIL(slave_id, address) → BOOL");
-  debug_println("  MB_READ_INPUT(slave_id, address) → BOOL");
-  debug_println("  MB_READ_HOLDING(slave_id, address) → INT");
-  debug_println("  MB_READ_INPUT_REG(slave_id, address) → INT");
-  debug_println("  MB_WRITE_COIL(slave_id, address, value) → BOOL");
-  debug_println("  MB_WRITE_HOLDING(slave_id, address, value) → BOOL");
+  debug_println("  MB_READ_COIL(slave_id, address) → BOOL     (async, cached)");
+  debug_println("  MB_READ_INPUT(slave_id, address) → BOOL    (async, cached)");
+  debug_println("  MB_READ_HOLDING(slave_id, address) → INT   (async, cached)");
+  debug_println("  MB_READ_INPUT_REG(slave_id, address) → INT (async, cached)");
+  debug_println("  MB_WRITE_COIL(slave_id, address, value) → BOOL   (async, queued)");
+  debug_println("  MB_WRITE_HOLDING(slave_id, address, value) → BOOL (async, queued)");
+  debug_println("  MB_SUCCESS() → BOOL  - TRUE if last cached read was valid");
+  debug_println("  MB_BUSY() → BOOL     - TRUE if async queue has pending requests");
+  debug_println("  MB_ERROR() → INT     - Last error code");
+  debug_println("");
+  debug_println("  Alle Modbus-funktioner er asynkrone (v7.7.0):");
+  debug_println("  - Reads returnerer cached værdi og køer refresh i baggrunden");
+  debug_println("  - Writes køes i baggrunden, returnerer straks");
+  debug_println("  - Ingen blokering — nul overruns på ST Logic cyklus");
   debug_println("");
   debug_println("Global ST Variables:");
   debug_println("  mb_last_error (INT)  - Last error code (0=OK, 1=TIMEOUT, 2=CRC, 3=EXCEPTION, 4=MAX_REQ, 5=DISABLED)");
@@ -928,6 +955,81 @@ bool cli_parser_execute(char* line) {
     } else if (!strcmp(what, "MODBUS-SLAVE") || !strcmp(what, "MB-SLAVE")) {
       // show modbus-slave - Display Modbus Slave configuration
       cli_cmd_show_modbus_slave();
+      return true;
+    } else if (!strcmp(what, "USER")) {
+      // show user - Display current session info
+      debug_println("");
+      debug_println("=== Current Session ===");
+      debug_println("  Interface: CLI (Serial/Telnet)");
+      if (g_persist_config.rbac.enabled) {
+        debug_printf("  RBAC: enabled (%d users configured)\n", rbac_get_user_count());
+        debug_println("  Auth: Use 'show users' to see all users");
+        debug_println("  Note: CLI sessions via serial have full access");
+        debug_println("        Telnet sessions use telnet credentials");
+        debug_println("        Web sessions use RBAC credentials (see user badge in topnav)");
+      } else if (g_persist_config.network.http.auth_enabled) {
+        debug_println("  Auth: legacy single-user (HTTP Basic)");
+        debug_printf("  Username: %s\n", g_persist_config.network.http.username);
+      } else {
+        debug_println("  Auth: disabled (no authentication required)");
+      }
+      debug_println("");
+      return true;
+    } else if (!strcmp(what, "USERS")) {
+      // show users [roles] - Display RBAC user list or available roles
+      if (argc >= 3 && !strcmp(normalize_alias(argv[2]), "ROLES")) {
+        debug_println("");
+        debug_println("=== Available RBAC Roles ===");
+        debug_println("");
+        debug_println("  Role      | Bit  | Beskrivelse");
+        debug_println("  ----------+------+------------------------------------------");
+        debug_println("  api       | 0x01 | REST API endpoints (/api/*) + SSE");
+        debug_println("  cli       | 0x02 | CLI kommandoer (Serial/Telnet/Web CLI)");
+        debug_println("  editor    | 0x04 | ST Logic Editor web side (/editor)");
+        debug_println("  monitor   | 0x08 | Dashboard (/), SSE event streams");
+        debug_println("  all       | 0x0F | Alle roller kombineret");
+        debug_println("");
+        debug_println("  SSE kræver: api ELLER monitor rolle");
+        debug_println("");
+        debug_println("=== Available Privileges ===");
+        debug_println("");
+        debug_println("  Privilege  | Beskrivelse");
+        debug_println("  -----------+------------------------------------------");
+        debug_println("  read       | Kun laese-adgang (show, help, ping, who)");
+        debug_println("  write      | Kun skrive-adgang");
+        debug_println("  read/write | Fuld adgang (alias: rw)");
+        debug_println("");
+        debug_println("Eksempel:");
+        debug_println("  set user api_user password ChangeMe123! roles api,monitor privilege read/write");
+        debug_println("  set user viewer password View123 roles monitor privilege read");
+        debug_println("");
+        return true;
+      }
+
+      debug_println("");
+      debug_println("=== RBAC Users ===");
+      debug_printf("  RBAC enabled: %s\n", g_persist_config.rbac.enabled ? "yes" : "no");
+      debug_printf("  Active users: %d / %d\n", rbac_get_user_count(), RBAC_MAX_USERS);
+      debug_println("");
+      if (rbac_get_user_count() == 0) {
+        debug_println("  (no users configured)");
+      } else {
+        debug_println("  # | Username         | Roles            | Privilege");
+        debug_println("  --+------------------+------------------+----------");
+        for (int i = 0; i < RBAC_MAX_USERS; i++) {
+          const RbacUser *u = rbac_get_user(i);
+          if (!u) continue;
+          char role_str[40];
+          rbac_roles_to_str(u->roles, role_str, sizeof(role_str));
+          const char *priv_str = (u->privilege == PRIV_RW) ? "read/write" :
+                                 (u->privilege == PRIV_WRITE) ? "write" :
+                                 (u->privilege == PRIV_READ) ? "read" : "none";
+          debug_printf("  %d | %-16s | %-16s | %s\n", i, u->username, role_str, priv_str);
+        }
+      }
+      debug_println("");
+      debug_println("  Tip: 'show users roles' for tilgaengelige roller og privilegier");
+      debug_println("");
       return true;
     } else {
       debug_println("SHOW: unknown argument");
@@ -1771,8 +1873,80 @@ bool cli_parser_execute(char* line) {
         debug_println("SET MODBUS-SLAVE: unknown parameter");
         return false;
       }
+    } else if (!strcmp(what, "USER")) {
+      // set user <name> password <pass> roles <roles> privilege <priv>
+      if (argc < 3) {
+        debug_println("Usage: set user <username> password <pass> roles <roles> privilege <priv>");
+        debug_println("  roles: api,cli,editor,monitor or 'all'");
+        debug_println("  privilege: read, write, read/write (or rw)");
+        debug_println("Example: set user api_user password ChangeMe123! roles api privilege read/write");
+        return true;
+      }
+      const char *uname = argv[2];
+      const char *upass = NULL;
+      uint8_t uroles = ROLE_ALL;
+      uint8_t upriv = PRIV_RW;
+
+      // Parse keyword arguments
+      for (int i = 3; i < argc - 1; i++) {
+        const char *kw = normalize_alias(argv[i]);
+        if (!strcmp(kw, "PASSWORD")) {
+          upass = argv[i + 1];
+          i++;
+        } else if (!strcmp(kw, "ROLES")) {
+          uroles = rbac_parse_roles(argv[i + 1]);
+          i++;
+        } else if (!strcmp(kw, "PRIVILEGE")) {
+          upriv = rbac_parse_privilege(argv[i + 1]);
+          i++;
+        }
+      }
+
+      if (!upass) {
+        debug_println("ERROR: password is required");
+        debug_println("Usage: set user <username> password <pass> roles <roles> privilege <priv>");
+        return false;
+      }
+
+      int idx = rbac_set_user(uname, upass, uroles, upriv);
+      if (idx >= 0) {
+        char role_str[40];
+        rbac_roles_to_str(uroles, role_str, sizeof(role_str));
+        const char *priv_str = (upriv == PRIV_RW) ? "read/write" :
+                               (upriv == PRIV_WRITE) ? "write" : "read";
+        debug_printf("User '%s' configured (slot %d, roles=%s, privilege=%s)\n",
+          uname, idx, role_str, priv_str);
+        debug_println("NOTE: Use 'save' to persist changes");
+      } else {
+        debug_println("ERROR: Could not add user (max 8 users)");
+      }
+      return true;
     } else {
       debug_println("SET: unknown argument");
+      return false;
+    }
+
+  } else if (!strcmp(cmd, "DELETE")) {
+    // delete user <username>
+    if (argc < 2) {
+      debug_println("DELETE: missing argument");
+      return false;
+    }
+    const char *dwhat = normalize_alias(argv[1]);
+    if (!strcmp(dwhat, "USER")) {
+      if (argc < 3) {
+        debug_println("Usage: delete user <username>");
+        return false;
+      }
+      if (rbac_delete_user(argv[2])) {
+        debug_printf("User '%s' deleted\n", argv[2]);
+        debug_println("NOTE: Use 'save' to persist changes");
+      } else {
+        debug_printf("User '%s' not found\n", argv[2]);
+      }
+      return true;
+    } else {
+      debug_println("DELETE: unknown argument (supported: user)");
       return false;
     }
 

@@ -1580,7 +1580,7 @@ static bool st_vm_exec_jmp_if_true(st_vm_t *vm, st_bytecode_instr_t *instr) {
  * ============================================================================ */
 
 bool st_vm_step(st_vm_t *vm) {
-  if (!vm->program) {
+  if (!vm->program || !vm->program->instructions) {
     snprintf(vm->error_msg, sizeof(vm->error_msg), "No program loaded");
     vm->error = 1;
     return false;

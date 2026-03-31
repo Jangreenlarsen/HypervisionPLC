@@ -485,6 +485,10 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "BIT_SET") == 0) func_id = ST_BUILTIN_BIT_SET;
       else if (strcasecmp(node->data.function_call.func_name, "BIT_CLR") == 0) func_id = ST_BUILTIN_BIT_CLR;
       else if (strcasecmp(node->data.function_call.func_name, "BIT_TST") == 0) func_id = ST_BUILTIN_BIT_TST;
+      // v7.7.0: Async Modbus status
+      else if (strcasecmp(node->data.function_call.func_name, "MB_SUCCESS") == 0) func_id = ST_BUILTIN_MB_SUCCESS;
+      else if (strcasecmp(node->data.function_call.func_name, "MB_BUSY") == 0) func_id = ST_BUILTIN_MB_BUSY;
+      else if (strcasecmp(node->data.function_call.func_name, "MB_ERROR") == 0) func_id = ST_BUILTIN_MB_ERROR;
       else {
         // FEAT-003: Check function registry for user-defined functions
         if (compiler->func_registry) {

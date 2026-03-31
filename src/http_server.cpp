@@ -19,6 +19,12 @@
 #include "https_wrapper.h"
 #include "api_handlers.h"
 #include "web_editor.h"
+#include "web_dashboard.h"
+#include "web_system.h"
+#include "web_ota.h"
+#include "web_cli.h"
+#include "rbac.h"
+#include "ota_handler.h"
 #include "constants.h"
 #include "debug.h"
 
@@ -121,6 +127,10 @@ extern esp_err_t api_handler_persist_group_post(httpd_req_t *req);
 extern esp_err_t api_handler_persist_group_delete(httpd_req_t *req);
 extern esp_err_t api_handler_persist_save(httpd_req_t *req);
 extern esp_err_t api_handler_persist_restore(httpd_req_t *req);
+// v7.5.0 FEAT-031 OTA firmware update
+extern esp_err_t api_handler_ota_upload(httpd_req_t *req);
+extern esp_err_t api_handler_ota_status(httpd_req_t *req);
+extern esp_err_t api_handler_ota_rollback(httpd_req_t *req);
 
 /* ============================================================================
  * URI DEFINITIONS
@@ -574,11 +584,93 @@ static const httpd_uri_t uri_cors_preflight_root = {
   .user_ctx = NULL
 };
 
+// v7.6.2: RBAC user info
+extern esp_err_t api_handler_user_me(httpd_req_t *req);
+static const httpd_uri_t uri_user_me = {
+  .uri      = "/api/user/me",
+  .method   = HTTP_GET,
+  .handler  = api_handler_user_me,
+  .user_ctx = NULL
+};
+
+// v7.3.1: Web CLI + Bindings + Monitor
+extern esp_err_t api_handler_cli_exec(httpd_req_t *req);
+extern esp_err_t api_handler_bindings_list(httpd_req_t *req);
+extern esp_err_t api_handler_bindings_delete(httpd_req_t *req);
+static const httpd_uri_t uri_cli_exec = {
+  .uri      = "/api/cli",
+  .method   = HTTP_POST,
+  .handler  = api_handler_cli_exec,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_bindings_list = {
+  .uri      = "/api/bindings",
+  .method   = HTTP_GET,
+  .handler  = api_handler_bindings_list,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_bindings_delete = {
+  .uri      = "/api/bindings/*",
+  .method   = HTTP_DELETE,
+  .handler  = api_handler_bindings_delete,
+  .user_ctx = NULL
+};
+
 // v7.2.3: Web-based ST Logic editor
 static const httpd_uri_t uri_editor = {
   .uri      = "/editor",
   .method   = HTTP_GET,
   .handler  = web_editor_handler,
+  .user_ctx = NULL
+};
+
+// v7.3.1: Web dashboard (homepage)
+static const httpd_uri_t uri_dashboard = {
+  .uri      = "/",
+  .method   = HTTP_GET,
+  .handler  = web_dashboard_handler,
+  .user_ctx = NULL
+};
+
+// v7.4.0: Web system administration page
+static const httpd_uri_t uri_system = {
+  .uri      = "/system",
+  .method   = HTTP_GET,
+  .handler  = web_system_handler,
+  .user_ctx = NULL
+};
+
+// v7.5.0: FEAT-031 OTA firmware update
+static const httpd_uri_t uri_ota_upload = {
+  .uri      = "/api/system/ota",
+  .method   = HTTP_POST,
+  .handler  = api_handler_ota_upload,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_ota_status = {
+  .uri      = "/api/system/ota/status",
+  .method   = HTTP_GET,
+  .handler  = api_handler_ota_status,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_ota_rollback = {
+  .uri      = "/api/system/ota/rollback",
+  .method   = HTTP_POST,
+  .handler  = api_handler_ota_rollback,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_ota_page = {
+  .uri      = "/ota",
+  .method   = HTTP_GET,
+  .handler  = web_ota_handler,
+  .user_ctx = NULL
+};
+
+// v7.6.1: Standalone Web CLI page
+static const httpd_uri_t uri_cli_page = {
+  .uri      = "/cli",
+  .method   = HTTP_GET,
+  .handler  = web_cli_handler,
   .user_ctx = NULL
 };
 
@@ -591,6 +683,20 @@ static const httpd_uri_t uri_sse_status = {
   .uri      = "/api/events/status",
   .method   = HTTP_GET,
   .handler  = api_handler_sse_status,
+  .user_ctx = NULL
+};
+extern esp_err_t api_handler_sse_clients(httpd_req_t *req);
+static const httpd_uri_t uri_sse_clients = {
+  .uri      = "/api/events/clients",
+  .method   = HTTP_GET,
+  .handler  = api_handler_sse_clients,
+  .user_ctx = NULL
+};
+extern esp_err_t api_handler_sse_disconnect(httpd_req_t *req);
+static const httpd_uri_t uri_sse_disconnect = {
+  .uri      = "/api/events/disconnect",
+  .method   = HTTP_POST,
+  .handler  = api_handler_sse_disconnect,
   .user_ctx = NULL
 };
 
@@ -728,7 +834,7 @@ int http_server_start(const HttpConfig *config)
     // Plain HTTP mode
     httpd_config_t httpd_config = HTTPD_DEFAULT_CONFIG();
     httpd_config.server_port = config->port;
-    httpd_config.max_uri_handlers = 80;
+    httpd_config.max_uri_handlers = 88;
     httpd_config.stack_size = 8192;
     httpd_config.uri_match_fn = httpd_uri_match_wildcard;
     httpd_config.lru_purge_enable = true;  // BUG-241: Auto-close idle keep-alive connections to reduce heap fragmentation
@@ -824,6 +930,8 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_cors_preflight);
   // v7.0.0: FEAT-023 SSE status (stream runs on dedicated SSE server port)
   httpd_register_uri_handler(http_state.server, &uri_sse_status);
+  httpd_register_uri_handler(http_state.server, &uri_sse_clients);
+  httpd_register_uri_handler(http_state.server, &uri_sse_disconnect);
   // v7.0.0: FEAT-030 API version endpoint
   httpd_register_uri_handler(http_state.server, &uri_api_version);
   // v7.0.4: FEAT-032 Prometheus metrics
@@ -840,7 +948,21 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_v1_post);
   httpd_register_uri_handler(http_state.server, &uri_v1_delete);
   // v7.2.3: Web-based ST Logic editor (served outside /api/ namespace)
+  // v7.3.1: Web CLI + Bindings
+  httpd_register_uri_handler(http_state.server, &uri_user_me);
+  httpd_register_uri_handler(http_state.server, &uri_cli_exec);
+  httpd_register_uri_handler(http_state.server, &uri_bindings_list);
+  httpd_register_uri_handler(http_state.server, &uri_bindings_delete);
+
   httpd_register_uri_handler(http_state.server, &uri_editor);
+  httpd_register_uri_handler(http_state.server, &uri_dashboard);
+  httpd_register_uri_handler(http_state.server, &uri_system);
+  // v7.5.0: FEAT-031 OTA firmware update (register specific paths BEFORE wildcards)
+  httpd_register_uri_handler(http_state.server, &uri_ota_status);
+  httpd_register_uri_handler(http_state.server, &uri_ota_rollback);
+  httpd_register_uri_handler(http_state.server, &uri_ota_upload);
+  httpd_register_uri_handler(http_state.server, &uri_ota_page);
+  httpd_register_uri_handler(http_state.server, &uri_cli_page);
 
   http_state.running = 1;
   ESP_LOGI(TAG, "HTTP server started on port %d", config->port);
@@ -937,51 +1059,21 @@ void http_server_stat_auth_failure(void)
  * ============================================================================ */
 
 // Check Basic Authentication (returns true if OK or auth not required)
+/**
+ * Authenticate HTTP request and return user index.
+ * @return User index (0-7), 99 (virtual admin / no auth), or -1 (failed)
+ */
+int http_server_auth_user(httpd_req_t *req)
+{
+  return rbac_check_http(req);
+}
+
+/**
+ * Legacy wrapper: returns true if authenticated (any user).
+ */
 bool http_server_check_auth(httpd_req_t *req)
 {
-  if (!http_state.config.auth_enabled) {
-    return true;  // Auth not required
-  }
-
-  char auth_header[128];
-  esp_err_t err = httpd_req_get_hdr_value_str(req, "Authorization", auth_header, sizeof(auth_header));
-  if (err != ESP_OK) {
-    return false;  // No auth header
-  }
-
-  // Check for "Basic " prefix
-  if (strncmp(auth_header, "Basic ", 6) != 0) {
-    return false;
-  }
-
-  // Decode Base64 credentials
-  // Format: base64(username:password)
-  char* b64_creds = auth_header + 6;
-
-  // Simple Base64 decode (ESP-IDF has mbedtls_base64_decode)
-  // For simplicity, we'll use a manual check
-  // Expected: base64 of "username:password"
-
-  // Build expected credentials
-  char expected[128];
-  snprintf(expected, sizeof(expected), "%s:%s",
-           http_state.config.username, http_state.config.password);
-
-  // Base64 encode expected
-  unsigned char encoded[128];
-  size_t encoded_len = 0;
-  int ret = mbedtls_base64_encode(encoded, sizeof(encoded), &encoded_len,
-                                   (unsigned char*)expected, strlen(expected));
-  if (ret != 0) {
-    return false;
-  }
-
-  // Compare
-  if (strncmp(b64_creds, (char*)encoded, encoded_len) == 0) {
-    return true;
-  }
-
-  return false;
+  return http_server_auth_user(req) >= 0;
 }
 
 /* ============================================================================

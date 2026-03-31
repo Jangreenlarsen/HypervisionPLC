@@ -1,11 +1,17 @@
-# ESP32 Partition Table - Custom for Modbus RTU Server
-# App at 0x10000 (standard), NVS 64KB after app, no OTA
+# ESP32 Partition Table - OTA-capable for Modbus RTU Server (FEAT-031)
+# Dual OTA app partitions + otadata for rollback support
+# NOTE: First flash after partition change requires serial upload + NVS erase:
+#   pio run -t erase && pio run -t upload
 # Name,     Type, SubType, Offset,   Size,     Flags
 # PHY init data (REQUIRED for WiFi!)
 phy_init,   data, phy,     0x9000,   0x1000,
-# Factory app partition at standard offset 0x10000 (1.875MB)
-app0,       app,  factory, 0x10000,  0x1E0000,
+# OTA data partition (tracks which app partition is active)
+otadata,    data, ota,     0xA000,   0x2000,
+# OTA app partition 0 (1.625MB)
+ota_0,      app,  ota_0,   0x10000,  0x1A0000,
+# OTA app partition 1 (1.625MB)
+ota_1,      app,  ota_1,   0x1B0000, 0x1A0000,
 # NVS partition (64KB for ST Logic programs + config)
-nvs,        data, nvs,     0x1F0000, 0x10000,
-# SPIFFS partition (remaining 2MB)
-spiffs,     data, spiffs,  0x200000, 0x200000,
+nvs,        data, nvs,     0x350000, 0x10000,
+# SPIFFS partition (640KB - reduced from 2MB to accommodate dual OTA)
+spiffs,     data, spiffs,  0x360000, 0xA0000,

@@ -427,6 +427,25 @@ typedef struct {
 } modbus_slave_config_t;
 
 /* ============================================================================
+ * RBAC USER ACCOUNTS (v7.6.2)
+ * ============================================================================ */
+
+typedef struct __attribute__((packed)) {
+  uint8_t active;                       // 0 = slot empty, 1 = active
+  char username[RBAC_USERNAME_MAX];     // 24 bytes
+  char password[RBAC_PASSWORD_MAX];     // 32 bytes
+  uint8_t roles;                        // Bitmask: ROLE_API | ROLE_CLI | ROLE_EDITOR | ROLE_MONITOR
+  uint8_t privilege;                    // PRIV_READ, PRIV_WRITE, or PRIV_RW
+  uint8_t reserved[2];                  // Alignment/future use
+} RbacUser;                             // 60 bytes
+
+typedef struct __attribute__((packed)) {
+  uint8_t enabled;                      // RBAC enabled (1) or legacy mode (0)
+  uint8_t user_count;                   // Number of active users
+  RbacUser users[RBAC_MAX_USERS];       // 8 * 60 = 480 bytes
+} RbacConfig;                           // 482 bytes
+
+/* ============================================================================
  * PERSISTENT CONFIGURATION (EEPROM/NVS)
  * ============================================================================ */
 
@@ -505,6 +524,9 @@ typedef struct __attribute__((packed)) {
   uint8_t uart2_tx_pin;        // UART2 TX pin (0xFF=default)
   uint8_t uart2_rx_pin;        // UART2 RX pin (0xFF=default)
   uint8_t uart2_dir_pin;       // UART2 RS485 DIR pin (0xFF=default)
+
+  // RBAC multi-user access control (v7.6.2, schema 15)
+  RbacConfig rbac;
 
   // CRC checksum (last)
   uint16_t crc16;

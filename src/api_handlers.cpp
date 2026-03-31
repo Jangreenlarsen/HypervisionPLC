@@ -44,6 +44,9 @@
 #include "heartbeat.h"
 #include "registers_persist.h"
 #include "sse_events.h"
+#include "cli_parser.h"
+#include "cli_shell.h"
+#include "rbac.h"
 
 static const char *TAG = "API_HDLR";
 
@@ -54,6 +57,7 @@ extern void http_server_stat_client_error(void);
 extern void http_server_stat_server_error(void);
 extern void http_server_stat_auth_failure(void);
 extern bool http_server_check_auth(httpd_req_t *req);
+extern int http_server_auth_user(httpd_req_t *req);
 
 // FEAT-028: Rate limiting (implemented later in this file)
 bool http_rate_limit_check(httpd_req_t *req);
@@ -178,6 +182,36 @@ esp_err_t api_send_json(httpd_req_t *req, const char *json_str)
     } \
   } while(0)
 
+#define CHECK_AUTH_WRITE(req) \
+  do { \
+    CHECK_API_ENABLED(req); \
+    int _uid = http_server_auth_user(req); \
+    if (_uid < 0) { \
+      return api_send_error(req, 401, "Authentication required"); \
+    } \
+    if (!rbac_has_write(_uid)) { \
+      return api_send_error(req, 403, "Write privilege required"); \
+    } \
+    if (!http_rate_limit_check(req)) { \
+      return api_send_error(req, 429, "Too many requests"); \
+    } \
+  } while(0)
+
+#define CHECK_AUTH_ROLE(req, role) \
+  do { \
+    CHECK_API_ENABLED(req); \
+    int _uid = http_server_auth_user(req); \
+    if (_uid < 0) { \
+      return api_send_error(req, 401, "Authentication required"); \
+    } \
+    if (!rbac_has_role(_uid, role)) { \
+      return api_send_error(req, 403, "Insufficient role"); \
+    } \
+    if (!http_rate_limit_check(req)) { \
+      return api_send_error(req, 429, "Too many requests"); \
+    } \
+  } while(0)
+
 /* ============================================================================
  * GET /api/ - API Discovery (list all endpoints)
  * ============================================================================ */
@@ -277,7 +311,10 @@ esp_err_t api_handler_endpoints(httpd_req_t *req)
     "{\"method\":\"GET\",\"path\":\"/api/events\",\"desc\":\"SSE real-time event stream (FEAT-023)\"},"
     "{\"method\":\"GET\",\"path\":\"/api/events/status\",\"desc\":\"SSE subsystem info\"},"
     "{\"method\":\"GET\",\"path\":\"/api/version\",\"desc\":\"API version info (FEAT-030)\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/v1/*\",\"desc\":\"API v1 versioned endpoint (FEAT-030)\"}"
+    "{\"method\":\"GET\",\"path\":\"/api/v1/*\",\"desc\":\"API v1 versioned endpoint (FEAT-030)\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/system/ota\",\"desc\":\"Upload firmware (OTA, FEAT-031)\"},"
+    "{\"method\":\"GET\",\"path\":\"/api/system/ota/status\",\"desc\":\"OTA progress status (FEAT-031)\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/system/ota/rollback\",\"desc\":\"Rollback firmware (FEAT-031)\"}"
     "]"
     "}",
     PROJECT_VERSION, BUILD_NUMBER);
@@ -596,7 +633,7 @@ esp_err_t api_handler_hr_read(httpd_req_t *req)
 esp_err_t api_handler_hr_write(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int addr = api_extract_id_from_uri(req, "/api/registers/hr/");
   if (addr < 0 || addr >= HOLDING_REGS_SIZE) {
@@ -756,7 +793,7 @@ esp_err_t api_handler_coil_read(httpd_req_t *req)
 esp_err_t api_handler_coil_write(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int addr = api_extract_id_from_uri(req, "/api/registers/coils/");
   if (addr < 0 || addr >= COILS_SIZE * 8) {
@@ -1067,7 +1104,7 @@ esp_err_t api_handler_logic_source_get(httpd_req_t *req)
 esp_err_t api_handler_logic_source_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   // Extract program ID from URI
   int id = api_extract_id_from_uri(req, "/api/logic/");
@@ -1171,7 +1208,7 @@ esp_err_t api_handler_logic_source_post(httpd_req_t *req)
 esp_err_t api_handler_system_reboot(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   JsonDocument doc;
   doc["status"] = 200;
@@ -1192,7 +1229,7 @@ esp_err_t api_handler_system_reboot(httpd_req_t *req)
 esp_err_t api_handler_system_save(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   // Copy ST Logic programs to persistent config before saving (same as CLI save)
   st_logic_save_to_persist_config(&g_persist_config);
@@ -1219,7 +1256,7 @@ esp_err_t api_handler_system_save(httpd_req_t *req)
 esp_err_t api_handler_system_load(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   bool success = config_load_from_nvs(&g_persist_config);
   if (success) {
@@ -1243,7 +1280,7 @@ esp_err_t api_handler_system_load(httpd_req_t *req)
 esp_err_t api_handler_system_defaults(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   config_struct_create_default();
   bool success = config_apply(&g_persist_config);
@@ -1269,7 +1306,7 @@ esp_err_t api_handler_system_defaults(httpd_req_t *req)
 esp_err_t api_handler_counter_reset(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int id = api_extract_id_from_uri(req, "/api/counters/");
   if (id < 1 || id > COUNTER_COUNT) {
@@ -1292,7 +1329,7 @@ esp_err_t api_handler_counter_reset(httpd_req_t *req)
 esp_err_t api_handler_counter_start(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int id = api_extract_id_from_uri(req, "/api/counters/");
   if (id < 1 || id > COUNTER_COUNT) {
@@ -1327,7 +1364,7 @@ esp_err_t api_handler_counter_start(httpd_req_t *req)
 esp_err_t api_handler_counter_stop(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int id = api_extract_id_from_uri(req, "/api/counters/");
   if (id < 1 || id > COUNTER_COUNT) {
@@ -1406,8 +1443,8 @@ esp_err_t api_handler_gpio_single(httpd_req_t *req)
   CHECK_AUTH(req);
 
   int pin = api_extract_id_from_uri(req, "/api/gpio/");
-  if (pin < 0 || pin > 39) {
-    return api_send_error(req, 400, "Invalid GPIO pin (must be 0-39)");
+  if (pin < 0 || (pin > 39 && (pin < 101 || pin > 108) && (pin < 201 || pin > 208))) {
+    return api_send_error(req, 400, "Invalid GPIO pin (must be 0-39 or virtual 101-108/201-208)");
   }
 
   // Find GPIO mapping in var_maps
@@ -1446,7 +1483,7 @@ esp_err_t api_handler_gpio_single(httpd_req_t *req)
 esp_err_t api_handler_gpio_write(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   // GAP-11: Suffix routing for /config
   const char *uri = req->uri;
@@ -1456,8 +1493,8 @@ esp_err_t api_handler_gpio_write(httpd_req_t *req)
   }
 
   int pin = api_extract_id_from_uri(req, "/api/gpio/");
-  if (pin < 0 || pin > 39) {
-    return api_send_error(req, 400, "Invalid GPIO pin (must be 0-39)");
+  if (pin < 0 || (pin > 39 && (pin < 101 || pin > 108) && (pin < 201 || pin > 208))) {
+    return api_send_error(req, 400, "Invalid GPIO pin (must be 0-39 or virtual 101-108/201-208)");
   }
 
   // Read request body
@@ -1520,7 +1557,7 @@ esp_err_t api_handler_gpio_write(httpd_req_t *req)
 esp_err_t api_handler_logic_enable(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int id = api_extract_id_from_uri(req, "/api/logic/");
   if (id < 1 || id > ST_LOGIC_MAX_PROGRAMS) {
@@ -1553,7 +1590,7 @@ esp_err_t api_handler_logic_enable(httpd_req_t *req)
 esp_err_t api_handler_logic_disable(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int id = api_extract_id_from_uri(req, "/api/logic/");
   if (id < 1 || id > ST_LOGIC_MAX_PROGRAMS) {
@@ -1591,7 +1628,7 @@ esp_err_t api_handler_logic_delete(httpd_req_t *req)
   }
 
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int id = api_extract_id_from_uri(req, "/api/logic/");
   if (id < 1 || id > ST_LOGIC_MAX_PROGRAMS) {
@@ -1924,7 +1961,7 @@ esp_err_t api_handler_debug_get(httpd_req_t *req)
 esp_err_t api_handler_debug_set(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   // Read request body
   char content[256];
@@ -2055,7 +2092,7 @@ esp_err_t api_handler_modbus_get(httpd_req_t *req)
 esp_err_t api_handler_modbus_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   const char *uri = req->uri;
   bool is_slave = (strstr(uri, "/slave") != NULL);
@@ -2243,7 +2280,7 @@ esp_err_t api_handler_wifi_get(httpd_req_t *req)
 esp_err_t api_handler_wifi_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   const char *uri = req->uri;
   size_t uri_len = strlen(uri);
@@ -2425,7 +2462,7 @@ esp_err_t api_handler_ethernet_get(httpd_req_t *req)
 esp_err_t api_handler_ethernet_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   char content[512];
   int ret = httpd_req_recv(req, content, sizeof(content) - 1);
@@ -2488,7 +2525,7 @@ esp_err_t api_handler_ethernet_post(httpd_req_t *req)
 esp_err_t api_handler_http_config_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   char content[512];
   int ret = httpd_req_recv(req, content, sizeof(content) - 1);
@@ -2558,7 +2595,7 @@ esp_err_t api_handler_http_config_post(httpd_req_t *req)
 static esp_err_t api_handler_counter_config_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int id = api_extract_id_from_uri(req, "/api/counters/");
   if (id < 1 || id > COUNTER_COUNT) {
@@ -2642,7 +2679,7 @@ static esp_err_t api_handler_counter_config_post(httpd_req_t *req)
 static esp_err_t api_handler_counter_control_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int id = api_extract_id_from_uri(req, "/api/counters/");
   if (id < 1 || id > COUNTER_COUNT) {
@@ -2705,7 +2742,7 @@ static esp_err_t api_handler_counter_control_post(httpd_req_t *req)
 esp_err_t api_handler_counter_delete(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int id = api_extract_id_from_uri(req, "/api/counters/");
   if (id < 1 || id > COUNTER_COUNT) {
@@ -2750,7 +2787,7 @@ esp_err_t api_handler_timer_config_post(httpd_req_t *req)
   }
 
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   char content[512];
   int ret = httpd_req_recv(req, content, sizeof(content) - 1);
@@ -2818,7 +2855,7 @@ esp_err_t api_handler_timer_config_post(httpd_req_t *req)
 esp_err_t api_handler_timer_delete(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int id = api_extract_id_from_uri(req, "/api/timers/");
   if (id < 1 || id > TIMER_COUNT) {
@@ -2853,11 +2890,11 @@ esp_err_t api_handler_timer_delete(httpd_req_t *req)
 esp_err_t api_handler_gpio_config_delete(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int pin = api_extract_id_from_uri(req, "/api/gpio/");
-  if (pin < 0 || pin > 39) {
-    return api_send_error(req, 400, "Invalid GPIO pin (must be 0-39)");
+  if (pin < 0 || (pin > 39 && (pin < 101 || pin > 108) && (pin < 201 || pin > 208))) {
+    return api_send_error(req, 400, "Invalid GPIO pin (must be 0-39 or virtual 101-108/201-208)");
   }
 
   // Find and remove mapping
@@ -2897,11 +2934,11 @@ esp_err_t api_handler_gpio_config_delete(httpd_req_t *req)
 esp_err_t api_handler_gpio_config_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int pin = api_extract_id_from_uri(req, "/api/gpio/");
-  if (pin < 0 || pin > 39) {
-    return api_send_error(req, 400, "Invalid GPIO pin (must be 0-39)");
+  if (pin < 0 || (pin > 39 && (pin < 101 || pin > 108) && (pin < 201 || pin > 208))) {
+    return api_send_error(req, 400, "Invalid GPIO pin (must be 0-39 or virtual 101-108/201-208)");
   }
 
   // Check if URI ends with /config
@@ -3025,7 +3062,7 @@ esp_err_t api_handler_gpio_config_post(httpd_req_t *req)
 esp_err_t api_handler_logic_bind_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   int id = api_extract_id_from_uri(req, "/api/logic/");
   if (id < 1 || id > ST_LOGIC_MAX_PROGRAMS) {
@@ -3232,13 +3269,273 @@ esp_err_t api_handler_logic_bind_post(httpd_req_t *req)
 }
 
 /* ============================================================================
+ * POST /api/cli - Execute CLI command via web (FEAT-030)
+ *
+ * Captures CLI output into a buffer and returns it as JSON.
+ * Uses a temporary Console implementation that writes to a string buffer.
+ * ============================================================================ */
+
+// Buffer console for capturing CLI output
+typedef struct {
+  char *buf;
+  size_t capacity;
+  size_t pos;
+} CliBufferCtx;
+
+static int cli_buf_write_str(void *ctx, const char *str) {
+  CliBufferCtx *c = (CliBufferCtx *)ctx;
+  size_t len = strlen(str);
+  if (c->pos + len >= c->capacity - 1) len = c->capacity - c->pos - 1;
+  if (len > 0) { memcpy(c->buf + c->pos, str, len); c->pos += len; }
+  c->buf[c->pos] = '\0';
+  return (int)len;
+}
+
+static int cli_buf_write_line(void *ctx, const char *str) {
+  int n = cli_buf_write_str(ctx, str);
+  CliBufferCtx *c = (CliBufferCtx *)ctx;
+  if (c->pos + 1 < c->capacity) { c->buf[c->pos++] = '\n'; c->buf[c->pos] = '\0'; }
+  return n + 1;
+}
+
+static int cli_buf_write_char(void *ctx, char ch) {
+  CliBufferCtx *c = (CliBufferCtx *)ctx;
+  if (c->pos + 1 < c->capacity) { c->buf[c->pos++] = ch; c->buf[c->pos] = '\0'; }
+  return 1;
+}
+
+static int cli_buf_flush(void *ctx) { return 0; }
+static int cli_buf_connected(void *ctx) { return 1; }
+static int cli_buf_has_input(void *ctx) { return 0; }
+static int cli_buf_read_char(void *ctx, char *out) { return 0; }
+
+/* ============================================================================
+ * GET /api/user/me - Current authenticated user info (RBAC)
+ * ============================================================================ */
+
+esp_err_t api_handler_user_me(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_API_ENABLED(req);
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+
+  int uid = http_server_auth_user(req);
+
+  char buf[256];
+  if (uid < 0) {
+    // Not authenticated
+    snprintf(buf, sizeof(buf),
+      "{\"authenticated\":false,\"username\":null,\"roles\":null,\"privilege\":null}");
+  } else if (uid == 99) {
+    // Virtual admin (legacy or no-auth)
+    snprintf(buf, sizeof(buf),
+      "{\"authenticated\":true,\"username\":\"admin\",\"roles\":\"all\",\"privilege\":\"read/write\",\"mode\":\"legacy\"}");
+  } else {
+    // RBAC user
+    const RbacUser *u = rbac_get_user(uid);
+    if (u) {
+      char role_str[40];
+      rbac_roles_to_str(u->roles, role_str, sizeof(role_str));
+      const char *priv_str = (u->privilege == PRIV_RW) ? "read/write" :
+                             (u->privilege == PRIV_WRITE) ? "write" : "read";
+      snprintf(buf, sizeof(buf),
+        "{\"authenticated\":true,\"username\":\"%s\",\"roles\":\"%s\",\"privilege\":\"%s\",\"mode\":\"rbac\",\"index\":%d}",
+        u->username, role_str, priv_str, uid);
+    } else {
+      snprintf(buf, sizeof(buf),
+        "{\"authenticated\":true,\"username\":\"unknown\",\"roles\":\"all\",\"privilege\":\"read/write\",\"mode\":\"rbac\"}");
+    }
+  }
+
+  return api_send_json(req, buf);
+}
+
+esp_err_t api_handler_cli_exec(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[512];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    return api_send_error(req, 400, "Failed to read request body");
+  }
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  if (!doc.containsKey("command")) {
+    return api_send_error(req, 400, "Missing 'command' field");
+  }
+
+  const char *cmd_str = doc["command"].as<const char*>();
+  if (!cmd_str || strlen(cmd_str) == 0 || strlen(cmd_str) > 256) {
+    return api_send_error(req, 400, "Invalid command (empty or too long)");
+  }
+
+  // Block dangerous commands from web
+  if (strncmp(cmd_str, "reboot", 6) == 0 || strncmp(cmd_str, "defaults", 8) == 0) {
+    return api_send_error(req, 403, "Command not allowed via web CLI (use dedicated API)");
+  }
+
+  // Allocate output buffer (12KB max — show config can be 6-8KB)
+  const size_t OUT_SIZE = 12288;
+  char *out_buf = (char *)malloc(OUT_SIZE);
+  if (!out_buf) {
+    return api_send_error(req, 500, "Out of memory");
+  }
+  out_buf[0] = '\0';
+
+  CliBufferCtx buf_ctx = { out_buf, OUT_SIZE, 0 };
+
+  Console buf_console;
+  memset(&buf_console, 0, sizeof(Console));
+  buf_console.context = &buf_ctx;
+  buf_console.echo_enabled = 0;
+  buf_console.close_requested = 0;
+  buf_console.write_str = cli_buf_write_str;
+  buf_console.write_line = cli_buf_write_line;
+  buf_console.write_char = cli_buf_write_char;
+  buf_console.flush = cli_buf_flush;
+  buf_console.is_connected = cli_buf_connected;
+  buf_console.has_input = cli_buf_has_input;
+  buf_console.read_char = cli_buf_read_char;
+
+  // Make a mutable copy of the command (cli_parser modifies input)
+  char cmd_copy[260];
+  strncpy(cmd_copy, cmd_str, sizeof(cmd_copy) - 1);
+  cmd_copy[sizeof(cmd_copy) - 1] = '\0';
+
+  // Execute command on buffer console
+  cli_shell_execute_command(&buf_console, cmd_copy);
+
+  // Build JSON response — escape output for JSON safety
+  const size_t RESP_SIZE = OUT_SIZE * 2;
+  char *resp_buf = (char *)malloc(RESP_SIZE);
+  if (!resp_buf) {
+    free(out_buf);
+    return api_send_error(req, 500, "Out of memory");
+  }
+
+  JsonDocument resp;
+  resp["status"] = 200;
+  resp["command"] = cmd_str;
+  resp["output"] = out_buf;
+
+  serializeJson(resp, resp_buf, RESP_SIZE);
+
+  esp_err_t result = api_send_json(req, resp_buf);
+  free(out_buf);
+  free(resp_buf);
+  return result;
+}
+
+/* ============================================================================
+ * GET /api/bindings - List all variable-to-register bindings (FEAT-030)
+ * ============================================================================ */
+
+esp_err_t api_handler_bindings_list(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  st_logic_engine_state_t *st = st_logic_get_state();
+
+  JsonDocument doc;
+  doc["status"] = 200;
+  doc["count"] = g_persist_config.var_map_count;
+
+  JsonArray bindings = doc["bindings"].to<JsonArray>();
+
+  for (int i = 0; i < g_persist_config.var_map_count; i++) {
+    const VariableMapping *m = &g_persist_config.var_maps[i];
+    if (m->source_type != MAPPING_SOURCE_ST_VAR) continue;
+
+    JsonObject b = bindings.add<JsonObject>();
+    b["index"] = i;  // Global var_maps index for DELETE
+    b["program"] = m->st_program_id + 1;
+    b["var_index"] = m->st_var_index;
+
+    // Get variable name from compiled program
+    if (st && m->st_program_id < ST_LOGIC_MAX_PROGRAMS) {
+      st_logic_program_config_t *prog = &st->programs[m->st_program_id];
+      if (prog->compiled && m->st_var_index < prog->bytecode.var_count) {
+        b["name"] = prog->bytecode.var_names[m->st_var_index];
+        // Type
+        const char *type_str = "INT";
+        switch (prog->bytecode.var_types[m->st_var_index]) {
+          case ST_TYPE_BOOL: type_str = "BOOL"; break;
+          case ST_TYPE_DINT: type_str = "DINT"; break;
+          case ST_TYPE_REAL: type_str = "REAL"; break;
+          default: break;
+        }
+        b["type"] = type_str;
+      }
+    }
+
+    b["direction"] = m->is_input ? "input" : "output";
+    b["word_count"] = m->word_count;
+
+    if (m->is_input) {
+      b["register_type"] = (m->input_type == 0) ? "HR" : "DI";
+      b["register_addr"] = m->input_reg;
+    } else {
+      b["register_type"] = (m->output_type == 0) ? "HR" : "Coil";
+      b["register_addr"] = m->coil_reg;
+    }
+  }
+
+  const size_t BUF_SIZE = 2048;
+  char *buf = (char *)malloc(BUF_SIZE);
+  if (!buf) return api_send_error(req, 500, "Out of memory");
+  serializeJson(doc, buf, BUF_SIZE);
+  esp_err_t result = api_send_json(req, buf);
+  free(buf);
+  return result;
+}
+
+/* ============================================================================
+ * DELETE /api/bindings/{index} - Remove a specific binding (FEAT-030)
+ * ============================================================================ */
+
+esp_err_t api_handler_bindings_delete(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  int idx = api_extract_id_from_uri(req, "/api/bindings/");
+  if (idx < 0 || idx >= g_persist_config.var_map_count) {
+    return api_send_error(req, 400, "Invalid binding index");
+  }
+
+  // Shift remaining entries down
+  for (int j = idx; j < g_persist_config.var_map_count - 1; j++) {
+    memcpy(&g_persist_config.var_maps[j], &g_persist_config.var_maps[j + 1], sizeof(VariableMapping));
+  }
+  g_persist_config.var_map_count--;
+
+  // Update binding counts
+  st_logic_engine_state_t *st = st_logic_get_state();
+  if (st) st_logic_update_binding_counts(st);
+
+  char resp[128];
+  snprintf(resp, sizeof(resp), "{\"status\":200,\"message\":\"Binding %d deleted\"}", idx);
+  return api_send_json(req, resp);
+}
+
+/* ============================================================================
  * POST /api/logic/settings - ST Logic engine settings (GAP-26)
  * ============================================================================ */
 
 esp_err_t api_handler_logic_settings_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   char content[256];
   int ret = httpd_req_recv(req, content, sizeof(content) - 1);
@@ -3305,7 +3602,7 @@ esp_err_t api_handler_modules_get(httpd_req_t *req)
 esp_err_t api_handler_modules_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   char content[256];
   int ret = httpd_req_recv(req, content, sizeof(content) - 1);
@@ -3461,6 +3758,14 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   http["username"] = g_persist_config.network.http.username;
   http["password"] = g_persist_config.network.http.password;
   http["priority"] = g_persist_config.network.http.priority;
+
+  // ── SSE ──
+  JsonObject sse = doc["sse"].to<JsonObject>();
+  sse["enabled"] = g_persist_config.network.http.sse_enabled ? true : false;
+  sse["port"] = g_persist_config.network.http.sse_port;
+  sse["max_clients"] = g_persist_config.network.http.sse_max_clients;
+  sse["check_interval_ms"] = g_persist_config.network.http.sse_check_interval_ms;
+  sse["heartbeat_ms"] = g_persist_config.network.http.sse_heartbeat_ms;
 
   // ── MISC ──
   doc["remote_echo"] = g_persist_config.remote_echo ? true : false;
@@ -3640,6 +3945,22 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
     }
   }
 
+  // ── RBAC USERS ──
+  if (g_persist_config.rbac.enabled) {
+    JsonObject rbac = doc["rbac"].to<JsonObject>();
+    rbac["enabled"] = true;
+    JsonArray users = rbac["users"].to<JsonArray>();
+    for (int i = 0; i < RBAC_MAX_USERS; i++) {
+      const RbacUser *u = &g_persist_config.rbac.users[i];
+      if (!u->active) continue;
+      JsonObject uo = users.add<JsonObject>();
+      uo["username"] = u->username;
+      uo["password"] = u->password;
+      uo["roles"] = u->roles;
+      uo["privilege"] = u->privilege;
+    }
+  }
+
   // Measure needed buffer size, then allocate dynamically
   size_t json_len = measureJson(doc);
   size_t buf_size = json_len + 64;  // margin for null-terminator + safety
@@ -3676,7 +3997,7 @@ static uint32_t parse_ip_field(JsonVariant v) {
 esp_err_t api_handler_system_restore(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   // Read request body (up to 32KB)
   int content_len = req->content_len;
@@ -3832,6 +4153,16 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
       g_persist_config.network.http.password[sizeof(g_persist_config.network.http.password) - 1] = '\0';
     }
     if (h.containsKey("priority")) g_persist_config.network.http.priority = h["priority"];
+  }
+
+  // ── RESTORE SSE ──
+  if (doc.containsKey("sse")) {
+    JsonObject s = doc["sse"];
+    if (s.containsKey("enabled"))           g_persist_config.network.http.sse_enabled           = s["enabled"].as<bool>() ? 1 : 0;
+    if (s.containsKey("port"))              g_persist_config.network.http.sse_port               = s["port"];
+    if (s.containsKey("max_clients"))       g_persist_config.network.http.sse_max_clients        = s["max_clients"];
+    if (s.containsKey("check_interval_ms")) g_persist_config.network.http.sse_check_interval_ms = s["check_interval_ms"];
+    if (s.containsKey("heartbeat_ms"))      g_persist_config.network.http.sse_heartbeat_ms      = s["heartbeat_ms"];
   }
 
   // ── RESTORE MISC ──
@@ -4063,6 +4394,32 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
     }
   }
 
+  // ── RESTORE RBAC USERS ──
+  if (doc.containsKey("rbac")) {
+    JsonObject rb = doc["rbac"];
+    memset(&g_persist_config.rbac, 0, sizeof(RbacConfig));
+    if (rb.containsKey("enabled") && rb["enabled"].as<bool>()) {
+      g_persist_config.rbac.enabled = 1;
+      if (rb.containsKey("users")) {
+        JsonArray ua = rb["users"];
+        int idx = 0;
+        for (JsonObject uo : ua) {
+          if (idx >= RBAC_MAX_USERS) break;
+          RbacUser *u = &g_persist_config.rbac.users[idx];
+          u->active = 1;
+          strncpy(u->username, uo["username"] | "", RBAC_USERNAME_MAX - 1);
+          u->username[RBAC_USERNAME_MAX - 1] = '\0';
+          strncpy(u->password, uo["password"] | "", RBAC_PASSWORD_MAX - 1);
+          u->password[RBAC_PASSWORD_MAX - 1] = '\0';
+          u->roles = uo["roles"] | ROLE_ALL;
+          u->privilege = uo["privilege"] | PRIV_RW;
+          g_persist_config.rbac.user_count++;
+          idx++;
+        }
+      }
+    }
+  }
+
   // Save PersistConfig to NVS
   bool save_ok = config_save_to_nvs(&g_persist_config);
   if (!save_ok) {
@@ -4129,7 +4486,7 @@ esp_err_t api_handler_telnet_get(httpd_req_t *req)
 esp_err_t api_handler_telnet_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   char body[512];
   int len = httpd_req_recv(req, body, sizeof(body) - 1);
@@ -4192,7 +4549,7 @@ esp_err_t api_handler_hostname_get(httpd_req_t *req)
 esp_err_t api_handler_hostname_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   char body[256];
   int len = httpd_req_recv(req, body, sizeof(body) - 1);
@@ -4309,7 +4666,7 @@ esp_err_t api_handler_hr_bulk_read(httpd_req_t *req)
 esp_err_t api_handler_hr_bulk_write(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   char *body = (char *)malloc(2048);
   if (!body) {
@@ -4438,7 +4795,7 @@ esp_err_t api_handler_coils_bulk_read(httpd_req_t *req)
 esp_err_t api_handler_coils_bulk_write(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   char *body = (char *)malloc(2048);
   if (!body) {
@@ -4712,7 +5069,13 @@ esp_err_t api_handler_heartbeat(httpd_req_t *req)
     return api_send_json(req, buf);
   }
 
-  // POST
+  // POST — requires write privilege
+  {
+    int _uid = http_server_auth_user(req);
+    if (_uid >= 0 && !rbac_has_write(_uid)) {
+      return api_send_error(req, 403, "Write privilege required");
+    }
+  }
   char body[128];
   int len = httpd_req_recv(req, body, sizeof(body) - 1);
   if (len <= 0) {
@@ -4773,7 +5136,11 @@ esp_err_t api_handler_api_version(httpd_req_t *req)
 esp_err_t api_handler_metrics(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  // No auth required — metrics are read-only, used by dashboard and Prometheus scrapers
+  CHECK_API_ENABLED(req);
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
 
   // Buffer for Prometheus text format (8KB for expanded metrics)
   char *buf = (char *)malloc(8192);
@@ -4800,6 +5167,17 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   PROM_APPEND("# HELP esp32_heap_min_free_bytes Minimum free heap since boot\n");
   PROM_APPEND("# TYPE esp32_heap_min_free_bytes gauge\n");
   PROM_APPEND("esp32_heap_min_free_bytes %lu\n", (unsigned long)ESP.getMinFreeHeap());
+
+  // --- PSRAM metrics (if available) ---
+  uint32_t psram_total = ESP.getPsramSize();
+  if (psram_total > 0) {
+    PROM_APPEND("# HELP esp32_psram_total_bytes Total PSRAM in bytes\n");
+    PROM_APPEND("# TYPE esp32_psram_total_bytes gauge\n");
+    PROM_APPEND("esp32_psram_total_bytes %lu\n", (unsigned long)psram_total);
+    PROM_APPEND("# HELP esp32_psram_free_bytes Free PSRAM in bytes\n");
+    PROM_APPEND("# TYPE esp32_psram_free_bytes gauge\n");
+    PROM_APPEND("esp32_psram_free_bytes %lu\n", (unsigned long)ESP.getFreePsram());
+  }
 
   // --- HTTP API metrics ---
   const HttpServerStats *stats = http_server_get_stats();
@@ -5151,7 +5529,7 @@ esp_err_t api_handler_persist_group_single(httpd_req_t *req)
 esp_err_t api_handler_persist_group_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   // Extract group name from URI
   const char *prefix = "/api/persist/groups/";
@@ -5224,7 +5602,7 @@ esp_err_t api_handler_persist_group_post(httpd_req_t *req)
 esp_err_t api_handler_persist_group_delete(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   const char *prefix = "/api/persist/groups/";
   const char *uri = req->uri;
@@ -5249,7 +5627,7 @@ esp_err_t api_handler_persist_group_delete(httpd_req_t *req)
 esp_err_t api_handler_persist_save(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   char content[128];
   int ret = httpd_req_recv(req, content, sizeof(content) - 1);
@@ -5294,7 +5672,7 @@ esp_err_t api_handler_persist_save(httpd_req_t *req)
 esp_err_t api_handler_persist_restore(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  CHECK_AUTH_WRITE(req);
 
   char content[128];
   int ret = httpd_req_recv(req, content, sizeof(content) - 1);
@@ -5511,6 +5889,8 @@ extern esp_err_t api_handler_coils_bulk_read(httpd_req_t *req);
 extern esp_err_t api_handler_di_bulk_read(httpd_req_t *req);
 extern esp_err_t api_handler_heartbeat(httpd_req_t *req);
 extern esp_err_t api_handler_sse_status(httpd_req_t *req);
+extern esp_err_t api_handler_sse_clients(httpd_req_t *req);
+extern esp_err_t api_handler_sse_disconnect(httpd_req_t *req);
 extern esp_err_t api_handler_api_version(httpd_req_t *req);
 extern esp_err_t api_handler_gpio_config_delete(httpd_req_t *req);
 extern esp_err_t api_handler_metrics(httpd_req_t *req);
@@ -5520,6 +5900,9 @@ extern esp_err_t api_handler_persist_group_post(httpd_req_t *req);
 extern esp_err_t api_handler_persist_group_delete(httpd_req_t *req);
 extern esp_err_t api_handler_persist_save(httpd_req_t *req);
 extern esp_err_t api_handler_persist_restore(httpd_req_t *req);
+extern esp_err_t api_handler_cli_exec(httpd_req_t *req);
+extern esp_err_t api_handler_bindings_list(httpd_req_t *req);
+extern esp_err_t api_handler_bindings_delete(httpd_req_t *req);
 
 // Routing table — order matters (more specific first)
 static const V1Route v1_routes[] = {
@@ -5552,11 +5935,16 @@ static const V1Route v1_routes[] = {
   {"/api/http",             true,  HTTP_POST,   api_handler_http_config_post},
   {"/api/logic/settings",   true,  HTTP_POST,   api_handler_logic_settings_post},
   {"/api/events/status",    true,  HTTP_GET,    api_handler_sse_status},
+  {"/api/events/clients",   true,  HTTP_GET,    api_handler_sse_clients},
+  {"/api/events/disconnect", true, HTTP_POST,   api_handler_sse_disconnect},
   {"/api/version",          true,  HTTP_GET,    api_handler_api_version},
   {"/api/metrics",          true,  HTTP_GET,    api_handler_metrics},
   {"/api/persist/groups",   true,  HTTP_GET,    api_handler_persist_groups_list},
   {"/api/persist/save",     true,  HTTP_POST,   api_handler_persist_save},
   {"/api/persist/restore",  true,  HTTP_POST,   api_handler_persist_restore},
+  {"/api/user/me",          true,  HTTP_GET,    api_handler_user_me},
+  {"/api/cli",              true,  HTTP_POST,   api_handler_cli_exec},
+  {"/api/bindings",         true,  HTTP_GET,    api_handler_bindings_list},
 
   // Bulk register operations (before wildcards)
   {"/api/registers/hr",     true,  HTTP_GET,    api_handler_hr_bulk_read},
@@ -5595,6 +5983,7 @@ static const V1Route v1_routes[] = {
   {"/api/persist/groups/",  false, HTTP_GET,    api_handler_persist_group_single},
   {"/api/persist/groups/",  false, HTTP_POST,   api_handler_persist_group_post},
   {"/api/persist/groups/",  false, HTTP_DELETE,  api_handler_persist_group_delete},
+  {"/api/bindings/",        false, HTTP_DELETE,  api_handler_bindings_delete},
 
   // Sentinel
   {NULL, false, -1, NULL}

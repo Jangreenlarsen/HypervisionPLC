@@ -37,6 +37,8 @@
 #include "register_allocator.h"
 #include "registers_persist.h"
 #include "sse_events.h"        // v7.0.0 - SSE real-time events
+#include "mb_async.h"          // v7.7.0 - Async Modbus Master background task
+#include <esp_ota_ops.h>       // v7.5.0 - FEAT-031 OTA boot validation
 
 // ============================================================================
 // GLOBAL CONSOLE
@@ -117,6 +119,7 @@ void setup() {
   modbus_master_init();     // Modbus RTU master (UART1, separate RS485 port)
 #endif
 
+  mb_async_init();          // Async Modbus Master background task (v7.7.0)
   heartbeat_init();         // LED blink on GPIO2
   sse_init();               // SSE real-time events (v7.0.0)
   Serial.println("OK");
@@ -195,6 +198,11 @@ void setup() {
   }
 
   cli_shell_init(g_serial_console);  // CLI system (last, shows prompt)
+
+  // FEAT-031: OTA boot validation — confirm firmware is working
+  // If this was an OTA update, mark it valid so bootloader won't rollback
+  esp_ota_mark_app_valid_cancel_rollback();
+  ESP_LOGI("MAIN", "Firmware validated (OTA rollback cancelled)");
 }
 
 // ============================================================================

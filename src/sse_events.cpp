@@ -35,6 +35,7 @@
 #include "config_struct.h"
 #include "build_version.h"
 #include "debug.h"
+#include "rbac.h"
 
 // External functions from http_server.cpp
 extern void http_server_stat_request(void);
@@ -58,17 +59,22 @@ typedef struct {
   int fd;
   uint32_t connected_ms;
   uint32_t ip_addr;       // IPv4 in network byte order
+  char username[24];      // RBAC username (or "(legacy)" / "(no-auth)")
+  uint8_t topics;         // Subscribed topic bitmask
 } SseClientInfo;
 
 static SseClientInfo sse_clients[SSE_MAX_CLIENTS];
 
-static int sse_registry_add(int fd, uint32_t ip) {
+static int sse_registry_add(int fd, uint32_t ip, const char *username, uint8_t topics) {
   for (int i = 0; i < SSE_MAX_CLIENTS; i++) {
     if (!sse_clients[i].active) {
       sse_clients[i].fd = fd;
       sse_clients[i].ip_addr = ip;
       sse_clients[i].connected_ms = millis();
       sse_clients[i].disconnect_requested = false;
+      strncpy(sse_clients[i].username, username ? username : "(unknown)", sizeof(sse_clients[i].username) - 1);
+      sse_clients[i].username[sizeof(sse_clients[i].username) - 1] = '\0';
+      sse_clients[i].topics = topics;
       sse_clients[i].active = true;
       return i;
     }
@@ -110,6 +116,7 @@ typedef struct {
   uint8_t  ir_count;
   uint8_t  coil_count;
   uint8_t  di_count;
+  bool     watch_all;   // true = scan ALL addresses (subscribe=all without explicit addrs)
 } SseWatchList;
 
 // Tracked state for change detection (per SSE client session)
@@ -125,6 +132,14 @@ typedef struct {
   SseWatchList watch;
   uint32_t last_heartbeat_ms;
 } SseClientState;
+
+// Full-range state for watch_all mode (heap-allocated, ~1.5 KB per client)
+typedef struct {
+  uint16_t hr[HOLDING_REGS_SIZE];     // 256 holding registers
+  uint16_t ir[INPUT_REGS_SIZE];       // 256 input registers
+  uint8_t  coils[256];                // 256 coils
+  uint8_t  di[256];                   // 256 discrete inputs
+} SseWatchAllState;
 
 // Per-client task parameters
 typedef struct {
@@ -213,21 +228,22 @@ static uint8_t sse_parse_query(const char *query, SseWatchList *watch)
   memset(watch, 0, sizeof(SseWatchList));
 
   if (!query || !*query) {
-    watch->hr_count = 16;
-    for (int i = 0; i < 16; i++) watch->hr_addrs[i] = i;
+    // No query at all → watch_all mode (scan everything)
+    watch->watch_all = true;
     return SSE_TOPIC_ALL;
   }
 
   char subscribe[64] = {0};
   uint8_t topics = 0;
+  bool is_subscribe_all = false;
   if (sse_get_query_param(query, "subscribe", subscribe, sizeof(subscribe))) {
     if (strstr(subscribe, "counters")) topics |= SSE_TOPIC_COUNTERS;
     if (strstr(subscribe, "timers"))   topics |= SSE_TOPIC_TIMERS;
     if (strstr(subscribe, "registers")) topics |= SSE_TOPIC_REGISTERS;
     if (strstr(subscribe, "system"))   topics |= SSE_TOPIC_SYSTEM;
-    if (strstr(subscribe, "all"))      topics = SSE_TOPIC_ALL;
+    if (strstr(subscribe, "all"))      { topics = SSE_TOPIC_ALL; is_subscribe_all = true; }
   }
-  if (!topics) topics = SSE_TOPIC_ALL;
+  if (!topics) { topics = SSE_TOPIC_ALL; is_subscribe_all = true; }
 
   if (topics & SSE_TOPIC_REGISTERS) {
     char param[128] = {0};
@@ -242,8 +258,14 @@ static uint8_t sse_parse_query(const char *query, SseWatchList *watch)
 
     if (watch->hr_count == 0 && watch->ir_count == 0 &&
         watch->coil_count == 0 && watch->di_count == 0) {
-      watch->hr_count = 16;
-      for (int i = 0; i < 16; i++) watch->hr_addrs[i] = i;
+      if (is_subscribe_all) {
+        // subscribe=all without explicit addresses → scan ALL registers
+        watch->watch_all = true;
+      } else {
+        // subscribe=registers without addresses → default HR 0-15
+        watch->hr_count = 16;
+        for (int i = 0; i < 16; i++) watch->hr_addrs[i] = i;
+      }
     }
   }
 
@@ -257,10 +279,19 @@ static uint8_t sse_parse_query(const char *query, SseWatchList *watch)
 static bool sse_sock_send(int fd, const char *data, int len)
 {
   int sent = 0;
+  int retries = 0;
   while (sent < len) {
     int n = send(fd, data + sent, len - sent, 0);
-    if (n <= 0) return false;
-    sent += n;
+    if (n > 0) {
+      sent += n;
+      retries = 0;
+    } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) && retries < 5) {
+      // TCP send buffer full — brief retry (common under load)
+      retries++;
+      vTaskDelay(pdMS_TO_TICKS(10));
+    } else {
+      return false;  // Real error or too many retries
+    }
   }
   return true;
 }
@@ -317,35 +348,9 @@ static void sse_snapshot_registers(SseClientState *state)
  * AUTH: Check Basic Auth credentials from raw HTTP header
  * ============================================================================ */
 
-static bool sse_check_auth(const char *auth_header)
+static int sse_check_auth(const char *auth_header)
 {
-  if (!g_persist_config.network.http.auth_enabled) return true;
-  if (!auth_header) return false;
-
-  // Skip "Basic "
-  const char *b64 = strstr(auth_header, "Basic ");
-  if (!b64) return false;
-  b64 += 6;
-
-  // Decode base64
-  unsigned char decoded[128];
-  size_t decoded_len = 0;
-  if (mbedtls_base64_decode(decoded, sizeof(decoded) - 1, &decoded_len,
-      (const unsigned char *)b64, strlen(b64)) != 0) {
-    return false;
-  }
-  decoded[decoded_len] = '\0';
-
-  // Split user:pass
-  char *colon = (char *)strchr((const char *)decoded, ':');
-  if (!colon) return false;
-  *colon = '\0';
-
-  const char *user = (const char *)decoded;
-  const char *pass = colon + 1;
-
-  return (strcmp(user, g_persist_config.network.http.username) == 0 &&
-          strcmp(pass, g_persist_config.network.http.password) == 0);
+  return rbac_check_sse(auth_header);
 }
 
 /* ============================================================================
@@ -363,18 +368,35 @@ static void sse_client_task(void *arg)
   free(params);
 
   sse_active_clients++;
-  ESP_LOGI(TAG, "SSE client task started (fd=%d, topics=0x%02x, hr=%d, ir=%d, coils=%d, di=%d, active=%d)",
-    fd, topics, watch.hr_count, watch.ir_count, watch.coil_count, watch.di_count, (int)sse_active_clients);
+  if (watch.watch_all) {
+    ESP_LOGI(TAG, "SSE client task started (fd=%d, topics=0x%02x, watch_all=true, active=%d)",
+      fd, topics, (int)sse_active_clients);
+  } else {
+    ESP_LOGI(TAG, "SSE client task started (fd=%d, topics=0x%02x, hr=%d, ir=%d, coils=%d, di=%d, active=%d)",
+      fd, topics, watch.hr_count, watch.ir_count, watch.coil_count, watch.di_count, (int)sse_active_clients);
+  }
 
-  // Send initial connected event
-  char init_buf[320];
-  snprintf(init_buf, sizeof(init_buf),
-    "{\"status\":\"connected\",\"topics\":\"0x%02x\",\"max_clients\":%d,\"active_clients\":%d,\"port\":%d,"
-    "\"watching\":{\"hr\":%d,\"ir\":%d,\"coils\":%d,\"di\":%d}}",
-    topics, (int)sse_cfg_max_clients(), (int)sse_active_clients, sse_port,
-    watch.hr_count, watch.ir_count, watch.coil_count, watch.di_count);
-
-  if (!sse_send_event_fd(fd, "connected", init_buf)) goto done;
+  // Send initial connected event (heap-allocated to save stack for main loop)
+  {
+    char *init_buf = (char *)malloc(384);
+    if (!init_buf) { goto done; }
+    if (watch.watch_all) {
+      snprintf(init_buf, 384,
+        "{\"status\":\"connected\",\"topics\":\"0x%02x\",\"max_clients\":%d,\"active_clients\":%d,\"port\":%d,"
+        "\"watching\":{\"mode\":\"all\",\"hr\":%d,\"ir\":%d,\"coils\":256,\"di\":256}}",
+        topics, (int)sse_cfg_max_clients(), (int)sse_active_clients, sse_port,
+        (int)HOLDING_REGS_SIZE, (int)INPUT_REGS_SIZE);
+    } else {
+      snprintf(init_buf, 384,
+        "{\"status\":\"connected\",\"topics\":\"0x%02x\",\"max_clients\":%d,\"active_clients\":%d,\"port\":%d,"
+        "\"watching\":{\"hr\":%d,\"ir\":%d,\"coils\":%d,\"di\":%d}}",
+        topics, (int)sse_cfg_max_clients(), (int)sse_active_clients, sse_port,
+        watch.hr_count, watch.ir_count, watch.coil_count, watch.di_count);
+    }
+    bool ok = sse_send_event_fd(fd, "connected", init_buf);
+    free(init_buf);
+    if (!ok) goto done;
+  }
 
   // Initialize change detection (heap-allocated to save stack)
   {
@@ -386,9 +408,33 @@ static void sse_client_task(void *arg)
     memset(state, 0, sizeof(SseClientState));
     memcpy(&state->watch, &watch, sizeof(SseWatchList));
     sse_snapshot_counters(state);
+    if (!watch.watch_all) {
+      sse_snapshot_registers(state);
+    }
     sse_snapshot_timers(state);
-    sse_snapshot_registers(state);
     state->last_heartbeat_ms = millis();
+
+    // Allocate full-range state for watch_all mode (~1.5 KB)
+    SseWatchAllState *all_state = NULL;
+    if (watch.watch_all) {
+      all_state = (SseWatchAllState *)calloc(1, sizeof(SseWatchAllState));
+      if (!all_state) {
+        ESP_LOGE(TAG, "Failed to allocate watch_all state");
+        free(state);
+        goto done;
+      }
+      // Snapshot all registers
+      for (int i = 0; i < HOLDING_REGS_SIZE; i++)
+        all_state->hr[i] = registers_get_holding_register(i);
+      for (int i = 0; i < INPUT_REGS_SIZE; i++)
+        all_state->ir[i] = registers_get_input_register(i);
+      for (int i = 0; i < 256; i++) {
+        all_state->coils[i] = registers_get_coil(i);
+        all_state->di[i] = registers_get_discrete_input(i);
+      }
+      ESP_LOGI(TAG, "watch_all mode: monitoring %d HR + %d IR + 256 coils + 256 DI",
+        HOLDING_REGS_SIZE, INPUT_REGS_SIZE);
+    }
 
     // Main SSE loop
     while (true) {
@@ -397,6 +443,7 @@ static void sse_client_task(void *arg)
       // Check if CLI requested disconnect
       if (reg_slot >= 0 && sse_clients[reg_slot].disconnect_requested) {
         ESP_LOGI(TAG, "SSE client %d disconnect requested via CLI", reg_slot);
+        free(all_state);
         free(state);
         goto done;
       }
@@ -414,7 +461,7 @@ static void sse_client_task(void *arg)
               i + 1, (unsigned long long)val,
               enabled ? "true" : "false",
               (cfg.enabled && cfg.mode_enable != COUNTER_MODE_DISABLED) ? "true" : "false");
-            if (!sse_send_event_fd(fd, "counter", data)) { free(state); goto done; }
+            if (!sse_send_event_fd(fd, "counter", data)) { free(all_state); free(state); goto done; }
             state->counter_values[i] = val;
             state->counter_enabled[i] = enabled;
           }
@@ -441,7 +488,7 @@ static void sse_client_task(void *arg)
                 "{\"id\":%d,\"enabled\":%s,\"mode\":\"%s\",\"output\":%s}",
                 i + 1, cfg.enabled ? "true" : "false", mode_str,
                 output ? "true" : "false");
-              if (!sse_send_event_fd(fd, "timer", data)) { free(state); goto done; }
+              if (!sse_send_event_fd(fd, "timer", data)) { free(all_state); free(state); goto done; }
               state->timer_output[i] = output;
               state->timer_enabled[i] = cfg.enabled;
             }
@@ -450,14 +497,50 @@ static void sse_client_task(void *arg)
       }
 
       // Register change detection
-      if (topics & SSE_TOPIC_REGISTERS) {
+      if ((topics & SSE_TOPIC_REGISTERS) && watch.watch_all && all_state) {
+        // watch_all mode: scan ALL addresses
+        char data[64];
+        for (int i = 0; i < HOLDING_REGS_SIZE; i++) {
+          uint16_t val = registers_get_holding_register(i);
+          if (val != all_state->hr[i]) {
+            snprintf(data, sizeof(data), "{\"type\":\"hr\",\"addr\":%d,\"value\":%u}", i, val);
+            if (!sse_send_event_fd(fd, "register", data)) { free(all_state); free(state); goto done; }
+            all_state->hr[i] = val;
+          }
+        }
+        for (int i = 0; i < INPUT_REGS_SIZE; i++) {
+          uint16_t val = registers_get_input_register(i);
+          if (val != all_state->ir[i]) {
+            snprintf(data, sizeof(data), "{\"type\":\"ir\",\"addr\":%d,\"value\":%u}", i, val);
+            if (!sse_send_event_fd(fd, "register", data)) { free(all_state); free(state); goto done; }
+            all_state->ir[i] = val;
+          }
+        }
+        for (int i = 0; i < 256; i++) {
+          uint8_t val = registers_get_coil(i);
+          if (val != all_state->coils[i]) {
+            snprintf(data, sizeof(data), "{\"type\":\"coil\",\"addr\":%d,\"value\":%u}", i, val);
+            if (!sse_send_event_fd(fd, "register", data)) { free(all_state); free(state); goto done; }
+            all_state->coils[i] = val;
+          }
+        }
+        for (int i = 0; i < 256; i++) {
+          uint8_t val = registers_get_discrete_input(i);
+          if (val != all_state->di[i]) {
+            snprintf(data, sizeof(data), "{\"type\":\"di\",\"addr\":%d,\"value\":%u}", i, val);
+            if (!sse_send_event_fd(fd, "register", data)) { free(all_state); free(state); goto done; }
+            all_state->di[i] = val;
+          }
+        }
+      } else if (topics & SSE_TOPIC_REGISTERS) {
+        // Watch-list mode: scan only specified addresses
         for (int i = 0; i < state->watch.hr_count; i++) {
           uint16_t addr = state->watch.hr_addrs[i];
           uint16_t val = registers_get_holding_register(addr);
           if (val != state->watched_hr[i]) {
             char data[64];
             snprintf(data, sizeof(data), "{\"type\":\"hr\",\"addr\":%u,\"value\":%u}", addr, val);
-            if (!sse_send_event_fd(fd, "register", data)) { free(state); goto done; }
+            if (!sse_send_event_fd(fd, "register", data)) { free(all_state); free(state); goto done; }
             state->watched_hr[i] = val;
           }
         }
@@ -467,7 +550,7 @@ static void sse_client_task(void *arg)
           if (val != state->watched_ir[i]) {
             char data[64];
             snprintf(data, sizeof(data), "{\"type\":\"ir\",\"addr\":%u,\"value\":%u}", addr, val);
-            if (!sse_send_event_fd(fd, "register", data)) { free(state); goto done; }
+            if (!sse_send_event_fd(fd, "register", data)) { free(all_state); free(state); goto done; }
             state->watched_ir[i] = val;
           }
         }
@@ -477,7 +560,7 @@ static void sse_client_task(void *arg)
           if (val != state->watched_coils[i]) {
             char data[64];
             snprintf(data, sizeof(data), "{\"type\":\"coil\",\"addr\":%u,\"value\":%u}", addr, val);
-            if (!sse_send_event_fd(fd, "register", data)) { free(state); goto done; }
+            if (!sse_send_event_fd(fd, "register", data)) { free(all_state); free(state); goto done; }
             state->watched_coils[i] = val;
           }
         }
@@ -487,7 +570,7 @@ static void sse_client_task(void *arg)
           if (val != state->watched_di[i]) {
             char data[64];
             snprintf(data, sizeof(data), "{\"type\":\"di\",\"addr\":%u,\"value\":%u}", addr, val);
-            if (!sse_send_event_fd(fd, "register", data)) { free(state); goto done; }
+            if (!sse_send_event_fd(fd, "register", data)) { free(all_state); free(state); goto done; }
             state->watched_di[i] = val;
           }
         }
@@ -500,10 +583,11 @@ static void sse_client_task(void *arg)
         snprintf(data, sizeof(data),
           "{\"uptime_ms\":%lu,\"heap_free\":%lu,\"sse_clients\":%d}",
           (unsigned long)now, (unsigned long)ESP.getFreeHeap(), (int)sse_active_clients);
-        if (!sse_send_event_fd(fd, "heartbeat", data)) { free(state); goto done; }
+        if (!sse_send_event_fd(fd, "heartbeat", data)) { free(all_state); free(state); goto done; }
         state->last_heartbeat_ms = now;
       }
     }
+    free(all_state);
     free(state);
   }
 
@@ -543,12 +627,16 @@ static void sse_accept_task(void *arg)
       continue;
     }
 
+    // TCP_NODELAY: Disable Nagle algorithm — SSE events are small (64-384 bytes)
+    // and must be pushed immediately, not buffered waiting for ACK
+    int nodelay = 1;
+    setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
     // Set socket timeouts for recv/send
     struct timeval tv;
-    tv.tv_sec = 5;
+    tv.tv_sec = 30;
     tv.tv_usec = 0;
     setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    tv.tv_sec = 30;
     setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     // TCP keepalive
@@ -601,12 +689,24 @@ static void sse_accept_task(void *arg)
       }
     }
 
-    if (!sse_check_auth(auth_value)) {
+    int sse_user_idx = sse_check_auth(auth_value);
+    if (sse_user_idx < 0) {
       const char *resp = "HTTP/1.1 401 Unauthorized\r\n"
         "Content-Type: application/json\r\n"
         "WWW-Authenticate: Basic realm=\"Modbus ESP32\"\r\n"
         "Connection: close\r\n\r\n"
         "{\"error\":\"Authentication required\",\"status\":401}";
+      send(client_fd, resp, strlen(resp), 0);
+      close(client_fd);
+      continue;
+    }
+
+    // RBAC: require MONITOR or API role for SSE
+    if (!rbac_has_role(sse_user_idx, ROLE_MONITOR | ROLE_API)) {
+      const char *resp = "HTTP/1.1 403 Forbidden\r\n"
+        "Content-Type: application/json\r\n"
+        "Connection: close\r\n\r\n"
+        "{\"error\":\"MONITOR or API role required\",\"status\":403}";
       send(client_fd, resp, strlen(resp), 0);
       close(client_fd);
       continue;
@@ -652,8 +752,17 @@ static void sse_accept_task(void *arg)
       continue;
     }
 
+    // Resolve username for registry
+    const char *sse_username = "(no-auth)";
+    if (sse_user_idx >= 0 && sse_user_idx < RBAC_MAX_USERS) {
+      const RbacUser *ru = rbac_get_user(sse_user_idx);
+      if (ru) sse_username = ru->username;
+    } else if (sse_user_idx == 99) {
+      sse_username = "(legacy)";
+    }
+
     // Register client in registry
-    int slot = sse_registry_add(client_fd, client_addr.sin_addr.s_addr);
+    int slot = sse_registry_add(client_fd, client_addr.sin_addr.s_addr, sse_username, topics);
     if (slot < 0) {
       const char *resp = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n";
       send(client_fd, resp, strlen(resp), 0);
@@ -675,7 +784,7 @@ static void sse_accept_task(void *arg)
 
     char task_name[16];
     snprintf(task_name, sizeof(task_name), "sse_%d", client_fd);
-    BaseType_t ret = xTaskCreate(sse_client_task, task_name, 5120, params, 3, NULL);
+    BaseType_t ret = xTaskCreate(sse_client_task, task_name, 6144, params, 3, NULL);
     if (ret != pdPASS) {
       ESP_LOGE(TAG, "Failed to create SSE client task");
       free(params);
@@ -724,6 +833,129 @@ esp_err_t api_handler_sse_status(httpd_req_t *req)
     sse_cfg_enabled() ? "true" : "false",
     sse_port, (int)sse_cfg_max_clients(), (int)sse_active_clients,
     (int)sse_cfg_check_interval(), (int)sse_cfg_heartbeat(), sse_port);
+
+  return api_send_json(req, buf);
+}
+
+/**
+ * GET /api/events/clients — list connected SSE clients with details
+ */
+esp_err_t api_handler_sse_clients(httpd_req_t *req)
+{
+  http_server_stat_request();
+
+  if (!g_persist_config.network.http.api_enabled) {
+    httpd_resp_set_status(req, "403 Forbidden");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"error\":\"API disabled\",\"status\":403}");
+    return ESP_OK;
+  }
+
+  extern bool http_server_check_auth(httpd_req_t *req);
+  if (!http_server_check_auth(req)) {
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Modbus ESP32\"");
+    httpd_resp_sendstr(req, "{\"error\":\"Authentication required\",\"status\":401}");
+    return ESP_OK;
+  }
+
+  extern esp_err_t api_send_json(httpd_req_t *req, const char *json_str);
+
+  SseClientInfoPublic clients[SSE_MAX_CLIENTS];
+  int count = sse_get_client_info(clients);
+
+  // Build JSON array — max ~150 bytes per client
+  char buf[1024];
+  int pos = 0;
+  pos += snprintf(buf + pos, sizeof(buf) - pos, "{\"active_clients\":%d,\"clients\":[", count);
+
+  bool first = true;
+  for (int i = 0; i < SSE_MAX_CLIENTS && pos < (int)sizeof(buf) - 200; i++) {
+    if (!clients[i].active) continue;
+    uint8_t *ip = (uint8_t *)&clients[i].ip_addr;
+    uint32_t uptime_s = (millis() - clients[i].connected_ms) / 1000;
+
+    // Topics to string
+    char topics_str[32];
+    uint8_t t = clients[i].topics;
+    if (t == 0x0F) {
+      strcpy(topics_str, "all");
+    } else {
+      topics_str[0] = '\0';
+      if (t & 0x01) strcat(topics_str, "cnt,");
+      if (t & 0x02) strcat(topics_str, "tmr,");
+      if (t & 0x04) strcat(topics_str, "reg,");
+      if (t & 0x08) strcat(topics_str, "sys,");
+      size_t len = strlen(topics_str);
+      if (len > 0) topics_str[len - 1] = '\0'; // remove trailing comma
+    }
+
+    if (!first) pos += snprintf(buf + pos, sizeof(buf) - pos, ",");
+    first = false;
+    pos += snprintf(buf + pos, sizeof(buf) - pos,
+      "{\"slot\":%d,\"ip\":\"%d.%d.%d.%d\",\"username\":\"%s\",\"topics\":\"%s\",\"uptime_s\":%lu}",
+      clients[i].slot, ip[0], ip[1], ip[2], ip[3],
+      clients[i].username, topics_str, (unsigned long)uptime_s);
+  }
+  pos += snprintf(buf + pos, sizeof(buf) - pos, "]}");
+
+  return api_send_json(req, buf);
+}
+
+/**
+ * POST /api/events/disconnect — disconnect SSE client(s)
+ * Body: {"slot": N} for single, {"slot": -1} for all
+ */
+esp_err_t api_handler_sse_disconnect(httpd_req_t *req)
+{
+  http_server_stat_request();
+
+  if (!g_persist_config.network.http.api_enabled) {
+    httpd_resp_set_status(req, "403 Forbidden");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"error\":\"API disabled\",\"status\":403}");
+    return ESP_OK;
+  }
+
+  extern bool http_server_check_auth(httpd_req_t *req);
+  if (!http_server_check_auth(req)) {
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Modbus ESP32\"");
+    httpd_resp_sendstr(req, "{\"error\":\"Authentication required\",\"status\":401}");
+    return ESP_OK;
+  }
+
+  extern esp_err_t api_send_json(httpd_req_t *req, const char *json_str);
+  extern esp_err_t api_send_error(httpd_req_t *req, int code, const char *msg);
+
+  char body[128];
+  int ret = httpd_req_recv(req, body, sizeof(body) - 1);
+  if (ret <= 0) {
+    return api_send_error(req, 400, "Missing request body");
+  }
+  body[ret] = '\0';
+
+  // Parse slot from JSON — simple extraction
+  int slot = -2; // invalid default
+  const char *slot_ptr = strstr(body, "\"slot\"");
+  if (slot_ptr) {
+    slot_ptr = strchr(slot_ptr, ':');
+    if (slot_ptr) slot = atoi(slot_ptr + 1);
+  }
+
+  char buf[128];
+  if (slot == -1) {
+    // Disconnect all
+    int n = sse_disconnect_all();
+    snprintf(buf, sizeof(buf), "{\"ok\":true,\"disconnected\":%d}", n);
+  } else if (slot >= 0 && slot < SSE_MAX_CLIENTS) {
+    bool ok = sse_disconnect_client(slot);
+    snprintf(buf, sizeof(buf), "{\"ok\":%s,\"slot\":%d}", ok ? "true" : "false", slot);
+  } else {
+    return api_send_error(req, 400, "Invalid slot number");
+  }
 
   return api_send_json(req, buf);
 }
@@ -826,6 +1058,8 @@ int sse_get_client_info(SseClientInfoPublic *out)
     out[i].fd = sse_clients[i].fd;
     out[i].ip_addr = sse_clients[i].ip_addr;
     out[i].connected_ms = sse_clients[i].connected_ms;
+    memcpy(out[i].username, sse_clients[i].username, sizeof(out[i].username));
+    out[i].topics = sse_clients[i].topics;
     if (sse_clients[i].active) count++;
   }
   return count;

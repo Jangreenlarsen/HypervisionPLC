@@ -221,6 +221,15 @@
 | BUG-243 | API /api/system/save gemmer ikke ST Logic programmer | ✅ FIXED | 🔴 CRITICAL | v7.3.0 | `POST /api/system/save` kaldte kun `config_save_to_nvs()` men manglede `st_logic_save_to_persist_config()` og `config_calculate_crc16()`. CLI `save` havde begge. ST programmer uploadet via API/web editor blev IKKE persisteret til NVS. FIX: Tilføjet begge kald i `api_handler_system_save()` (api_handlers.cpp:1195-1198) |
 | BUG-244 | API /api/logic response mangler source_size felt | ✅ FIXED | 🟠 MEDIUM | v7.3.0 | `GET /api/logic` returnerede ikke `source_size` per program → web editor kunne ikke afgøre om et slot havde kildekode. FIX: Tilføjet `source_size` felt i logic list response (api_handlers.cpp:863) |
 | BUG-245 | normalize_alias() mangler STATUS keyword | ✅ FIXED | 🟡 HIGH | v7.3.0 | `show status` virkede kun med uppercase `sh STATUS`. FIX: Tilføjet `STATUS`/`STAT` i normalize_alias() (cli_parser.cpp) | ST-programmer >~1300 bytes fejlede med "Memory allocation failed" trods 110 KB fri heap. Årsag: (1) `st_ast_node_t` var ~1920 bytes/node (function_def i union), (2) mange små malloc-kald fragmenterede heap, (3) compiler+bytecode duplikerede 18.5 KB. FIX (5 optimeringer): AST node 1920→140 bytes (function_def til pointer), AST pool-allokator (eliminerer fragmentation), direct bytecode output (sparer 10.5 KB malloc), compiler bytecode pointer (sparer 8 KB), parser early-free. Resultat: max 21→34 IF-blokke (+62%), min heap 47→80 KB (+70%). Filer: st_types.h, st_parser.cpp, st_compiler.h, st_compiler.cpp, st_logic_config.cpp (Build #1580) |
+| BUG-246 | Web editor login hardcoded "api_user" default | ✅ FIXED | 🟠 MEDIUM | v7.3.1 | Login-formularen i `/editor` havde `value="api_user"` hardcoded — matchede ikke nødvendigvis konfigureret brugernavn. FIX: Tomt felt med placeholder, ingen fejlmeddelelse ved forkert login. Rettet til korrekt auth-test mod `/api/status` før modal lukkes (web_editor.cpp) |
+| BUG-247 | Web editor API endpoints ikke registreret i HTTP server | ✅ FIXED | 🔴 CRITICAL | v7.3.1 | `/api/cli`, `/api/bindings`, `/api/bindings/*` var i v1_routes tabel men manglede `httpd_register_uri_handler()` i http_server.cpp → 405 Method Not Allowed. FIX: Tilføjet URI handler structs + registrering (http_server.cpp) |
+| BUG-248 | CLI modbus master/slave kommandoer bruger Serial.print direkte | ✅ FIXED | 🟡 HIGH | v7.3.1 | `cli_commands_modbus_master.cpp` (24×) og `cli_commands_modbus_slave.cpp` (36×) brugte `Serial.printf()`/`Serial.println()` i stedet for `debug_printf()`/`debug_println()` → output vistes kun på hardware serial, ikke i web CLI eller telnet. FIX: Alle Serial.print → debug_printf/debug_println |
+| BUG-249 | Binding delete bruger forkert index (var_maps vs filtreret liste) | ✅ FIXED | 🟡 HIGH | v7.3.1 | `GET /api/bindings` filtrerede non-ST bindings med `continue` men returnerede ikke globalt `var_maps` index → frontend sendte forkert index til `DELETE /api/bindings/{idx}` → "Not an ST variable binding" fejl. FIX: Tilføjet `index` felt i GET response med globalt var_maps index, fjernet restriktiv source_type check i DELETE (api_handlers.cpp, web_editor.cpp) |
+| BUG-253 | SSE events forsinket/tabt pga. manglende TCP_NODELAY | ✅ FIXED | 🔴 CRITICAL | v7.5.0 | Nagle-algoritmen buffedreer små SSE-events (64-384 bytes) og ventede på TCP ACK før afsendelse → events forsinket eller tabt under load fra v7.3+ web features (dashboard, OTA, system). Node-RED viste "connected" men modtog ingen opdateringer. FIX: `TCP_NODELAY` sat på SSE klient-socket (sse_events.cpp:549) (Build #1700) |
+| BUG-254 | SSE send timeout for aggressiv (5s) lukker forbindelse under load | ✅ FIXED | 🟡 HIGH | v7.5.0 | `SO_SNDTIMEO=5s` var for kort under belastning fra v7.3+ features (dashboard polling, OTA upload, web system). TCP send-buffer kunne ikke drænes i tide → `send()` returnerede -1 → SSE-forbindelse lukket silently. FIX: Øget SO_SNDTIMEO fra 5s til 30s (sse_events.cpp:553) (Build #1700) |
+| BUG-250 | SSE subscribe=all overvåger kun HR 0-15, ignorerer coils/IR/DI | ✅ FIXED | 🔴 CRITICAL | v7.6.1 | `subscribe=all` uden eksplicitte adresse-params (hr/ir/coils/di) defaultede til kun HR 0-15. Coils, IR og DI blev aldrig scannet → ingen register-events for coils/DI. FIX: Ny `watch_all` mode i SseWatchList — allokerer SseWatchAllState (~1.5 KB) og scanner alle 256 HR + 256 IR + 256 coils + 256 DI (sse_events.cpp) |
+| BUG-255 | SSE klient-task stack overflow risiko | ✅ FIXED | 🟡 HIGH | v7.5.0 | `init_buf[320]` på stack + `sse_send_event_fd` `buf[384]` = 704 bytes permanent stack-forbrug ved 5120 bytes total stack. Marginalt med dybere callstacks i v7.3+. FIX: `init_buf` flyttet til heap (malloc/free), task stack øget 5120→6144 bytes (sse_events.cpp:370,690) (Build #1700) |
+| BUG-256 | SSE sse_sock_send behandler EAGAIN som fatal fejl | ✅ FIXED | 🟠 MEDIUM | v7.5.0 | Når TCP send-buffer var fuld returnerede `send()` -1 med `EAGAIN`, men koden behandlede det som fatal fejl → SSE-forbindelse lukket unødigt. FIX: Retry-loop med max 5 forsøg á 10ms delay ved EAGAIN/EWOULDBLOCK (sse_events.cpp:260-272) (Build #1700) |
 
 ## Feature Requests / Enhancements
 
@@ -256,7 +265,7 @@
 | FEAT-028 | Request Rate Limiting | ✅ DONE | 🟠 MEDIUM | v7.1.0 | Token bucket rate limiter per klient IP (30 burst, 10/sec refill). Returnerer 429 Too Many Requests ved overbelastning |
 | FEAT-029 | OpenAPI/Swagger Schema endpoint | ❌ OPEN | 🔵 LOW | v7.0.0 | `GET /api/schema` returnerer maskinlæsbar OpenAPI 3.0 spec — muliggør automatisk klient-kodegenerering (Python, JS, C#). Stort JSON dokument, kan kræve chunked response |
 | FEAT-030 | API Versioning | ✅ DONE+TESTET | 🔵 LOW | v7.0.0 | `GET /api/version` + `/api/v1/*` dispatcher med URI rewriting. Alle eksisterende endpoints tilgængelige via v1 prefix. Backward-kompatibelt. Testet 32/32 PASS (Build #1389) |
-| FEAT-031 | Firmware OTA via API | ❌ OPEN | 🟡 HIGH | v7.0.0 | `POST /api/system/ota` — firmware upload endpoint for fjern-opdatering uden fysisk adgang. Kræver OTA partition, checksum validering, rollback support. Stor feature med sikkerhedsimplikationer |
+| FEAT-031 | Firmware OTA via API | ✅ DONE | 🟡 HIGH | v7.5.0 | `POST /api/system/ota` chunked firmware upload, `GET /api/system/ota/status` progress polling, `POST /api/system/ota/rollback` rollback. Dual OTA partitions (ota_0/ota_1 á 1.625MB), boot validation via `esp_ota_mark_app_valid_cancel_rollback()`. Web UI på `/ota` med drag-drop upload, progress bar, rollback knap. Auth + rate limit beskyttet (Build #1699) |
 | FEAT-032 | Prometheus Metrics endpoint | ✅ DONE | 🔵 LOW | v7.1.0 | `GET /api/metrics` i Prometheus text format — eksponerer: uptime, heap, HTTP stats, Modbus slave/master stats, SSE clients, WiFi/Ethernet, counters, timers, watchdog, firmware info |
 | FEAT-033 | Request Audit Log | ❌ OPEN | 🔵 LOW | v7.0.0 | `GET /api/system/logs` — ringbuffer med sidste 50-100 API requests (timestamp, path, method, status, IP). Vigtig for fejlfinding og sikkerhedsovervågning. RAM-begrænset på ESP32 |
 | FEAT-034 | ES32D26 Analog spændings-input (0-10V) | ❌ OPEN | 🟡 HIGH | v7.2.0 | 4x 0-10V analog input via onboard signal conditioning. Vi1=GPIO14 (ADC2), Vi2=GPIO33 (ADC1), Vi3=GPIO27 (ADC2), Vi4=GPIO32 (ADC1). Kræver: ADC kalibrering, skalering til engineering units, Modbus register mapping. OBS: ADC2 (Vi1/Vi3) virker IKKE med WiFi aktiv — kun ADC1 (Vi2/Vi4) er pålidelige |
@@ -268,6 +277,44 @@
 | FEAT-040 | Runtime UART selection | ✅ DONE | 🟡 HIGH | v7.2.0 | `set modbus slave\|master uart uart0\|uart1\|uart2` — runtime-konfigurerbar UART perifer for Modbus slave/master. Board-afhængige defaults (ES32D26: UART2, andre: UART1) |
 | FEAT-041 | Hardware modul config (RS485 pins + Ethernet) | ✅ DONE | 🟡 HIGH | v7.2.0 | `set modul rs485 uart1\|uart2 tx <pin> rx <pin> dir <pin>` — konfigurerbare UART pins via ESP32 GPIO matrix. `set modul ethernet enable\|disable`. Schema 14 med pin config felter. Backup/restore support |
 | FEAT-042 | Web-baseret ST Logic Editor | ✅ DONE | 🟡 HIGH | v7.3.0 | Embedded HTML/CSS/JS editor served at `/editor`. Program slot selector (1-4), code editor med line numbers, Tab/Ctrl+S, pool usage meter, ST keyword reference, compile error feedback, enable/disable/delete/save. Basic Auth login. Zero runtime RAM (PROGMEM). Bruger eksisterende `/api/logic/*` endpoints |
+| FEAT-043 | Web CLI Console | ✅ DONE | 🟡 HIGH | v7.3.1 | Web-baseret CLI terminal i `/editor` (CLI panel). `POST /api/cli` — fanger CLI output i buffer-console og returnerer som JSON. Kommandohistorik (pil op/ned), monospace output, blokerer farlige kommandoer (reboot/defaults). Samme funktionalitet som telnet |
+| FEAT-044 | Web Bindings Panel | ✅ DONE | 🟡 HIGH | v7.3.1 | Bindings-panel i `/editor` til oprettelse/sletning af ST variabel→Modbus register bindinger. Dropdown med kompilerede variabler, retning (input/output), registertype (HR/Coil/DI), adresse. `GET /api/bindings` + `DELETE /api/bindings/{idx}` endpoints |
+| FEAT-045 | Web Runtime Monitor | ✅ DONE | 🟡 HIGH | v7.3.1 | Runtime monitor-panel i `/editor` med 1.5s auto-refresh. Viser execution count, timing (last/min/max µs), fejl, overruns + live variabel-tabel med aktuelle værdier. Auto-stop polling ved panel-skift |
+| FEAT-046 | BIT_SET/BIT_CLR/BIT_TST ST Logic funktioner | ✅ DONE | 🟠 MEDIUM | v7.3.1 | Bit-manipulation builtins: `BIT_SET(value, bit)` → INT (sæt bit N), `BIT_CLR(value, bit)` → INT (clear bit N), `BIT_TST(value, bit)` → BOOL (test bit N). Bit position 0-15 for INT. Registreret i compiler, VM dispatcher og web editor sidebar |
+| FEAT-047 | Web Dashboard med live Prometheus metrics | ✅ DONE | 🟡 HIGH | v7.3.1 | Dashboard forside served at `/` uden login. Parser `/api/metrics` Prometheus text format. 8 kort: System (uptime/heap/PSRAM), Netværk (WiFi/Ethernet/Telnet), Modbus Slave/Master stats, HTTP API stats, Tællere, Timere, ST Logic programmer. Auto-refresh 3s. Catppuccin Mocha dark theme. Navigation til `/editor` |
+| FEAT-048 | Bindings redigering i Web Editor | ✅ DONE | 🟠 MEDIUM | v7.3.1 | Redigér-knap på hver binding i Bindings-panelet. Pre-udfylder formularen med eksisterende data (variabel, retning, register type, adresse). "Tilføj" skifter til "Opdatér" mode. Implementeret som delete+re-create via eksisterende API |
+| FEAT-049 | Syntax highlighting i ST Editor | ✅ DONE | 🟠 MEDIUM | v7.3.1 | Farvelægning af ST keywords, kommentarer, strenge, tal og typer i code editoren via transparent textarea + farvet overlay |
+| FEAT-050 | Auto-complete/IntelliSense i ST Editor | ✅ DONE | 🟠 MEDIUM | v7.3.1 | Popup med ST keywords, builtin funktioner og program-variabler mens man skriver. Tab/Enter til at indsætte, Esc til at lukke |
+| FEAT-051 | Sparkline grafer i Runtime Monitor | ✅ DONE | 🟠 MEDIUM | v7.3.1 | Mini SVG-grafer der viser variabel-historik over tid i monitor-panelet. Ringbuffer med seneste 60 datapunkter per variabel |
+| FEAT-052 | Single-step execution i ST Logic | ✅ DONE | 🟡 HIGH | v7.3.1 | Pause/Step/Resume kontrol i monitor-panelet. `POST /api/logic/{id}/step` endpoint. Kør ét cycle ad gangen til debugging |
+| FEAT-053 | Register viewer i Dashboard | ✅ DONE | 🟡 HIGH | v7.3.1 | Grid-visning af alle Modbus holding registers og coils med live opdatering. Viser allokerings-ejer (counter/timer/ST/manual) |
+| FEAT-054 | Historik-grafer i Dashboard | ✅ DONE | 🟠 MEDIUM | v7.3.1 | SVG trend-grafer med ringbuffer for heap, uptime, Modbus requests over seneste 5/15/60 min |
+| FEAT-055 | Alarm/notifikationer i Dashboard | ✅ DONE | 🟠 MEDIUM | v7.3.1 | Konfigurerbare tærskler (heap < 30KB, CRC errors stigende) med visuel alarm-bar. Blinkende indikator ved overskridelse |
+| FEAT-056 | Modbus register map i Dashboard | ✅ DONE | 🟡 HIGH | v7.3.1 | Visuel oversigt over alle allokerede Modbus registre — hvem ejer dem (counter/timer/ST/manual), address range og konflikter |
+| FEAT-057 | Program backup/download | ✅ DONE | 🔵 LOW | v7.3.1 | Download ST kildekode som .st fil direkte fra browseren. Knap i editor toolbar |
+| FEAT-058 | PLC Ladder diagram visning | ✅ DONE | 🟠 MEDIUM | v7.3.1 | Read-only ladder diagram genereret fra ST kildekode. Viser kontakter, coils, assignments og IF/THEN som visuelle ladder rungs |
+| FEAT-059 | RBAC Multi-User System | ✅ DONE | 🟡 HIGH | v7.6.2 | Role-Based Access Control med op til 8 brugere. Roller: api, cli, editor, monitor (bitmask). Privilegier: read, write, read/write. Auth for HTTP API, SSE, CLI og Web UI. Schema migration v14→v15 med legacy single-user auto-migration. CLI: `set user`, `show users`, `delete user`, `show config rbac`. Backup/restore inkluderer RBAC data. Virtual admin (idx 99) for backward-kompatibilitet |
+| FEAT-060 | Standalone Web CLI side | ✅ DONE | 🟠 MEDIUM | v7.6.1.1 | CLI udskilt fra ST Editor til selvstændig side på `/cli`. Fuld terminal med login, kommandohistorik (ArrowUp/Down), statusbar. Konsistent topnav: Monitor \| ST Editor \| CLI \| System |
+| FEAT-061 | SSE subscribe=all watch_all mode | ✅ DONE | 🟠 MEDIUM | v7.6.1 | `subscribe=all` scanner nu alle 256 HR + 256 IR + 256 coils + 256 DI. Heap-allokeret SseWatchAllState (~1.5 KB pr. klient). BUG-260 fix |
+| FEAT-062 | SSE klient monitor udvidelse | ✅ DONE | 🔵 LOW | v7.6.2 | `show sse` viser nu username, IP, subscribed topics og formateret uptime per klient. SseClientInfo udvidet med username[24] og topics felter |
+| BUG-260 | SSE subscribe=all overvågede kun HR 0-15 | ✅ FIXED | 🟡 HIGH | v7.6.1 | `subscribe=all` uden eksplicitte adresser defaultede til HR 0-15 — coils, IR og DI blev ignoreret. FIX: watch_all mode med fuld-range scanning |
+| BUG-261 | show config RBAC viste tom sektion | ✅ FIXED | 🔵 LOW | v7.6.2 | `show config rbac` matchede ikke noget filter — RBAC sektionen brugte `show_http` guard. FIX: Selvstændig `show_rbac` filter med match på "RBAC" og "USER" |
+| BUG-262 | set RBAC kommando ikke genkendt | ✅ FIXED | 🔵 LOW | v7.6.2 | `set rbac ?` returnerede "unknown argument". FIX: Tilføjet RBAC alias til normalize_alias() → mapper til USER |
+| FEAT-063 | Web User Badge + Login/Logout | ✅ DONE | 🟠 MEDIUM | v7.6.2.2 | User badge i topnav højre hjørne på alle 4 web-sider. Viser brugernavn, grøn/rød status-dot, dropdown med roller, privilegier, auth mode. Log ind/ud funktionalitet. Dashboard: login modal (skjult default) med "Log ind" knap. CLI/Editor/System: updateUserBadge() efter login. `/api/user/me` endpoint + `show user` CLI kommando |
+| FEAT-064 | /api/user/me API endpoint | ✅ DONE | 🟠 MEDIUM | v7.6.2.1 | REST endpoint returnerer authenticated status, username, roles, privilege, mode (legacy/rbac). Bruges af web user badge til at vise brugerinfo |
+| FEAT-065 | show user CLI kommando | ✅ DONE | 🔵 LOW | v7.6.2.1 | `show user` viser aktuel session info: interface, RBAC status, antal brugere, auth mode |
+| FEAT-066 | SSE klient management i web System | ✅ DONE | 🟠 MEDIUM | v7.6.2.3 | SSE sektion på `/system` side: tabel med slot, IP, bruger, topics, uptime. Afbryd individuelle klienter eller alle. API: `GET /api/events/clients`, `POST /api/events/disconnect` med `{slot: N}` eller `{slot: -1}` for alle |
+| FEAT-069 | SSE konfiguration i backup/restore | ✅ DONE | 🟠 MEDIUM | v7.6.2.7 | Backup eksporterer SSE indstillinger (enabled, port, max_clients, check_interval_ms, heartbeat_ms) som selvstændig `sse` JSON sektion. Restore gendanner SSE config fra backup fil |
+| FEAT-070 | Async Modbus Master (non-blocking) | ✅ DONE | 🔴 CRITICAL | v7.7.0 | Dedikeret FreeRTOS task (Core 0, 4KB stack) til Modbus UART I/O. ST builtins er nu non-blocking: reads returnerer cached værdi og køer refresh, writes køes i baggrunden. Nye builtins: `MB_SUCCESS()`, `MB_BUSY()`, `MB_ERROR()`. 32-entry cache, 16-deep queue, request deduplication. Eliminerer overruns ved Modbus-operationer i ST Logic |
+| BUG-263 | Web user badge viste altid "Ikke logget ind" | ✅ FIXED | 🟡 HIGH | v7.6.2.3 | Tre separate fejl: (1) `/api/user/me` manglede direkte httpd URI handler — var kun i v1_routes, så `fetch('/api/user/me')` gav 404 (kun `/api/v1/user/me` virkede). (2) Dashboard manglede login modal. (3) `updateUserBadge()` blev ikke kaldt efter login. FIX: Tilføjet `uri_user_me` httpd registrering, login modal på dashboard, updateUserBadge() kald efter login i alle 4 sider |
+| BUG-264 | SSE afviste brugere med API rolle (403) | ✅ FIXED | 🟡 HIGH | v7.6.2.4 | SSE rolle-check krævede kun `ROLE_MONITOR` (0x08). Brugere med `api` rolle (0x01) fik 403 "MONITOR role required" selvom de var autentificeret korrekt. FIX: Ændret check til `ROLE_MONITOR \| ROLE_API` — begge roller giver SSE-adgang. Tilføjet RBAC Authentication sektion i `show sse` output |
+| BUG-265 | API write endpoints tjekker ikke privilege | ✅ FIXED | 🔴 CRITICAL | v7.6.2.4 | Alle 42 POST/DELETE endpoints brugte `CHECK_AUTH` som kun tjekker authentication — ikke privilege. Read-only brugere (`privilege read`) kunne lave skrive-operationer (reboot, save, delete, config-ændringer). FIX: 42 write-handlers ændret til `CHECK_AUTH_WRITE` som returnerer 403 "Write privilege required" |
+| BUG-266 | rbac_parse_privilege("write") returnerede PRIV_RW | ✅ FIXED | 🟠 MEDIUM | v7.6.2.4 |
+| BUG-267 | Web system write-knapper viste ikke fejl ved 403 | ✅ FIXED | 🟠 MEDIUM | v7.6.2.5 |
+| BUG-268 | Confirm dialog callback blev aldrig kaldt | ✅ FIXED | 🔴 CRITICAL | v7.6.2.6 | `confirmAction()` kaldte `closeConfirm()` som satte `pendingConfirmFn=null` FØR callback-tjekket. Alle handlinger bag bekræftelsesdialog (Fabriksindstillinger, Genstart uden gem, Afbryd alle SSE, Restore config) viste dialogen men gjorde ingenting ved "Bekræft". FIX: Gem fn i lokal variabel før closeConfirm() | `doReboot()` brugte `.catch(()=>{})` — slugte fejl silently. Brugeren så "Genstarter..." men intet skete ved manglende privilege. Alle write-funktioner (reboot, save, load, defaults) viser nu 403 "Ingen skriveadgang" fejl korrekt | `strcasestr(str, "write")` matchede i `rbac_parse_privilege()` før "read/write" blev tjekket — så `privilege write` blev til `PRIV_RW` (read+write). FIX: Tjek "read/write" og "rw" først, derefter "write" alene → `PRIV_WRITE` |
+| BUG-250 | PSRAM detection mangler i CLI og metrics | ✅ FIXED | 🔵 LOW | v7.3.1 | `show version` og `show status` viste ikke PSRAM info. `/api/metrics` manglede `esp32_psram_total_bytes` og `esp32_psram_free_bytes`. FIX: Tilføjet PSRAM detection med `ESP.getPsramSize()`/`ESP.getFreePsram()` til begge CLI kommandoer og Prometheus endpoint |
+| BUG-251 | `/api/metrics` kræver unødvendig auth | ✅ FIXED | 🟠 MEDIUM | v7.3.1 | Metrics endpoint krævede Basic Auth → dashboard og Prometheus scrapers kunne ikke hente data uden credentials. FIX: Fjernet `CHECK_AUTH()`, beholdt `CHECK_API_ENABLED()` og rate limit. Read-only data, ingen sikkerhedsrisiko |
+| BUG-252 | Web editor/system login tabt ved navigation mellem moduler | ✅ FIXED | 🟡 HIGH | v7.3.2 | `AUTH` variabel (in-memory) nulstillet ved hvert page load → brugeren skulle logge ind igen ved skift mellem `/editor` og `/system`. FIX: Auth token gemt i `sessionStorage` (`hfplc_auth` key), auto-verificeret ved page load. Ryddes ved 401 eller tab-lukning (web_editor.cpp, web_system.cpp) |
 
 ## Quick Lookup by Category
 
@@ -310,7 +357,7 @@
 **v7.x.0 — Planned:**
 - **FEAT-028:** ✅ Request Rate Limiting (v7.1.0)
 - **FEAT-029:** OpenAPI/Swagger Schema endpoint 🔵 LOW
-- **FEAT-031:** Firmware OTA via API 🟡 HIGH
+- **FEAT-031:** ✅ Firmware OTA via API (v7.5.0)
 - **FEAT-032:** ✅ Prometheus Metrics endpoint (v7.1.0)
 - **FEAT-033:** Request Audit Log 🔵 LOW
 
@@ -320,6 +367,198 @@
 - **FEAT-040:** ✅ Runtime UART selection — `set modbus slave|master uart uart0|uart1|uart2`
 - **FEAT-041:** ✅ Hardware modul config — `set modul rs485 uart<N> tx rx dir` + `set modul ethernet enable|disable`
 - Schema migration 12→13→14 (modbus_mode, ao_mode, UART pin config)
+
+**v7.3.1 — Web Editor Udvidelse: CLI + Bindings + Monitor (2026-03-26):**
+- **FEAT-043:** ✅ Web CLI Console — `POST /api/cli` med buffer-console capture, kommandohistorik, farlige kommandoer blokeret
+- **FEAT-044:** ✅ Web Bindings Panel — variabel→register binding oprettelse/sletning via GUI. `GET /api/bindings` + `DELETE /api/bindings/{idx}`
+- **FEAT-045:** ✅ Web Runtime Monitor — live variabel-værdier + execution stats med 1.5s auto-refresh
+- **UI:** 4 view-modes i toolbar (Editor/Bindings/Monitor/CLI), fixed layout (toolbar+statusbar fastlåst), global output-log
+- **BUG-246:** ✅ Login hardcoded default username → tomme felter med placeholder
+- **BUG-247:** ✅ API endpoints manglede URI handler registrering (405 fejl)
+- **BUG-248:** ✅ Modbus CLI kommandoer brugte Serial.print → debug_printf (web CLI + telnet output)
+- **BUG-249:** ✅ Binding delete index mismatch (filtreret vs globalt index)
+- **BUG-250:** ✅ PSRAM detection tilføjet til `show version`, `show status` og `/api/metrics`
+- **BUG-251:** ✅ `/api/metrics` auth fjernet — åben for dashboard og Prometheus scrapers
+- **BUG-252:** ✅ Web editor/system login tabt ved navigation — `sessionStorage` persistering
+- **FEAT-046:** ✅ BIT_SET/BIT_CLR/BIT_TST bit-manipulation funktioner i ST Logic
+- **FEAT-047:** ✅ Web Dashboard med live Prometheus metrics på `/` (ingen login)
+- **FEAT-048:** ✅ Bindings redigering — Redigér-knap med pre-udfyldt formular
+- **FEAT-049:** ✅ Syntax highlighting i ST Editor
+- **FEAT-050:** ✅ Auto-complete/IntelliSense i ST Editor
+- **FEAT-051:** ✅ Sparkline grafer i Runtime Monitor
+- **FEAT-052:** ✅ Single-step execution i ST Logic
+- **FEAT-053:** ✅ Register viewer i Dashboard
+- **FEAT-054:** ✅ Historik-grafer i Dashboard
+- **FEAT-055:** ✅ Alarm/notifikationer i Dashboard
+- **FEAT-056:** ✅ Modbus register map i Dashboard
+- **FEAT-057:** ✅ Program backup/download fra editor
+- **FEAT-058:** ✅ PLC Ladder diagram visning
+
+**v7.6.2 — RBAC Multi-User System + SSE Monitor Udvidelse (2026-03-30):**
+- **FEAT-059:** ✅ RBAC med op til 8 brugere, roller (api/cli/editor/monitor), privilegier (read/write/rw)
+- **FEAT-060:** ✅ Standalone Web CLI side på `/cli` (udskilt fra ST Editor)
+- **FEAT-061:** ✅ SSE subscribe=all watch_all mode (fuld-range scanning)
+- **FEAT-062:** ✅ SSE klient monitor — username, IP, topics, uptime i `show sse`
+- **BUG-260:** ✅ SSE subscribe=all overvågede kun HR 0-15
+- **BUG-261:** ✅ `show config rbac` viste tom sektion
+- **BUG-262:** ✅ `set rbac` kommando ikke genkendt
+- **CLI:** `set user`, `show users`, `delete user`, `show config rbac`
+- **Sikkerhed:** SSE kræver MONITOR rolle, schema migration v14→v15
+- **DOC:** [docs/SECURITY.md](docs/SECURITY.md) sikkerhedsguide, [docs/SSE_USER_GUIDE.md](docs/SSE_USER_GUIDE.md) opdateret
+
+**v7.6.2.2 — Web User Badge + /api/user/me (2026-03-30):**
+- **FEAT-063:** ✅ Web User Badge i topnav — brugernavn, status-dot, dropdown med roller/privilegier/auth mode, login/logout
+- **FEAT-064:** ✅ `/api/user/me` API endpoint — returnerer brugerinfo (username, roles, privilege, mode)
+- **FEAT-065:** ✅ `show user` CLI kommando — viser aktuel session info
+- **FEAT-066:** ✅ SSE klient management i web System — tabel med disconnect-knapper
+- **BUG-263:** ✅ User badge viste altid "Ikke logget ind" — `/api/user/me` manglede httpd URI handler, login modal på dashboard, updateUserBadge() kald efter login
+- **BUG-264:** ✅ SSE afviste brugere med API rolle — rolle-check udvidet til MONITOR|API, RBAC sektion i `show sse`
+
+**v7.6.2.4 — RBAC Privilege Enforcement (2026-03-31):**
+- **BUG-265:** ✅ 42 write-endpoints ændret til CHECK_AUTH_WRITE — read-only brugere blokeres nu
+- **BUG-266:** ✅ rbac_parse_privilege("write") returnerede PRIV_RW — rettet parse-rækkefølge
+- **BUG-264:** ✅ SSE rolle-check udvidet til MONITOR|API
+- `show sse` viser RBAC Authentication sektion
+- `show users roles` viser SSE-krav
+
+**v7.6.2.5 — Web System fejlhåndtering (2026-03-31):**
+- **BUG-267:** ✅ Write-knapper (reboot, save, load, defaults) viser nu 403 fejl i stedet for at slugte dem silently
+
+**v7.7.0 — Async Modbus Master (2026-03-31):**
+- **FEAT-070:** ✅ Modbus Master operationer er nu asynkrone via dedikeret FreeRTOS baggrundstask
+- Non-blocking ST builtins: reads returnerer cached værdi, writes køes
+- Nye builtins: `MB_SUCCESS()`, `MB_BUSY()`, `MB_ERROR()`
+- 32-entry cache, 16-deep request queue, request deduplication
+- `show modbus-master` viser async cache statistik + entries
+- Backward-kompatibel: eksisterende ST-programmer virker uændret
+
+**v7.6.2.7 — SSE backup/restore (2026-03-31):**
+- **FEAT-069:** ✅ SSE konfiguration inkluderet i backup/restore — enabled, port, max_clients, check_interval_ms, heartbeat_ms
+
+**v7.6.2.6 — Confirm dialog fix (2026-03-31):**
+- **BUG-268:** ✅ confirmAction() nulstillede callback før den blev kaldt — alle confirm-handlinger virkede ikke
+
+**v7.4.0 — Web System Administration + Dashboard Refactor (2026-03-28):**
+- **FEAT:** Web-baseret system administration side på `/system` — backup/restore, save/load, factory defaults, reboot, persist groups
+- **FEAT:** Web Dashboard refaktoreret til standalone `web_dashboard.cpp` (v7.4.0)
+- **FEAT:** Web Editor refaktoreret til standalone `web_editor.cpp` (v7.4.0)
+- **FEAT:** Fælles navigation mellem Dashboard (`/`), Editor (`/editor`), System (`/system`), OTA (`/ota`)
+
+**v7.5.0 — Firmware OTA via HTTP API + SSE bugfixes (2026-03-28):**
+- **FEAT-031:** ✅ Firmware OTA via API — chunked upload, progress polling, rollback
+- **Endpoints:** `POST /api/system/ota` (upload .bin), `GET /api/system/ota/status` (progress), `POST /api/system/ota/rollback`
+- **Web UI:** Dedikeret OTA side på `/ota` med drag-drop upload, progress bar, firmware info, rollback knap
+- **Partitions:** Dual OTA layout (ota_0 + ota_1 á 1.625MB, NVS 64KB, SPIFFS 640KB)
+- **Boot validation:** `esp_ota_mark_app_valid_cancel_rollback()` i setup() bekræfter ny firmware
+- **Sikkerhed:** Basic Auth + rate limiting på OTA endpoints, `CHECK_AUTH_OTA()` macro
+- **BUG-253:** ✅ SSE manglende TCP_NODELAY → events forsinket/tabt (Nagle buffering)
+- **BUG-254:** ✅ SSE SO_SNDTIMEO 5s→30s (for aggressiv timeout under load)
+- **BUG-255:** ✅ SSE klient-task stack overflow risiko (init_buf→heap, stack 5120→6144)
+- **BUG-256:** ✅ SSE EAGAIN behandlet som fatal fejl (retry-loop tilføjet)
+- **Build:** #1700, schema uændret
+
+---
+
+### 📊 ST Logic Heap & RAM Analyse (v7.5.0 — post-optimering)
+
+**ESP32-WROOM-32: 520 KB SRAM total, ~320 KB disponibelt efter WiFi/BT**
+
+#### Permanent Heap (altid allokeret)
+
+| Komponent | Per stk | Antal | Total |
+|-----------|---------|-------|-------|
+| `source_pool[8000]` | 8,000 B | 1 shared | **8.0 KB** |
+| `st_logic_program_config_t` (bytecode+stats+meta) | ~2.5 KB | 4 | **10.0 KB** |
+| ↳ `*instructions` (dynamisk, exact-size) | 8 B/instr | variabel | *se nedenfor* |
+| ↳ `variables[32]` á 8 bytes | 256 B | (inline) | |
+| ↳ `var_names[32][32]` | 1,024 B | (inline) | ~~2,048 B~~ |
+| ↳ `var_types[32]` + `var_export_flags[32]` | 64 B | (inline) | |
+| ↳ `name[32]` + `last_error[64]` + stats/meta | ~236 B | (inline) | ~~392 B~~ |
+| Dynamisk instructions (per compiled prog) | 8 B/instr | 0-1024 | **variabel** |
+| ↳ Typisk 100-instruktion program | 800 B | per prog | |
+| ↳ Stort 500-instruktion program | 4,000 B | per prog | |
+| `st_stateful_storage_t` (malloc'd per compiled prog) | ~540 B | 0-4 | **0–2.2 KB** |
+| `st_function_registry_t` (kun ved user functions) | ~7.4 KB | 0-4 | **0–29.6 KB** |
+| ↳ `functions[64]` á ~52 bytes (name[32]) | 3,328 B | (inline) | ~~5,376 B~~ |
+| ↳ `fb_instances[16]` á ~145 bytes | 2,320 B | (inline) | |
+| Engine global state (enabled, interval, cycle stats) | ~60 B | 1 | **0.06 KB** |
+
+**Permanent total:**
+```
+Minimum (0 programmer compiled):     18.1 KB  (pool + bytecode structs + engine)
+Typisk (2 prog á 100 instr, ingen UF): 20.9 KB  (+ 2× instructions + 2× stateful)
+Maximum (4 prog á 500 instr + UF):   50.4 KB  (+ 4× instructions + 4× stateful + 4× registry)
+
+FØR optimeringer:  51.7 – 84.6 KB
+EFTER optimeringer: 18.1 – 50.4 KB  → BESPARELSE: 33.6 – 34.2 KB (65% ↓)
+```
+
+#### Temporær Heap (under kompilering — frigives efter)
+
+| Komponent | Størrelse | Bemærkning |
+|-----------|-----------|------------|
+| AST node pool | **23–82 KB** | 256–512 nodes × ~161 bytes/node (BUG-240 optimering) |
+| ↳ `st_ast_node_t`: 161 bytes | | Reduceret fra 1,920 B (93%!) — function_def→pointer |
+| ↳ Try-decreasing: 512→256→128→64→32 | | BUG-241: tilpasser sig fragmenteret heap |
+| Parser `st_parser_t` (malloc'd) | **~1.3 KB** | lexer + tokens + error_msg[256] |
+| Compiler `st_compiler_t` (malloc'd) | **~3.0 KB** | symbol_table[32]×74 + patches + stacks |
+| Temp bytecode buffer (1024×8) | **8.0 KB** | Allokeres under kompilering, frigives efter |
+| Source code kopi (null-terminated) | **0.1–2 KB** | BUG-212 fix: malloc(source_size+1) |
+| CASE jump arrays (per CASE stmt) | ~64 B | malloc/free per CASE branch |
+
+**Peak kompilering:**
+```
+Lille program (100 linjer):    ~36 KB peak  (128 AST nodes + parser + compiler + temp bytecode)
+Mellem program (500 linjer):   ~53 KB peak  (256 AST nodes + temp bytecode)
+Stort program (1000+ linjer):  ~94 KB peak  (512 AST nodes + func registry + temp bytecode)
+
+Alt frigives efter kompilering ✓ (recovery til permanent level)
+Note: +8 KB peak vs før pga temp bytecode buffer (instructions er nu dynamisk)
+```
+
+#### Runtime VM (stack-allokeret — per execution cycle)
+
+| Komponent | Størrelse | Placering |
+|-----------|-----------|-----------|
+| `st_vm_state_t` | **~660 B** | Stack (lokalt i execute) |
+| ↳ `stack[64]` á 8 bytes | 512 B | Execution value stack |
+| ↳ `error_msg[128]` | 128 B | |
+| ↳ pc + halted + error + pointer | 20 B | |
+| Lokale variabler i VM dispatch | ~200 B | Stack |
+| **Per program per cycle** | **~860 B** | **Frigives efter cycle** |
+| **4 programmer sekventielt** | **~860 B** | Genbruges (ikke concurrent) |
+
+**Nøglepointe:** VM kører programmer sekventielt i `loop()` — kun ét sæt VM-state ad gangen.
+Ingen malloc under execution — kun stack. Zero heap-påvirkning under drift.
+
+#### Heap Tidslinje (typisk boot → drift)
+
+```
+BOOT:     [██████░░░░░░░░░░░░░░░░░░░░░░░] 18.1 KB permanent (structs, ingen compiled)
+           ↓ config_load restorer + recompiler fra SPIFFS
+COMPILE:  [████████████████████░░░░░░░░░░] 18.1 + 53 KB = 71.1 KB PEAK (temp)
+           ↓ AST + parser + compiler + temp bytecode frigives
+LOADED:   [████████░░░░░░░░░░░░░░░░░░░░░] 20.9 KB (+ dynamiske instructions + stateful)
+           ↓ VM cycle (stack, ikke heap)
+CYCLE:    [████████░░░░░░░░░░░░░░░░░░░░░] 20.9 KB + 860 B stack (released)
+```
+
+#### Optimeringer (samlet oversigt)
+
+| Optimering | Version | Før | Efter | Besparelse |
+|-----------|---------|-----|-------|------------|
+| AST node størrelse | v7.2.1 | 1,920 B | 161 B | **93% ↓** |
+| AST pool (256 nodes) | v7.2.1 | 491 KB | 41 KB | **450 KB ↓** |
+| Parser/compiler allokering | v7.2.1 | Permanent | Temporær | **4.3 KB ↓** idle |
+| Try-decreasing pool | v7.2.1 | Fast 512 | 512→32 adaptive | **Fragmentation-robust** |
+| `instructions[1024]` → dynamisk | v7.5.0 | 8,192 B/prog | ~800 B/prog typ | **~29.6 KB ↓** (4 prog) |
+| `var_names[32][64]` → `[32][32]` | v7.5.0 | 2,048 B/prog | 1,024 B/prog | **4.0 KB ↓** (4 prog) |
+| `name[64]` → `[32]` (bytecode) | v7.5.0 | 64 B | 32 B | **128 B ↓** (4 prog) |
+| `func_name[64]` → `[32]` (func_def/entry) | v7.5.0 | 64 B each | 32 B each | **~2 KB ↓** (registry) |
+| `last_error[128]` → `[64]` | v7.5.0 | 128 B/prog | 64 B/prog | **256 B ↓** (4 prog) |
+| **v7.5.0 subtotal** | | | | **~34 KB ↓ permanent** |
+
+---
 
 **v7.2.0 — ES32D26 Analog I/O (Planned):**
 - **FEAT-034:** 4x 0-10V spændings-input (Vi1-Vi4) — ADC kalibrering + skalering 🟡 HIGH

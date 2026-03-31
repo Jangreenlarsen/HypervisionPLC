@@ -35,6 +35,7 @@
 #include <WiFi.h>
 #include "debug_flags.h"
 #include "debug.h"
+#include "rbac.h"
 #include "wifi_driver.h"
 #include "gpio_driver.h"
 #include "modbus_master.h"
@@ -80,6 +81,7 @@ void cli_cmd_show_config(const char *section) {
   bool show_modules  = show_all || show_section_match(section, "MODULE");
   bool show_persist  = show_all || show_section_match(section, "PERSIST");
   bool show_logic    = show_all || show_section_match(section, "LOGIC") || show_section_match(section, "ST");
+  bool show_rbac     = show_all || show_section_match(section, "RBAC") || show_section_match(section, "USER");
   bool show_commands = true;  // Always show SET commands (filtered by section)
 
   if (show_all) {
@@ -1073,14 +1075,17 @@ void cli_cmd_show_config(const char *section) {
   debug_println(g_persist_config.network.http.api_enabled ? "enabled" : "disabled");
 
   debug_print("  auth: ");
-  debug_println(g_persist_config.network.http.auth_enabled ? "enabled" : "disabled");
-
-  if (g_persist_config.network.http.auth_enabled) {
+  if (g_persist_config.rbac.enabled) {
+    debug_printf("RBAC (%d users)\n", rbac_get_user_count());
+    debug_println("  auth-mode: RBAC (multi-user) — see 'show config rbac' or 'show users'");
+  } else if (g_persist_config.network.http.auth_enabled) {
+    debug_println("enabled (legacy single-user)");
     debug_print("  username: ");
     debug_println(g_persist_config.network.http.username[0] ? g_persist_config.network.http.username : "(not set)");
-
     debug_print("  password: ");
     debug_println(g_persist_config.network.http.password[0] ? "********" : "(not set)");
+  } else {
+    debug_println("disabled");
   }
 
   debug_print("  priority: ");
@@ -1091,6 +1096,31 @@ void cli_cmd_show_config(const char *section) {
   }
 
   } // end show_http
+
+  // =========================================================================
+  // RBAC
+  // =========================================================================
+  if (show_rbac) {
+  debug_println("\n[RBAC]");
+  debug_print("  enabled: ");
+  debug_println(g_persist_config.rbac.enabled ? "yes" : "no");
+  debug_print("  users: ");
+  debug_print_uint(rbac_get_user_count());
+  debug_print(" / ");
+  debug_print_uint(RBAC_MAX_USERS);
+  debug_println("");
+  if (g_persist_config.rbac.enabled) {
+    for (int i = 0; i < RBAC_MAX_USERS; i++) {
+      const RbacUser *u = rbac_get_user(i);
+      if (!u) continue;
+      char role_str[40];
+      rbac_roles_to_str(u->roles, role_str, sizeof(role_str));
+      const char *priv_str = (u->privilege == PRIV_RW) ? "rw" :
+                             (u->privilege == PRIV_WRITE) ? "w" : "r";
+      debug_printf("  user[%d]: %-16s roles=%-16s priv=%s\n", i, u->username, role_str, priv_str);
+    }
+  }
+  } // end show_rbac
 
   // =========================================================================
   // API SSE
@@ -1445,14 +1475,18 @@ void cli_cmd_show_config(const char *section) {
     debug_print_uint(g_persist_config.network.http.port);
     debug_println("");
     debug_println(g_persist_config.network.http.api_enabled ? "set http api enable" : "set http api disable");
-    debug_println(g_persist_config.network.http.auth_enabled ? "set http auth enable" : "set http auth disable");
-    if (g_persist_config.network.http.auth_enabled) {
-      if (g_persist_config.network.http.username[0]) {
-        debug_print("set http username ");
-        debug_println(g_persist_config.network.http.username);
-      }
-      if (g_persist_config.network.http.password[0]) {
-        debug_println("set http password ********");
+    if (g_persist_config.rbac.enabled) {
+      debug_println("# auth: RBAC active — see 'show config rbac'");
+    } else {
+      debug_println(g_persist_config.network.http.auth_enabled ? "set http auth enable" : "set http auth disable");
+      if (g_persist_config.network.http.auth_enabled) {
+        if (g_persist_config.network.http.username[0]) {
+          debug_print("set http username ");
+          debug_println(g_persist_config.network.http.username);
+        }
+        if (g_persist_config.network.http.password[0]) {
+          debug_println("set http password ********");
+        }
       }
     }
     // Priority setting (v6.0.4+)
@@ -1464,6 +1498,25 @@ void cli_cmd_show_config(const char *section) {
     }
   }
   } // end show_http
+
+  if (show_rbac) {
+  // RBAC users
+  debug_println("\n# RBAC Users");
+  if (g_persist_config.rbac.enabled) {
+    for (int i = 0; i < RBAC_MAX_USERS; i++) {
+      const RbacUser *u = rbac_get_user(i);
+      if (!u) continue;
+      char role_str[40];
+      rbac_roles_to_str(u->roles, role_str, sizeof(role_str));
+      const char *priv_str = (u->privilege == PRIV_RW) ? "read/write" :
+                             (u->privilege == PRIV_WRITE) ? "write" : "read";
+      debug_printf("set user %s password ******** roles %s privilege %s\n",
+        u->username, role_str, priv_str);
+    }
+  } else {
+    debug_println("# (RBAC disabled - no users configured)");
+  }
+  } // end show_rbac
 
   if (show_sse) {
   // API SSE config
@@ -2727,6 +2780,17 @@ void cli_cmd_show_version(void) {
   debug_println(GIT_HASH);
   debug_println("Target:  ESP32-WROOM-32");
   debug_println("Project: Modbus RTU Server");
+  debug_printf("Heap:    %lu KB free / %lu KB min\n",
+               (unsigned long)(ESP.getFreeHeap() / 1024),
+               (unsigned long)(ESP.getMinFreeHeap() / 1024));
+  uint32_t psram = ESP.getPsramSize();
+  if (psram > 0) {
+    debug_printf("PSRAM:   %lu KB total, %lu KB free\n",
+                 (unsigned long)(psram / 1024),
+                 (unsigned long)(ESP.getFreePsram() / 1024));
+  } else {
+    debug_println("PSRAM:   Not available");
+  }
   debug_println("");
 }
 
@@ -3425,6 +3489,31 @@ void cli_cmd_show_sse(void) {
   debug_print_uint((hb >= 1000 && hb <= 60000) ? hb : 15000);
   debug_println(" ms");
 
+  // Authentication
+  debug_println("\n--- Authentication ---");
+  if (g_persist_config.rbac.enabled) {
+    debug_println("Auth: RBAC");
+    debug_println("Roller krævet: MONITOR eller API");
+    debug_printf("Brugere med adgang: ");
+    int count = 0;
+    for (int i = 0; i < RBAC_MAX_USERS; i++) {
+      const RbacUser *u = &g_persist_config.rbac.users[i];
+      if (!u->active) continue;
+      if (u->roles & (ROLE_MONITOR | ROLE_API)) {
+        if (count > 0) debug_print(", ");
+        debug_print(u->username);
+        count++;
+      }
+    }
+    if (count == 0) debug_print("(ingen)");
+    debug_println("");
+  } else if (g_persist_config.network.http.auth_enabled) {
+    debug_println("Auth: Legacy (HTTP Basic)");
+    debug_printf("Bruger: %s\n", g_persist_config.network.http.username);
+  } else {
+    debug_println("Auth: Disabled (alle har adgang)");
+  }
+
   // Runtime
   debug_println("\n--- Runtime ---");
   debug_print("Active Clients: ");
@@ -3440,7 +3529,7 @@ void cli_cmd_show_sse(void) {
     debug_println("N/A (not running)");
   }
 
-  // Connected clients with IP addresses
+  // Connected clients with IP, user, topics and uptime
   if (client_count > 0) {
     extern int sse_get_client_info(SseClientInfoPublic *out);
     SseClientInfoPublic clients[SSE_MAX_CLIENTS];
@@ -3451,12 +3540,37 @@ void cli_cmd_show_sse(void) {
       if (clients[i].active) {
         uint32_t ip = clients[i].ip_addr;
         uint32_t uptime_s = (millis() - clients[i].connected_ms) / 1000;
-        char line[80];
-        snprintf(line, sizeof(line), "  [%d] fd=%d  ip=%d.%d.%d.%d  connected=%lus",
-          i, clients[i].fd,
+
+        // Format topics string
+        char topics_str[32] = "";
+        uint8_t t = clients[i].topics;
+        if (t == SSE_TOPIC_ALL) {
+          strcpy(topics_str, "all");
+        } else {
+          bool first = true;
+          if (t & SSE_TOPIC_COUNTERS)  { strcat(topics_str, "cnt"); first = false; }
+          if (t & SSE_TOPIC_TIMERS)    { if (!first) strcat(topics_str, ","); strcat(topics_str, "tmr"); first = false; }
+          if (t & SSE_TOPIC_REGISTERS) { if (!first) strcat(topics_str, ","); strcat(topics_str, "reg"); first = false; }
+          if (t & SSE_TOPIC_SYSTEM)    { if (!first) strcat(topics_str, ","); strcat(topics_str, "sys"); }
+          if (topics_str[0] == '\0') strcpy(topics_str, "none");
+        }
+
+        // Format uptime
+        char uptime_str[16];
+        if (uptime_s >= 3600) {
+          snprintf(uptime_str, sizeof(uptime_str), "%luh%lum", (unsigned long)(uptime_s / 3600), (unsigned long)((uptime_s % 3600) / 60));
+        } else if (uptime_s >= 60) {
+          snprintf(uptime_str, sizeof(uptime_str), "%lum%lus", (unsigned long)(uptime_s / 60), (unsigned long)(uptime_s % 60));
+        } else {
+          snprintf(uptime_str, sizeof(uptime_str), "%lus", (unsigned long)uptime_s);
+        }
+
+        char line[128];
+        snprintf(line, sizeof(line), "  [%d] %-16s %d.%d.%d.%d  topics=%-12s  up=%s",
+          i, clients[i].username,
           (int)(ip & 0xFF), (int)((ip >> 8) & 0xFF),
           (int)((ip >> 16) & 0xFF), (int)((ip >> 24) & 0xFF),
-          (unsigned long)uptime_s);
+          topics_str, uptime_str);
         debug_println(line);
       }
     }
@@ -4528,6 +4642,14 @@ void cli_cmd_show_status(void) {
 
   debug_printf("  Heap free: %lu bytes\n", (unsigned long)ESP.getFreeHeap());
   debug_printf("  Heap min:  %lu bytes\n", (unsigned long)ESP.getMinFreeHeap());
+  uint32_t psram_size = ESP.getPsramSize();
+  if (psram_size > 0) {
+    debug_printf("  PSRAM:     %lu KB total, %lu KB free\n",
+                 (unsigned long)(psram_size / 1024),
+                 (unsigned long)(ESP.getFreePsram() / 1024));
+  } else {
+    debug_println("  PSRAM:     Not available");
+  }
   debug_println("");
 
   // --- Network ---

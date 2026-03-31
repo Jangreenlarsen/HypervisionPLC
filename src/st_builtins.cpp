@@ -400,6 +400,23 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
       result.int_val = 0;
       break;
 
+    // Bit manipulation (v7.3.1)
+    case ST_BUILTIN_BIT_SET: {
+      uint8_t bit = arg2.int_val & 0x0F;  // 0-15 for INT
+      result.int_val = arg1.int_val | (int16_t)(1 << bit);
+      break;
+    }
+    case ST_BUILTIN_BIT_CLR: {
+      uint8_t bit = arg2.int_val & 0x0F;
+      result.int_val = arg1.int_val & (int16_t)~(1 << bit);
+      break;
+    }
+    case ST_BUILTIN_BIT_TST: {
+      uint8_t bit = arg2.int_val & 0x0F;
+      result.bool_val = (arg1.int_val & (1 << bit)) != 0;
+      break;
+    }
+
     // Trigonometric (v4.4+)
     case ST_BUILTIN_SIN:
       result = st_builtin_sin(arg1);
@@ -491,6 +508,19 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
       result.int_val = 0;
       break;
 
+    // Async Modbus Status (v7.7.0 — 0-arg)
+    case ST_BUILTIN_MB_SUCCESS:
+      result = st_builtin_mb_success_func();
+      break;
+
+    case ST_BUILTIN_MB_BUSY:
+      result = st_builtin_mb_busy_func();
+      break;
+
+    case ST_BUILTIN_MB_ERROR:
+      result = st_builtin_mb_error_func();
+      break;
+
     default:
       // Unknown function - return zero
       break;
@@ -548,6 +578,12 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_CTU:           return "CTU";
     case ST_BUILTIN_CTD:           return "CTD";
     case ST_BUILTIN_CTUD:          return "CTUD";
+    case ST_BUILTIN_BIT_SET:       return "BIT_SET";
+    case ST_BUILTIN_BIT_CLR:       return "BIT_CLR";
+    case ST_BUILTIN_BIT_TST:       return "BIT_TST";
+    case ST_BUILTIN_MB_SUCCESS:    return "MB_SUCCESS";
+    case ST_BUILTIN_MB_BUSY:       return "MB_BUSY";
+    case ST_BUILTIN_MB_ERROR:      return "MB_ERROR";
     default:                       return "UNKNOWN";
   }
 }
@@ -586,6 +622,9 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_READ_INPUT:     // MB_READ_INPUT(slave_id, address)
     case ST_BUILTIN_MB_READ_HOLDING:   // MB_READ_HOLDING(slave_id, address)
     case ST_BUILTIN_MB_READ_INPUT_REG: // MB_READ_INPUT_REG(slave_id, address)
+    case ST_BUILTIN_BIT_SET:           // BIT_SET(value, bit_pos)
+    case ST_BUILTIN_BIT_CLR:           // BIT_CLR(value, bit_pos)
+    case ST_BUILTIN_BIT_TST:           // BIT_TST(value, bit_pos)
       return 2;
 
     // 4-argument functions (v4.8.3+)
@@ -637,6 +676,12 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_FILTER:        // FILTER(IN, TIME_CONSTANT)
       return 2;
 
+    // 0-argument functions (v7.7.0)
+    case ST_BUILTIN_MB_SUCCESS:    // MB_SUCCESS()
+    case ST_BUILTIN_MB_BUSY:       // MB_BUSY()
+    case ST_BUILTIN_MB_ERROR:      // MB_ERROR()
+      return 0;
+
     default:
       return 0;
   }
@@ -670,6 +715,9 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_CTU:               // CTU → BOOL
     case ST_BUILTIN_CTD:               // CTD → BOOL
     case ST_BUILTIN_CTUD:              // CTUD → BOOL
+    case ST_BUILTIN_BIT_TST:           // BIT_TST → BOOL
+    case ST_BUILTIN_MB_SUCCESS:        // MB_SUCCESS → BOOL
+    case ST_BUILTIN_MB_BUSY:           // MB_BUSY → BOOL
       return ST_TYPE_BOOL;
 
     // Returns DWORD
@@ -697,6 +745,8 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_PERSIST_LOAD:
     case ST_BUILTIN_MB_READ_HOLDING:   // MB_READ_HOLDING → INT
     case ST_BUILTIN_MB_READ_INPUT_REG: // MB_READ_INPUT_REG → INT
+    case ST_BUILTIN_BIT_SET:           // BIT_SET → INT
+    case ST_BUILTIN_BIT_CLR:           // BIT_CLR → INT
     default:
       return ST_TYPE_INT;
   }

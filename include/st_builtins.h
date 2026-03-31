@@ -96,6 +96,16 @@ typedef enum {
   ST_BUILTIN_ROL,           // ROL(IN, N) → INT/DINT/DWORD (rotate left by N bits)
   ST_BUILTIN_ROR,           // ROR(IN, N) → INT/DINT/DWORD (rotate right by N bits)
 
+  // Bit manipulation (v7.3.1)
+  ST_BUILTIN_BIT_SET,       // BIT_SET(value, bit_pos) → INT (set bit N)
+  ST_BUILTIN_BIT_CLR,       // BIT_CLR(value, bit_pos) → INT (clear bit N)
+  ST_BUILTIN_BIT_TST,       // BIT_TST(value, bit_pos) → BOOL (test bit N)
+
+  // Async Modbus Status (v7.7.0)
+  ST_BUILTIN_MB_SUCCESS,    // MB_SUCCESS() → BOOL (last cache read was valid)
+  ST_BUILTIN_MB_BUSY,       // MB_BUSY() → BOOL (requests pending in queue)
+  ST_BUILTIN_MB_ERROR,      // MB_ERROR() → INT (last error code)
+
   ST_BUILTIN_COUNT          // Total number of built-ins
 } st_builtin_func_t;
 

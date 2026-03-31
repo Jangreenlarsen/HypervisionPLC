@@ -63,6 +63,28 @@ st_value_t st_builtin_mb_write_coil(st_value_t slave_id, st_value_t address, st_
 st_value_t st_builtin_mb_write_holding(st_value_t slave_id, st_value_t address, st_value_t value);
 
 /* ============================================================================
+ * ASYNC STATUS FUNCTIONS (v7.7.0 — 0-arg builtins)
+ * ============================================================================ */
+
+/**
+ * @brief MB_SUCCESS() → BOOL
+ * TRUE if last cache read had valid data.
+ */
+st_value_t st_builtin_mb_success_func();
+
+/**
+ * @brief MB_BUSY() → BOOL
+ * TRUE if async queue has pending requests.
+ */
+st_value_t st_builtin_mb_busy_func();
+
+/**
+ * @brief MB_ERROR() → INT
+ * Returns last Modbus error code (0=OK, 1=Timeout, etc.)
+ */
+st_value_t st_builtin_mb_error_func();
+
+/* ============================================================================
  * GLOBAL STATUS VARIABLES (accessible from ST Logic)
  * ============================================================================ */
 

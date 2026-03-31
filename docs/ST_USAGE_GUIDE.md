@@ -567,7 +567,7 @@ spaces_full := CTUD(entry_sensor, exit_sensor, reset, load, max_spaces);
 
 ---
 
-### Modbus Master Functions (v4.4+)
+### Modbus Master Functions (v4.4+, async v7.7.0)
 
 **Prerequisites:**
 1. Enable Modbus Master: `set modbus-master enabled on`
@@ -576,84 +576,121 @@ spaces_full := CTUD(entry_sensor, exit_sensor, reset, load, max_spaces);
 
 **Hardware:** Uses separate RS485 port on UART1 (TX:GPIO25, RX:GPIO26, DE:GPIO27)
 
+#### Asynkron arkitektur (v7.7.0)
+
+Fra v7.7.0 er alle Modbus Master funktioner **non-blocking**. En dedikeret FreeRTOS
+baggrundstask (Core 0) håndterer UART kommunikation, mens ST Logic kører uhindret
+på Core 1.
+
+```
+  ST Logic (Core 1)              Modbus Task (Core 0)
+  ┌──────────────────┐           ┌──────────────────┐
+  │ MB_READ_HOLDING() │──queue──>│ UART send/receive │
+  │ → cached value    │          │ → opdatér cache   │
+  │ (non-blocking)    │<─cache──│ (blocking OK her) │
+  └──────────────────┘           └──────────────────┘
+```
+
+**Sådan virker det:**
+- **Reads** returnerer den **cached værdi** og køer en refresh-request i baggrunden
+- **Writes** køes i baggrunden og returnerer straks (optimistic update)
+- Første kald til en ny adresse returnerer 0 (cache tom) — næste cyklus har den rigtige værdi
+- Identiske read-requests deduplikeres automatisk (kun én queue-entry per adresse)
+
 **Global Status Variables:**
-- `mb_last_error` (INT) - Error code from last operation (0 = success)
-- `mb_success` (BOOL) - TRUE if last operation succeeded
+- `mb_last_error` (INT) - Error code fra sidste cache-opslag (0 = success)
+- `mb_success` (BOOL) - TRUE hvis cached data er gyldig
 
 **Error Codes:**
 - 0 = MB_OK
 - 1 = MB_TIMEOUT
 - 2 = MB_CRC_ERROR
 - 3 = MB_EXCEPTION
-- 4 = MB_MAX_REQUESTS_EXCEEDED
+- 4 = MB_MAX_REQUESTS_EXCEEDED (queue fuld eller cache fuld)
 - 5 = MB_NOT_ENABLED
 
 ---
 
-#### Reading Functions (2 arguments)
+#### Reading Functions (2 arguments, async cached)
 
 ```structured-text
 (* MB_READ_COIL: Read single coil from remote device *)
 coil_value := MB_READ_COIL(slave_id, address);
-(* Returns: BOOL (coil state) *)
+(* Returns: BOOL — cached coil state, queues refresh *)
 
 (* MB_READ_INPUT: Read single discrete input from remote device *)
 input_value := MB_READ_INPUT(slave_id, address);
-(* Returns: BOOL (input state) *)
+(* Returns: BOOL — cached input state, queues refresh *)
 
 (* MB_READ_HOLDING: Read single holding register from remote device *)
 register_value := MB_READ_HOLDING(slave_id, address);
-(* Returns: INT (register value 0-65535) *)
+(* Returns: INT — cached register value, queues refresh *)
 
 (* MB_READ_INPUT_REG: Read single input register from remote device *)
 input_reg := MB_READ_INPUT_REG(slave_id, address);
-(* Returns: INT (register value 0-65535) *)
+(* Returns: INT — cached register value, queues refresh *)
 ```
 
-#### Writing Functions (3 arguments)
+#### Writing Functions (3 arguments, async queued)
 
 ```structured-text
 (* MB_WRITE_COIL: Write single coil to remote device *)
 result := MB_WRITE_COIL(slave_id, address, value);
-(* Returns: BOOL (TRUE if write succeeded) *)
+(* Returns: BOOL — TRUE if queued successfully *)
 
 (* MB_WRITE_HOLDING: Write single holding register to remote device *)
 result := MB_WRITE_HOLDING(slave_id, address, value);
-(* Returns: BOOL (TRUE if write succeeded) *)
+(* Returns: BOOL — TRUE if queued successfully *)
+```
+
+#### Status Functions (0 arguments, v7.7.0)
+
+```structured-text
+(* MB_SUCCESS: Check if last cached read had valid data *)
+ok := MB_SUCCESS();
+(* Returns: BOOL — TRUE if cache entry was VALID *)
+
+(* MB_BUSY: Check if async queue has pending requests *)
+busy := MB_BUSY();
+(* Returns: BOOL — TRUE if requests are still in queue *)
+
+(* MB_ERROR: Get last Modbus error code *)
+err := MB_ERROR();
+(* Returns: INT — error code (0=OK, 1=TIMEOUT, etc.) *)
 ```
 
 ---
 
-#### Example: Read Remote Sensor
+#### Example: Read Remote Sensor (async)
 
 ```structured-text
 VAR
   remote_sensor: INT;
   local_output: INT;
-  error_flag: BOOL;
+  data_valid: BOOL;
 END_VAR
 
 (* Read holding register #100 from slave ID 5 *)
+(* Returnerer cached værdi — baggrundstask refresher automatisk *)
 remote_sensor := MB_READ_HOLDING(5, 100);
 
-(* Check if read succeeded *)
-IF mb_success THEN
+(* Tjek om cached data er gyldig *)
+IF MB_SUCCESS() THEN
   local_output := remote_sensor;
-  error_flag := FALSE;
+  data_valid := TRUE;
 ELSE
-  (* Read failed - use safe default *)
-  local_output := 0;
-  error_flag := TRUE;
+  (* Første kald eller kommunikationsfejl — brug sidst kendte værdi *)
+  data_valid := FALSE;
 END_IF;
 ```
 
-#### Example: Control Remote Relay
+#### Example: Control Remote Relay (async)
 
 ```structured-text
 VAR
   temperature: INT;
   heating_enabled: BOOL;
-  write_ok: BOOL;
+  write_queued: BOOL;
 END_VAR
 
 (* Read local temperature from HR#10 *)
@@ -667,15 +704,15 @@ ELSE
 END_IF;
 
 (* Write to remote coil #20 on slave ID 3 *)
-write_ok := MB_WRITE_COIL(3, 20, heating_enabled);
+(* Returnerer straks — skrivningen sker i baggrunden *)
+write_queued := MB_WRITE_COIL(3, 20, heating_enabled);
 
-(* Check result *)
-IF NOT write_ok THEN
-  (* Handle error: log, retry, or use fallback *)
+IF NOT write_queued THEN
+  (* Queue fuld — prøv igen næste cyklus *)
 END_IF;
 ```
 
-#### Example: Multi-Device Monitoring
+#### Example: Multi-Device Monitoring (async)
 
 ```structured-text
 VAR
@@ -687,6 +724,8 @@ VAR
 END_VAR
 
 (* Read temperature from 3 remote devices *)
+(* Alle 3 returnerer straks med cached værdier *)
+(* Baggrundstask refresher dem asynkront *)
 device1_temp := MB_READ_HOLDING(1, 100);  (* Slave 1, HR#100 *)
 device2_temp := MB_READ_HOLDING(2, 100);  (* Slave 2, HR#100 *)
 device3_temp := MB_READ_HOLDING(3, 100);  (* Slave 3, HR#100 *)
@@ -695,7 +734,7 @@ device3_temp := MB_READ_HOLDING(3, 100);  (* Slave 3, HR#100 *)
 max_temp := MAX(device1_temp, device2_temp);
 max_temp := MAX(max_temp, device3_temp);
 
-(* Trigger alarm if any device exceeds 50°C *)
+(* Trigger alarm if any device exceeds 50 *)
 IF max_temp > 50 THEN
   alarm := TRUE;
 ELSE
@@ -703,18 +742,43 @@ ELSE
 END_IF;
 ```
 
-#### Rate Limiting
+#### Example: Wait for Completion (async)
 
-**Important:** To prevent bus overload, Modbus Master functions are rate-limited.
+```structured-text
+VAR
+  sensor_val: INT;
+  ready: BOOL;
+END_VAR
 
-- Default: Max 10 requests per ST execution cycle (configurable)
+(* Kø en read-request *)
+sensor_val := MB_READ_HOLDING(1, 100);
+
+(* Vent til alle pending requests er behandlet *)
+IF NOT MB_BUSY() THEN
+  (* Alle requests er færdige — data er opdateret *)
+  ready := TRUE;
+  sensor_val := MB_READ_HOLDING(1, 100);  (* Nu med frisk cached værdi *)
+END_IF;
+```
+
+#### Rate Limiting & Cache
+
+**Request Limit:** Max 10 requests per ST execution cycle (configurable).
 - Configure: `set modbus-master max-requests 20`
 - If exceeded, function returns error MB_MAX_REQUESTS_EXCEEDED (code 4)
 
+**Cache:**
+- 32 entries max (unique slave+address+function combinations)
+- Read deduplication: identical reads queued only once
+- Cache auto-refresh: hvert kald til MB_READ_* køer automatisk en refresh
+- Diagnostik: `show modbus-master` viser cache entries og statistik
+
 **Best Practice:**
-- Keep Modbus calls minimal per program
-- Use local variables to cache remote values
-- Check `mb_success` flag after critical operations
+- Eksisterende ST-programmer virker uændret (backward-kompatibel)
+- Data er typisk 1 cyklus (10ms) gammelt — acceptabelt for PLC-applikationer
+- Brug `MB_SUCCESS()` til at tjekke om cached data er gyldig
+- Brug `MB_BUSY()` til at vente på at alle requests er behandlet
+- Brug `MB_ERROR()` til fejldiagnostik
 
 ---
 
@@ -953,3 +1017,4 @@ Then check Modbus register #101 after executing the program.
 - **v4.3.0** - Added REAL arithmetic support (SIN, COS, TAN)
 - **v4.4.0** - Added Modbus Master functions (MB_READ_*, MB_WRITE_*)
 - **v4.4.0** - Added LIMIT and SEL functions
+- **v7.7.0** - Async Modbus Master: non-blocking reads/writes, MB_SUCCESS/MB_BUSY/MB_ERROR builtins

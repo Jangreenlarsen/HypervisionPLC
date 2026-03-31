@@ -1,6 +1,6 @@
 # Modbus RTU Server (ESP32)
 
-**Version:** v7.3.0 | **Build:** Auto | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
+**Version:** v7.7.0 | **Build:** Auto | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
 
 En komplet, modulær **Modbus RTU Server** implementation til ESP32-WROOM-32 mikrocontroller med **Modbus interfaces** (Slave + Master), ST Structured Text Logic programmering med IEC 61131-3 type system, Wi-Fi netværk, **HTTP REST API** for Node-RED integration, telnet CLI interface, og komplet Modbus register dokumentation. Understøtter flere board-varianter inkl. **ES32D26** med shared RS485 transceiver, 8DI/8DO (shift registers), 8AI og 2AO (DAC).
 
@@ -206,6 +206,8 @@ Remote I/O Boards (Modbus Slaves)
 | Document | Description |
 |----------|-------------|
 | **[CHANGELOG.md](CHANGELOG.md)** | Complete version history |
+| **[docs/SECURITY.md](docs/SECURITY.md)** | Sikkerhedsguide — RBAC multi-user, roller, privilegier, auth flow |
+| **[docs/SSE_USER_GUIDE.md](docs/SSE_USER_GUIDE.md)** | SSE brugervejledning — curl, JavaScript, Node-RED, Python eksempler |
 | **[docs/API_V7_SSE_VERSIONING.md](docs/API_V7_SSE_VERSIONING.md)** | v7.0.3 SSE Real-Time Events + API Versioning (FEAT-023/030) |
 | **[RELEASE_NOTES_V47.md](RELEASE_NOTES_V47.md)** | v4.7 release notes |
 | **[IMPLEMENTATION_STATUS_v4.6.0.md](IMPLEMENTATION_STATUS_v4.6.0.md)** | v4.6.0 implementation status |
@@ -3745,6 +3747,33 @@ empty := CTD(dispense, reload, 50);              (* Count down from 50 *)
 
 ## 📝 Version History
 
+- **v7.7.0** (2026-03-31) - ⚡ Async Modbus Master (non-blocking)
+  - **FEAT-070:** Dedikeret FreeRTOS baggrundstask (Core 0) til Modbus UART I/O
+  - **FEAT-070:** MB_Read/Write builtins er nu non-blocking (cached reads, queued writes)
+  - **FEAT-070:** Nye ST builtins: `MB_SUCCESS()`, `MB_BUSY()`, `MB_ERROR()`
+  - **FEAT-070:** Request deduplication, 32-entry cache, 16-deep queue
+  - **FEAT-070:** `show modbus-master` viser async cache statistik + entries
+  - **FEAT-069:** SSE konfiguration inkluderet i backup/restore
+  - **FIX: BUG-268** Confirm dialog callback blev aldrig kaldt
+  - **FIX: BUG-267** Web system write-knapper viste ikke fejl ved 403
+  - **FIX: BUG-265** 42 write-endpoints tjekker nu privilege (CHECK_AUTH_WRITE)
+  - **FIX: BUG-266** rbac_parse_privilege("write") returnerede PRIV_RW
+  - **FIX: BUG-264** SSE afviste brugere med API rolle
+  - **FIX: BUG-263** Web user badge viste altid "Ikke logget ind"
+  - **FEAT-066:** SSE klient management i web System side
+  - **Backward-kompatibel:** eksisterende ST-programmer virker uændret
+  - **DOC:** ST_USAGE_GUIDE.md opdateret med async Modbus arkitektur og eksempler
+- **v7.6.2** (2026-03-30) - 🔐 RBAC Multi-User System
+  - **FEAT:** Role-Based Access Control med op til 8 brugere
+  - **FEAT:** Roller (api, cli, editor, monitor) og privilegier (read, write, read/write)
+  - **FEAT:** RBAC auth for HTTP API, SSE, CLI og Web UI
+  - **FEAT:** CLI kommandoer: `set user`, `show users`, `delete user`
+  - **FEAT:** Schema migration v14→v15 (legacy single-user → RBAC)
+  - **DOC:** [docs/SECURITY.md](docs/SECURITY.md) — sikkerhedsguide
+- **v7.6.1** (2026-03-30) - 🔧 SSE watch_all mode + SSE User Guide
+  - **FIX: BUG-250** `subscribe=all` overvågede kun HR 0-15 — coils, IR og DI blev ignoreret
+  - **FEAT:** `watch_all` mode scanner alle 256 HR + 256 IR + 256 coils + 256 DI ved `subscribe=all`
+  - **DOC:** [docs/SSE_USER_GUIDE.md](docs/SSE_USER_GUIDE.md) — komplet brugervejledning med curl, JavaScript, Node-RED og Python eksempler
 - **v7.1.0** (2026-03-18) - 📊 Prometheus Metrics + Persist API + Rate Limiting + CLI
   - **FEAT-032: Prometheus Metrics** — `GET /api/metrics` i text exposition format (uptime, heap, HTTP, Modbus, counters, timers, watchdog)
   - **FEAT-022: Persistence Group API** — `GET/POST/DELETE /api/persist/groups/{name}` + `/api/persist/save` + `/api/persist/restore`

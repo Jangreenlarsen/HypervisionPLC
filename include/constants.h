@@ -197,7 +197,26 @@ typedef enum {
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   14      // Current config schema version (v7.2.0: modbus_mode + ao_mode + pin config)
+#define CONFIG_SCHEMA_VERSION   15      // Current config schema version (v7.6.2: RBAC multi-user)
+
+/* ============================================================================
+ * RBAC CONSTANTS (v7.6.2)
+ * ============================================================================ */
+#define RBAC_MAX_USERS          8       // Max user accounts
+#define RBAC_USERNAME_MAX       24      // Max username length (incl. null)
+#define RBAC_PASSWORD_MAX       32      // Max password length (incl. null)
+
+// Role bitmask — controls which interfaces a user can access
+#define ROLE_API        0x01    // REST API endpoints (/api/*)
+#define ROLE_CLI        0x02    // CLI commands (Serial, Telnet, Web CLI)
+#define ROLE_EDITOR     0x04    // ST Logic Editor (/editor)
+#define ROLE_MONITOR    0x08    // Dashboard/Monitor (/)
+#define ROLE_ALL        0x0F    // All roles
+
+// Privilege levels
+#define PRIV_READ       0x01    // Read-only (show, GET)
+#define PRIV_WRITE      0x02    // Write (set, POST, DELETE)
+#define PRIV_RW         0x03    // Read + Write
 #define CONFIG_CRC_SEED         0xFFFF  // CRC16 initial value
 
 /* ============================================================================
@@ -480,10 +499,74 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.6.0"
+#define PROJECT_VERSION     "7.7.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.7.0 (2026-03-31): Async Modbus Master — nul blokering, nul overruns
+ *                    - FEAT-070: Dedikeret FreeRTOS baggrundstask (Core 0) til Modbus UART I/O
+ *                    - FEAT-070: MB_Read/Write builtins er nu non-blocking (cached reads, queued writes)
+ *                    - FEAT-070: Nye ST builtins: MB_SUCCESS(), MB_BUSY(), MB_ERROR()
+ *                    - FEAT-070: Request deduplication — identical reads samles automatisk
+ *                    - FEAT-070: Async cache med 32 entries, 16-deep request queue
+ *                    - FEAT-070: show modbus-master viser nu async cache statistik + entries
+ *                    - Backward-kompatibel: eksisterende ST-programmer virker uændret
+ * v7.6.2.7 (2026-03-31): SSE konfiguration i backup/restore
+ *                      - FEAT-069: Backup eksporterer nu SSE indstillinger (enabled, port, max_clients,
+ *                        check_interval_ms, heartbeat_ms) som selvstændig "sse" JSON sektion
+ *                      - FEAT-069: Restore gendanner SSE indstillinger fra backup fil
+ * v7.6.2.6 (2026-03-31): Fix confirm dialog — callback blev aldrig kaldt
+ *                      - BUG-268: confirmAction() kaldte closeConfirm() som satte pendingConfirmFn=null
+ *                        FØR callback blev kaldt. Fabriksindstillinger, Genstart, SSE disconnect-all
+ *                        viste bekræftelsesdialog men gjorde ingenting ved "Bekræft"
+ * v7.6.2.5 (2026-03-31): Web system fejlhåndtering for write-operationer
+ *                      - BUG-267: doReboot() catch slugte fejl silently — brugeren så "Genstarter..."
+ *                        men intet skete. Alle write-knapper viser nu 403-fejl ved manglende privilege
+ *                      - Forbedret fejlvisning for reboot, save, load, defaults, SSE disconnect
+ * v7.6.2.4 (2026-03-31): RBAC privilege enforcement + SSE rolle-fix
+ *                      - BUG-265: 42 write-endpoints ændret fra CHECK_AUTH til CHECK_AUTH_WRITE
+ *                        Read-only brugere fik 200 OK på POST/DELETE — nu 403 "Write privilege required"
+ *                      - BUG-266: rbac_parse_privilege("write") returnerede PRIV_RW i stedet for PRIV_WRITE
+ *                      - BUG-264: SSE afviste brugere med api rolle — udvidet til MONITOR|API
+ *                      - show sse viser nu RBAC Authentication sektion
+ *                      - show users roles viser SSE krav (api ELLER monitor)
+ * v7.6.2.3 (2026-03-30): Fix /api/user/me route + SSE klient management i web
+ *                      - BUG-263: /api/user/me manglede httpd URI handler registrering
+ *                        (kun i v1_routes, ikke direkte — fetch('/api/user/me') gav 404)
+ *                      - FIX: Dashboard login modal + Log ind knap i user menu
+ *                      - FIX: updateUserBadge() kaldes nu efter login i alle 4 web sider
+ *                      - FEAT-066: SSE klient management sektion i web System side
+ *                        GET /api/events/clients + POST /api/events/disconnect
+ *                        Vis slot, IP, bruger, topics, uptime + afbryd knapper
+ * v7.6.2.2 (2026-03-30): Web user badge + show user CLI + /api/user/me
+ *                      - FEAT-063: User badge i topnav med login/logout og session info
+ *                      - FEAT: GET /api/user/me returnerer autentificeret bruger info
+ *                      - FEAT: show user CLI kommando viser aktuel session
+ *                      - FIX: show config http viser RBAC status i stedet for legacy auth
+ * v7.6.2.1 (2026-03-30): SSE monitor udvidelse + show config RBAC fix
+ *                      - FEAT-062: show sse viser username, IP, topics, uptime per klient
+ *                      - FIX: BUG-261 show config rbac viste tom sektion (selvstændig filter)
+ *                      - FIX: BUG-262 set rbac alias → USER i normalize_alias()
+ *                      - FEAT: show config set-commands inkluderer RBAC user-kommandoer
+ * v7.6.2 (2026-03-30): RBAC multi-user system (op til 8 brugere)
+ *                      - FEAT-059: Role-Based Access Control med roller (api, cli, editor, monitor)
+ *                      - FEAT: Privilege-levels (read, write, read/write)
+ *                      - FEAT: RBAC auth for HTTP API, SSE, CLI og Web UI
+ *                      - FEAT: CLI kommandoer: set user, show users, delete user
+ *                      - FEAT: Schema migration v14→v15 (legacy single-user → RBAC)
+ *                      - FEAT: SSE kræver MONITOR rolle
+ *                      - Nye filer: rbac.h, rbac.cpp
+ * v7.6.1.1 (2026-03-30): Web CLI udskilt som selvstændig side + konsistent navigation
+ *                      - FEAT: Ny /cli side med standalone Web CLI console
+ *                      - FEAT: Konsistent topnav på alle sider: Monitor | ST Editor | CLI | System | OTA Update
+ *                      - REFACTOR: CLI fjernet fra ST Editor (var view-panel, nu egen side)
+ *                      - Nye filer: web_cli.h, web_cli.cpp
+ * v7.6.1 (2026-03-30): FIX: SSE subscribe=all overvåger nu ALLE registre (watch_all mode)
+ *                      - FIX: BUG-250 subscribe=all defaultede til HR 0-15 — coils/IR/DI ignoreret
+ *                      - FEAT: watch_all mode scanner 256 HR + 256 IR + 256 coils + 256 DI
+ *                      - FEAT: Heap-allokeret SseWatchAllState (~1.5 KB pr. klient)
+ *                      - FEAT: connected event rapporterer "mode":"all" i watching-felt
+ *                      - DOC: SSE_USER_GUIDE.md brugervejledning med curl/JS/Node-RED/Python eksempler
  * v7.6.0 (2026-03-29): Bytecode persistens i SPIFFS + fasebaseret ST compiler
  *                      - FEAT: Bytecode cache i /logic_N.bc (CRC32 validering)
  *                      - FEAT: Boot indlæser cached bytecode (~2 KB peak vs 36-94 KB recompile)

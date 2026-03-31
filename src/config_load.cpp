@@ -9,6 +9,7 @@
 #include "config_load.h"
 #include "config_save.h"
 #include "constants.h"
+#include "rbac.h"
 #include "debug.h"
 #include "debug_flags.h"
 #include "network_config.h"
@@ -85,6 +86,9 @@ static void config_init_defaults(PersistConfig* cfg) {
   cfg->uart2_tx_pin = 0xFF;
   cfg->uart2_rx_pin = 0xFF;
   cfg->uart2_dir_pin = 0xFF;
+
+  // RBAC defaults: disabled (legacy single-user mode)
+  memset(&cfg->rbac, 0, sizeof(RbacConfig));
 
   // Initialize network config with defaults (v3.0+)
   network_config_init_defaults(&cfg->network);
@@ -337,6 +341,17 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->schema_version = 14;
 
       debug_println("CONFIG LOAD: Migration 13→14 complete");
+    }
+
+    if (out->schema_version == 14) {
+      debug_println("CONFIG LOAD: Migrating schema 14 → 15 (RBAC multi-user)");
+
+      // Migrate legacy single-user to RBAC
+      rbac_migrate_legacy(out);
+
+      out->schema_version = 15;
+
+      debug_println("CONFIG LOAD: Migration 14→15 complete");
     } else if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);
