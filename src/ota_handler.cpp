@@ -32,6 +32,7 @@
 #include "api_handlers.h"
 #include "config_struct.h"
 #include "constants.h"
+#include "version.h"
 #include "debug.h"
 
 // External functions from http_server.cpp / api_handlers.cpp
@@ -301,7 +302,7 @@ esp_err_t api_handler_ota_status(httpd_req_t *req)
   int len = snprintf(resp, sizeof(resp),
     "{\"state\":\"%s\",\"received\":%lu,\"total\":%lu,\"percent\":%u,"
     "\"error\":\"%s\",\"new_version\":\"%s\","
-    "\"current_version\":\"%s\",\"running_partition\":\"%s\","
+    "\"current_version\":\"v%s.%d\",\"running_partition\":\"%s\","
     "\"boot_partition\":\"%s\",\"rollback_possible\":%s}",
     state_str,
     (unsigned long)ota_state.received,
@@ -309,7 +310,7 @@ esp_err_t api_handler_ota_status(httpd_req_t *req)
     (unsigned)percent,
     ota_state.error_msg,
     ota_state.new_version,
-    running ? running->version : "unknown",
+    PROJECT_VERSION, BUILD_NUMBER,
     running_part ? running_part->label : "unknown",
     boot_part ? boot_part->label : "unknown",
     (running_part && boot_part && running_part != boot_part) ? "true" : "false");

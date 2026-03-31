@@ -1398,6 +1398,11 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
     if (index == 0xFF) {
       return NULL;  // Error already reported
     }
+    // v7.7.1: Carry initial value from VAR declaration to symbol table
+    st_symbol_t *sym = &compiler->symbol_table.symbols[index];
+    sym->initial_value = var->initial_value;
+    // Check if non-zero initial value was declared
+    sym->has_initial_value = (var->initial_value.int_val != 0) ? 1 : 0;
   }
 
   // FEAT-003: Phase 1.5 - Scan for FUNCTION/FUNCTION_BLOCK definitions
@@ -1508,7 +1513,8 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
   bytecode->exported_var_count = 0;  // v5.1.0 - IR pool export count
   for (int i = 0; i < compiler->symbol_table.count; i++) {
     st_symbol_t *sym = &compiler->symbol_table.symbols[i];
-    bytecode->variables[i].int_val = 0;  // Initialize all to 0
+    bytecode->variables[i] = sym->has_initial_value ? sym->initial_value : (st_value_t){.int_val = 0};
+    bytecode->var_initial[i] = bytecode->variables[i];  // Save initial value for reset/persist
     // Save variable name and type for CLI binding
     strncpy(bytecode->var_names[i], sym->name, sizeof(bytecode->var_names[i]) - 1);
     bytecode->var_names[i][sizeof(bytecode->var_names[i]) - 1] = '\0';

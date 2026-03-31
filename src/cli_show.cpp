@@ -1009,6 +1009,9 @@ void cli_cmd_show_config(const char *section) {
   debug_print("  password: ");
   debug_println(g_persist_config.network.telnet_password[0] ? "********" : "(not set)");
 
+  debug_print("  auth mode: ");
+  debug_println(g_persist_config.rbac.enabled ? "RBAC (centralized)" : "local");
+
   } // end show_telnet
 
   // =========================================================================

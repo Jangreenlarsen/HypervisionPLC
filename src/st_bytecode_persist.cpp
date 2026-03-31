@@ -84,12 +84,14 @@ bool st_bytecode_save(uint8_t program_id, const st_bytecode_program_t *bytecode,
     return false;
   }
 
-  // Write variable table: name[32] + type(1) + export_flag(1) per variable
+  // Write variable table: name[32] + type(1) + export_flag(1) + initial_value(4) per variable
   for (uint8_t v = 0; v < bytecode->var_count; v++) {
     file.write((uint8_t *)bytecode->var_names[v], 32);
     uint8_t type_byte = (uint8_t)bytecode->var_types[v];
     file.write(type_byte);
     file.write(bytecode->var_export_flags[v]);
+    // v2: Write initial value (4 bytes)
+    file.write((uint8_t *)&bytecode->var_initial[v], sizeof(st_value_t));
   }
 
   // Write instructions (instr_count × 8 bytes, flat POD)
@@ -209,8 +211,12 @@ bool st_bytecode_load(uint8_t program_id, st_bytecode_program_t *bytecode,
     bytecode->var_types[v] = (st_datatype_t)type_byte;
     bytecode->var_export_flags[v] = file.read();
 
-    // Initialize variable value to zero
-    memset(&bytecode->variables[v], 0, sizeof(st_value_t));
+    // v2: Read initial value and use it as starting value
+    if (file.read((uint8_t *)&bytecode->var_initial[v], sizeof(st_value_t)) != sizeof(st_value_t)) {
+      file.close();
+      return false;
+    }
+    bytecode->variables[v] = bytecode->var_initial[v];
   }
 
   // Allocate and read instructions

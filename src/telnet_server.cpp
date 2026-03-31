@@ -16,6 +16,7 @@
 #include "constants.h"
 #include "types.h"  // For NetworkConfig
 #include "config_struct.h"  // For g_persist_config (hostname + live credentials)
+#include "rbac.h"           // RBAC authentication (v7.7.0)
 #include "console.h"
 #include "console_telnet.h"
 #include "cli_shell.h"  // For cli_shell_execute_command()
@@ -77,6 +78,7 @@ TelnetServer* telnet_server_create(uint16_t port, NetworkConfig *network_config)
   server->auth_state = TELNET_AUTH_WAITING;
   server->auth_attempts = 0;
   server->auth_lockout_time = 0;
+  server->rbac_user_index = -1;
   memset(server->auth_username, 0, sizeof(server->auth_username));
 
   ESP_LOGI(TAG, "Telnet server created for port %d", port);
@@ -319,20 +321,31 @@ static void telnet_handle_auth_input(TelnetServer *server, const char *input) {
     server->auth_state = TELNET_AUTH_USERNAME;
     telnet_send_auth_prompt(server);
   } else if (server->auth_state == TELNET_AUTH_USERNAME) {
-    // Password entry
-    // Use credentials from live config (always up-to-date, even after 'set telnet' without reboot)
-    const char *expected_user = g_persist_config.network.telnet_username[0] ? g_persist_config.network.telnet_username : "admin";
-    const char *expected_pass = g_persist_config.network.telnet_password[0] ? g_persist_config.network.telnet_password : "telnet123";
+    // Password entry — try RBAC first, then fall back to local telnet credentials
+    bool auth_ok = false;
+    int rbac_uid = -1;
 
-    // DEBUG: Log password validation attempt (temporary - can be removed later)
-    ESP_LOGI(TAG, "Auth attempt: user='%s' (expected='%s'), pass_len=%d (expected_len=%d)",
-             server->auth_username, expected_user, strlen(trimmed_input), strlen(expected_pass));
+    if (g_persist_config.rbac.enabled) {
+      // RBAC mode: authenticate against RBAC user database
+      rbac_uid = rbac_authenticate(server->auth_username, trimmed_input);
+      auth_ok = (rbac_uid >= 0);
+      ESP_LOGI(TAG, "RBAC auth: user='%s', result=%d", server->auth_username, rbac_uid);
+    } else {
+      // Legacy mode: use local telnet credentials from config
+      const char *expected_user = g_persist_config.network.telnet_username[0] ? g_persist_config.network.telnet_username : "admin";
+      const char *expected_pass = g_persist_config.network.telnet_password[0] ? g_persist_config.network.telnet_password : "telnet123";
+      auth_ok = (strcmp(server->auth_username, expected_user) == 0 &&
+                 strcmp(trimmed_input, expected_pass) == 0);
+      if (auth_ok) rbac_uid = 99;  // Virtual admin for legacy mode
+      ESP_LOGI(TAG, "Legacy auth: user='%s' (expected='%s'), result=%s",
+               server->auth_username, expected_user, auth_ok ? "OK" : "FAIL");
+    }
 
-    if (strcmp(server->auth_username, expected_user) == 0 &&
-        strcmp(trimmed_input, expected_pass) == 0) {
+    if (auth_ok) {
       // Authentication successful!
       server->auth_state = TELNET_AUTH_AUTHENTICATED;
       server->auth_attempts = 0;
+      server->rbac_user_index = (int8_t)rbac_uid;
 
       // Re-enable SERVER echo for normal CLI interaction
       server->echo_enabled = 1;  // SERVER WILL ECHO
@@ -839,6 +852,7 @@ int telnet_server_loop(TelnetServer *server)
       server->auth_state = TELNET_AUTH_WAITING;
       server->auth_attempts = 0;
       server->auth_lockout_time = 0;
+      server->rbac_user_index = -1;
       memset(server->auth_username, 0, sizeof(server->auth_username));
     }
     server->escape_seq_state = 0;
@@ -879,6 +893,7 @@ int telnet_server_loop(TelnetServer *server)
       server->auth_state = TELNET_AUTH_WAITING;
       server->auth_attempts = 0;
       server->auth_lockout_time = 0;
+      server->rbac_user_index = -1;
       memset(server->auth_username, 0, sizeof(server->auth_username));
 
       // telnet_send_auth_prompt() will set server->echo_enabled = 1
@@ -947,6 +962,7 @@ int telnet_server_loop(TelnetServer *server)
             server->auth_state = TELNET_AUTH_WAITING;
             server->auth_attempts = 0;
             server->auth_lockout_time = 0;
+            server->rbac_user_index = -1;
             memset(server->auth_username, 0, sizeof(server->auth_username));
           }
 

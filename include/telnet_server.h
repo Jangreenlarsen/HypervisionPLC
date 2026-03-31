@@ -51,11 +51,12 @@ typedef struct {
   TcpServer *tcp_server;
   TelnetParseState parse_state;
 
-  // Authentication state (v3.0+)
+  // Authentication state (v3.0+, RBAC v7.7.0)
   TelnetAuthState auth_state;
   char auth_username[32];
   uint8_t auth_attempts;          // Failed login attempt counter
   uint32_t auth_lockout_time;     // Timestamp when lockout expires (0 = no lockout)
+  int8_t rbac_user_index;         // RBAC user index (0-7), 99=virtual admin, -1=not authenticated
 
   // Per-client input buffer (cooked mode)
   char input_buffer[TELNET_INPUT_BUFFER_SIZE];

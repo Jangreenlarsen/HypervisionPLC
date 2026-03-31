@@ -32,6 +32,8 @@ typedef struct {
   uint8_t is_func_local;      // 1 = function local variable (use LOAD_LOCAL/STORE_LOCAL)
   uint8_t func_param_index;   // Parameter index within function (0-based)
   uint8_t func_local_index;   // Local variable index within function (0-based)
+  st_value_t initial_value;   // Initial value from VAR declaration (v7.7.1)
+  uint8_t has_initial_value;  // 1 = explicit initial value declared
 } st_symbol_t;
 
 /* Symbol table */

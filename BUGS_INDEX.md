@@ -315,6 +315,12 @@
 | BUG-250 | PSRAM detection mangler i CLI og metrics | ✅ FIXED | 🔵 LOW | v7.3.1 | `show version` og `show status` viste ikke PSRAM info. `/api/metrics` manglede `esp32_psram_total_bytes` og `esp32_psram_free_bytes`. FIX: Tilføjet PSRAM detection med `ESP.getPsramSize()`/`ESP.getFreePsram()` til begge CLI kommandoer og Prometheus endpoint |
 | BUG-251 | `/api/metrics` kræver unødvendig auth | ✅ FIXED | 🟠 MEDIUM | v7.3.1 | Metrics endpoint krævede Basic Auth → dashboard og Prometheus scrapers kunne ikke hente data uden credentials. FIX: Fjernet `CHECK_AUTH()`, beholdt `CHECK_API_ENABLED()` og rate limit. Read-only data, ingen sikkerhedsrisiko |
 | BUG-252 | Web editor/system login tabt ved navigation mellem moduler | ✅ FIXED | 🟡 HIGH | v7.3.2 | `AUTH` variabel (in-memory) nulstillet ved hvert page load → brugeren skulle logge ind igen ved skift mellem `/editor` og `/system`. FIX: Auth token gemt i `sessionStorage` (`hfplc_auth` key), auto-verificeret ved page load. Ryddes ved 401 eller tab-lukning (web_editor.cpp, web_system.cpp) |
+| BUG-290 | VAR initial values ignoreret af compiler | ✅ FIXED | 🔴 CRITICAL | v7.7.1.1 | `INPUTTIMER : INT := 120` blev altid 0. Compiler satte `variables[i].int_val = 0` hardkodet. FIX: Symbol table bærer nu `initial_value` fra parser → compiler → bytecode. (st_compiler.h, st_compiler.cpp) |
+| BUG-291 | VAR initial values tabt ved boot (bytecode cache) | ✅ FIXED | 🔴 CRITICAL | v7.7.1.1 | Cached bytecode (`.bc` filer) gemte ikke initial values. Ved boot satte `st_bytecode_load()` alle variabler til 0. FIX: Bytecode persist format v2 — gemmer/loader `var_initial[]` per variabel. Version mismatch trigger automatisk recompile. (st_bytecode_persist.cpp, st_types.h) |
+| BUG-292 | Telnet auth bruger ikke RBAC | ✅ FIXED | 🟡 HIGH | v7.7.1.1 | Telnet brugte kun lokale telnet credentials, ikke RBAC brugerdatabase. FIX: Når `rbac.enabled=true` bruger telnet `rbac_authenticate()`. Fallback til lokal user/pass når RBAC disabled. `show config telnet` viser auth mode. (telnet_server.cpp, cli_show.cpp) |
+| BUG-293 | mb_async_init() crash på ES32D26 i SLAVE mode | ✅ FIXED | 🔴 CRITICAL | v7.7.1.1 | `g_modbus_master_config.enabled` var true i NVS selvom master ikke initialiseret (SLAVE mode). Guard checkede forkert flag → crash ved "Sub". FIX: `#if MODBUS_SINGLE_TRANSCEIVER` checker nu `mb_mode == MODBUS_MODE_MASTER` direkte. (main.cpp) |
+| BUG-294 | Web editor manglede BEGIN/END/EXPORT keywords | ✅ FIXED | 🟠 MEDIUM | v7.7.1.1 | Autocomplete kendte ikke BEGIN, END, EXPORT. Modbus Master funktioner ufuldstændige (manglede MB_READ_COIL, MB_READ_INPUT_REG, MB_SUCCESS, MB_BUSY, MB_ERROR). FIX: Opdateret ST_KW og ST_FN lister + tilføjet Modbus Master hjælpe-sektion. (web_editor.cpp) |
+| BUG-295 | Version+build ikke vist i web System/Administration | ✅ FIXED | 🟠 MEDIUM | v7.7.1.1 | `/api/status` manglede `firmware` felt. Web UI overskrev firmware med bare version. OTA status brugte ESP-IDF app version. FIX: Tilføjet `firmware: "v7.7.1.1.XXXX"` i API + konsistent visning i web UI og OTA. (api_handlers.cpp, web_system.cpp, ota_handler.cpp) |
 
 ## Quick Lookup by Category
 
@@ -431,6 +437,14 @@
 - 32-entry cache, 16-deep request queue, request deduplication
 - `show modbus-master` viser async cache statistik + entries
 - Backward-kompatibel: eksisterende ST-programmer virker uændret
+
+**v7.7.1.1 — VAR Initializers + Telnet RBAC + Boot Fix (2026-03-31):**
+- **BUG-290:** ✅ VAR initial values (`INT := 120`) virker nu i compiler
+- **BUG-291:** ✅ VAR initial values bevares i bytecode cache (nyt v2 format)
+- **BUG-292:** ✅ Telnet bruger RBAC auth når enabled, ellers lokal user/pass
+- **BUG-293:** ✅ mb_async_init() crash på ES32D26 i SLAVE mode fixet
+- **BUG-294:** ✅ Web editor autocomplete: BEGIN/END/EXPORT + alle Modbus Master funktioner
+- **BUG-295:** ✅ Version+build konsistent i web UI (System, OTA, footer)
 
 **v7.6.2.7 — SSE backup/restore (2026-03-31):**
 - **FEAT-069:** ✅ SSE konfiguration inkluderet i backup/restore — enabled, port, max_clients, check_interval_ms, heartbeat_ms

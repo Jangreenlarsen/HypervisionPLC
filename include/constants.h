@@ -499,10 +499,14 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.7.0"
+#define PROJECT_VERSION     "7.7.1.1"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.7.1.1 (2026-03-31): VAR initializer fix + Telnet RBAC + version i web UI
+ *                    - FIX: VAR declarations med initial values (fx INT := 120) virker nu
+ *                    - FIX: Telnet bruger RBAC når enabled, ellers lokal telnet user/pass
+ *                    - FIX: Web System/Administration viser version+build konsistent
  * v7.7.0 (2026-03-31): Async Modbus Master — nul blokering, nul overruns
  *                    - FEAT-070: Dedikeret FreeRTOS baggrundstask (Core 0) til Modbus UART I/O
  *                    - FEAT-070: MB_Read/Write builtins er nu non-blocking (cached reads, queued writes)

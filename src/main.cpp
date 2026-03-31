@@ -119,7 +119,17 @@ void setup() {
   modbus_master_init();     // Modbus RTU master (UART1, separate RS485 port)
 #endif
 
-  mb_async_init();          // Async Modbus Master background task (v7.7.0)
+  // Only start async Modbus task if master was actually initialized
+  // On ES32D26 (single transceiver): master only runs in MASTER mode
+#if MODBUS_SINGLE_TRANSCEIVER
+  if (mb_mode == MODBUS_MODE_MASTER) {
+    mb_async_init();        // Async Modbus Master background task (v7.7.0)
+  }
+#else
+  if (g_modbus_master_config.enabled) {
+    mb_async_init();        // Async Modbus Master background task (v7.7.0)
+  }
+#endif
   heartbeat_init();         // LED blink on GPIO2
   sse_init();               // SSE real-time events (v7.0.0)
   Serial.println("OK");

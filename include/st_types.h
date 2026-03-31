@@ -547,9 +547,10 @@ typedef struct {
   uint16_t instr_capacity;                // Allocated size (== instr_count after compile)
 
   // Variable memory
-  st_value_t variables[32];  // Max 32 variables
-  char var_names[32][32];    // Variable names (for CLI binding by name, 31 chars max)
-  st_datatype_t var_types[32]; // Variable types (BOOL, INT, etc.) - for bindings display
+  st_value_t variables[32];        // Max 32 variables (runtime values)
+  st_value_t var_initial[32];      // Initial values from VAR declarations (v7.7.1)
+  char var_names[32][32];          // Variable names (for CLI binding by name, 31 chars max)
+  st_datatype_t var_types[32];     // Variable types (BOOL, INT, etc.) - for bindings display
   uint8_t var_count;
 
   // IR Pool Export (v5.1.0 - dynamic allocation of IR 220-251)

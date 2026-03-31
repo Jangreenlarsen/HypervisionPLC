@@ -342,6 +342,9 @@ esp_err_t api_handler_status(httpd_req_t *req)
 
   doc["version"] = PROJECT_VERSION;
   doc["build"] = BUILD_NUMBER;
+  char fw_str[32];
+  snprintf(fw_str, sizeof(fw_str), "v%s.%d", PROJECT_VERSION, BUILD_NUMBER);
+  doc["firmware"] = fw_str;
   doc["uptime_ms"] = millis();
   doc["heap_free"] = ESP.getFreeHeap();
   doc["wifi_connected"] = wifi_driver_is_connected() ? true : false;

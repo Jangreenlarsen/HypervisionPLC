@@ -372,9 +372,9 @@ function refreshInfo(){
   }).catch(()=>{});
 
   api('/api/status').then(r=>r.json()).then(d=>{
-    if(d.firmware)$('siVersion').textContent=d.firmware;
-    if(d.version)$('siVersion').textContent=d.version;
-    $('footVer').textContent=d.firmware||d.version||'';
+    var ver=d.firmware||('v'+d.version+'.'+d.build)||d.version||'';
+    $('siVersion').textContent=ver;
+    $('footVer').textContent=ver;
   }).catch(()=>{});
 }
 
