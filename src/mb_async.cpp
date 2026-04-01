@@ -173,8 +173,15 @@ static void mb_async_task_func(void *pvParameters) {
     }
 
     // Apply inter-frame delay (on background task — doesn't block ST Logic)
-    if (g_modbus_master_config.inter_frame_delay > 0) {
-      vTaskDelay(pdMS_TO_TICKS(g_modbus_master_config.inter_frame_delay));
+    // 0=auto: calculate t3.5 from baudrate per Modbus RTU spec
+    {
+      extern uint16_t modbus_effective_inter_frame(uint16_t, uint32_t);
+      uint16_t eff_delay = modbus_effective_inter_frame(
+        g_modbus_master_config.inter_frame_delay,
+        g_modbus_master_config.baudrate);
+      if (eff_delay > 0) {
+        vTaskDelay(pdMS_TO_TICKS(eff_delay));
+      }
     }
 
     // Update cache (thread-safe)

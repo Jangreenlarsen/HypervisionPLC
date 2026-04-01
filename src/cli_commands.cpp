@@ -1544,7 +1544,7 @@ void cli_cmd_defaults(void) {
   g_persist_config.modbus_slave.baudrate = 9600;
   g_persist_config.modbus_slave.parity = 0;  // None
   g_persist_config.modbus_slave.stop_bits = 1;
-  g_persist_config.modbus_slave.inter_frame_delay = 10;
+  g_persist_config.modbus_slave.inter_frame_delay = 0;  // 0=auto (t3.5 from baudrate)
 
   // Initialize all GPIO mappings as unused
   for (uint8_t i = 0; i < 8; i++) {

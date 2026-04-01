@@ -35,7 +35,7 @@ static void config_init_defaults(PersistConfig* cfg) {
   cfg->modbus_slave.baudrate = 9600;
   cfg->modbus_slave.parity = 0;  // None
   cfg->modbus_slave.stop_bits = 1;
-  cfg->modbus_slave.inter_frame_delay = 10;
+  cfg->modbus_slave.inter_frame_delay = 0;  // 0=auto (t3.5 calculated from baudrate)
 
   strncpy(cfg->hostname, "modbus-esp32", 31);  // Default hostname (v3.2+)
   cfg->hostname[31] = '\0';
@@ -55,7 +55,7 @@ static void config_init_defaults(PersistConfig* cfg) {
   cfg->modbus_master.parity = MODBUS_MASTER_DEFAULT_PARITY;  // 0 (none)
   cfg->modbus_master.stop_bits = MODBUS_MASTER_DEFAULT_STOP_BITS;  // 1
   cfg->modbus_master.timeout_ms = MODBUS_MASTER_DEFAULT_TIMEOUT;  // 500ms
-  cfg->modbus_master.inter_frame_delay = MODBUS_MASTER_DEFAULT_INTER_FRAME;  // 10ms
+  cfg->modbus_master.inter_frame_delay = 0;  // 0=auto (t3.5 calculated from baudrate)
   cfg->modbus_master.max_requests_per_cycle = MODBUS_MASTER_DEFAULT_MAX_REQUESTS;  // 10
   cfg->modbus_master.total_requests = 0;
   cfg->modbus_master.successful_requests = 0;

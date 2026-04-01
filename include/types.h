@@ -396,7 +396,7 @@ typedef struct {
   uint8_t parity;               // 0=none, 1=even, 2=odd
   uint8_t stop_bits;            // 1 or 2
   uint16_t timeout_ms;          // Response timeout (default: 500ms)
-  uint16_t inter_frame_delay;   // Delay between requests (default: 10ms)
+  uint16_t inter_frame_delay;   // 0=auto (t3.5 from baudrate), >0=manual ms
   uint8_t max_requests_per_cycle; // Max requests per ST execution (default: 10)
 
   // Runtime statistics
@@ -417,7 +417,7 @@ typedef struct {
   uint32_t baudrate;            // 9600, 19200, 38400, 57600, 115200
   uint8_t parity;               // 0=none, 1=even, 2=odd
   uint8_t stop_bits;            // 1 or 2
-  uint16_t inter_frame_delay;   // Inter-frame delay (default: 10ms)
+  uint16_t inter_frame_delay;   // 0=auto (t3.5 from baudrate), >0=manual ms
 
   // Runtime statistics
   uint32_t total_requests;      // Total requests received

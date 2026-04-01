@@ -22,7 +22,7 @@ PersistConfig* config_struct_create_default(void) {
   g_persist_config.modbus_slave.baudrate = 115200;
   g_persist_config.modbus_slave.parity = 0;  // None
   g_persist_config.modbus_slave.stop_bits = 1;
-  g_persist_config.modbus_slave.inter_frame_delay = 10;
+  g_persist_config.modbus_slave.inter_frame_delay = 0;  // 0=auto (t3.5 from baudrate)
 
   strncpy(g_persist_config.hostname, "modbus-esp32", 31);
   g_persist_config.hostname[31] = '\0';

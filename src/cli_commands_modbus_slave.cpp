@@ -9,6 +9,10 @@
 #include "constants.h"
 #include "debug.h"
 
+// Defined in cli_commands_modbus_master.cpp
+extern uint16_t modbus_calc_t35_ms(uint32_t baudrate);
+extern uint16_t modbus_effective_inter_frame(uint16_t configured, uint32_t baudrate);
+
 /* ============================================================================
  * SET COMMANDS
  * ============================================================================ */
@@ -48,7 +52,11 @@ void cli_cmd_set_modbus_slave_baudrate(uint32_t baudrate) {
   }
 
   g_persist_config.modbus_slave.baudrate = baudrate;
-  debug_printf("[OK] Modbus Slave baudrate: %u (takes effect on reboot)\n", baudrate);
+
+  uint16_t eff = modbus_effective_inter_frame(g_persist_config.modbus_slave.inter_frame_delay, baudrate);
+  bool is_auto = (g_persist_config.modbus_slave.inter_frame_delay == 0);
+  debug_printf("[OK] Modbus Slave baudrate: %u, inter-frame: %u ms (%s)\n",
+               baudrate, eff, is_auto ? "auto t3.5" : "manual");
   debug_println("NOTE: Use 'save' to persist to NVS");
 }
 
@@ -84,12 +92,19 @@ void cli_cmd_set_modbus_slave_stop_bits(uint8_t bits) {
 
 void cli_cmd_set_modbus_slave_inter_frame_delay(uint16_t ms) {
   if (ms > 1000) {
-    debug_println("ERROR: Invalid inter-frame delay (0-1000 ms)");
+    debug_println("ERROR: Invalid inter-frame delay (0=auto, 1-1000 ms manual)");
     return;
   }
 
   g_persist_config.modbus_slave.inter_frame_delay = ms;
-  debug_printf("[OK] Modbus Slave inter-frame delay: %u ms (takes effect on reboot)\n", ms);
+
+  if (ms == 0) {
+    uint16_t t35 = modbus_calc_t35_ms(g_persist_config.modbus_slave.baudrate);
+    debug_printf("[OK] Modbus Slave inter-frame: AUTO (t3.5 = %u ms @ %u baud)\n",
+                 t35, g_persist_config.modbus_slave.baudrate);
+  } else {
+    debug_printf("[OK] Modbus Slave inter-frame: %u ms (manual)\n", ms);
+  }
   debug_println("NOTE: Use 'save' to persist to NVS");
 }
 
@@ -115,7 +130,12 @@ void cli_cmd_show_modbus_slave() {
   debug_printf("\n");
 
   debug_printf("Timing:\n");
-  debug_printf("  Inter-frame delay: %u ms\n", g_persist_config.modbus_slave.inter_frame_delay);
+  if (g_persist_config.modbus_slave.inter_frame_delay == 0) {
+    uint16_t t35 = modbus_calc_t35_ms(g_persist_config.modbus_slave.baudrate);
+    debug_printf("  Inter-frame delay: AUTO (t3.5 = %u ms @ %u baud)\n", t35, g_persist_config.modbus_slave.baudrate);
+  } else {
+    debug_printf("  Inter-frame delay: %u ms (manual)\n", g_persist_config.modbus_slave.inter_frame_delay);
+  }
   debug_printf("\n");
 
   debug_printf("Statistics:\n");

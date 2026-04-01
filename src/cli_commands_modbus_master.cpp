@@ -9,6 +9,25 @@
 #include "config_struct.h"
 #include "debug.h"
 
+// Calculate Modbus RTU t3.5 inter-frame delay from baudrate
+// Per spec: t3.5 = 3.5 * 11 bits / baudrate * 1000 ms
+// For baudrates > 19200: fixed 1.75ms minimum (spec recommendation)
+// We add 1ms margin for OS scheduling jitter on ESP32
+uint16_t modbus_calc_t35_ms(uint32_t baudrate) {
+  if (baudrate > 19200) {
+    return 2;   // 1.75ms spec minimum + margin → 2ms
+  }
+  // t3.5 = 3.5 chars * 11 bits/char / baudrate * 1000 ms/s
+  uint16_t t35 = (uint16_t)((3.5f * 11.0f / (float)baudrate) * 1000.0f + 1.5f);
+  if (t35 < 2) t35 = 2;  // minimum 2ms
+  return t35;
+}
+
+// Resolve effective inter-frame delay: 0=auto → calculate from baudrate
+uint16_t modbus_effective_inter_frame(uint16_t configured, uint32_t baudrate) {
+  return (configured == 0) ? modbus_calc_t35_ms(baudrate) : configured;
+}
+
 /* ============================================================================
  * SET COMMANDS
  * ============================================================================ */
@@ -39,10 +58,15 @@ void cli_cmd_set_modbus_master_baudrate(uint32_t baudrate) {
 
   g_modbus_master_config.baudrate = baudrate;
   g_persist_config.modbus_master.baudrate = baudrate;
+
   if (g_modbus_master_config.enabled) {
     modbus_master_reconfigure();
   }
-  debug_printf("[OK] Modbus Master baudrate: %u (takes effect on reboot)\n", baudrate);
+
+  uint16_t eff = modbus_effective_inter_frame(g_modbus_master_config.inter_frame_delay, baudrate);
+  bool is_auto = (g_modbus_master_config.inter_frame_delay == 0);
+  debug_printf("[OK] Modbus Master baudrate: %u, inter-frame: %u ms (%s)\n",
+               baudrate, eff, is_auto ? "auto t3.5" : "manual");
   debug_println("NOTE: Use 'save' to persist to NVS");
 }
 
@@ -98,13 +122,20 @@ void cli_cmd_set_modbus_master_timeout(uint16_t ms) {
 
 void cli_cmd_set_modbus_master_inter_frame_delay(uint16_t ms) {
   if (ms > 1000) {
-    debug_println("ERROR: Invalid inter-frame delay (0-1000 ms)");
+    debug_println("ERROR: Invalid inter-frame delay (0=auto, 1-1000 ms manual)");
     return;
   }
 
   g_modbus_master_config.inter_frame_delay = ms;
   g_persist_config.modbus_master.inter_frame_delay = ms;
-  debug_printf("[OK] Modbus Master inter-frame delay: %u ms (takes effect on reboot)\n", ms);
+
+  if (ms == 0) {
+    uint16_t t35 = modbus_calc_t35_ms(g_modbus_master_config.baudrate);
+    debug_printf("[OK] Modbus Master inter-frame: AUTO (t3.5 = %u ms @ %u baud)\n",
+                 t35, g_modbus_master_config.baudrate);
+  } else {
+    debug_printf("[OK] Modbus Master inter-frame: %u ms (manual)\n", ms);
+  }
   debug_println("NOTE: Use 'save' to persist to NVS");
 }
 
@@ -144,7 +175,12 @@ void cli_cmd_show_modbus_master() {
 
   debug_printf("Timing:\n");
   debug_printf("  Timeout: %u ms\n", g_modbus_master_config.timeout_ms);
-  debug_printf("  Inter-frame delay: %u ms\n", g_modbus_master_config.inter_frame_delay);
+  if (g_modbus_master_config.inter_frame_delay == 0) {
+    uint16_t t35 = modbus_calc_t35_ms(g_modbus_master_config.baudrate);
+    debug_printf("  Inter-frame delay: AUTO (t3.5 = %u ms @ %u baud)\n", t35, g_modbus_master_config.baudrate);
+  } else {
+    debug_printf("  Inter-frame delay: %u ms (manual)\n", g_modbus_master_config.inter_frame_delay);
+  }
   debug_printf("  Max requests/cycle: %u (MB_READ/MB_WRITE kald per ST cycle, alle programmer)\n", g_modbus_master_config.max_requests_per_cycle);
   debug_printf("\n");
 

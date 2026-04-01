@@ -325,9 +325,14 @@ void cli_cmd_show_config(const char *section) {
   debug_print("  Stop Bits: ");
   debug_print_uint(g_persist_config.modbus_slave.stop_bits);
   debug_println("");
-  debug_print("  Inter-frame Delay: ");
-  debug_print_uint(g_persist_config.modbus_slave.inter_frame_delay);
-  debug_println(" ms");
+  if (g_persist_config.modbus_slave.inter_frame_delay == 0) {
+    extern uint16_t modbus_calc_t35_ms(uint32_t);
+    debug_printf("  Inter-frame Delay: AUTO (t3.5 = %u ms)\n", modbus_calc_t35_ms(g_persist_config.modbus_slave.baudrate));
+  } else {
+    debug_print("  Inter-frame Delay: ");
+    debug_print_uint(g_persist_config.modbus_slave.inter_frame_delay);
+    debug_println(" ms (manual)");
+  }
 
   debug_print("Master: ");
   debug_println(g_persist_config.modbus_master.enabled ? "ENABLED" : "DISABLED");
@@ -349,9 +354,14 @@ void cli_cmd_show_config(const char *section) {
     debug_print("  Timeout: ");
     debug_print_uint(g_persist_config.modbus_master.timeout_ms);
     debug_println(" ms");
-    debug_print("  Inter-frame Delay: ");
-    debug_print_uint(g_persist_config.modbus_master.inter_frame_delay);
-    debug_println(" ms");
+    if (g_persist_config.modbus_master.inter_frame_delay == 0) {
+      extern uint16_t modbus_calc_t35_ms(uint32_t);
+      debug_printf("  Inter-frame Delay: AUTO (t3.5 = %u ms)\n", modbus_calc_t35_ms(g_persist_config.modbus_master.baudrate));
+    } else {
+      debug_print("  Inter-frame Delay: ");
+      debug_print_uint(g_persist_config.modbus_master.inter_frame_delay);
+      debug_println(" ms (manual)");
+    }
     debug_print("  Max Requests/Cycle: ");
     debug_print_uint(g_persist_config.modbus_master.max_requests_per_cycle);
     debug_println("");
@@ -1336,9 +1346,13 @@ void cli_cmd_show_config(const char *section) {
     debug_print("set modbus-slave stop-bits ");
     debug_print_uint(g_persist_config.modbus_slave.stop_bits);
     debug_println("");
-    debug_print("set modbus-slave inter-frame-delay ");
-    debug_print_uint(g_persist_config.modbus_slave.inter_frame_delay);
-    debug_println("");
+    if (g_persist_config.modbus_slave.inter_frame_delay == 0) {
+      debug_println("# set modbus-slave inter-frame-delay 0  (auto t3.5)");
+    } else {
+      debug_print("set modbus-slave inter-frame-delay ");
+      debug_print_uint(g_persist_config.modbus_slave.inter_frame_delay);
+      debug_println("");
+    }
   }
 
   // Modbus Master
@@ -1360,9 +1374,13 @@ void cli_cmd_show_config(const char *section) {
     debug_print("set modbus-master timeout ");
     debug_print_uint(g_persist_config.modbus_master.timeout_ms);
     debug_println("");
-    debug_print("set modbus-master inter-frame-delay ");
-    debug_print_uint(g_persist_config.modbus_master.inter_frame_delay);
-    debug_println("");
+    if (g_persist_config.modbus_master.inter_frame_delay == 0) {
+      debug_println("# set modbus-master inter-frame-delay 0  (auto t3.5)");
+    } else {
+      debug_print("set modbus-master inter-frame-delay ");
+      debug_print_uint(g_persist_config.modbus_master.inter_frame_delay);
+      debug_println("");
+    }
     debug_print("set modbus-master max-requests ");
     debug_print_uint(g_persist_config.modbus_master.max_requests_per_cycle);
     debug_println("");
