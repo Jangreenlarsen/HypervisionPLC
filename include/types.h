@@ -446,6 +446,20 @@ typedef struct __attribute__((packed)) {
 } RbacConfig;                           // 482 bytes
 
 /* ============================================================================
+ * NTP CONFIGURATION (v7.8.1)
+ * ============================================================================ */
+
+#define NTP_SERVER_MAX_LEN   48   // Max NTP server hostname length
+#define NTP_TZ_MAX_LEN       48   // Max POSIX timezone string length
+
+typedef struct __attribute__((packed)) {
+  uint8_t  enabled;                      // NTP enabled (1) or disabled (0)
+  char     server[NTP_SERVER_MAX_LEN];   // NTP server hostname
+  char     timezone[NTP_TZ_MAX_LEN];     // POSIX timezone string
+  uint16_t sync_interval_min;            // Re-sync interval in minutes (default: 60)
+} NtpConfig;                             // 100 bytes
+
+/* ============================================================================
  * PERSISTENT CONFIGURATION (EEPROM/NVS)
  * ============================================================================ */
 
@@ -527,6 +541,9 @@ typedef struct __attribute__((packed)) {
 
   // RBAC multi-user access control (v7.6.2, schema 15)
   RbacConfig rbac;
+
+  // NTP time synchronization (v7.8.1, schema 16)
+  NtpConfig ntp;
 
   // CRC checksum (last)
   uint16_t crc16;

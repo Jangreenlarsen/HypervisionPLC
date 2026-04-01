@@ -274,6 +274,14 @@ esp_err_t api_handler_api_version(httpd_req_t *req);
 /** FEAT-032: GET /api/metrics — Prometheus metrics */
 esp_err_t api_handler_metrics(httpd_req_t *req);
 
+/** NTP API (v7.8.1) */
+esp_err_t api_handler_ntp_get(httpd_req_t *req);
+esp_err_t api_handler_ntp_post(httpd_req_t *req);
+
+/** FEAT-085: Alarm history API (v7.8.0) */
+esp_err_t api_handler_alarms_get(httpd_req_t *req);
+esp_err_t api_handler_alarms_ack(httpd_req_t *req);
+
 /** FEAT-022: Persistence Group Management API */
 esp_err_t api_handler_persist_groups_list(httpd_req_t *req);
 esp_err_t api_handler_persist_group_single(httpd_req_t *req);

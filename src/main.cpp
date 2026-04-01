@@ -37,6 +37,7 @@
 #include "register_allocator.h"
 #include "registers_persist.h"
 #include "sse_events.h"        // v7.0.0 - SSE real-time events
+#include "ntp_driver.h"        // v7.8.1 - NTP time synchronization
 #include "mb_async.h"          // v7.7.0 - Async Modbus Master background task
 #include <esp_ota_ops.h>       // v7.5.0 - FEAT-031 OTA boot validation
 
@@ -193,6 +194,9 @@ void setup() {
   } else {
     Serial.println("ERROR: Failed to initialize network manager");
   }
+
+  // Initialize NTP time sync (v7.8.1) — after network init
+  ntp_driver_init();
 
   // Initialize CLI remote (unified serial + Telnet)
   if (cli_remote_init() == 0) {

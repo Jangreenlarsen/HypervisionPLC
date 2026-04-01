@@ -306,6 +306,36 @@
 | FEAT-066 | SSE klient management i web System | ✅ DONE | 🟠 MEDIUM | v7.6.2.3 | SSE sektion på `/system` side: tabel med slot, IP, bruger, topics, uptime. Afbryd individuelle klienter eller alle. API: `GET /api/events/clients`, `POST /api/events/disconnect` med `{slot: N}` eller `{slot: -1}` for alle |
 | FEAT-069 | SSE konfiguration i backup/restore | ✅ DONE | 🟠 MEDIUM | v7.6.2.7 | Backup eksporterer SSE indstillinger (enabled, port, max_clients, check_interval_ms, heartbeat_ms) som selvstændig `sse` JSON sektion. Restore gendanner SSE config fra backup fil |
 | FEAT-070 | Async Modbus Master (non-blocking) | ✅ DONE | 🔴 CRITICAL | v7.7.0 | Dedikeret FreeRTOS task (Core 0, 4KB stack) til Modbus UART I/O. ST builtins er nu non-blocking: reads returnerer cached værdi og køer refresh, writes køes i baggrunden. Nye builtins: `MB_SUCCESS()`, `MB_BUSY()`, `MB_ERROR()`. 32-entry cache, 16-deep queue, request deduplication. Eliminerer overruns ved Modbus-operationer i ST Logic |
+| FEAT-072 | Web Monitor: Modbus RTU trafikmonitor | ✅ DONE | 🟡 HIGH | v7.8.0 | Live req/3s rate, success rate, CRC fejl, timeouts, exceptions, sparkline grafer for slave+master |
+| FEAT-073 | Web Monitor: Modbus Master status | ✅ DONE | 🟡 HIGH | v7.8.0 | Async cache stats (hits/misses/entries/hit rate), per-slave cache status tabel, queue full count |
+| FEAT-074 | Web Monitor: Ethernet/WiFi signalkvalitet | ❌ OPEN | 🟠 MEDIUM | v8.0.0 | RSSI over tid (WiFi), link speed, pakketab, reconnect-historik |
+| FEAT-075 | Web Monitor: TCP forbindelsesmonitor | ❌ OPEN | 🔵 LOW | v8.0.0 | Aktive HTTP/SSE/Telnet forbindelser med IP-adresser og forbindelsestid |
+| FEAT-076 | Web Monitor: Bandwidth monitor | ❌ OPEN | 🔵 LOW | v8.0.0 | Bytes sendt/modtaget over tid (Modbus + HTTP + SSE) |
+| FEAT-077 | Web Monitor: Heap fragmentation graf | ❌ OPEN | 🟡 HIGH | v8.0.0 | Largest free block vs. total free — viser fragmentering over tid, fanger memory leaks tidligt |
+| FEAT-078 | Web Monitor: FreeRTOS task monitor | ✅ DONE | 🟠 MEDIUM | v7.8.0 | Task count, heap fragmentation (largest block vs free), stack HWM for kendte tasks (loopTask, mb_async, IDLE0/1) |
+| FEAT-079 | Web Monitor: FreeRTOS task monitor | ❌ OPEN | 🟠 MEDIUM | v8.0.0 | FreeRTOS task liste med stack high-water mark, prioritet, state |
+| FEAT-080 | Web Monitor: Boot-historik | ❌ OPEN | 🟡 HIGH | v8.0.0 | Antal reboots, reset-årsager (watchdog, brownout, panic, OTA), sidste 10 boot timestamps |
+| FEAT-081 | Web Monitor: NVS brug | ❌ OPEN | 🟠 MEDIUM | v8.0.0 | Brugt/ledig plads i NVS, antal entries, write-count (flash wear indikator) |
+| FEAT-082 | Web Monitor: SPIFFS/LittleFS brug | ❌ OPEN | 🔵 LOW | v8.0.0 | Filsystem kapacitet, brugt plads, filantal |
+| FEAT-083 | Web Monitor: ESP32 intern temperatur | ❌ OPEN | 🔵 LOW | v8.0.0 | Chip junction temperatur via intern sensor |
+| FEAT-084 | Web Monitor: Spændingsmonitor | ❌ OPEN | 🔵 LOW | v8.0.0 | VCC/3.3V rail via ADC, brownout detection events |
+| FEAT-085 | Web Monitor: Alarm-historik/log | ✅ DONE | 🟡 HIGH | v7.8.0 | 32-entry ringbuffer med auto-detection (heap, CRC, timeout, auth, overrun). API: GET /api/alarms + POST /api/alarms/ack. Dashboard kort med severity-farver og kvittér-knap |
+| FEAT-086 | Web Monitor: Event log viewer | ❌ OPEN | 🟠 MEDIUM | v8.0.0 | Systemhændelser: config ændringer, reboot, OTA, login-forsøg |
+| FEAT-087 | Web Monitor: Watchdog-statistik | ❌ OPEN | 🟠 MEDIUM | v8.0.0 | Antal watchdog resets, hvilken task triggered, tid siden sidste feed |
+| FEAT-088 | Web Monitor: Threshold-alarmer | ❌ OPEN | 🟠 MEDIUM | v8.0.0 | Konfigurerbare grænseværdier for vilkårlige registre med visuel alarm |
+| FEAT-089 | Web Monitor: Register change-log | ❌ OPEN | 🟠 MEDIUM | v8.0.0 | Historik over registerændringer med tidsstempler (hvem ændrede hvad) |
+| FEAT-090 | Web Monitor: Modbus request log / sniffer | ❌ OPEN | 🟡 HIGH | v8.0.0 | Live visning af indkomne Modbus requests (funktion, adresse, data) |
+| FEAT-091 | Web Monitor: ST Logic profiler | ❌ OPEN | 🟠 MEDIUM | v8.0.0 | Cycle time histogram, worst-case execution, variable trace over tid |
+| FEAT-092 | Web Monitor: GPIO pulse monitor | ❌ OPEN | 🔵 LOW | v8.0.0 | Pulsbredde, frekvens, duty cycle for digitale inputs |
+| FEAT-093 | Web Monitor: Uptime-graf | ❌ OPEN | 🔵 LOW | v8.0.0 | Visuelt overblik over oppetid med markering af nedetid/reboot |
+| FEAT-094 | Web Monitor: Analog input trending | ❌ OPEN | 🟡 HIGH | v8.0.0 | 0-10V og 4-20mA inputs med trendgrafer og min/max/avg (afhænger af FEAT-034/035) |
+| FEAT-095 | Web Monitor: Digital I/O dashboard | ✅ DONE | 🟠 MEDIUM | v7.8.0 | Visuelle LED-indikatorer for IN1-IN8 (input) og CH1-CH8 (output) med klik-toggle på outputs. Auto-skjules uden shift register HW |
+| FEAT-096 | Web Monitor: RS-485 bus health | ❌ OPEN | 🟠 MEDIUM | v8.0.0 | Bus-fejlrate, collision detection, bus idle/busy ratio |
+| FEAT-097 | Web Monitor: Customizable dashboard | ❌ OPEN | 🔵 LOW | v8.0.0 | Brugeren kan vælge/arrangere widgets (drag & drop), gem layout i NVS |
+| FEAT-098 | Web Monitor: Register-map visualizer | ❌ OPEN | 🟠 MEDIUM | v8.0.0 | Grafisk oversigt over hele register-mappen med farvekodning efter type/binding |
+| FEAT-099 | Web Monitor: Trend recorder med CSV-eksport | ❌ OPEN | 🟡 HIGH | v8.0.0 | Optag vilkårlige registre over tid, eksportér som CSV til commissioning/debugging |
+| FEAT-100 | Web Monitor: Mini-SCADA view | ❌ OPEN | 🔵 LOW | v8.0.0 | Simpel process-visualisering med symboler for pumper, ventiler, motorer |
+| FEAT-101 | NTP tidssynkronisering | ✅ DONE | 🟡 HIGH | v7.8.1 | ESP-IDF SNTP klient med konfigurerbar server, POSIX tidszone, sync interval. CLI: `set ntp`, `show ntp`/`show time`. API: `GET/POST /api/ntp`. Prometheus metrics: ntp_synced, ntp_epoch, ntp_sync_count. Dashboard NTP kort med live tid. Alarm-log med real-time tidsstempler. Schema 15→16 |
 | BUG-263 | Web user badge viste altid "Ikke logget ind" | ✅ FIXED | 🟡 HIGH | v7.6.2.3 | Tre separate fejl: (1) `/api/user/me` manglede direkte httpd URI handler — var kun i v1_routes, så `fetch('/api/user/me')` gav 404 (kun `/api/v1/user/me` virkede). (2) Dashboard manglede login modal. (3) `updateUserBadge()` blev ikke kaldt efter login. FIX: Tilføjet `uri_user_me` httpd registrering, login modal på dashboard, updateUserBadge() kald efter login i alle 4 sider |
 | BUG-264 | SSE afviste brugere med API rolle (403) | ✅ FIXED | 🟡 HIGH | v7.6.2.4 | SSE rolle-check krævede kun `ROLE_MONITOR` (0x08). Brugere med `api` rolle (0x01) fik 403 "MONITOR role required" selvom de var autentificeret korrekt. FIX: Ændret check til `ROLE_MONITOR \| ROLE_API` — begge roller giver SSE-adgang. Tilføjet RBAC Authentication sektion i `show sse` output |
 | BUG-265 | API write endpoints tjekker ikke privilege | ✅ FIXED | 🔴 CRITICAL | v7.6.2.4 | Alle 42 POST/DELETE endpoints brugte `CHECK_AUTH` som kun tjekker authentication — ikke privilege. Read-only brugere (`privilege read`) kunne lave skrive-operationer (reboot, save, delete, config-ændringer). FIX: 42 write-handlers ændret til `CHECK_AUTH_WRITE` som returnerer 403 "Write privilege required" |
@@ -439,6 +469,51 @@
 - 32-entry cache, 16-deep request queue, request deduplication
 - `show modbus-master` viser async cache statistik + entries
 - Backward-kompatibel: eksisterende ST-programmer virker uændret
+
+**v7.8.0 — Web Monitor Udvidelse (2026-04-01):**
+- **FEAT-072:** ✅ Modbus RTU trafikmonitor — live req/3s rate, success rate, CRC/timeout/exception tæller, sparkline grafer
+- **FEAT-073:** ✅ Modbus Master cache status — async cache hits/misses/entries, per-slave status tabel
+- **FEAT-078:** ✅ FreeRTOS task monitor — task count, heap fragmentation, stack HWM for kendte tasks
+- **FEAT-085:** ✅ Alarm-historik — 32-entry ringbuffer, auto-detection (heap/CRC/timeout/auth/overrun), API + kvittér
+- **FEAT-095:** ✅ Digital I/O dashboard — LED-indikatorer for IN1-IN8 + CH1-CH8 med klik-toggle
+- **Backend:** Nye Prometheus metrics: heap largest block, master exceptions, master cache stats, FreeRTOS tasks, watchdog reset reason, alarm count
+- **API:** `GET /api/alarms` (alarm log JSON), `POST /api/alarms/ack` (kvittér alle)
+- **Metrics buffer:** 8KB → 12KB for udvidede metrics
+
+**v7.8.1 — NTP Tidssynkronisering (2026-04-01):**
+- **FEAT-101:** ✅ NTP tidssynkronisering — ESP-IDF SNTP klient, konfigurerbar server + POSIX tidszone
+- **CLI:** `set ntp enable|server|timezone|interval`, `show ntp`, `show time`
+- **API:** `GET /api/ntp` (status + config), `POST /api/ntp` (konfiguration)
+- **Dashboard:** NTP kort med live klokkeslæt, sync status, server info
+- **Metrics:** ntp_enabled, ntp_synced, ntp_sync_count, ntp_epoch_seconds, ntp_last_sync_age_ms
+- **Alarm-log:** Real-time tidsstempler fra NTP (fallback til uptime)
+- **Schema:** 15 → 16 (NtpConfig: enabled, server, timezone, sync_interval_min)
+
+**v8.0.0 — Web Monitor Udvidelse (Roadmap):**
+- **FEAT-074:** Ethernet/WiFi signalkvalitet (RSSI, link speed, pakketab) 🟠 MEDIUM
+- **FEAT-075:** TCP forbindelsesmonitor (aktive HTTP/SSE/Telnet, IP'er) 🔵 LOW
+- **FEAT-076:** Bandwidth monitor (bytes sendt/modtaget over tid) 🔵 LOW
+- **FEAT-077:** Heap fragmentation graf (largest free block vs total) 🟡 HIGH
+- **FEAT-079:** FreeRTOS task monitor udvidet (prioritet, CPU%) 🟠 MEDIUM
+- **FEAT-080:** Boot-historik (reset-årsager, timestamps) 🟡 HIGH
+- **FEAT-081:** NVS brug (plads, entries, flash wear) 🟠 MEDIUM
+- **FEAT-082:** SPIFFS/LittleFS brug 🔵 LOW
+- **FEAT-083:** ESP32 intern temperatur 🔵 LOW
+- **FEAT-084:** Spændingsmonitor (VCC, brownout events) 🔵 LOW
+- **FEAT-086:** Event log viewer (config, reboot, OTA, login) 🟠 MEDIUM
+- **FEAT-087:** Watchdog-statistik 🟠 MEDIUM
+- **FEAT-088:** Threshold-alarmer for registre 🟠 MEDIUM
+- **FEAT-089:** Register change-log med tidsstempler 🟠 MEDIUM
+- **FEAT-090:** Modbus request log / sniffer 🟡 HIGH
+- **FEAT-091:** ST Logic profiler (cycle time, worst-case) 🟠 MEDIUM
+- **FEAT-092:** GPIO pulse monitor (pulsbredde, frekvens, duty cycle) 🔵 LOW
+- **FEAT-093:** Uptime-graf med nedetidsmarkering 🔵 LOW
+- **FEAT-094:** Analog input trending (0-10V, 4-20mA) 🟡 HIGH
+- **FEAT-096:** RS-485 bus health 🟠 MEDIUM
+- **FEAT-097:** Customizable dashboard (drag & drop widgets) 🔵 LOW
+- **FEAT-098:** Register-map visualizer (farvekodning) 🟠 MEDIUM
+- **FEAT-099:** Trend recorder med CSV-eksport 🟡 HIGH
+- **FEAT-100:** Mini-SCADA view 🔵 LOW
 
 **v7.7.2 — FEAT: HW Counter Access fra ST Logic (2026-03-31):**
 - **FEAT-071:** 9 nye ST builtins: CNT_SETUP, CNT_SETUP_ADV, CNT_SETUP_CMP, CNT_ENABLE, CNT_CTRL, CNT_VALUE, CNT_RAW, CNT_FREQ, CNT_STATUS

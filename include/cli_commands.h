@@ -319,6 +319,11 @@ void cli_cmd_set_rate_limit(uint8_t argc, char* argv[]);
 void cli_cmd_set_sse(uint8_t argc, char* argv[]);
 
 /**
+ * @brief Handle "set ntp" command — configure NTP time sync (v7.8.1)
+ */
+void cli_cmd_set_ntp(uint8_t argc, char* argv[]);
+
+/**
  * @brief Handle "ping" command (ICMP ping to remote host)
  * @param argc Argument count
  * @param argv Argument array (argv[0] = host, argv[1] = count)

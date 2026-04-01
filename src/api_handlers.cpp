@@ -47,6 +47,11 @@
 #include "cli_parser.h"
 #include "cli_shell.h"
 #include "rbac.h"
+#include "mb_async.h"
+#include "ntp_driver.h"
+#include <esp_heap_caps.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 static const char *TAG = "API_HDLR";
 
@@ -73,6 +78,101 @@ esp_err_t api_handler_counter_start(httpd_req_t *req);
 esp_err_t api_handler_counter_stop(httpd_req_t *req);
 static esp_err_t api_handler_counter_config_post(httpd_req_t *req);
 static esp_err_t api_handler_counter_control_post(httpd_req_t *req);
+
+/* ============================================================================
+ * FEAT-085: ALARM HISTORY RINGBUFFER (v7.8.0)
+ * ============================================================================ */
+
+#define ALARM_LOG_MAX 32
+#define ALARM_MSG_MAX 80
+
+typedef struct {
+  uint32_t timestamp_ms;  // millis() when alarm triggered
+  char     message[ALARM_MSG_MAX];
+  uint8_t  severity;      // 0=info, 1=warning, 2=critical
+  bool     acknowledged;
+  time_t   epoch;         // Real time if NTP synced, 0 otherwise
+} alarm_entry_t;
+
+static alarm_entry_t alarm_log[ALARM_LOG_MAX];
+static uint8_t alarm_log_head = 0;   // Next write position
+static uint8_t alarm_log_count = 0;  // Total entries (max ALARM_LOG_MAX)
+static uint32_t alarm_check_prev_ms = 0;
+static uint32_t alarm_prev_slave_crc = 0;
+static uint32_t alarm_prev_master_timeout = 0;
+static uint32_t alarm_prev_auth_fail = 0;
+
+static void alarm_log_add(uint8_t severity, const char *msg) {
+  alarm_entry_t *e = &alarm_log[alarm_log_head];
+  e->timestamp_ms = millis();
+  strncpy(e->message, msg, ALARM_MSG_MAX - 1);
+  e->message[ALARM_MSG_MAX - 1] = '\0';
+  e->severity = severity;
+  e->acknowledged = false;
+  e->epoch = ntp_driver_is_synced() ? ntp_driver_get_epoch() : 0;
+  alarm_log_head = (alarm_log_head + 1) % ALARM_LOG_MAX;
+  if (alarm_log_count < ALARM_LOG_MAX) alarm_log_count++;
+}
+
+// Called periodically from metrics fetch to check for new alarms
+void alarm_check_thresholds() {
+  uint32_t now = millis();
+  if (now - alarm_check_prev_ms < 3000) return;  // Check every 3s
+  alarm_check_prev_ms = now;
+
+  // Heap critical
+  uint32_t heap = ESP.getFreeHeap();
+  if (heap < 20000) {
+    alarm_log_add(2, "Heap kritisk lav");
+  } else if (heap < 30000) {
+    alarm_log_add(1, "Heap advarsel");
+  }
+
+  // Modbus Slave CRC errors (rising)
+  uint32_t slave_crc = g_persist_config.modbus_slave.crc_errors;
+  if (slave_crc > alarm_prev_slave_crc && alarm_prev_slave_crc > 0) {
+    uint32_t delta = slave_crc - alarm_prev_slave_crc;
+    if (delta >= 5) {
+      char buf[ALARM_MSG_MAX];
+      snprintf(buf, sizeof(buf), "Modbus Slave CRC fejl +%lu", (unsigned long)delta);
+      alarm_log_add(1, buf);
+    }
+  }
+  alarm_prev_slave_crc = slave_crc;
+
+  // Modbus Master timeouts (rising)
+  uint32_t master_to = g_modbus_master_config.timeout_errors;
+  if (master_to > alarm_prev_master_timeout && alarm_prev_master_timeout > 0) {
+    uint32_t delta = master_to - alarm_prev_master_timeout;
+    if (delta >= 3) {
+      char buf[ALARM_MSG_MAX];
+      snprintf(buf, sizeof(buf), "Modbus Master timeout +%lu", (unsigned long)delta);
+      alarm_log_add(1, buf);
+    }
+  }
+  alarm_prev_master_timeout = master_to;
+
+  // Auth failures (rising)
+  const HttpServerStats *stats = http_server_get_stats();
+  if (stats) {
+    if (stats->auth_failures > alarm_prev_auth_fail && alarm_prev_auth_fail > 0) {
+      uint32_t delta = stats->auth_failures - alarm_prev_auth_fail;
+      if (delta >= 3) {
+        alarm_log_add(2, "HTTP auth failures stigende");
+      }
+    }
+    alarm_prev_auth_fail = stats->auth_failures;
+  }
+
+  // ST Logic overruns
+  st_logic_engine_state_t *ls = st_logic_get_state();
+  if (ls && ls->total_cycles > 100) {
+    float pct = (float)ls->cycle_overrun_count / ls->total_cycles * 100.0f;
+    if (pct > 5.0f) {
+      alarm_log_add(1, "ST Logic overrun rate > 5%");
+    }
+  }
+}
 
 /* ============================================================================
  * UTILITY FUNCTIONS
@@ -3770,6 +3870,13 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   sse["check_interval_ms"] = g_persist_config.network.http.sse_check_interval_ms;
   sse["heartbeat_ms"] = g_persist_config.network.http.sse_heartbeat_ms;
 
+  // ── NTP ──
+  JsonObject ntp = doc["ntp"].to<JsonObject>();
+  ntp["enabled"] = g_persist_config.ntp.enabled ? true : false;
+  ntp["server"] = g_persist_config.ntp.server;
+  ntp["timezone"] = g_persist_config.ntp.timezone;
+  ntp["sync_interval_min"] = g_persist_config.ntp.sync_interval_min;
+
   // ── MISC ──
   doc["remote_echo"] = g_persist_config.remote_echo ? true : false;
   doc["gpio2_user_mode"] = g_persist_config.gpio2_user_mode ? true : false;
@@ -4168,6 +4275,24 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
     if (s.containsKey("heartbeat_ms"))      g_persist_config.network.http.sse_heartbeat_ms      = s["heartbeat_ms"];
   }
 
+  // ── RESTORE NTP ──
+  if (doc.containsKey("ntp")) {
+    JsonObject n = doc["ntp"];
+    if (n.containsKey("enabled"))           g_persist_config.ntp.enabled = n["enabled"].as<bool>() ? 1 : 0;
+    if (n.containsKey("server")) {
+      strncpy(g_persist_config.ntp.server, n["server"].as<const char*>(), sizeof(g_persist_config.ntp.server) - 1);
+      g_persist_config.ntp.server[sizeof(g_persist_config.ntp.server) - 1] = '\0';
+    }
+    if (n.containsKey("timezone")) {
+      strncpy(g_persist_config.ntp.timezone, n["timezone"].as<const char*>(), sizeof(g_persist_config.ntp.timezone) - 1);
+      g_persist_config.ntp.timezone[sizeof(g_persist_config.ntp.timezone) - 1] = '\0';
+    }
+    if (n.containsKey("sync_interval_min")) {
+      uint16_t mins = n["sync_interval_min"].as<uint16_t>();
+      if (mins >= 1 && mins <= 1440) g_persist_config.ntp.sync_interval_min = mins;
+    }
+  }
+
   // ── RESTORE MISC ──
   if (doc.containsKey("remote_echo")) g_persist_config.remote_echo = doc["remote_echo"];
   if (doc.containsKey("gpio2_user_mode")) g_persist_config.gpio2_user_mode = doc["gpio2_user_mode"];
@@ -4528,6 +4653,92 @@ esp_err_t api_handler_telnet_post(httpd_req_t *req)
 
   char resp[128];
   snprintf(resp, sizeof(resp), "{\"status\":200,\"message\":\"Telnet config updated. Save + reboot to apply.\"}");
+  return api_send_json(req, resp);
+}
+
+/* ============================================================================
+ * NTP API (v7.8.1)
+ * GET  /api/ntp — Return NTP config + sync status
+ * POST /api/ntp — Update NTP config
+ * ============================================================================ */
+
+esp_err_t api_handler_ntp_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  JsonDocument doc;
+  doc["enabled"] = g_persist_config.ntp.enabled ? true : false;
+  doc["server"] = g_persist_config.ntp.server;
+  doc["timezone"] = g_persist_config.ntp.timezone;
+  doc["sync_interval_min"] = g_persist_config.ntp.sync_interval_min;
+  doc["synced"] = ntp_driver_is_synced();
+  doc["sync_count"] = ntp_driver_get_sync_count();
+  doc["error_count"] = ntp_driver_get_error_count();
+
+  if (ntp_driver_is_synced()) {
+    char timebuf[32];
+    ntp_driver_get_time_str(timebuf, sizeof(timebuf));
+    doc["local_time"] = timebuf;
+
+    char isobuf[32];
+    ntp_driver_get_iso_time(isobuf, sizeof(isobuf));
+    doc["iso_time"] = isobuf;
+
+    doc["epoch"] = (unsigned long)ntp_driver_get_epoch();
+    doc["last_sync_age_ms"] = ntp_driver_get_last_sync_age_ms();
+  }
+
+  char buf[512];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+esp_err_t api_handler_ntp_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char body[512];
+  int len = httpd_req_recv(req, body, sizeof(body) - 1);
+  if (len <= 0) {
+    return api_send_error(req, 400, "Empty request body");
+  }
+  body[len] = '\0';
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, body);
+  if (error) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  if (doc.containsKey("enabled")) {
+    g_persist_config.ntp.enabled = doc["enabled"].as<bool>() ? 1 : 0;
+  }
+  if (doc.containsKey("server")) {
+    strncpy(g_persist_config.ntp.server,
+            doc["server"].as<const char*>(),
+            sizeof(g_persist_config.ntp.server) - 1);
+    g_persist_config.ntp.server[sizeof(g_persist_config.ntp.server) - 1] = '\0';
+  }
+  if (doc.containsKey("timezone")) {
+    strncpy(g_persist_config.ntp.timezone,
+            doc["timezone"].as<const char*>(),
+            sizeof(g_persist_config.ntp.timezone) - 1);
+    g_persist_config.ntp.timezone[sizeof(g_persist_config.ntp.timezone) - 1] = '\0';
+  }
+  if (doc.containsKey("sync_interval_min")) {
+    uint16_t mins = doc["sync_interval_min"].as<uint16_t>();
+    if (mins >= 1 && mins <= 1440) {
+      g_persist_config.ntp.sync_interval_min = mins;
+    }
+  }
+
+  // Apply immediately
+  ntp_driver_reconfigure();
+
+  char resp[128];
+  snprintf(resp, sizeof(resp), "{\"status\":200,\"message\":\"NTP config updated. Save to persist.\"}");
   return api_send_json(req, resp);
 }
 
@@ -5145,13 +5356,13 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
     return api_send_error(req, 429, "Too many requests");
   }
 
-  // Buffer for Prometheus text format (8KB for expanded metrics)
-  char *buf = (char *)malloc(8192);
+  // Buffer for Prometheus text format (12KB for expanded metrics incl. tasks/cache)
+  char *buf = (char *)malloc(12288);
   if (!buf) {
     return api_send_error(req, 500, "Out of memory");
   }
   int pos = 0;
-  int remaining = 8192;
+  int remaining = 12288;
 
   #define PROM_APPEND(...) do { \
     int n = snprintf(buf + pos, remaining, __VA_ARGS__); \
@@ -5223,6 +5434,11 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   PROM_APPEND("# TYPE modbus_slave_exceptions_total counter\n");
   PROM_APPEND("modbus_slave_exceptions_total %lu\n", g_persist_config.modbus_slave.exception_errors);
 
+  // --- Heap detailed metrics ---
+  PROM_APPEND("# HELP esp32_heap_largest_free_block Largest contiguous free heap block\n");
+  PROM_APPEND("# TYPE esp32_heap_largest_free_block gauge\n");
+  PROM_APPEND("esp32_heap_largest_free_block %lu\n", (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+
   // --- Modbus Master metrics ---
   PROM_APPEND("# HELP modbus_master_requests_total Total Modbus master requests\n");
   PROM_APPEND("# TYPE modbus_master_requests_total counter\n");
@@ -5239,6 +5455,42 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   PROM_APPEND("# HELP modbus_master_crc_errors_total Modbus master CRC errors\n");
   PROM_APPEND("# TYPE modbus_master_crc_errors_total counter\n");
   PROM_APPEND("modbus_master_crc_errors_total %lu\n", g_modbus_master_config.crc_errors);
+
+  PROM_APPEND("# HELP modbus_master_exception_errors_total Modbus master exception errors\n");
+  PROM_APPEND("# TYPE modbus_master_exception_errors_total counter\n");
+  PROM_APPEND("modbus_master_exception_errors_total %lu\n", g_modbus_master_config.exception_errors);
+
+  // --- Modbus Master Async Cache metrics ---
+  const mb_async_state_t *mb_async = mb_async_get_state();
+  if (mb_async && mb_async->task_running) {
+    PROM_APPEND("# HELP modbus_master_cache_hits Async cache hit count\n");
+    PROM_APPEND("# TYPE modbus_master_cache_hits counter\n");
+    PROM_APPEND("modbus_master_cache_hits %lu\n", (unsigned long)mb_async->cache_hits);
+    PROM_APPEND("# HELP modbus_master_cache_misses Async cache miss count\n");
+    PROM_APPEND("# TYPE modbus_master_cache_misses counter\n");
+    PROM_APPEND("modbus_master_cache_misses %lu\n", (unsigned long)mb_async->cache_misses);
+    PROM_APPEND("# HELP modbus_master_cache_entries Active cache entries\n");
+    PROM_APPEND("# TYPE modbus_master_cache_entries gauge\n");
+    PROM_APPEND("modbus_master_cache_entries %d\n", mb_async->entry_count);
+    PROM_APPEND("# HELP modbus_master_queue_full_count Queue full rejections\n");
+    PROM_APPEND("# TYPE modbus_master_queue_full_count counter\n");
+    PROM_APPEND("modbus_master_queue_full_count %lu\n", (unsigned long)mb_async->queue_full_count);
+
+    // Per-slave cache entries with status
+    PROM_APPEND("# HELP modbus_master_slave_status Per-slave cache entry status\n");
+    PROM_APPEND("# TYPE modbus_master_slave_status gauge\n");
+    for (int i = 0; i < mb_async->entry_count && i < MB_CACHE_MAX_ENTRIES; i++) {
+      const mb_cache_entry_t *e = &mb_async->entries[i];
+      if (e->status != MB_CACHE_EMPTY) {
+        const char *st = (e->status == MB_CACHE_VALID) ? "valid" :
+                         (e->status == MB_CACHE_PENDING) ? "pending" :
+                         (e->status == MB_CACHE_ERROR) ? "error" : "empty";
+        PROM_APPEND("modbus_master_slave_status{slave=\"%d\",addr=\"%d\",fc=\"%d\",status=\"%s\"} %d\n",
+                     e->key.slave_id, e->key.address, e->key.req_type, st,
+                     (e->status == MB_CACHE_VALID) ? 1 : (e->status == MB_CACHE_ERROR) ? -1 : 0);
+      }
+    }
+  }
 
   // --- SSE metrics ---
   PROM_APPEND("# HELP sse_clients_active Active SSE client connections\n");
@@ -5410,12 +5662,91 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
     PROM_APPEND("# HELP watchdog_reboot_count Total reboots tracked by watchdog\n");
     PROM_APPEND("# TYPE watchdog_reboot_count counter\n");
     PROM_APPEND("watchdog_reboot_count %lu\n", wd->reboot_counter);
+
+    PROM_APPEND("# HELP watchdog_reset_reason Last reset reason (ESP_RST enum)\n");
+    PROM_APPEND("# TYPE watchdog_reset_reason gauge\n");
+    PROM_APPEND("watchdog_reset_reason %lu\n", wd->last_reset_reason);
+  }
+
+  // --- FreeRTOS task metrics ---
+  {
+    UBaseType_t task_count = uxTaskGetNumberOfTasks();
+    PROM_APPEND("# HELP freertos_task_count Number of FreeRTOS tasks\n");
+    PROM_APPEND("# TYPE freertos_task_count gauge\n");
+    PROM_APPEND("freertos_task_count %u\n", (unsigned)task_count);
+
+    // Report stack HWM for known tasks by handle
+    PROM_APPEND("# HELP freertos_task_stack_hwm Task stack high-water mark in bytes\n");
+    PROM_APPEND("# TYPE freertos_task_stack_hwm gauge\n");
+
+    // Main loop task (current task on Core 1)
+    TaskHandle_t cur = xTaskGetCurrentTaskHandle();
+    if (cur) {
+      PROM_APPEND("freertos_task_stack_hwm{task=\"loopTask\"} %lu\n",
+                   (unsigned long)(uxTaskGetStackHighWaterMark(cur) * 4));
+    }
+
+    // Async Modbus Master task
+    if (mb_async && mb_async->task_handle) {
+      PROM_APPEND("freertos_task_stack_hwm{task=\"mb_async\"} %lu\n",
+                   (unsigned long)(uxTaskGetStackHighWaterMark(mb_async->task_handle) * 4));
+    }
+
+    // IDLE tasks (core 0 and core 1)
+    TaskHandle_t idle0 = xTaskGetIdleTaskHandleForCPU(0);
+    TaskHandle_t idle1 = xTaskGetIdleTaskHandleForCPU(1);
+    if (idle0) {
+      PROM_APPEND("freertos_task_stack_hwm{task=\"IDLE0\"} %lu\n",
+                   (unsigned long)(uxTaskGetStackHighWaterMark(idle0) * 4));
+    }
+    if (idle1) {
+      PROM_APPEND("freertos_task_stack_hwm{task=\"IDLE1\"} %lu\n",
+                   (unsigned long)(uxTaskGetStackHighWaterMark(idle1) * 4));
+    }
   }
 
   // --- Firmware info ---
   PROM_APPEND("# HELP firmware_info Firmware version info\n");
   PROM_APPEND("# TYPE firmware_info gauge\n");
   PROM_APPEND("firmware_info{version=\"%s\",build=\"%d\"} 1\n", PROJECT_VERSION, BUILD_NUMBER);
+
+  // --- NTP metrics ---
+  PROM_APPEND("# HELP ntp_enabled NTP enabled (1=yes, 0=no)\n");
+  PROM_APPEND("# TYPE ntp_enabled gauge\n");
+  PROM_APPEND("ntp_enabled %d\n", g_persist_config.ntp.enabled ? 1 : 0);
+
+  PROM_APPEND("# HELP ntp_synced NTP time synchronized (1=yes, 0=no)\n");
+  PROM_APPEND("# TYPE ntp_synced gauge\n");
+  PROM_APPEND("ntp_synced %d\n", ntp_driver_is_synced() ? 1 : 0);
+
+  PROM_APPEND("# HELP ntp_sync_count Total NTP synchronizations since boot\n");
+  PROM_APPEND("# TYPE ntp_sync_count counter\n");
+  PROM_APPEND("ntp_sync_count %lu\n", (unsigned long)ntp_driver_get_sync_count());
+
+  if (ntp_driver_is_synced()) {
+    PROM_APPEND("# HELP ntp_epoch_seconds Current epoch time\n");
+    PROM_APPEND("# TYPE ntp_epoch_seconds gauge\n");
+    PROM_APPEND("ntp_epoch_seconds %lu\n", (unsigned long)ntp_driver_get_epoch());
+
+    PROM_APPEND("# HELP ntp_last_sync_age_ms Milliseconds since last sync\n");
+    PROM_APPEND("# TYPE ntp_last_sync_age_ms gauge\n");
+    PROM_APPEND("ntp_last_sync_age_ms %lu\n", (unsigned long)ntp_driver_get_last_sync_age_ms());
+  }
+
+  // --- Alarm log metrics ---
+  alarm_check_thresholds();
+  PROM_APPEND("# HELP alarm_log_count Total alarm entries in log\n");
+  PROM_APPEND("# TYPE alarm_log_count gauge\n");
+  PROM_APPEND("alarm_log_count %d\n", alarm_log_count);
+
+  uint8_t unack = 0;
+  for (int i = 0; i < alarm_log_count; i++) {
+    int idx = (alarm_log_head - alarm_log_count + i + ALARM_LOG_MAX) % ALARM_LOG_MAX;
+    if (!alarm_log[idx].acknowledged) unack++;
+  }
+  PROM_APPEND("# HELP alarm_unacknowledged_count Unacknowledged alarms\n");
+  PROM_APPEND("# TYPE alarm_unacknowledged_count gauge\n");
+  PROM_APPEND("alarm_unacknowledged_count %d\n", unack);
 
   #undef PROM_APPEND
 
@@ -5425,6 +5756,85 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_sendstr(req, buf);
   free(buf);
+
+  http_server_stat_success();
+  return ESP_OK;
+}
+
+/* ============================================================================
+ * FEAT-085: Alarm History API (v7.8.0)
+ * GET  /api/alarms         — Return alarm log as JSON array
+ * POST /api/alarms/ack     — Acknowledge all alarms
+ * ============================================================================ */
+
+esp_err_t api_handler_alarms_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_API_ENABLED(req);
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+
+  DynamicJsonDocument doc(4096);
+  JsonArray arr = doc.to<JsonArray>();
+
+  // Output oldest first
+  for (int i = 0; i < alarm_log_count; i++) {
+    int idx = (alarm_log_head - alarm_log_count + i + ALARM_LOG_MAX) % ALARM_LOG_MAX;
+    const alarm_entry_t *e = &alarm_log[idx];
+    JsonObject obj = arr.createNestedObject();
+    obj["timestamp_ms"] = e->timestamp_ms;
+    obj["message"] = e->message;
+    obj["severity"] = e->severity;
+    obj["acknowledged"] = e->acknowledged;
+
+    // Format uptime for readability
+    uint32_t s = e->timestamp_ms / 1000;
+    char uptime[32];
+    snprintf(uptime, sizeof(uptime), "%lud %02lu:%02lu:%02lu",
+             (unsigned long)(s / 86400), (unsigned long)((s % 86400) / 3600),
+             (unsigned long)((s % 3600) / 60), (unsigned long)(s % 60));
+    obj["uptime"] = uptime;
+
+    // Add real-time timestamp if available
+    if (e->epoch > 0) {
+      obj["epoch"] = (unsigned long)e->epoch;
+      struct tm timeinfo;
+      localtime_r(&e->epoch, &timeinfo);
+      char timebuf[24];
+      strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", &timeinfo);
+      obj["time"] = timebuf;
+    }
+  }
+
+  char *buf = (char *)malloc(4096);
+  if (!buf) return api_send_error(req, 500, "Out of memory");
+  serializeJson(doc, buf, 4096);
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_sendstr(req, buf);
+  free(buf);
+
+  http_server_stat_success();
+  return ESP_OK;
+}
+
+esp_err_t api_handler_alarms_ack(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+
+  for (int i = 0; i < ALARM_LOG_MAX; i++) {
+    alarm_log[i].acknowledged = true;
+  }
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_sendstr(req, "{\"status\":\"ok\",\"message\":\"All alarms acknowledged\"}");
 
   http_server_stat_success();
   return ESP_OK;

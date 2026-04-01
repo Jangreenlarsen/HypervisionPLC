@@ -50,6 +50,7 @@ Each layer has **ONE responsibility**. No circular dependencies.
 | `uart_driver.cpp/h` | UART0/UART1 init, RX/TX, buffering | Only place that knows UART registers |
 | `pcnt_driver.cpp/h` | PCNT unit config, counting, ISR | Hardware pulse counter interface |
 | `nvs_driver.cpp/h` | Non-volatile storage read/write | Only place that knows ESP32 NVS HAL |
+| `ntp_driver.cpp/h` | NTP time sync (ESP-IDF SNTP) | Only place that knows SNTP HAL (v7.8.1) |
 
 **Key Principle:** These are the ONLY files that know ESP32 registers/HAL. Everything above uses these abstractions.
 

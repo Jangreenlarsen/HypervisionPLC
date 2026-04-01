@@ -1,6 +1,6 @@
 # Modbus RTU Server (ESP32)
 
-**Version:** v7.7.0 | **Build:** Auto | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
+**Version:** v7.8.1 | **Build:** Auto | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
 
 En komplet, modulær **Modbus RTU Server** implementation til ESP32-WROOM-32 mikrocontroller med **Modbus interfaces** (Slave + Master), ST Structured Text Logic programmering med IEC 61131-3 type system, Wi-Fi netværk, **HTTP REST API** for Node-RED integration, telnet CLI interface, og komplet Modbus register dokumentation. Understøtter flere board-varianter inkl. **ES32D26** med shared RS485 transceiver, 8DI/8DO (shift registers), 8AI og 2AO (DAC).
 
@@ -999,7 +999,10 @@ show backup    # Shows download URL with current IP + curl examples
 | **Persistence** | `persist_group_reg_count{group="motors"}` |
 | **Network** | `wifi_rssi_dbm`, `telnet_connected`, `wifi_reconnect_retries` |
 | **Watchdog** | `watchdog_reboot_count` |
-| **Firmware** | `firmware_info{version="7.2.2",build="1581"}` |
+| **NTP** | `ntp_enabled`, `ntp_synced`, `ntp_sync_count`, `ntp_epoch_seconds` |
+| **Alarms** | `alarm_log_count`, `alarm_unacknowledged_count` |
+| **FreeRTOS** | `freertos_task_count`, `freertos_task_stack_hwm{task="loopTask"}` |
+| **Firmware** | `firmware_info{version="7.8.1",build="1771"}` |
 
 **Prometheus setup:**
 ```yaml
@@ -1130,6 +1133,8 @@ show coils [start] [count]     # Coils (0-255)
 show gpio                      # GPIO mappings
 show wifi                      # Wi-Fi connection status
 show modbus-master             # Modbus Master status & stats (v4.4+)
+show ntp                       # NTP sync status & config (v7.8.1)
+show time                      # Aktuel dato & tid (v7.8.1)
 show debug                     # Debug flags status
 show echo                      # Echo status
 ```
@@ -3747,6 +3752,27 @@ empty := CTD(dispense, reload, 50);              (* Count down from 50 *)
 
 ## 📝 Version History
 
+- **v7.8.1** (2026-04-01) - 🕐 NTP Tidssynkronisering
+  - **FEAT-101:** ESP-IDF SNTP klient med konfigurerbar server og POSIX tidszone
+  - **CLI:** `set ntp enable|server|timezone|interval`, `show ntp`, `show time`
+  - **API:** `GET /api/ntp` (config + sync status), `POST /api/ntp` (konfiguration)
+  - **Dashboard:** NTP kort med live klokkeslæt, sync status, server info
+  - **Metrics:** `ntp_enabled`, `ntp_synced`, `ntp_sync_count`, `ntp_epoch_seconds`, `ntp_last_sync_age_ms`
+  - **Alarm-log:** Real-time tidsstempler fra NTP (fallback til uptime)
+  - **Backup/Restore:** NTP config inkluderet i backup JSON
+  - **Sommertid:** Automatisk via POSIX TZ-streng (f.eks. `CET-1CEST,M3.5.0,M10.5.0/3`)
+  - **Schema:** 15 → 16 (NtpConfig: enabled, server, timezone, sync_interval_min)
+- **v7.8.0** (2026-04-01) - 📊 Web Monitor Udvidelse (5 nye dashboard-kort)
+  - **FEAT-072:** Modbus RTU trafikmonitor — live req/3s rate, success rate, CRC/timeout/exception, sparkline grafer
+  - **FEAT-073:** Modbus Master cache status — async cache hits/misses/entries, per-slave tabel
+  - **FEAT-078:** FreeRTOS task monitor — task count, heap fragmentation, stack HWM
+  - **FEAT-085:** Alarm-historik — 32-entry ringbuffer med auto-detection, API + kvittér
+  - **FEAT-095:** Digital I/O dashboard — LED-indikatorer for IN1-IN8 + CH1-CH8 med klik-toggle
+  - **Nye metrics:** heap largest block, master exceptions/cache stats, FreeRTOS tasks, watchdog reset reason
+  - **API:** `GET /api/alarms`, `POST /api/alarms/ack`
+- **v7.7.2** (2026-03-31) - 🔧 HW Counter Access fra ST Logic
+  - **FEAT-071:** 9 nye ST builtins: CNT_SETUP, CNT_ENABLE, CNT_CTRL, CNT_VALUE, CNT_RAW, CNT_FREQ, CNT_STATUS
+  - **FEAT-071:** Register map bindings for HW counters
 - **v7.7.0** (2026-03-31) - ⚡ Async Modbus Master (non-blocking)
   - **FEAT-070:** Dedikeret FreeRTOS baggrundstask (Core 0) til Modbus UART I/O
   - **FEAT-070:** MB_Read/Write builtins er nu non-blocking (cached reads, queued writes)

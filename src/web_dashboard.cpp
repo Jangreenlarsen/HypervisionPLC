@@ -96,6 +96,16 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .rm-st{background:#1e5f3a;color:#a6e3a1}
 .rm-manual{background:#5f3a1e;color:#fab387}
 .rm-free{background:#313244;color:#585b70}
+.dio-led{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:36px}
+.dio-led .led{width:18px;height:18px;border-radius:50%;border:2px solid #45475a;transition:all .3s}
+.dio-led .led-on{background:#a6e3a1;border-color:#a6e3a1;box-shadow:0 0 6px #a6e3a1}
+.dio-led .led-off{background:#313244;border-color:#45475a}
+.dio-led .led-lbl{font-size:9px;color:#6c7086}
+.dio-led .led-out{cursor:pointer}
+.dio-led .led-out:hover{border-color:#89b4fa}
+.sev-crit{color:#f38ba8;font-weight:600}
+.sev-warn{color:#fab387}
+.sev-info{color:#a6adc8}
 .page-view{display:none;flex:1;overflow-y:auto;padding:16px}
 .page-view.active{display:block}
 .foot{background:#181825;border-top:1px solid #313244;padding:4px 16px;font-size:10px;color:#45475a;flex-shrink:0;display:flex;justify-content:space-between}
@@ -221,6 +231,78 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div id="stBody"><span class="empty-msg">Ingen aktive programmer</span></div>
 </div>
 
+<!-- NTP Tidssynkronisering -->
+<div class="card">
+<h2>NTP Tid <span class="badge badge-off" id="badgeNtp">-</span></h2>
+<div class="row"><span class="lbl">Lokal tid</span><span class="val val-n" id="ntpTime" style="font-size:14px;color:#89b4fa">-</span></div>
+<div class="row"><span class="lbl">Server</span><span class="val val-n" id="ntpServer">-</span></div>
+<div class="row"><span class="lbl">Tidszone</span><span class="val val-n" id="ntpTz">-</span></div>
+<div class="row"><span class="lbl">Antal syncs</span><span class="val val-n" id="ntpSyncs">-</span></div>
+<div class="row"><span class="lbl">Sidste sync</span><span class="val val-n" id="ntpAge">-</span></div>
+</div>
+
+<!-- FEAT-072: Modbus RTU Trafik -->
+<div class="card">
+<h2>Modbus RTU Trafik</h2>
+<div class="row"><span class="lbl">Slave req/3s</span><span class="val val-n" id="rtSlaveRate">-</span></div>
+<div class="row"><span class="lbl">Master req/3s</span><span class="val val-n" id="rtMasterRate">-</span></div>
+<div class="row"><span class="lbl">Slave success rate</span><span class="val val-n" id="rtSlaveSucc">-</span></div>
+<div class="row"><span class="lbl">Master success rate</span><span class="val val-n" id="rtMasterSucc">-</span></div>
+<div class="row"><span class="lbl">CRC fejl (slave/master)</span><span class="val val-err" id="rtCrcBoth">-</span></div>
+<div class="row"><span class="lbl">Timeouts (master)</span><span class="val val-err" id="rtTimeout">-</span></div>
+<div class="row"><span class="lbl">Exceptions (slave/master)</span><span class="val val-warn" id="rtExcBoth">-</span></div>
+<div class="spark-row"><span class="sl">Slave req/3s</span><svg id="sparkRtSlave" width="200" height="24"></svg></div>
+<div class="spark-row"><span class="sl">Master req/3s</span><svg id="sparkRtMaster" width="200" height="24"></svg></div>
+</div>
+
+<!-- FEAT-073: Modbus Master Status -->
+<div class="card">
+<h2>Modbus Master Cache</h2>
+<div class="row"><span class="lbl">Cache entries</span><span class="val val-n" id="mcEntries">-</span></div>
+<div class="row"><span class="lbl">Cache hits</span><span class="val val-ok" id="mcHits">-</span></div>
+<div class="row"><span class="lbl">Cache misses</span><span class="val val-warn" id="mcMisses">-</span></div>
+<div class="row"><span class="lbl">Hit rate</span><span class="val val-n" id="mcHitRate">-</span></div>
+<div class="row"><span class="lbl">Queue full</span><span class="val val-err" id="mcQueueFull">-</span></div>
+<div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
+</div>
+
+<!-- FEAT-078: CPU / Tasks -->
+<div class="card">
+<h2>FreeRTOS Tasks</h2>
+<div class="row"><span class="lbl">Aktive tasks</span><span class="val val-n" id="cpuTaskCount">-</span></div>
+<div class="row"><span class="lbl">Heap largest block</span><span class="val val-n" id="cpuLargestBlock">-</span></div>
+<div class="row"><span class="lbl">Fragmentering</span><span class="val val-n" id="cpuFragPct">-</span></div>
+<div class="bar-wrap"><div class="bar-fill bar-ok" id="fragBar" style="width:0%"></div></div>
+<div id="cpuTaskBody"><span class="empty-msg">Indlæser...</span></div>
+</div>
+
+<!-- FEAT-085: Alarm Historik -->
+<div class="card">
+<h2>Alarm Historik <span class="badge badge-off" id="badgeAlarm">0</span></h2>
+<div style="display:flex;justify-content:space-between;margin-bottom:6px">
+<span style="font-size:10px;color:#6c7086" id="alarmInfo">-</span>
+<button onclick="ackAlarms()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Kvittér alle</button>
+</div>
+<div id="alarmBody"><span class="empty-msg">Ingen alarmer</span></div>
+</div>
+
+<!-- FEAT-095: Digital I/O Dashboard -->
+<div class="card" id="cardDio">
+<h2>Digital I/O</h2>
+<div style="margin-bottom:8px">
+<div style="font-size:10px;color:#89b4fa;margin-bottom:4px;font-weight:600">Inputs (IN1-IN8)</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap" id="dioInputs">
+<span class="empty-msg">Ikke tilgængelig</span>
+</div>
+</div>
+<div>
+<div style="font-size:10px;color:#cba6f7;margin-bottom:4px;font-weight:600">Outputs (CH1-CH8)</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap" id="dioOutputs">
+<span class="empty-msg">Ikke tilgængelig</span>
+</div>
+</div>
+</div>
+
 </div>
 </div>
 
@@ -285,10 +367,12 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <script>
 let refreshTimer=null;
 const HIST_MAX=120; // 120 samples × 3s = 6 min
-let history={heap:[],mbSlave:[],mbMaster:[]};
+let history={heap:[],mbSlave:[],mbMaster:[],rtSlave:[],rtMaster:[]};
 let prevMbSlave=null,prevMbMaster=null;
+let prevSlaveTotal=null,prevMasterTotal=null;
 let alarms=[];
 let _stBindings=null;
+let _alarmLog=[];
 
 function showPage(page,btn){
   document.querySelectorAll('.page-view').forEach(p=>p.classList.remove('active'));
@@ -535,6 +619,158 @@ function updateDashboard(m){
     $('stBody').innerHTML='<span class="empty-msg">Ingen aktive programmer</span>';
   }
 
+  // === NTP Time ===
+  {
+    const ntpOn=g(m,'ntp_enabled')===1;
+    const ntpSync=g(m,'ntp_synced')===1;
+    badge($('badgeNtp'),ntpSync,ntpSync?'Synkroniseret':ntpOn?'Venter...':'Deaktiveret');
+    $('ntpSyncs').textContent=fmtN(g(m,'ntp_sync_count'));
+    if(ntpSync){
+      const epoch=g(m,'ntp_epoch_seconds');
+      if(epoch){
+        const d=new Date(epoch*1000);
+        $('ntpTime').textContent=d.toLocaleString('da-DK',{dateStyle:'medium',timeStyle:'medium'});
+      }
+      const age=g(m,'ntp_last_sync_age_ms');
+      if(age!=null)$('ntpAge').textContent=(age/1000).toFixed(0)+' sek. siden';
+    }else{
+      $('ntpTime').textContent=ntpOn?'Venter på sync...':'Deaktiveret';
+      $('ntpAge').textContent='-';
+    }
+  }
+  // Fetch NTP config details (from /api/ntp, less frequent)
+  if(!window._ntpConfigFetched||(Date.now()-window._ntpConfigFetched>30000)){
+    window._ntpConfigFetched=Date.now();
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    fetch('/api/ntp',opts).then(r=>r.json()).then(d=>{
+      $('ntpServer').textContent=d.server||'-';
+      $('ntpTz').textContent=d.timezone||'UTC';
+    }).catch(()=>{});
+  }
+
+  // === FEAT-072: Modbus RTU Trafik ===
+  {
+    const sT=g(m,'modbus_slave_requests_total')||0;
+    const mT=g(m,'modbus_master_requests_total')||0;
+    const sDelta=prevSlaveTotal!=null?sT-prevSlaveTotal:0;
+    const mDelta=prevMasterTotal!=null?mT-prevMasterTotal:0;
+    prevSlaveTotal=sT;prevMasterTotal=mT;
+    history.rtSlave.push(sDelta);if(history.rtSlave.length>HIST_MAX)history.rtSlave.shift();
+    history.rtMaster.push(mDelta);if(history.rtMaster.length>HIST_MAX)history.rtMaster.shift();
+    $('rtSlaveRate').textContent=fmtN(sDelta);
+    $('rtMasterRate').textContent=fmtN(mDelta);
+    const sO=g(m,'modbus_slave_success_total')||0;
+    const mO=g(m,'modbus_master_success_total')||0;
+    $('rtSlaveSucc').textContent=rate(sO,sT);
+    $('rtMasterSucc').textContent=rate(mO,mT);
+    const sCrc=g(m,'modbus_slave_crc_errors_total')||0;
+    const mCrc=g(m,'modbus_master_crc_errors_total')||0;
+    $('rtCrcBoth').textContent=fmtN(sCrc)+' / '+fmtN(mCrc);
+    $('rtTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
+    const sExc=g(m,'modbus_slave_exceptions_total')||0;
+    const mExc=g(m,'modbus_master_exception_errors_total')||0;
+    $('rtExcBoth').textContent=fmtN(sExc)+' / '+fmtN(mExc);
+    drawSparkline('sparkRtSlave',history.rtSlave,'#89b4fa');
+    drawSparkline('sparkRtMaster',history.rtMaster,'#cba6f7');
+  }
+
+  // === FEAT-073: Modbus Master Cache ===
+  {
+    const hits=g(m,'modbus_master_cache_hits');
+    const misses=g(m,'modbus_master_cache_misses');
+    const entries=g(m,'modbus_master_cache_entries');
+    const qfull=g(m,'modbus_master_queue_full_count');
+    if(hits!=null){
+      $('mcEntries').textContent=fmtN(entries)+' / '+MB_CACHE_MAX;
+      $('mcHits').textContent=fmtN(hits);
+      $('mcMisses').textContent=fmtN(misses);
+      const total=hits+misses;
+      $('mcHitRate').textContent=total>0?(hits/total*100).toFixed(1)+'%':'N/A';
+      $('mcQueueFull').textContent=fmtN(qfull);
+      // Per-slave table
+      const slaves=gAll(m,'modbus_master_slave_status');
+      if(slaves.length>0){
+        let h='<table class="tbl"><tr><th>Slave</th><th>Addr</th><th>FC</th><th>Status</th></tr>';
+        for(const s of slaves){
+          const st=s.labels.status||'?';
+          const cls=st==='valid'?'val-ok':st==='error'?'val-err':'val-warn';
+          h+='<tr><td>#'+s.labels.slave+'</td><td>'+s.labels.addr+'</td><td>FC'+s.labels.fc+'</td>';
+          h+='<td class="'+cls+'">'+st+'</td></tr>';
+        }
+        h+='</table>';
+        $('mcSlaves').innerHTML=h;
+      }else{$('mcSlaves').innerHTML='<span class="empty-msg">Ingen aktive slaves</span>';}
+    }else{
+      $('mcEntries').textContent='Inaktiv';
+      $('mcSlaves').innerHTML='<span class="empty-msg">Master ikke startet</span>';
+    }
+  }
+
+  // === FEAT-078: FreeRTOS Tasks ===
+  {
+    $('cpuTaskCount').textContent=fmtN(g(m,'freertos_task_count'));
+    const largest=g(m,'esp32_heap_largest_free_block');
+    const heapTotal=g(m,'esp32_heap_free_bytes');
+    $('cpuLargestBlock').textContent=fmtKB(largest);
+    if(largest!=null&&heapTotal!=null&&heapTotal>0){
+      const fragPct=((1-largest/heapTotal)*100);
+      $('cpuFragPct').textContent=fragPct.toFixed(1)+'%';
+      const bar=$('fragBar');
+      bar.style.width=Math.min(100,fragPct).toFixed(0)+'%';
+      bar.className='bar-fill '+(fragPct<30?'bar-ok':fragPct<60?'bar-warn':'bar-err');
+    }
+    const tasks=gAll(m,'freertos_task_stack_hwm');
+    if(tasks.length>0){
+      let h='<table class="tbl"><tr><th>Task</th><th>Stack HWM</th></tr>';
+      for(const t of tasks){
+        const name=t.labels.task||'?';
+        const hwm=t.value;
+        const hwmCls=hwm<200?'val-err':hwm<500?'val-warn':'val-n';
+        h+='<tr><td>'+name+'</td><td class="'+hwmCls+'">'+hwm+' B</td></tr>';
+      }
+      h+='</table>';
+      $('cpuTaskBody').innerHTML=h;
+    }
+  }
+
+  // === FEAT-085: Alarm Historik ===
+  {
+    const cnt=g(m,'alarm_log_count')||0;
+    const unack=g(m,'alarm_unacknowledged_count')||0;
+    badge($('badgeAlarm'),unack>0,String(unack));
+    $('alarmInfo').textContent=cnt+' alarmer totalt, '+unack+' ukvitterede';
+  }
+
+  // === FEAT-095: Digital I/O ===
+  {
+    const dins=gAll(m,'gpio_digital_input');
+    const douts=gAll(m,'gpio_digital_output');
+    if(dins.length>0){
+      let h='';
+      for(const d of dins){
+        const pin=d.labels.pin;
+        const on=d.value===1;
+        const num=parseInt(pin)-100;
+        h+='<div class="dio-led"><div class="led '+(on?'led-on':'led-off')+'"></div><span class="led-lbl">IN'+num+'</span></div>';
+      }
+      $('dioInputs').innerHTML=h;
+    }
+    if(douts.length>0){
+      let h='';
+      for(const d of douts){
+        const pin=d.labels.pin;
+        const on=d.value===1;
+        const num=parseInt(pin)-200;
+        h+='<div class="dio-led"><div class="led led-out '+(on?'led-on':'led-off')+'" onclick="toggleDO('+pin+')" title="Klik for at skifte"></div><span class="led-lbl">CH'+num+'</span></div>';
+      }
+      $('dioOutputs').innerHTML=h;
+    }
+    if(dins.length===0&&douts.length===0){
+      $('cardDio').style.display='none';
+    }
+  }
+
   // Update register views if visible
   updateRegisterViewer(m);
   updateRegisterMap(m);
@@ -749,6 +985,58 @@ async function fetchMetrics(){
   }
 }
 
+const MB_CACHE_MAX=32;
+
+async function fetchAlarms(){
+  try{
+    const r=await fetch('/api/alarms',{});
+    if(!r.ok)return;
+    _alarmLog=await r.json();
+    const el=$('alarmBody');
+    if(_alarmLog.length===0){
+      el.innerHTML='<span class="empty-msg">Ingen alarmer</span>';
+      return;
+    }
+    // Show newest first, max 15
+    const recent=_alarmLog.slice(-15).reverse();
+    let h='<table class="tbl"><tr><th>Tid</th><th>Alarm</th><th>Kvit</th></tr>';
+    for(const a of recent){
+      const sevCls=a.severity===2?'sev-crit':a.severity===1?'sev-warn':'sev-info';
+      const ack=a.acknowledged?'<span class="dot dot-off" title="Kvitteret"></span>':'<span class="dot dot-r" title="Aktiv"></span>';
+      const timeStr=a.time||a.uptime;
+      h+='<tr><td style="white-space:nowrap">'+timeStr+'</td>';
+      h+='<td class="'+sevCls+'">'+a.message+'</td>';
+      h+='<td>'+ack+'</td></tr>';
+    }
+    h+='</table>';
+    el.innerHTML=h;
+  }catch(e){}
+}
+async function ackAlarms(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{}};
+    if(auth)opts.headers['Authorization']=auth;
+    await fetch('/api/alarms/ack',opts);
+    fetchAlarms();
+  }catch(e){}
+}
+async function toggleDO(pin){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    // Read current state from last metrics, then toggle
+    var opts1=auth?{headers:{'Authorization':auth}}:{};
+    const r=await fetch('/api/gpio/'+pin,opts1);
+    if(!r.ok)return;
+    const d=await r.json();
+    const newVal=d.level?0:1;
+    var opts2={method:'POST',headers:{'Content-Type':'application/json'}};
+    if(auth)opts2.headers['Authorization']=auth;
+    opts2.body=JSON.stringify({level:newVal});
+    await fetch('/api/gpio/'+pin,opts2);
+  }catch(e){}
+}
+
 function init(){
   // Initialize register grids
   let hrInit='',coilInit='';
@@ -761,8 +1049,10 @@ function init(){
 
   fetchBindings();
   fetchMetrics();
+  fetchAlarms();
   refreshTimer=setInterval(fetchMetrics,3000);
   setInterval(fetchBindings,15000);
+  setInterval(fetchAlarms,10000);
 }
 init();
 

@@ -90,6 +90,12 @@ static void config_init_defaults(PersistConfig* cfg) {
   // RBAC defaults: disabled (legacy single-user mode)
   memset(&cfg->rbac, 0, sizeof(RbacConfig));
 
+  // NTP defaults (v7.8.1)
+  cfg->ntp.enabled = 0;
+  strncpy(cfg->ntp.server, "pool.ntp.org", sizeof(cfg->ntp.server) - 1);
+  strncpy(cfg->ntp.timezone, "CET-1CEST,M3.5.0,M10.5.0/3", sizeof(cfg->ntp.timezone) - 1);
+  cfg->ntp.sync_interval_min = 60;
+
   // Initialize network config with defaults (v3.0+)
   network_config_init_defaults(&cfg->network);
 
@@ -352,6 +358,22 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->schema_version = 15;
 
       debug_println("CONFIG LOAD: Migration 14→15 complete");
+    }
+
+    if (out->schema_version == 15) {
+      debug_println("CONFIG LOAD: Migrating schema 15 → 16 (NTP time sync)");
+
+      // Initialize NTP config with defaults
+      out->ntp.enabled = 0;
+      strncpy(out->ntp.server, "pool.ntp.org", sizeof(out->ntp.server) - 1);
+      out->ntp.server[sizeof(out->ntp.server) - 1] = '\0';
+      strncpy(out->ntp.timezone, "CET-1CEST,M3.5.0,M10.5.0/3", sizeof(out->ntp.timezone) - 1);
+      out->ntp.timezone[sizeof(out->ntp.timezone) - 1] = '\0';
+      out->ntp.sync_interval_min = 60;
+
+      out->schema_version = 16;
+
+      debug_println("CONFIG LOAD: Migration 15→16 complete");
     } else if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);

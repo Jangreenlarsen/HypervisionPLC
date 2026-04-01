@@ -76,6 +76,7 @@ void cli_cmd_show_config(const char *section) {
   bool show_ethernet = show_all || show_section_match(section, "ETHERNET") || show_section_match(section, "ETH");
   bool show_http     = show_all || show_section_match(section, "HTTP") || show_section_match(section, "API");
   bool show_sse      = show_all || show_section_match(section, "SSE");
+  bool show_ntp      = show_all || show_section_match(section, "NTP") || show_section_match(section, "TIME");
   bool show_ratelimit = show_all || show_section_match(section, "RATE") || show_section_match(section, "RATELIMIT");
   bool show_analog   = show_all || show_section_match(section, "ANALOG") || show_section_match(section, "AO");
   bool show_modules  = show_all || show_section_match(section, "MODULE");
@@ -1166,6 +1167,28 @@ void cli_cmd_show_config(const char *section) {
   debug_println("");
 
   } // end show_sse
+
+  // =========================================================================
+  // NTP TIME SYNC (v7.8.1)
+  // =========================================================================
+  if (show_ntp) {
+  debug_println("\n[NTP]");
+  debug_print("  status: ");
+  debug_println(g_persist_config.ntp.enabled ? "enabled" : "disabled");
+  debug_print("  server: ");
+  debug_println(g_persist_config.ntp.server[0] ? g_persist_config.ntp.server : "(not set)");
+  debug_print("  timezone: ");
+  debug_println(g_persist_config.ntp.timezone[0] ? g_persist_config.ntp.timezone : "(UTC)");
+  debug_print("  sync-interval: ");
+  debug_print_uint(g_persist_config.ntp.sync_interval_min);
+  debug_println(" min");
+  debug_println("\nTO CONFIGURE:");
+  debug_println("  set ntp enable|disable");
+  debug_println("  set ntp server <hostname>");
+  debug_println("  set ntp timezone <posix-tz>");
+  debug_println("  set ntp interval <minutter>");
+  debug_println("");
+  } // end show_ntp
 
   // =========================================================================
   // RATE LIMITING (v7.1.0)

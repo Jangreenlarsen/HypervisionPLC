@@ -494,6 +494,20 @@ static const httpd_uri_t uri_telnet_post = {
   .user_ctx = NULL
 };
 
+// NTP API (v7.8.1)
+static const httpd_uri_t uri_ntp_get = {
+  .uri      = "/api/ntp",
+  .method   = HTTP_GET,
+  .handler  = api_handler_ntp_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_ntp_post = {
+  .uri      = "/api/ntp",
+  .method   = HTTP_POST,
+  .handler  = api_handler_ntp_post,
+  .user_ctx = NULL
+};
+
 // FEAT-024: Hostname
 static const httpd_uri_t uri_hostname_get = {
   .uri      = "/api/hostname",
@@ -716,6 +730,20 @@ static const httpd_uri_t uri_metrics = {
   .user_ctx = NULL
 };
 
+// FEAT-085: Alarm history API (v7.8.0)
+static const httpd_uri_t uri_alarms_get = {
+  .uri      = "/api/alarms",
+  .method   = HTTP_GET,
+  .handler  = api_handler_alarms_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_alarms_ack = {
+  .uri      = "/api/alarms/ack",
+  .method   = HTTP_POST,
+  .handler  = api_handler_alarms_ack,
+  .user_ctx = NULL
+};
+
 // FEAT-022: Persistence group management API
 static const httpd_uri_t uri_persist_groups_list = {
   .uri      = "/api/persist/groups",
@@ -834,7 +862,7 @@ int http_server_start(const HttpConfig *config)
     // Plain HTTP mode
     httpd_config_t httpd_config = HTTPD_DEFAULT_CONFIG();
     httpd_config.server_port = config->port;
-    httpd_config.max_uri_handlers = 88;
+    httpd_config.max_uri_handlers = 96;
     httpd_config.stack_size = 8192;
     httpd_config.uri_match_fn = httpd_uri_match_wildcard;
     httpd_config.lru_purge_enable = true;  // BUG-241: Auto-close idle keep-alive connections to reduce heap fragmentation
@@ -920,6 +948,9 @@ int http_server_start(const HttpConfig *config)
   // v6.3.0: FEAT-019 Telnet config
   httpd_register_uri_handler(http_state.server, &uri_telnet_get);
   httpd_register_uri_handler(http_state.server, &uri_telnet_post);
+  // v7.8.1: NTP API
+  httpd_register_uri_handler(http_state.server, &uri_ntp_get);
+  httpd_register_uri_handler(http_state.server, &uri_ntp_post);
   // v6.3.0: FEAT-024 Hostname
   httpd_register_uri_handler(http_state.server, &uri_hostname_get);
   httpd_register_uri_handler(http_state.server, &uri_hostname_post);
@@ -936,6 +967,9 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_api_version);
   // v7.0.4: FEAT-032 Prometheus metrics
   httpd_register_uri_handler(http_state.server, &uri_metrics);
+  // v7.8.0: FEAT-085 Alarm history API
+  httpd_register_uri_handler(http_state.server, &uri_alarms_get);
+  httpd_register_uri_handler(http_state.server, &uri_alarms_ack);
   // v7.0.4: FEAT-022 Persistence group API
   httpd_register_uri_handler(http_state.server, &uri_persist_groups_list);
   httpd_register_uri_handler(http_state.server, &uri_persist_group_get);

@@ -2587,6 +2587,148 @@ void cli_cmd_set_rate_limit(uint8_t argc, char* argv[]) {
   }
 }
 
+/* ============================================================================
+ * NTP CONFIGURATION (v7.8.1)
+ * ============================================================================ */
+
+void cli_cmd_set_ntp(uint8_t argc, char* argv[]) {
+  if (argc < 1) {
+    debug_println("SET NTP: konfigurér NTP tidssynkronisering");
+    debug_println("");
+    debug_println("  Brug:");
+    debug_println("    set ntp enable              - Aktivér NTP");
+    debug_println("    set ntp disable             - Deaktivér NTP");
+    debug_println("    set ntp server <hostname>   - Sæt NTP server");
+    debug_println("    set ntp timezone <tz>       - Sæt POSIX tidszonestreng");
+    debug_println("    set ntp interval <minutter>  - Synkroniseringsinterval (1-1440)");
+    debug_println("");
+    debug_println("  POSIX TZ format: STDoffset[DST[offset],start,end]");
+    debug_println("    STD     = vintertid-navn (CET, GMT, EST...)");
+    debug_println("    offset  = timer bag UTC (negativt = øst for UTC!)");
+    debug_println("    DST     = sommertid-navn (CEST, BST, EDT...)");
+    debug_println("    Mm.w.d  = måned.uge.ugedag (0=søndag)");
+    debug_println("    /t      = skiftetidspunkt (default /2 = kl 02:00)");
+    debug_println("");
+    debug_println("  Tidszoner (eksempler):");
+    debug_println("    CET-1CEST,M3.5.0,M10.5.0/3  - Danmark/Centraleuropa");
+    debug_println("      Vinter: CET = UTC+1, Sommer: CEST = UTC+2");
+    debug_println("      Start: marts, sidste søndag kl 03:00");
+    debug_println("      Slut:  oktober, sidste søndag kl 03:00");
+    debug_println("    EET-2EEST,M3.5.0/3,M10.5.0/4 - Finland/Østeuropa");
+    debug_println("    GMT0BST,M3.5.0/1,M10.5.0      - UK (GMT/BST)");
+    debug_println("    EST5EDT,M3.2.0,M11.1.0         - US Eastern");
+    debug_println("    CST6CDT,M3.2.0,M11.1.0         - US Central");
+    debug_println("    UTC0                            - UTC (ingen sommertid)");
+    debug_println("    CST-8                           - Kina (UTC+8, ingen DST)");
+    debug_println("");
+    debug_println("  M3.5.0 = marts, 5.uge (=sidste), søndag");
+    debug_println("  M10.5.0/3 = oktober, sidste søndag kl 03:00");
+    debug_println("");
+    debug_println("  Note: Brug 'save' for at gemme til NVS");
+    return;
+  }
+
+  const char* option = argv[0];
+  const char* value = (argc >= 2) ? argv[1] : "";
+
+  if (!strcmp(option, "enable") || !strcmp(option, "on")) {
+    g_persist_config.ntp.enabled = 1;
+    debug_println("NTP aktiveret");
+    // Reconfigure if network is up
+    extern void ntp_driver_reconfigure(void);
+    ntp_driver_reconfigure();
+
+  } else if (!strcmp(option, "disable") || !strcmp(option, "off")) {
+    g_persist_config.ntp.enabled = 0;
+    debug_println("NTP deaktiveret");
+    extern void ntp_driver_stop(void);
+    ntp_driver_stop();
+
+  } else if (!strcmp(option, "server")) {
+    if (!value || value[0] == '\0') {
+      debug_println("SET NTP SERVER: mangler hostname");
+      return;
+    }
+    strncpy(g_persist_config.ntp.server, value, sizeof(g_persist_config.ntp.server) - 1);
+    g_persist_config.ntp.server[sizeof(g_persist_config.ntp.server) - 1] = '\0';
+    debug_print("NTP server sat til: ");
+    debug_println(g_persist_config.ntp.server);
+
+  } else if (!strcmp(option, "timezone") || !strcmp(option, "tz")) {
+    if (!value || value[0] == '\0') {
+      debug_println("SET NTP TIMEZONE: mangler POSIX tidszonestreng");
+      debug_println("  Danmark:  set ntp tz CET-1CEST,M3.5.0,M10.5.0/3");
+      debug_println("  UTC:      set ntp tz UTC0");
+      debug_println("  Brug 'set ntp' for flere eksempler");
+      return;
+    }
+    strncpy(g_persist_config.ntp.timezone, value, sizeof(g_persist_config.ntp.timezone) - 1);
+    g_persist_config.ntp.timezone[sizeof(g_persist_config.ntp.timezone) - 1] = '\0';
+    debug_print("NTP tidszone sat til: ");
+    debug_println(g_persist_config.ntp.timezone);
+    // Apply timezone immediately
+    setenv("TZ", g_persist_config.ntp.timezone, 1);
+    tzset();
+
+  } else if (!strcmp(option, "interval")) {
+    uint16_t mins = atoi(value);
+    if (mins < 1 || mins > 1440) {
+      debug_println("SET NTP INTERVAL: ugyldigt interval (1-1440 minutter)");
+      return;
+    }
+    g_persist_config.ntp.sync_interval_min = mins;
+    debug_print("NTP sync interval sat til: ");
+    debug_print_uint(mins);
+    debug_println(" minutter");
+
+  } else {
+    debug_print("SET NTP: ukendt option '");
+    debug_print(option);
+    debug_println("' (brug: enable, disable, server, timezone, interval)");
+  }
+}
+
+void cli_cmd_show_ntp() {
+  debug_println("[NTP Tidssynkronisering]");
+  debug_print("  Status: ");
+  debug_println(g_persist_config.ntp.enabled ? "AKTIVERET" : "DEAKTIVERET");
+
+  debug_print("  Server: ");
+  debug_println(g_persist_config.ntp.server[0] ? g_persist_config.ntp.server : "(ikke sat)");
+
+  debug_print("  Tidszone: ");
+  debug_println(g_persist_config.ntp.timezone[0] ? g_persist_config.ntp.timezone : "(UTC)");
+
+  debug_print("  Sync interval: ");
+  debug_print_uint(g_persist_config.ntp.sync_interval_min);
+  debug_println(" minutter");
+
+  extern bool ntp_driver_is_synced(void);
+  extern uint32_t ntp_driver_get_sync_count(void);
+  extern uint32_t ntp_driver_get_last_sync_age_ms(void);
+  extern bool ntp_driver_get_time_str(char *buf, size_t bufsize);
+
+  debug_print("  Synkroniseret: ");
+  debug_println(ntp_driver_is_synced() ? "JA" : "NEJ");
+
+  debug_print("  Antal syncs: ");
+  debug_print_uint(ntp_driver_get_sync_count());
+  debug_println("");
+
+  if (ntp_driver_is_synced()) {
+    uint32_t age = ntp_driver_get_last_sync_age_ms();
+    debug_print("  Sidste sync: ");
+    debug_print_uint(age / 1000);
+    debug_println(" sek. siden");
+
+    char timebuf[32];
+    ntp_driver_get_time_str(timebuf, sizeof(timebuf));
+    debug_print("  Lokal tid: ");
+    debug_println(timebuf);
+  }
+  debug_println("");
+}
+
 void cli_cmd_ping(uint8_t argc, char* argv[]) {
   if (argc < 1) {
     debug_println("Brug: ping <ip/hostname> [count]");

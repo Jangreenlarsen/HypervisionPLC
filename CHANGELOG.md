@@ -4,6 +4,64 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.8.1] - 2026-04-01 (NTP Tidssynkronisering)
+
+### NEW FEATURES
+
+**FEAT-101: NTP Time Synchronization**
+- ESP-IDF SNTP klient med konfigurerbar NTP server (default: pool.ntp.org)
+- POSIX tidszonestrenge med automatisk sommertid (DST) håndtering
+- Konfigurerbart sync interval (1-1440 minutter, default: 60)
+- CLI: `set ntp enable|disable|server|timezone|interval`, `show ntp`, `show time`
+- API: `GET /api/ntp` (config + sync status), `POST /api/ntp` (konfiguration)
+- Dashboard: NTP kort med live klokkeslæt, sync status, server info
+- Prometheus metrics: `ntp_enabled`, `ntp_synced`, `ntp_sync_count`, `ntp_epoch_seconds`, `ntp_last_sync_age_ms`
+- Alarm-log entries har nu real-time tidsstempler fra NTP (fallback til uptime)
+- Backup/Restore: NTP config inkluderet i backup JSON
+- CLI hjælpetekst med POSIX TZ-format forklaring og 8 tidszoneeksempler
+
+### TECHNICAL
+
+- Config schema: 15 → 16 (NtpConfig: enabled, server[48], timezone[48], sync_interval_min)
+- Nye filer: `src/ntp_driver.cpp`, `include/ntp_driver.h`
+- NTP initialiseres efter network manager (kræver WiFi/Ethernet forbindelse)
+- `ntp_driver_reconfigure()` til live ændring uden reboot
+
+---
+
+## [7.8.0] - 2026-04-01 (Web Monitor Udvidelse)
+
+### NEW FEATURES
+
+**FEAT-072: Modbus RTU Trafikmonitor**
+- Live req/3s rate beregning for slave og master
+- Success rate, CRC fejl, timeouts, exceptions med sparkline grafer
+
+**FEAT-073: Modbus Master Cache Status**
+- Async cache hits/misses/entries/hit rate
+- Per-slave cache status tabel med queue full count
+
+**FEAT-078: FreeRTOS Task Monitor**
+- Task count, heap fragmentation (largest free block vs total)
+- Stack high-water mark for kendte tasks (loopTask, mb_async, IDLE0, IDLE1)
+
+**FEAT-085: Alarm-historik**
+- 32-entry ringbuffer med auto-detection (heap low, CRC rising, timeout rising, auth failures, ST overruns)
+- API: `GET /api/alarms` (JSON log), `POST /api/alarms/ack` (kvittér alle)
+- Dashboard kort med severity-farver og kvittér-knap
+
+**FEAT-095: Digital I/O Dashboard**
+- Visuelle LED-indikatorer for IN1-IN8 (input) og CH1-CH8 (output)
+- Klik-toggle på outputs, auto-skjules uden shift register hardware
+
+### TECHNICAL
+
+- Prometheus metrics udvidet: heap largest block, master exceptions, cache stats, FreeRTOS tasks, watchdog reset reason, alarm count
+- Metrics buffer: 8KB → 12KB for udvidede metrics
+- `max_uri_handlers`: 88 → 96
+
+---
+
 ## [7.3.0] - 2026-03-25 (Web-based ST Logic Editor)
 
 ### NEW FEATURES

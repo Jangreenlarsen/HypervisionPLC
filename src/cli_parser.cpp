@@ -193,6 +193,7 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "MODUL") || str_eq_i(s, "MODULE")) return "MODUL";
   if (str_eq_i(s, "RS485")) return "RS485";
   if (str_eq_i(s, "ETHERNET") || str_eq_i(s, "ETH")) return "ETHERNET";
+  if (str_eq_i(s, "NTP") || str_eq_i(s, "SNTP")) return "NTP";
   if (str_eq_i(s, "TX")) return "TX";
   if (str_eq_i(s, "RX")) return "RX";
   if (str_eq_i(s, "DIR")) return "DIR";
@@ -227,6 +228,7 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "ETHERNET") || str_eq_i(s, "ETH")) return "ETHERNET";
   if (str_eq_i(s, "HTTP") || str_eq_i(s, "REST") || str_eq_i(s, "API")) return "HTTP";
   if (str_eq_i(s, "SSE")) return "SSE";
+  if (str_eq_i(s, "NTP") || str_eq_i(s, "SNTP") || str_eq_i(s, "TIME") || str_eq_i(s, "CLOCK")) return "NTP";
   if (str_eq_i(s, "RATE-LIMIT") || str_eq_i(s, "RATELIMIT") || str_eq_i(s, "RATE_LIMIT") || str_eq_i(s, "RL")) return "RATE-LIMIT";
   if (str_eq_i(s, "METRICS") || str_eq_i(s, "PROMETHEUS") || str_eq_i(s, "PROM")) return "METRICS";
   if (str_eq_i(s, "STATUS") || str_eq_i(s, "STAT")) return "STATUS";
@@ -784,6 +786,9 @@ bool cli_parser_execute(char* line) {
     } else if (!strcmp(what, "SSE")) {
       cli_cmd_show_sse();
       return true;
+    } else if (!strcmp(what, "NTP")) {
+      cli_cmd_show_ntp();
+      return true;
     } else if (!strcmp(what, "RATE-LIMIT")) {
       cli_cmd_show_rate_limit();
       return true;
@@ -1255,6 +1260,13 @@ bool cli_parser_execute(char* line) {
         return true;
       }
       cli_cmd_set_sse(argc - 2, argv + 2);
+      return true;
+    } else if (!strcmp(what, "NTP")) {
+      if (argc < 3) {
+        cli_cmd_set_ntp(0, NULL);
+        return true;
+      }
+      cli_cmd_set_ntp(argc - 2, argv + 2);
       return true;
     } else if (!strcmp(what, "RATE-LIMIT")) {
       if (argc < 3) {
