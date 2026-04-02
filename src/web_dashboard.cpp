@@ -114,6 +114,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .page-view{display:none;flex:1;overflow-y:auto;padding:16px}
 .page-view.active{display:block}
 .foot{background:#181825;border-top:1px solid #313244;padding:4px 16px;font-size:10px;color:#45475a;flex-shrink:0;display:flex;justify-content:space-between}
+.regmap-sticky{position:sticky;top:0;z-index:10;background:#1e1e2e;padding:12px 16px;border-bottom:2px solid #313244;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.regmap-sticky .tbl{max-height:120px;overflow-y:auto;display:block}
+.regmap-sticky .tbl thead,.regmap-sticky .tbl tbody{display:table;width:100%;table-layout:fixed}
 .card[draggable="true"]{cursor:grab}.card[draggable="true"]:active{cursor:grabbing}
 .card.drag-over{border:2px dashed #89b4fa;opacity:.7}
 .card.dragging{opacity:.4}
@@ -351,11 +354,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- Register Map Page -->
-<div class="page-view" id="pageRegmap">
-<div class="card" style="margin-bottom:12px">
-<h2>Register Allokering</h2>
-<p style="font-size:11px;color:#6c7086;margin-bottom:8px">Oversigt over Modbus register-brug — hvem ejer hvad</p>
-<div class="regmap" id="regmapLegend">
+<div class="page-view" id="pageRegmap" style="padding:0">
+<div class="regmap-sticky">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap">
+<h2 style="font-size:13px;color:#89b4fa;margin:0">Register Allokering</h2>
+<div class="regmap" id="regmapLegend" style="margin:0">
 <span class="rm rm-counter">Counter</span>
 <span class="rm rm-timer">Timer</span>
 <span class="rm rm-st">ST Logic</span>
@@ -363,15 +366,21 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <span class="rm rm-free">Ledig</span>
 </div>
 </div>
-<div class="card">
+<table class="tbl" id="allocTable" style="margin:0">
+<thead><tr><th>Ejer</th><th>Type</th><th>Register</th><th>Start</th><th>Slut</th><th>Antal</th></tr></thead>
+<tbody id="allocBody"></tbody>
+</table>
+</div>
+<div style="padding:16px;padding-top:8px">
+<div class="card" style="margin-bottom:12px">
 <h2>Holding Registers (HR 0-255)</h2>
 <div class="regview" id="regmapHR"></div>
 </div>
-<div class="card">
+<div class="card" style="margin-bottom:12px">
 <h2>Input Registers (IR 0-255)</h2>
 <div class="regview" id="regmapIR"></div>
 </div>
-<div class="card">
+<div class="card" style="margin-bottom:12px">
 <h2>Coils (0-255)</h2>
 <div class="regview" id="regmapCoils"></div>
 </div>
@@ -379,12 +388,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <h2>Discrete Inputs (DI 0-255)</h2>
 <div class="regview" id="regmapDI"></div>
 </div>
-<div class="card">
-<h2>Allokerings-tabel</h2>
-<table class="tbl" id="allocTable">
-<thead><tr><th>Ejer</th><th>Type</th><th>Register</th><th>Start</th><th>Slut</th><th>Antal</th></tr></thead>
-<tbody id="allocBody"></tbody>
-</table>
 </div>
 </div>
 
@@ -1182,12 +1185,10 @@ function saveCardOrder(){
   fetch('/api/dashboard/layout',opts).catch(()=>{});
 }
 function restoreCardOrder(){
-  var auth=sessionStorage.getItem('hfplc_auth');
-  var opts=auth?{headers:{'Authorization':auth}}:{};
-  fetch('/api/dashboard/layout',opts).then(r=>r.json()).then(d=>{
-    if(!d.card_order)return;
-    const saved=d.card_order.split(',');
-    if(!saved.length)return;
+  fetch('/api/dashboard/layout',{}).then(r=>r.json()).then(d=>{
+    if(!d.card_order||d.card_order.length<3)return;
+    const saved=d.card_order.split(',').filter(s=>s.length>0);
+    if(saved.length<2)return;
     const grid=$('grid');
     const map={};
     grid.querySelectorAll('.card[data-card-id]').forEach(c=>{map[c.dataset.cardId]=c;});

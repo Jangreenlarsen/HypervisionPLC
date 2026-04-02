@@ -4945,7 +4945,8 @@ esp_err_t api_handler_hostname_post(httpd_req_t *req)
 esp_err_t api_handler_dashboard_layout_get(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  // No auth required — layout is non-sensitive UI preference
+  CHECK_API_ENABLED(req);
 
   char buf[256];
   snprintf(buf, sizeof(buf), "{\"card_order\":\"%s\"}", g_persist_config.dashboard_card_order);
