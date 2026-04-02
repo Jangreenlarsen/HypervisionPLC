@@ -405,6 +405,11 @@ typedef struct {
   uint32_t timeout_errors;      // Timeout count
   uint32_t crc_errors;          // CRC error count
   uint32_t exception_errors;    // Modbus exception count
+
+  // Last error context (for alarm detail)
+  uint8_t last_error_slave_id;  // Slave ID of last failed request
+  uint16_t last_error_address;  // Register address of last failed request
+  uint8_t last_error_type;      // mb_error_code_t of last error
 } modbus_master_config_t;
 
 /* ============================================================================
@@ -544,6 +549,9 @@ typedef struct __attribute__((packed)) {
 
   // NTP time synchronization (v7.8.1, schema 16)
   NtpConfig ntp;
+
+  // Dashboard card order (v7.8.4.2, schema 17)
+  char dashboard_card_order[160];  // Comma-separated card IDs, e.g. "system,network,modbusslave,..."
 
   // CRC checksum (last)
   uint16_t crc16;

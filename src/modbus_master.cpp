@@ -274,9 +274,16 @@ mb_error_code_t modbus_master_send_request(
 
   *response_len = bytes_received;
 
+  // Extract slave_id and address from request for error tracking
+  uint8_t req_slave_id = request[0];
+  uint16_t req_address = (request_len >= 4) ? ((uint16_t)request[2] << 8 | request[3]) : 0;
+
   // Check timeout
   if (timeout || bytes_received == 0) {
     g_modbus_master_config.timeout_errors++;
+    g_modbus_master_config.last_error_slave_id = req_slave_id;
+    g_modbus_master_config.last_error_address = req_address;
+    g_modbus_master_config.last_error_type = MB_TIMEOUT;
     return MB_TIMEOUT;
   }
 
@@ -287,15 +294,24 @@ mb_error_code_t modbus_master_send_request(
 
     if (received_crc != calculated_crc) {
       g_modbus_master_config.crc_errors++;
+      g_modbus_master_config.last_error_slave_id = req_slave_id;
+      g_modbus_master_config.last_error_address = req_address;
+      g_modbus_master_config.last_error_type = MB_CRC_ERROR;
       return MB_CRC_ERROR;
     }
   } else {
+    g_modbus_master_config.last_error_slave_id = req_slave_id;
+    g_modbus_master_config.last_error_address = req_address;
+    g_modbus_master_config.last_error_type = MB_CRC_ERROR;
     return MB_CRC_ERROR;
   }
 
   // Check for Modbus exception
   if (response[1] & 0x80) {
     g_modbus_master_config.exception_errors++;
+    g_modbus_master_config.last_error_slave_id = req_slave_id;
+    g_modbus_master_config.last_error_address = req_address;
+    g_modbus_master_config.last_error_type = MB_EXCEPTION;
     return MB_EXCEPTION;
   }
 

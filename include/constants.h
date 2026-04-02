@@ -197,7 +197,7 @@ typedef enum {
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   16      // Current config schema version (v7.8.1: NTP time sync)
+#define CONFIG_SCHEMA_VERSION   17      // Current config schema version (v7.8.4.2: dashboard layout)
 
 /* ============================================================================
  * RBAC CONSTANTS (v7.6.2)
@@ -499,7 +499,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.8.2"
+#define PROJECT_VERSION     "7.8.4.2"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:

@@ -15,6 +15,7 @@
 #include <esp_log.h>
 #include <lwip/inet.h>
 #include <lwip/sockets.h>
+#include <mbedtls/base64.h>
 
 #include "api_handlers.h"
 #include "http_server.h"
@@ -92,6 +93,8 @@ typedef struct {
   uint8_t  severity;      // 0=info, 1=warning, 2=critical
   bool     acknowledged;
   time_t   epoch;         // Real time if NTP synced, 0 otherwise
+  char     source_ip[16]; // Client IP (if applicable, e.g. auth failures)
+  char     username[32];  // Username attempted (if applicable)
 } alarm_entry_t;
 
 static alarm_entry_t alarm_log[ALARM_LOG_MAX];
@@ -110,8 +113,52 @@ static void alarm_log_add(uint8_t severity, const char *msg) {
   e->severity = severity;
   e->acknowledged = false;
   e->epoch = ntp_driver_is_synced() ? ntp_driver_get_epoch() : 0;
+  e->source_ip[0] = '\0';
+  e->username[0] = '\0';
   alarm_log_head = (alarm_log_head + 1) % ALARM_LOG_MAX;
   if (alarm_log_count < ALARM_LOG_MAX) alarm_log_count++;
+}
+
+// Extended version with source IP and username (for auth failures etc.)
+static void alarm_log_add_detail(uint8_t severity, const char *msg,
+                                  const char *ip, const char *user) {
+  alarm_entry_t *e = &alarm_log[alarm_log_head];
+  e->timestamp_ms = millis();
+  strncpy(e->message, msg, ALARM_MSG_MAX - 1);
+  e->message[ALARM_MSG_MAX - 1] = '\0';
+  e->severity = severity;
+  e->acknowledged = false;
+  e->epoch = ntp_driver_is_synced() ? ntp_driver_get_epoch() : 0;
+  if (ip && ip[0]) {
+    strncpy(e->source_ip, ip, sizeof(e->source_ip) - 1);
+    e->source_ip[sizeof(e->source_ip) - 1] = '\0';
+  } else {
+    e->source_ip[0] = '\0';
+  }
+  if (user && user[0]) {
+    strncpy(e->username, user, sizeof(e->username) - 1);
+    e->username[sizeof(e->username) - 1] = '\0';
+  } else {
+    e->username[0] = '\0';
+  }
+  alarm_log_head = (alarm_log_head + 1) % ALARM_LOG_MAX;
+  if (alarm_log_count < ALARM_LOG_MAX) alarm_log_count++;
+}
+
+// Track last auth failure details for alarm context
+static char s_last_auth_fail_ip[16] = {0};
+static char s_last_auth_fail_user[32] = {0};
+
+// Called from api_send_error when 401 is sent
+void alarm_record_auth_failure_info(const char *ip, const char *user) {
+  if (ip && ip[0]) {
+    strncpy(s_last_auth_fail_ip, ip, sizeof(s_last_auth_fail_ip) - 1);
+    s_last_auth_fail_ip[sizeof(s_last_auth_fail_ip) - 1] = '\0';
+  }
+  if (user && user[0]) {
+    strncpy(s_last_auth_fail_user, user, sizeof(s_last_auth_fail_user) - 1);
+    s_last_auth_fail_user[sizeof(s_last_auth_fail_user) - 1] = '\0';
+  }
 }
 
 // Called periodically from metrics fetch to check for new alarms
@@ -134,7 +181,9 @@ void alarm_check_thresholds() {
     uint32_t delta = slave_crc - alarm_prev_slave_crc;
     if (delta >= 5) {
       char buf[ALARM_MSG_MAX];
-      snprintf(buf, sizeof(buf), "Modbus Slave CRC fejl +%lu", (unsigned long)delta);
+      snprintf(buf, sizeof(buf), "Modbus Slave CRC fejl +%lu RX <- ID:%u",
+               (unsigned long)delta,
+               g_persist_config.modbus_slave.slave_id);
       alarm_log_add(1, buf);
     }
   }
@@ -146,7 +195,10 @@ void alarm_check_thresholds() {
     uint32_t delta = master_to - alarm_prev_master_timeout;
     if (delta >= 3) {
       char buf[ALARM_MSG_MAX];
-      snprintf(buf, sizeof(buf), "Modbus Master timeout +%lu", (unsigned long)delta);
+      snprintf(buf, sizeof(buf), "Modbus Master timeout +%lu TX -> ID:%u @%u",
+               (unsigned long)delta,
+               g_modbus_master_config.last_error_slave_id,
+               g_modbus_master_config.last_error_address);
       alarm_log_add(1, buf);
     }
   }
@@ -158,7 +210,9 @@ void alarm_check_thresholds() {
     if (stats->auth_failures > alarm_prev_auth_fail && alarm_prev_auth_fail > 0) {
       uint32_t delta = stats->auth_failures - alarm_prev_auth_fail;
       if (delta >= 3) {
-        alarm_log_add(2, "HTTP auth failures stigende");
+        char buf[ALARM_MSG_MAX];
+        snprintf(buf, sizeof(buf), "HTTP auth failures +%lu", (unsigned long)delta);
+        alarm_log_add_detail(2, buf, s_last_auth_fail_ip, s_last_auth_fail_user);
       }
     }
     alarm_prev_auth_fail = stats->auth_failures;
@@ -226,14 +280,53 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
                              status == 500 ? "500 Internal Server Error" : "400 Bad Request");
 
   // For 401, add WWW-Authenticate header to trigger browser login dialog
+  // Capture client IP and username BEFORE sending response (socket may close after send)
+  char fail_ip[16] = {0};
+  char fail_user[32] = {0};
   if (status == 401) {
     httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Modbus ESP32\"");
+    // Get client IP while socket is still valid
+    int sockfd = httpd_req_to_sockfd(req);
+    struct sockaddr_in6 addr6;
+    socklen_t addr_len = sizeof(addr6);
+    if (getpeername(sockfd, (struct sockaddr *)&addr6, &addr_len) == 0) {
+      if (addr6.sin6_family == AF_INET) {
+        struct sockaddr_in *addr4 = (struct sockaddr_in *)&addr6;
+        inet_ntoa_r(addr4->sin_addr, fail_ip, sizeof(fail_ip));
+      } else if (addr6.sin6_family == AF_INET6) {
+        // Check for IPv4-mapped IPv6 (::ffff:x.x.x.x)
+        struct in_addr mapped;
+        memcpy(&mapped, &addr6.sin6_addr.un.u32_addr[3], 4);
+        inet_ntoa_r(mapped, fail_ip, sizeof(fail_ip));
+      }
+    }
+    // Extract username from Authorization header
+    char auth_hdr[256] = {0};
+    if (httpd_req_get_hdr_value_str(req, "Authorization", auth_hdr, sizeof(auth_hdr)) == ESP_OK) {
+      const char *b64 = strstr(auth_hdr, "Basic ");
+      if (b64) {
+        b64 += 6;
+        while (*b64 == ' ') b64++;
+        unsigned char decoded[128];
+        size_t decoded_len = 0;
+        if (mbedtls_base64_decode(decoded, sizeof(decoded) - 1, &decoded_len,
+            (const unsigned char *)b64, strlen(b64)) == 0) {
+          decoded[decoded_len] = '\0';
+          char *colon = (char *)strchr((const char *)decoded, ':');
+          if (colon) {
+            *colon = '\0';
+            strncpy(fail_user, (const char *)decoded, sizeof(fail_user) - 1);
+          }
+        }
+      }
+    }
   }
 
   httpd_resp_sendstr(req, buf);
 
   if (status == 401) {
     http_server_stat_auth_failure();
+    alarm_record_auth_failure_info(fail_ip, fail_user);
   } else if (status >= 500) {
     http_server_stat_server_error();
   } else {
@@ -4796,6 +4889,59 @@ esp_err_t api_handler_hostname_post(httpd_req_t *req)
 }
 
 /* ============================================================================
+ * FEAT-108: GET /api/dashboard/layout — Get dashboard card order
+ * ============================================================================ */
+
+esp_err_t api_handler_dashboard_layout_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  char buf[256];
+  snprintf(buf, sizeof(buf), "{\"card_order\":\"%s\"}", g_persist_config.dashboard_card_order);
+  return api_send_json(req, buf);
+}
+
+/* ============================================================================
+ * FEAT-108: POST /api/dashboard/layout — Set dashboard card order
+ * ============================================================================ */
+
+esp_err_t api_handler_dashboard_layout_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char body[256];
+  int len = httpd_req_recv(req, body, sizeof(body) - 1);
+  if (len <= 0) {
+    return api_send_error(req, 400, "Empty request body");
+  }
+  body[len] = '\0';
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, body);
+  if (error) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  if (!doc.containsKey("card_order")) {
+    return api_send_error(req, 400, "Missing 'card_order' field");
+  }
+
+  const char *order = doc["card_order"].as<const char*>();
+  if (!order || strlen(order) >= sizeof(g_persist_config.dashboard_card_order)) {
+    return api_send_error(req, 400, "Invalid card_order (max 159 chars)");
+  }
+
+  strncpy(g_persist_config.dashboard_card_order, order, sizeof(g_persist_config.dashboard_card_order) - 1);
+  g_persist_config.dashboard_card_order[sizeof(g_persist_config.dashboard_card_order) - 1] = '\0';
+
+  char resp[256];
+  snprintf(resp, sizeof(resp), "{\"status\":200,\"card_order\":\"%s\"}", g_persist_config.dashboard_card_order);
+  return api_send_json(req, resp);
+}
+
+/* ============================================================================
  * FEAT-025: GET /api/system/watchdog
  * ============================================================================ */
 
@@ -5417,6 +5563,23 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
     PROM_APPEND("http_auth_failures_total %lu\n", stats->auth_failures);
   }
 
+  // --- Modbus Slave config metrics ---
+  PROM_APPEND("# HELP modbus_slave_config_enabled Modbus slave enabled (1=yes, 0=no)\n");
+  PROM_APPEND("# TYPE modbus_slave_config_enabled gauge\n");
+  PROM_APPEND("modbus_slave_config_enabled %d\n", g_persist_config.modbus_slave.enabled ? 1 : 0);
+  PROM_APPEND("# HELP modbus_slave_config_id Modbus slave ID\n");
+  PROM_APPEND("# TYPE modbus_slave_config_id gauge\n");
+  PROM_APPEND("modbus_slave_config_id %d\n", g_persist_config.modbus_slave.slave_id);
+  PROM_APPEND("# HELP modbus_slave_config_baudrate Modbus slave baudrate\n");
+  PROM_APPEND("# TYPE modbus_slave_config_baudrate gauge\n");
+  PROM_APPEND("modbus_slave_config_baudrate %lu\n", (unsigned long)g_persist_config.modbus_slave.baudrate);
+  PROM_APPEND("# HELP modbus_slave_config_parity Modbus slave parity (0=N, 1=E, 2=O)\n");
+  PROM_APPEND("# TYPE modbus_slave_config_parity gauge\n");
+  PROM_APPEND("modbus_slave_config_parity %d\n", g_persist_config.modbus_slave.parity);
+  PROM_APPEND("# HELP modbus_slave_config_stopbits Modbus slave stop bits\n");
+  PROM_APPEND("# TYPE modbus_slave_config_stopbits gauge\n");
+  PROM_APPEND("modbus_slave_config_stopbits %d\n", g_persist_config.modbus_slave.stop_bits);
+
   // --- Modbus Slave metrics ---
   PROM_APPEND("# HELP modbus_slave_requests_total Total Modbus slave requests\n");
   PROM_APPEND("# TYPE modbus_slave_requests_total counter\n");
@@ -5438,6 +5601,20 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   PROM_APPEND("# HELP esp32_heap_largest_free_block Largest contiguous free heap block\n");
   PROM_APPEND("# TYPE esp32_heap_largest_free_block gauge\n");
   PROM_APPEND("esp32_heap_largest_free_block %lu\n", (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+
+  // --- Modbus Master config metrics ---
+  PROM_APPEND("# HELP modbus_master_config_enabled Modbus master enabled (1=yes, 0=no)\n");
+  PROM_APPEND("# TYPE modbus_master_config_enabled gauge\n");
+  PROM_APPEND("modbus_master_config_enabled %d\n", g_modbus_master_config.enabled ? 1 : 0);
+  PROM_APPEND("# HELP modbus_master_config_baudrate Modbus master baudrate\n");
+  PROM_APPEND("# TYPE modbus_master_config_baudrate gauge\n");
+  PROM_APPEND("modbus_master_config_baudrate %lu\n", (unsigned long)g_modbus_master_config.baudrate);
+  PROM_APPEND("# HELP modbus_master_config_parity Modbus master parity (0=N, 1=E, 2=O)\n");
+  PROM_APPEND("# TYPE modbus_master_config_parity gauge\n");
+  PROM_APPEND("modbus_master_config_parity %d\n", g_modbus_master_config.parity);
+  PROM_APPEND("# HELP modbus_master_config_stopbits Modbus master stop bits\n");
+  PROM_APPEND("# TYPE modbus_master_config_stopbits gauge\n");
+  PROM_APPEND("modbus_master_config_stopbits %d\n", g_modbus_master_config.stop_bits);
 
   // --- Modbus Master metrics ---
   PROM_APPEND("# HELP modbus_master_requests_total Total Modbus master requests\n");
@@ -5775,7 +5952,7 @@ esp_err_t api_handler_alarms_get(httpd_req_t *req)
     return api_send_error(req, 429, "Too many requests");
   }
 
-  DynamicJsonDocument doc(4096);
+  DynamicJsonDocument doc(6144);
   JsonArray arr = doc.to<JsonArray>();
 
   // Output oldest first
@@ -5796,7 +5973,7 @@ esp_err_t api_handler_alarms_get(httpd_req_t *req)
              (unsigned long)((s % 3600) / 60), (unsigned long)(s % 60));
     obj["uptime"] = uptime;
 
-    // Add real-time timestamp if available
+    // Add real-time timestamp if available (uses NTP timezone via localtime_r)
     if (e->epoch > 0) {
       obj["epoch"] = (unsigned long)e->epoch;
       struct tm timeinfo;
@@ -5805,11 +5982,19 @@ esp_err_t api_handler_alarms_get(httpd_req_t *req)
       strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", &timeinfo);
       obj["time"] = timebuf;
     }
+
+    // Add source details if available (e.g. auth failure context)
+    if (e->source_ip[0]) {
+      obj["source_ip"] = e->source_ip;
+    }
+    if (e->username[0]) {
+      obj["username"] = e->username;
+    }
   }
 
-  char *buf = (char *)malloc(4096);
+  char *buf = (char *)malloc(6144);
   if (!buf) return api_send_error(req, 500, "Out of memory");
-  serializeJson(doc, buf, 4096);
+  serializeJson(doc, buf, 6144);
 
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -6347,6 +6532,8 @@ static const V1Route v1_routes[] = {
   {"/api/system/restore",   true,  HTTP_POST,   api_handler_system_restore},
   {"/api/http",             true,  HTTP_POST,   api_handler_http_config_post},
   {"/api/logic/settings",   true,  HTTP_POST,   api_handler_logic_settings_post},
+  {"/api/dashboard/layout", true,  HTTP_GET,    api_handler_dashboard_layout_get},
+  {"/api/dashboard/layout", true,  HTTP_POST,   api_handler_dashboard_layout_post},
   {"/api/events/status",    true,  HTTP_GET,    api_handler_sse_status},
   {"/api/events/clients",   true,  HTTP_GET,    api_handler_sse_clients},
   {"/api/events/disconnect", true, HTTP_POST,   api_handler_sse_disconnect},

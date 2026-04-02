@@ -29,7 +29,12 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .topnav a{padding:5px 14px;font-size:12px;font-weight:600;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s}
 .topnav a:hover{background:#45475a;color:#cdd6f4}
 .topnav a.active{background:#89b4fa;color:#1e1e2e}
-.user-badge{margin-left:auto;position:relative;display:flex;align-items:center;gap:6px}
+.save-btn{margin-left:auto;padding:4px 12px;font-size:11px;font-weight:600;background:#a6e3a1;color:#1e1e2e;border:none;border-radius:4px;cursor:pointer;transition:all .2s}
+.save-btn:hover{background:#94e2d5}
+.save-btn.saving{background:#fab387;cursor:wait}
+.save-btn.saved{background:#a6e3a1}
+.save-btn.save-err{background:#f38ba8}
+.user-badge{position:relative;display:flex;align-items:center;gap:6px}
 .user-btn{padding:4px 10px;font-size:11px;background:#313244;color:#a6adc8;border-radius:4px;cursor:pointer;border:1px solid #45475a;display:flex;align-items:center;gap:5px}
 .user-btn:hover{background:#45475a;color:#cdd6f4}
 .user-btn .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
@@ -109,6 +114,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .page-view{display:none;flex:1;overflow-y:auto;padding:16px}
 .page-view.active{display:block}
 .foot{background:#181825;border-top:1px solid #313244;padding:4px 16px;font-size:10px;color:#45475a;flex-shrink:0;display:flex;justify-content:space-between}
+.card[draggable="true"]{cursor:grab}.card[draggable="true"]:active{cursor:grabbing}
+.card.drag-over{border:2px dashed #89b4fa;opacity:.7}
+.card.dragging{opacity:.4}
+.drag-handle{cursor:grab;color:#45475a;margin-right:4px;font-size:14px;user-select:none}
+.drag-handle:hover{color:#89b4fa}
 @media(max-width:768px){.grid{grid-template-columns:1fr;gap:8px;padding:8px}}
 </style>
 </head>
@@ -137,6 +147,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <a href="/editor">ST Editor</a>
 <a href="/cli">CLI</a>
 <a href="/system">System</a>
+<button class="save-btn" id="saveBtn" onclick="doSystemSave()" title="Gem konfiguration til NVS">&#128190; Save</button>
 <div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogin" onclick="showLogin()">Log ind</div><div class="um-btn" id="umLogout" onclick="doLogout()" style="display:none">Log ud</div></div></div>
 </div>
 
@@ -158,30 +169,52 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="page-view active" id="pageMetrics">
 <div class="grid" id="grid">
 
-<!-- System Overview -->
-<div class="card">
+<!-- System Overview (merged with FreeRTOS Tasks) -->
+<div class="card" data-card-id="system">
 <h2>System</h2>
+<div class="row"><span class="lbl">Firmware</span><span class="val val-n" id="mFirmware">-</span></div>
 <div class="row"><span class="lbl">Uptime</span><span class="val val-n" id="mUptime">-</span></div>
 <div class="row"><span class="lbl">Heap fri</span><span class="val val-n" id="mHeapFree">-</span></div>
 <div class="row"><span class="lbl">Heap min</span><span class="val val-n" id="mHeapMin">-</span></div>
 <div class="bar-wrap"><div class="bar-fill bar-ok" id="heapBar" style="width:0%"></div></div>
 <div class="row" style="margin-top:2px"><span class="lbl">PSRAM</span><span class="val val-n" id="mPsram">-</span></div>
+<div class="row"><span class="lbl">Largest block</span><span class="val val-n" id="cpuLargestBlock">-</span></div>
+<div class="row"><span class="lbl">Fragmentering</span><span class="val val-n" id="cpuFragPct">-</span></div>
+<div class="bar-wrap"><div class="bar-fill bar-ok" id="fragBar" style="width:0%"></div></div>
+<div class="row"><span class="lbl">Aktive tasks</span><span class="val val-n" id="cpuTaskCount">-</span></div>
+<div id="cpuTaskBody"></div>
 <div class="spark-row"><span class="sl">Heap trend</span><svg id="sparkHeap" width="200" height="24"></svg></div>
 </div>
 
 <!-- Network Status -->
-<div class="card">
+<div class="card" data-card-id="network">
 <h2>Netværk</h2>
+<div class="row"><span class="lbl">Hostname</span><span class="val val-n" id="netHostname">-</span></div>
+<div style="border-top:1px solid #313244;margin-top:4px;padding-top:4px">
 <div class="row"><span class="lbl"><span class="dot dot-off" id="dotWifi"></span> WiFi</span><span class="val val-n" id="mWifi">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">IP / Mask</span><span class="val val-n" id="netWifiIp" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">Gateway</span><span class="val val-n" id="netWifiGw" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">DNS</span><span class="val val-n" id="netWifiDns" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">SSID</span><span class="val val-n" id="netWifiSsid" style="font-size:11px">-</span></div>
+</div>
+<div style="border-top:1px solid #313244;margin-top:4px;padding-top:4px">
 <div class="row"><span class="lbl"><span class="dot dot-off" id="dotEth"></span> Ethernet</span><span class="val val-n" id="mEth">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">IP / Mask</span><span class="val val-n" id="netEthIp" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">Gateway</span><span class="val val-n" id="netEthGw" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">DNS</span><span class="val val-n" id="netEthDns" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">MAC</span><span class="val val-n" id="netEthMac" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">Speed</span><span class="val val-n" id="netEthSpeed" style="font-size:11px">-</span></div>
+</div>
+<div style="border-top:1px solid #313244;margin-top:4px;padding-top:4px">
 <div class="row"><span class="lbl"><span class="dot dot-off" id="dotTelnet"></span> Telnet</span><span class="val val-n" id="mTelnet">-</span></div>
-<div class="row"><span class="lbl">SSE klienter</span><span class="val val-n" id="mSse">-</span></div>
 <div class="row"><span class="lbl">WiFi reconnects</span><span class="val val-n" id="mWifiRetries">-</span></div>
+</div>
 </div>
 
 <!-- Modbus Slave -->
-<div class="card">
+<div class="card" data-card-id="modbusslave">
 <h2>Modbus Slave <span class="badge badge-off" id="badgeSlave">-</span></h2>
+<div class="row"><span class="lbl">Interface</span><span class="val val-n" id="msConfigInfo" style="font-size:11px">-</span></div>
 <div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="msTotal">-</span></div>
 <div class="row"><span class="lbl">Success</span><span class="val val-ok" id="msOk">-</span></div>
 <div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="msCrc">-</span></div>
@@ -190,49 +223,65 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="spark-row"><span class="sl">Requests</span><svg id="sparkMbSlave" width="200" height="24"></svg></div>
 </div>
 
-<!-- Modbus Master -->
-<div class="card">
+<!-- Modbus Master (merged with Cache) -->
+<div class="card" data-card-id="modbusmaster">
 <h2>Modbus Master <span class="badge badge-off" id="badgeMaster">-</span></h2>
+<div class="row"><span class="lbl">Interface</span><span class="val val-n" id="mmConfigInfo" style="font-size:11px">-</span></div>
 <div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="mmTotal">-</span></div>
 <div class="row"><span class="lbl">Success</span><span class="val val-ok" id="mmOk">-</span></div>
 <div class="row"><span class="lbl">Timeout fejl</span><span class="val val-err" id="mmTimeout">-</span></div>
 <div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="mmCrc">-</span></div>
 <div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="mmRate">-</span></div>
 <div class="spark-row"><span class="sl">Requests</span><svg id="sparkMbMaster" width="200" height="24"></svg></div>
+<div style="border-top:1px solid #313244;margin-top:6px;padding-top:6px">
+<div class="row"><span class="lbl">Cache entries</span><span class="val val-n" id="mcEntries">-</span></div>
+<div class="row"><span class="lbl">Cache hits/misses</span><span class="val val-n" id="mcHitMiss">-</span></div>
+<div class="row"><span class="lbl">Hit rate</span><span class="val val-n" id="mcHitRate">-</span></div>
+<div class="row"><span class="lbl">Queue full</span><span class="val val-err" id="mcQueueFull">-</span></div>
+<div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
+</div>
 </div>
 
-<!-- HTTP API -->
-<div class="card">
+<!-- HTTP API + SSE -->
+<div class="card" data-card-id="httpapi">
 <h2>HTTP API</h2>
 <div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="htTotal">-</span></div>
 <div class="row"><span class="lbl">Success (2xx)</span><span class="val val-ok" id="htOk">-</span></div>
 <div class="row"><span class="lbl">Client fejl (4xx)</span><span class="val val-err" id="ht4xx">-</span></div>
 <div class="row"><span class="lbl">Server fejl (5xx)</span><span class="val val-err" id="ht5xx">-</span></div>
 <div class="row"><span class="lbl">Auth failures</span><span class="val val-warn" id="htAuth">-</span></div>
+<div style="border-top:1px solid #313244;margin-top:6px;padding-top:6px">
+<div class="row"><span class="lbl"><span class="dot dot-off" id="dotSse"></span> SSE Server</span><span class="val val-n" id="sseStatus">-</span></div>
+<div class="row"><span class="lbl">SSE port</span><span class="val val-n" id="ssePort">-</span></div>
+<div class="row"><span class="lbl">SSE klienter</span><span class="val val-n" id="mSse">-</span></div>
+<div class="row"><span class="lbl">SSE max klienter</span><span class="val val-n" id="sseMax">-</span></div>
+<div class="row"><span class="lbl">Heartbeat</span><span class="val val-n" id="sseHeartbeat">-</span></div>
+</div>
 </div>
 
 <!-- Counters -->
-<div class="card">
+<div class="card" data-card-id="counters">
 <h2>Tællere</h2>
 <div id="cntBody"><span class="empty-msg">Ingen aktive tællere</span></div>
 </div>
 
 <!-- Timers -->
-<div class="card">
+<div class="card" data-card-id="timers">
 <h2>Timere</h2>
 <div id="tmrBody"><span class="empty-msg">Ingen aktive timere</span></div>
 </div>
 
 <!-- ST Logic -->
-<div class="card">
+<div class="card" data-card-id="stlogic">
 <h2>ST Logic <span class="badge badge-off" id="badgeLogic">-</span></h2>
+<div class="row"><span class="lbl">Interval</span><span class="val val-n" id="stInterval">-</span></div>
 <div class="row"><span class="lbl">Total cycles</span><span class="val val-n" id="stCycles">-</span></div>
 <div class="row"><span class="lbl">Overruns</span><span class="val val-n" id="stOverruns">-</span></div>
 <div id="stBody"><span class="empty-msg">Ingen aktive programmer</span></div>
 </div>
 
 <!-- NTP Tidssynkronisering -->
-<div class="card">
+<div class="card" data-card-id="ntp">
 <h2>NTP Tid <span class="badge badge-off" id="badgeNtp">-</span></h2>
 <div class="row"><span class="lbl">Lokal tid</span><span class="val val-n" id="ntpTime" style="font-size:14px;color:#89b4fa">-</span></div>
 <div class="row"><span class="lbl">Server</span><span class="val val-n" id="ntpServer">-</span></div>
@@ -242,7 +291,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- FEAT-072: Modbus RTU Trafik -->
-<div class="card">
+<div class="card" data-card-id="rtutrafik">
 <h2>Modbus RTU Trafik</h2>
 <div class="row"><span class="lbl">Slave req/3s</span><span class="val val-n" id="rtSlaveRate">-</span></div>
 <div class="row"><span class="lbl">Master req/3s</span><span class="val val-n" id="rtMasterRate">-</span></div>
@@ -255,39 +304,20 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="spark-row"><span class="sl">Master req/3s</span><svg id="sparkRtMaster" width="200" height="24"></svg></div>
 </div>
 
-<!-- FEAT-073: Modbus Master Status -->
-<div class="card">
-<h2>Modbus Master Cache</h2>
-<div class="row"><span class="lbl">Cache entries</span><span class="val val-n" id="mcEntries">-</span></div>
-<div class="row"><span class="lbl">Cache hits</span><span class="val val-ok" id="mcHits">-</span></div>
-<div class="row"><span class="lbl">Cache misses</span><span class="val val-warn" id="mcMisses">-</span></div>
-<div class="row"><span class="lbl">Hit rate</span><span class="val val-n" id="mcHitRate">-</span></div>
-<div class="row"><span class="lbl">Queue full</span><span class="val val-err" id="mcQueueFull">-</span></div>
-<div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
-</div>
 
-<!-- FEAT-078: CPU / Tasks -->
-<div class="card">
-<h2>FreeRTOS Tasks</h2>
-<div class="row"><span class="lbl">Aktive tasks</span><span class="val val-n" id="cpuTaskCount">-</span></div>
-<div class="row"><span class="lbl">Heap largest block</span><span class="val val-n" id="cpuLargestBlock">-</span></div>
-<div class="row"><span class="lbl">Fragmentering</span><span class="val val-n" id="cpuFragPct">-</span></div>
-<div class="bar-wrap"><div class="bar-fill bar-ok" id="fragBar" style="width:0%"></div></div>
-<div id="cpuTaskBody"><span class="empty-msg">Indlæser...</span></div>
-</div>
 
-<!-- FEAT-085: Alarm Historik -->
-<div class="card">
+<!-- FEAT-085: Alarm Historik (expanded v7.8.3.1) -->
+<div class="card" data-card-id="alarms" style="grid-column:span 2">
 <h2>Alarm Historik <span class="badge badge-off" id="badgeAlarm">0</span></h2>
 <div style="display:flex;justify-content:space-between;margin-bottom:6px">
 <span style="font-size:10px;color:#6c7086" id="alarmInfo">-</span>
 <button onclick="ackAlarms()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Kvittér alle</button>
 </div>
-<div id="alarmBody"><span class="empty-msg">Ingen alarmer</span></div>
+<div id="alarmBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen alarmer</span></div>
 </div>
 
 <!-- FEAT-095: Digital I/O Dashboard -->
-<div class="card" id="cardDio">
+<div class="card" data-card-id="dio" id="cardDio"
 <h2>Digital I/O</h2>
 <div style="margin-bottom:8px">
 <div style="font-size:10px;color:#89b4fa;margin-bottom:4px;font-weight:600">Inputs (IN1-IN8)</div>
@@ -465,6 +495,7 @@ function checkAlarms(m){
 
 function updateDashboard(m){
   // System
+  {const fi=gAll(m,'firmware_info');if(fi.length>0){const v=fi[0].labels.version||'?';const b=fi[0].labels.build||'?';$('mFirmware').textContent='v'+v+'.'+b;}}
   $('mUptime').textContent=fmtUp(g(m,'esp32_uptime_seconds'));
   const heapFree=g(m,'esp32_heap_free_bytes');
   const heapMin=g(m,'esp32_heap_min_free_bytes');
@@ -499,6 +530,8 @@ function updateDashboard(m){
   dot($('dotTelnet'),telOn);
   $('mTelnet').textContent=telOn?'Forbundet':'Ikke forbundet';
   $('mSse').textContent=fmtN(g(m,'sse_clients_active'));
+  const sseAct=g(m,'sse_clients_active');
+  dot($('dotSse'),sseAct!=null&&sseAct>0);
   $('mWifiRetries').textContent=fmtN(g(m,'wifi_reconnect_retries'));
 
   // Modbus Slave
@@ -509,7 +542,11 @@ function updateDashboard(m){
   $('msCrc').textContent=fmtN(g(m,'modbus_slave_crc_errors_total'));
   $('msExc').textContent=fmtN(g(m,'modbus_slave_exceptions_total'));
   $('msRate').textContent=rate(msO,msT);
-  badge($('badgeSlave'),msT>0,msT>0?'Aktiv':'Idle');
+  const msEn=g(m,'modbus_slave_config_enabled');
+  badge($('badgeSlave'),msEn===1&&msT>0,msEn===1?(msT>0?'Aktiv':'Idle'):'Deaktiveret');
+  // Config info row
+  {const baud=g(m,'modbus_slave_config_baudrate');const par=g(m,'modbus_slave_config_parity');const sb=g(m,'modbus_slave_config_stopbits');const sid=g(m,'modbus_slave_config_id');
+  if(baud!=null){const pStr=par===1?'Even':par===2?'Odd':'None';const bK=baud>=1000?(baud/1000)+'K':baud;$('msConfigInfo').textContent=msEn===1?'ID:'+sid+' Baud:'+bK+' Data:8 Parity:'+pStr+' Stop:'+sb:'deaktiveret';}}
   if(msT!=null){
     const delta=prevMbSlave!=null?msT-prevMbSlave:0;
     prevMbSlave=msT;
@@ -526,7 +563,11 @@ function updateDashboard(m){
   $('mmTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
   $('mmCrc').textContent=fmtN(g(m,'modbus_master_crc_errors_total'));
   $('mmRate').textContent=rate(mmO,mmT);
-  badge($('badgeMaster'),mmT>0,mmT>0?'Aktiv':'Idle');
+  const mmEn=g(m,'modbus_master_config_enabled');
+  badge($('badgeMaster'),mmEn===1&&mmT>0,mmEn===1?(mmT>0?'Aktiv':'Idle'):'Deaktiveret');
+  // Config info row
+  {const baud=g(m,'modbus_master_config_baudrate');const par=g(m,'modbus_master_config_parity');const sb=g(m,'modbus_master_config_stopbits');
+  if(baud!=null){const pStr=par===1?'Even':par===2?'Odd':'None';const bK=baud>=1000?(baud/1000)+'K':baud;$('mmConfigInfo').textContent=mmEn===1?'Baud:'+bK+' Data:8 Parity:'+pStr+' Stop:'+sb:'deaktiveret';}}
   if(mmT!=null){
     const delta=prevMbMaster!=null?mmT-prevMbMaster:0;
     prevMbMaster=mmT;
@@ -586,6 +627,15 @@ function updateDashboard(m){
   // ST Logic
   const stEnabled=g(m,'st_logic_enabled')===1;
   badge($('badgeLogic'),stEnabled,stEnabled?'Aktiv':'Deaktiveret');
+  // Fetch interval from /api/logic (less frequent)
+  if(!window._stIntervalFetched||(Date.now()-window._stIntervalFetched>15000)){
+    window._stIntervalFetched=Date.now();
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    fetch('/api/logic',opts).then(r=>r.json()).then(d=>{
+      if(d.execution_interval_ms!=null)$('stInterval').textContent=d.execution_interval_ms+' ms';
+    }).catch(()=>{});
+  }
   const stCyc2=g(m,'st_logic_total_cycles');
   $('stCycles').textContent=fmtN(stCyc2);
   const stOvr2=g(m,'st_logic_cycle_overruns');
@@ -597,8 +647,9 @@ function updateDashboard(m){
   const stTime=gAll(m,'st_logic_exec_time_us');
   const stMin=gAll(m,'st_logic_min_exec_us');
   const stMax=gAll(m,'st_logic_max_exec_us');
+  const stOvrP=gAll(m,'st_logic_overrun_count');
   if(stExec.length>0){
-    let h='<table class="tbl"><tr><th>Slot</th><th>Navn</th><th>Exec</th><th>Fejl</th><th>Tid (us)</th></tr>';
+    let h='<table class="tbl"><tr><th>Slot</th><th>Navn</th><th>Exec</th><th>Fejl</th><th>Ovr</th><th>Tid (min/last/max us)</th></tr>';
     for(const s of stExec){
       const slot=s.labels.slot||'?';
       const name=s.labels.name||'-';
@@ -606,12 +657,14 @@ function updateDashboard(m){
       const time=stTime.find(t=>t.labels.slot===slot);
       const mn=stMin.find(t=>t.labels.slot===slot);
       const mx=stMax.find(t=>t.labels.slot===slot);
+      const ovr=stOvrP.find(t=>t.labels.slot===slot);
       const errN=err?.value||0;
-      const timeStr=time?time.value.toLocaleString('da-DK'):'-';
-      const rangeStr=(mn&&mx)?mn.value+'\u2013'+mx.value:'';
+      const ovrN=ovr?.value||0;
+      const timeStr=(mn&&time&&mx)?mn.value+' / '+time.value+' / '+mx.value:time?String(time.value):'-';
       h+='<tr><td>#'+slot+'</td><td>'+name+'</td><td>'+fmtN(s.value)+'</td>';
       h+='<td class="'+(errN>0?'val-err':'')+'">'+fmtN(errN)+'</td>';
-      h+='<td>'+timeStr+(rangeStr?' ('+rangeStr+')':'')+'</td></tr>';
+      h+='<td class="'+(ovrN>0?'val-warn':'')+'">'+fmtN(ovrN)+'</td>';
+      h+='<td>'+timeStr+'</td></tr>';
     }
     h+='</table>';
     $('stBody').innerHTML=h;
@@ -626,11 +679,8 @@ function updateDashboard(m){
     badge($('badgeNtp'),ntpSync,ntpSync?'Synkroniseret':ntpOn?'Venter...':'Deaktiveret');
     $('ntpSyncs').textContent=fmtN(g(m,'ntp_sync_count'));
     if(ntpSync){
-      const epoch=g(m,'ntp_epoch_seconds');
-      if(epoch){
-        const d=new Date(epoch*1000);
-        $('ntpTime').textContent=d.toLocaleString('da-DK',{dateStyle:'medium',timeStyle:'medium'});
-      }
+      // Use ESP32 local_time (follows NTP timezone setting) instead of browser timezone
+      if(window._ntpLocalTime)$('ntpTime').textContent=window._ntpLocalTime;
       const age=g(m,'ntp_last_sync_age_ms');
       if(age!=null)$('ntpAge').textContent=(age/1000).toFixed(0)+' sek. siden';
     }else{
@@ -638,14 +688,14 @@ function updateDashboard(m){
       $('ntpAge').textContent='-';
     }
   }
-  // Fetch NTP config details (from /api/ntp, less frequent)
-  if(!window._ntpConfigFetched||(Date.now()-window._ntpConfigFetched>30000)){
-    window._ntpConfigFetched=Date.now();
+  // Fetch NTP config + local time from ESP32 (every 3s via /api/ntp)
+  {
     var auth=sessionStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
     fetch('/api/ntp',opts).then(r=>r.json()).then(d=>{
       $('ntpServer').textContent=d.server||'-';
       $('ntpTz').textContent=d.timezone||'UTC';
+      if(d.local_time)window._ntpLocalTime=d.local_time;
     }).catch(()=>{});
   }
 
@@ -683,8 +733,7 @@ function updateDashboard(m){
     const qfull=g(m,'modbus_master_queue_full_count');
     if(hits!=null){
       $('mcEntries').textContent=fmtN(entries)+' / '+MB_CACHE_MAX;
-      $('mcHits').textContent=fmtN(hits);
-      $('mcMisses').textContent=fmtN(misses);
+      $('mcHitMiss').textContent=fmtN(hits)+' / '+fmtN(misses);
       const total=hits+misses;
       $('mcHitRate').textContent=total>0?(hits/total*100).toFixed(1)+'%':'N/A';
       $('mcQueueFull').textContent=fmtN(qfull);
@@ -965,6 +1014,51 @@ function updateRegisterMap(m){
   tbody.innerHTML=thtml||'<tr><td colspan="6" class="empty-msg">Ingen allokeringer fundet</td></tr>';
 }
 
+async function fetchNetworkInfo(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    // Hostname
+    fetch('/api/hostname',opts).then(r=>r.json()).then(d=>{
+      $('netHostname').textContent=d.hostname||'-';
+    }).catch(()=>{});
+    // WiFi details
+    fetch('/api/wifi',opts).then(r=>r.json()).then(d=>{
+      const rt=d.runtime||{};
+      if(rt.connected){
+        $('netWifiIp').textContent=(rt.ip||'-')+(rt.netmask?' / '+rt.netmask:'');
+        $('netWifiGw').textContent=rt.gateway||'-';
+        $('netWifiDns').textContent=rt.dns||'-';
+        $('netWifiSsid').textContent=rt.ssid||d.config?.ssid||'-';
+      }else{
+        $('netWifiIp').textContent='-';$('netWifiGw').textContent='-';
+        $('netWifiDns').textContent='-';$('netWifiSsid').textContent=d.config?.ssid||'-';
+      }
+    }).catch(()=>{});
+    // Ethernet details
+    fetch('/api/ethernet',opts).then(r=>r.json()).then(d=>{
+      const rt=d.runtime||{};
+      if(rt.connected){
+        $('netEthIp').textContent=(rt.ip||'-')+(rt.netmask?' / '+rt.netmask:'');
+        $('netEthGw').textContent=rt.gateway||'-';
+        $('netEthDns').textContent=rt.dns||'-';
+        $('netEthMac').textContent=rt.mac||'-';
+        const spd=rt.speed_mbps;
+        $('netEthSpeed').textContent=spd?(spd+'Mbps '+(rt.full_duplex?'Full-Duplex':'Half-Duplex')):'-';
+      }else{
+        $('netEthIp').textContent='-';$('netEthGw').textContent='-';
+        $('netEthDns').textContent='-';$('netEthMac').textContent='-';$('netEthSpeed').textContent='-';
+      }
+    }).catch(()=>{});
+    // SSE status
+    fetch('/api/events/status',opts).then(r=>r.json()).then(d=>{
+      $('sseStatus').textContent=d.sse_enabled?'Aktiv':'Deaktiveret';
+      $('ssePort').textContent=d.sse_port||'-';
+      $('sseMax').textContent=d.max_clients+' max';
+      $('sseHeartbeat').textContent=(d.heartbeat_ms/1000)+'s';
+    }).catch(()=>{});
+  }catch(e){}
+}
 async function fetchBindings(){
   try{
     var auth=sessionStorage.getItem('hfplc_auth');
@@ -997,15 +1091,28 @@ async function fetchAlarms(){
       el.innerHTML='<span class="empty-msg">Ingen alarmer</span>';
       return;
     }
-    // Show newest first, max 15
-    const recent=_alarmLog.slice(-15).reverse();
-    let h='<table class="tbl"><tr><th>Tid</th><th>Alarm</th><th>Kvit</th></tr>';
+    // Show newest first, max 25
+    const recent=_alarmLog.slice(-25).reverse();
+    let h='<table class="tbl"><tr><th>Tid</th><th>Sev.</th><th>Alarm</th><th>Kilde / Detaljer</th><th>Kvit</th></tr>';
     for(const a of recent){
-      const sevCls=a.severity===2?'sev-crit':a.severity===1?'sev-warn':'sev-info';
+      const sevCls=a.severity===2?'val-err':a.severity===1?'val-warn':'val-ok';
+      const sevLbl=a.severity===2?'KRIT':a.severity===1?'ADV':'INFO';
       const ack=a.acknowledged?'<span class="dot dot-off" title="Kvitteret"></span>':'<span class="dot dot-r" title="Aktiv"></span>';
       const timeStr=a.time||a.uptime;
-      h+='<tr><td style="white-space:nowrap">'+timeStr+'</td>';
-      h+='<td class="'+sevCls+'">'+a.message+'</td>';
+      // Build rich source/detail column
+      let src='';
+      if(a.source_ip)src+='<span title="Klient IP" style="color:#89b4fa">'+a.source_ip+'</span>';
+      if(a.username)src+=(src?' / ':'')+'<span title="Bruger" style="color:#cba6f7">'+a.username+'</span>';
+      // Extract modbus context from message: "TX -> ID:X @Y" or "RX <- ID:X"
+      const txMatch=a.message.match(/TX\s*->\s*ID:(\d+)\s*@(\d+)/);
+      const rxMatch=a.message.match(/RX\s*<-\s*ID:(\d+)/);
+      if(txMatch)src+=(src?'<br>':'')+'<span title="Master TX til slave" style="color:#fab387">TX &rarr; Slave ID:'+txMatch[1]+' Reg:'+txMatch[2]+'</span>';
+      else if(rxMatch)src+=(src?'<br>':'')+'<span title="Slave RX" style="color:#fab387">RX &larr; Slave ID:'+rxMatch[1]+'</span>';
+      if(!src)src='<span style="color:#585b70">-</span>';
+      h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
+      h+='<td class="'+sevCls+'" style="font-weight:700;font-size:10px">'+sevLbl+'</td>';
+      h+='<td>'+a.message+'</td>';
+      h+='<td style="font-size:10px">'+src+'</td>';
       h+='<td>'+ack+'</td></tr>';
     }
     h+='</table>';
@@ -1037,6 +1144,57 @@ async function toggleDO(pin){
   }catch(e){}
 }
 
+// === Drag & Drop Card Reorder ===
+function initDragDrop(){
+  const grid=$('grid');
+  if(!grid)return;
+  const cards=grid.querySelectorAll('.card[data-card-id]');
+  let dragCard=null;
+  cards.forEach(card=>{
+    card.draggable=true;
+    const h2=card.querySelector('h2');
+    if(h2){const handle=document.createElement('span');handle.className='drag-handle';handle.textContent='\u2261';h2.insertBefore(handle,h2.firstChild);}
+    card.addEventListener('dragstart',e=>{dragCard=card;card.classList.add('dragging');e.dataTransfer.effectAllowed='move';});
+    card.addEventListener('dragend',()=>{dragCard=null;card.classList.remove('dragging');grid.querySelectorAll('.drag-over').forEach(c=>c.classList.remove('drag-over'));});
+    card.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';if(card!==dragCard)card.classList.add('drag-over');});
+    card.addEventListener('dragleave',()=>{card.classList.remove('drag-over');});
+    card.addEventListener('drop',e=>{
+      e.preventDefault();card.classList.remove('drag-over');
+      if(!dragCard||dragCard===card)return;
+      const allCards=[...grid.querySelectorAll('.card[data-card-id]')];
+      const fromIdx=allCards.indexOf(dragCard);
+      const toIdx=allCards.indexOf(card);
+      if(fromIdx<toIdx)card.after(dragCard);else card.before(dragCard);
+      saveCardOrder();
+    });
+  });
+  restoreCardOrder();
+}
+function saveCardOrder(){
+  const grid=$('grid');
+  const ids=[...grid.querySelectorAll('.card[data-card-id]')].map(c=>c.dataset.cardId);
+  const order=ids.join(',');
+  // Save to ESP32 via API (persisted on next system save)
+  var auth=sessionStorage.getItem('hfplc_auth');
+  var opts={method:'POST',headers:{'Content-Type':'application/json'}};
+  if(auth)opts.headers['Authorization']=auth;
+  opts.body=JSON.stringify({card_order:order});
+  fetch('/api/dashboard/layout',opts).catch(()=>{});
+}
+function restoreCardOrder(){
+  var auth=sessionStorage.getItem('hfplc_auth');
+  var opts=auth?{headers:{'Authorization':auth}}:{};
+  fetch('/api/dashboard/layout',opts).then(r=>r.json()).then(d=>{
+    if(!d.card_order)return;
+    const saved=d.card_order.split(',');
+    if(!saved.length)return;
+    const grid=$('grid');
+    const map={};
+    grid.querySelectorAll('.card[data-card-id]').forEach(c=>{map[c.dataset.cardId]=c;});
+    saved.forEach(id=>{if(map[id])grid.appendChild(map[id]);});
+  }).catch(()=>{});
+}
+
 function init(){
   // Initialize register grids
   let hrInit='',coilInit='';
@@ -1047,12 +1205,15 @@ function init(){
   $('regHR').innerHTML=hrInit;
   $('regCoils').innerHTML=coilInit;
 
+  initDragDrop();
   fetchBindings();
   fetchMetrics();
   fetchAlarms();
+  fetchNetworkInfo();
   refreshTimer=setInterval(fetchMetrics,3000);
   setInterval(fetchBindings,15000);
-  setInterval(fetchAlarms,10000);
+  setInterval(fetchAlarms,5000);
+  setInterval(fetchNetworkInfo,10000);
 }
 init();
 
@@ -1080,6 +1241,19 @@ else{document.getElementById('loginErr').style.display='block';document.getEleme
 function doLogout(){sessionStorage.removeItem('hfplc_auth');document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('umLogout').style.display='none';document.getElementById('umLogin').style.display='block';document.getElementById('userMenu').classList.remove('show')}
 document.getElementById('authPass').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin()});
 document.getElementById('authUser').addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('authPass').focus()});
+async function doSystemSave(){
+  const btn=$('saveBtn');
+  btn.classList.add('saving');btn.textContent='\u23F3 Gemmer...';
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{}};
+    if(auth)opts.headers['Authorization']=auth;
+    const r=await fetch('/api/system/save',opts);
+    if(r.ok){btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='\u2705 Gemt!';}
+    else{btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}
+  }catch(e){btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}
+  setTimeout(()=>{btn.className='save-btn';btn.innerHTML='&#128190; Save';},2000);
+}
 updateUserBadge();
 </script>
 </body>

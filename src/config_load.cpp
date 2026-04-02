@@ -96,6 +96,9 @@ static void config_init_defaults(PersistConfig* cfg) {
   strncpy(cfg->ntp.timezone, "CET-1CEST,M3.5.0,M10.5.0/3", sizeof(cfg->ntp.timezone) - 1);
   cfg->ntp.sync_interval_min = 60;
 
+  // Dashboard card order defaults (v7.8.4.2) - empty = default order
+  memset(cfg->dashboard_card_order, 0, sizeof(cfg->dashboard_card_order));
+
   // Initialize network config with defaults (v3.0+)
   network_config_init_defaults(&cfg->network);
 
@@ -374,6 +377,17 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->schema_version = 16;
 
       debug_println("CONFIG LOAD: Migration 15→16 complete");
+    }
+
+    if (out->schema_version == 16) {
+      debug_println("CONFIG LOAD: Migrating schema 16 → 17 (dashboard layout)");
+
+      // Initialize dashboard card order with empty string (default order)
+      memset(out->dashboard_card_order, 0, sizeof(out->dashboard_card_order));
+
+      out->schema_version = 17;
+
+      debug_println("CONFIG LOAD: Migration 16→17 complete");
     } else if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);
