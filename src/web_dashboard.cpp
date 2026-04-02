@@ -115,7 +115,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .page-view.active{display:block}
 .foot{background:#181825;border-top:1px solid #313244;padding:4px 16px;font-size:10px;color:#45475a;flex-shrink:0;display:flex;justify-content:space-between}
 .regmap-sticky{position:sticky;top:0;z-index:10;background:#1e1e2e;padding:12px 16px;border-bottom:2px solid #313244;box-shadow:0 2px 8px rgba(0,0,0,.4)}
-.regmap-sticky .tbl{max-height:120px;overflow-y:auto;display:block}
+.regmap-sticky .tbl{max-height:168px;overflow-y:auto;display:block}
 .regmap-sticky .tbl thead,.regmap-sticky .tbl tbody{display:table;width:100%;table-layout:fixed}
 .card[draggable="true"]{cursor:grab}.card[draggable="true"]:active{cursor:grabbing}
 .card.drag-over{border:2px dashed #89b4fa;opacity:.7}
