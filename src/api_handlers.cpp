@@ -104,6 +104,7 @@ static uint32_t alarm_check_prev_ms = 0;
 static uint32_t alarm_prev_slave_crc = 0;
 static uint32_t alarm_prev_master_timeout = 0;
 static uint32_t alarm_prev_auth_fail = 0;
+static bool alarm_sse_full_active = false;
 
 static void alarm_log_add(uint8_t severity, const char *msg) {
   alarm_entry_t *e = &alarm_log[alarm_log_head];
@@ -216,6 +217,22 @@ void alarm_check_thresholds() {
       }
     }
     alarm_prev_auth_fail = stats->auth_failures;
+  }
+
+  // SSE max clients reached
+  {
+    int sse_active = sse_get_client_count();
+    uint8_t sse_max = g_persist_config.network.http.sse_max_clients;
+    if (sse_max > 0 && sse_active >= (int)sse_max) {
+      if (!alarm_sse_full_active) {
+        char buf[ALARM_MSG_MAX];
+        snprintf(buf, sizeof(buf), "SSE server mættet %d/%d klienter", sse_active, (int)sse_max);
+        alarm_log_add(1, buf);
+        alarm_sse_full_active = true;
+      }
+    } else {
+      alarm_sse_full_active = false;
+    }
   }
 
   // ST Logic overruns

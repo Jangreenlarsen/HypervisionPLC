@@ -28,7 +28,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .topnav a{padding:5px 14px;font-size:12px;font-weight:600;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s}
 .topnav a:hover{background:#45475a;color:#cdd6f4}
 .topnav a.active{background:#89b4fa;color:#1e1e2e}
-.user-badge{margin-left:auto;position:relative;display:flex;align-items:center;gap:6px}
+.save-btn{margin-left:auto;padding:4px 12px;font-size:11px;font-weight:600;background:#a6e3a1;color:#1e1e2e;border:none;border-radius:4px;cursor:pointer;transition:all .2s}
+.save-btn:hover{background:#94e2d5}.save-btn.saving{background:#fab387;cursor:wait}.save-btn.saved{background:#a6e3a1}.save-btn.save-err{background:#f38ba8}
+.user-badge{position:relative;display:flex;align-items:center;gap:6px}
 .user-btn{padding:4px 10px;font-size:11px;background:#313244;color:#a6adc8;border-radius:4px;cursor:pointer;border:1px solid #45475a;display:flex;align-items:center;gap:5px}
 .user-btn:hover{background:#45475a;color:#cdd6f4}
 .user-btn .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
@@ -90,6 +92,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <a href="/editor">ST Editor</a>
 <a href="/cli" class="active">CLI</a>
 <a href="/system">System</a>
+<button class="save-btn" id="saveBtn" onclick="doGlobalSave()" title="Gem konfiguration til NVS">&#128190; Save</button>
 <div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogout" onclick="doLogout()">Log ud</div></div></div>
 </div>
 
@@ -218,6 +221,7 @@ else{document.getElementById('userName').textContent='Ikke logget ind';document.
 }).catch(function(){})
 }
 function doLogout(){sessionStorage.removeItem('hfplc_auth');AUTH='';document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('userMenu').classList.remove('show');if(document.getElementById('loginModal'))document.getElementById('loginModal').classList.add('show')}
+async function doGlobalSave(){var btn=document.getElementById('saveBtn');btn.classList.add('saving');btn.textContent='\u23F3 Gemmer...';try{var h={method:'POST'};if(AUTH)h.headers={'Authorization':AUTH};var r=await fetch('/api/system/save',h);if(r.ok){btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='\u2705 Gemt!';}else{btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}}catch(e){btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}setTimeout(()=>{btn.className='save-btn';btn.innerHTML='&#128190; Save';},2000);}
 updateUserBadge();
 </script>
 </body>
