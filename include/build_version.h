@@ -8,10 +8,10 @@
 #ifndef BUILD_VERSION_H
 #define BUILD_VERSION_H
 
-#define BUILD_NUMBER 1797
-#define BUILD_TIMESTAMP "2026-04-02 12:09:36"
+#define BUILD_NUMBER 1798
+#define BUILD_TIMESTAMP "2026-04-02 12:27:32"
 #define BUILD_DATE "20260402"
-#define GIT_HASH "cc730dd"
+#define GIT_HASH "67d15c3"
 #define GIT_BRANCH "main"
 
 #endif // BUILD_VERSION_H

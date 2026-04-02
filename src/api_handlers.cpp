@@ -104,6 +104,7 @@ static uint32_t alarm_check_prev_ms = 0;
 static uint32_t alarm_prev_slave_crc = 0;
 static uint32_t alarm_prev_master_timeout = 0;
 static uint32_t alarm_prev_auth_fail = 0;
+static uint32_t alarm_prev_write_denied = 0;
 static bool alarm_sse_full_active = false;
 
 static void alarm_log_add(uint8_t severity, const char *msg) {
@@ -149,6 +150,9 @@ static void alarm_log_add_detail(uint8_t severity, const char *msg,
 // Track last auth failure details for alarm context
 static char s_last_auth_fail_ip[16] = {0};
 static char s_last_auth_fail_user[32] = {0};
+static uint32_t s_write_denied_count = 0;
+static char s_last_write_denied_ip[16] = {0};
+static char s_last_write_denied_user[32] = {0};
 
 // Called from api_send_error when 401 is sent
 void alarm_record_auth_failure_info(const char *ip, const char *user) {
@@ -159,6 +163,19 @@ void alarm_record_auth_failure_info(const char *ip, const char *user) {
   if (user && user[0]) {
     strncpy(s_last_auth_fail_user, user, sizeof(s_last_auth_fail_user) - 1);
     s_last_auth_fail_user[sizeof(s_last_auth_fail_user) - 1] = '\0';
+  }
+}
+
+// Called from api_send_error when 403 is sent (write privilege denied)
+void alarm_record_write_denied_info(const char *ip, const char *user) {
+  s_write_denied_count++;
+  if (ip && ip[0]) {
+    strncpy(s_last_write_denied_ip, ip, sizeof(s_last_write_denied_ip) - 1);
+    s_last_write_denied_ip[sizeof(s_last_write_denied_ip) - 1] = '\0';
+  }
+  if (user && user[0]) {
+    strncpy(s_last_write_denied_user, user, sizeof(s_last_write_denied_user) - 1);
+    s_last_write_denied_user[sizeof(s_last_write_denied_user) - 1] = '\0';
   }
 }
 
@@ -218,6 +235,17 @@ void alarm_check_thresholds() {
     }
     alarm_prev_auth_fail = stats->auth_failures;
   }
+
+  // Write privilege denied (403)
+  if (s_write_denied_count > alarm_prev_write_denied && alarm_prev_write_denied > 0) {
+    uint32_t delta = s_write_denied_count - alarm_prev_write_denied;
+    if (delta >= 1) {
+      char buf[ALARM_MSG_MAX];
+      snprintf(buf, sizeof(buf), "Write privilege denied +%lu", (unsigned long)delta);
+      alarm_log_add_detail(1, buf, s_last_write_denied_ip, s_last_write_denied_user);
+    }
+  }
+  alarm_prev_write_denied = s_write_denied_count;
 
   // SSE max clients reached
   {
@@ -294,14 +322,16 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
   httpd_resp_set_status(req, status == 404 ? "404 Not Found" :
                              status == 400 ? "400 Bad Request" :
                              status == 401 ? "401 Unauthorized" :
+                             status == 403 ? "403 Forbidden" :
                              status == 500 ? "500 Internal Server Error" : "400 Bad Request");
 
-  // For 401, add WWW-Authenticate header to trigger browser login dialog
-  // Capture client IP and username BEFORE sending response (socket may close after send)
+  // For 401/403, capture client IP and username BEFORE sending response (socket may close after send)
   char fail_ip[16] = {0};
   char fail_user[32] = {0};
-  if (status == 401) {
-    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Modbus ESP32\"");
+  if (status == 401 || status == 403) {
+    if (status == 401) {
+      httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Modbus ESP32\"");
+    }
     // Get client IP while socket is still valid
     int sockfd = httpd_req_to_sockfd(req);
     struct sockaddr_in6 addr6;
@@ -344,6 +374,9 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
   if (status == 401) {
     http_server_stat_auth_failure();
     alarm_record_auth_failure_info(fail_ip, fail_user);
+  } else if (status == 403) {
+    http_server_stat_client_error();
+    alarm_record_write_denied_info(fail_ip, fail_user);
   } else if (status >= 500) {
     http_server_stat_server_error();
   } else {
