@@ -207,6 +207,7 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "TIMEOUT")) return "TIMEOUT";
   if (str_eq_i(s, "INTER-FRAME-DELAY") || str_eq_i(s, "DELAY")) return "INTER-FRAME-DELAY";
   if (str_eq_i(s, "MAX-REQUESTS") || str_eq_i(s, "MAXREQUESTS")) return "MAX-REQUESTS";
+  if (str_eq_i(s, "CACHE-TTL") || str_eq_i(s, "CACHETTL") || str_eq_i(s, "CACHE_TTL") || str_eq_i(s, "TTL")) return "CACHE-TTL";
 
   // Logic subcommands
   if (str_eq_i(s, "PROGRAM") || str_eq_i(s, "PROGRAMS")) return "PROGRAM";
@@ -251,6 +252,7 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "UPLOAD")) return "UPLOAD";
   if (str_eq_i(s, "BIND")) return "BIND";
   if (str_eq_i(s, "DELETE") || str_eq_i(s, "DEL")) return "DELETE";
+  if (str_eq_i(s, "REINIT") || str_eq_i(s, "COLDSTART") || str_eq_i(s, "COLD-START")) return "REINIT";
 
   // RBAC user management
   if (str_eq_i(s, "USER") || str_eq_i(s, "USR") || str_eq_i(s, "RBAC")) return "USER";
@@ -441,6 +443,8 @@ static void print_modbus_master_help(void) {
   debug_println("  set modbus-master max-requests <count>    - Max MB_READ/MB_WRITE kald per ST cycle (default: 10)");
   debug_println("                                             Begræns antal serielle Modbus requests per execution cycle");
   debug_println("                                             (gælder samlet for alle 4 ST programmer)");
+  debug_println("  set modbus-master cache-ttl <ms>          - Cache entry TTL (0=aldrig expire, default: 0)");
+  debug_println("                                             Expired entries tvinger ny UART-transaktion");
   debug_println("");
   debug_println("Hardware:");
   debug_println("  UART1: TX=GPIO25, RX=GPIO26, DE/RE=GPIO27");
@@ -1362,6 +1366,7 @@ bool cli_parser_execute(char* line) {
         debug_println("");
         debug_println("  Also:");
         debug_println("         set logic <id> enabled:true|false");
+        debug_println("         set logic <id> reinit   (cold restart: reset vars)");
         debug_println("         set logic <id> delete");
         debug_println("         set logic <id> bind <var_name> reg:100|coil:10|input:5");
         debug_println("         set logic debug:true|false");
@@ -1395,6 +1400,9 @@ bool cli_parser_execute(char* line) {
         return true;
       } else if (!strcmp(cmd_normalized, "DISABLED") || !strcmp(cmd_normalized, "DISABLE")) {
         cli_cmd_set_logic_enabled(st_logic_get_state(), prog_idx, false);
+        return true;
+      } else if (!strcmp(cmd_normalized, "REINIT") || !strcmp(cmd_normalized, "COLDSTART")) {
+        cli_cmd_set_logic_reinit(st_logic_get_state(), prog_idx);
         return true;
       }
 
@@ -1797,7 +1805,7 @@ bool cli_parser_execute(char* line) {
       if (argc < 4) {
         debug_println("SET MODBUS-MASTER: missing parameters");
         debug_println("  Usage: set modbus-master <param> <value>");
-        debug_println("  Params: enabled, baudrate, parity, stop-bits, timeout, inter-frame-delay, max-requests");
+        debug_println("  Params: enabled, baudrate, parity, stop-bits, timeout, inter-frame-delay, max-requests, cache-ttl");
         debug_println("  Brug 'set modbus-master ?' for detaljeret hjælp");
         return false;
       }
@@ -1831,6 +1839,10 @@ bool cli_parser_execute(char* line) {
       } else if (!strcmp(param, "MAX-REQUESTS")) {
         uint8_t count = atoi(value);
         cli_cmd_set_modbus_master_max_requests(count);
+        return true;
+      } else if (!strcmp(param, "CACHE-TTL")) {
+        uint16_t ttl = atoi(value);
+        cli_cmd_set_modbus_master_cache_ttl(ttl);
         return true;
       } else {
         debug_println("SET MODBUS-MASTER: unknown parameter");

@@ -75,7 +75,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .line-nums{min-width:44px;background:#181825;color:#585b70;font:12px/18px 'Cascadia Code','Fira Code','Courier New',monospace;padding:8px 6px 8px 4px;text-align:right;overflow:hidden;user-select:none;border-right:1px solid #313244;white-space:pre}
 #editor{position:absolute;top:0;left:0;width:100%;height:100%;background:transparent;color:transparent;caret-color:#cdd6f4;font:12px/18px 'Cascadia Code','Fira Code','Courier New',monospace;padding:8px;border:none;outline:none;resize:none;tab-size:2;white-space:pre;overflow:auto;z-index:2}
 #editor::placeholder{color:#585b70}
-#highlight{position:absolute;top:0;left:0;width:100%;height:100%;font:12px/18px 'Cascadia Code','Fira Code','Courier New',monospace;padding:8px;white-space:pre;overflow:hidden;z-index:1;pointer-events:none;tab-size:2;color:#cdd6f4}
+#highlight{position:absolute;top:0;left:0;width:100%;min-height:100%;font:12px/18px 'Cascadia Code','Fira Code','Courier New',monospace;padding:8px;white-space:pre;overflow:visible;z-index:1;pointer-events:none;tab-size:2;color:#cdd6f4}
 .hl-kw{color:#cba6f7;font-weight:600}.hl-fn{color:#f9e2af}.hl-ty{color:#89b4fa}.hl-num{color:#fab387}.hl-str{color:#a6e3a1}.hl-cmt{color:#585b70;font-style:italic}.hl-op{color:#89dceb}.hl-io{color:#f5c2e7}
 .status-bar{display:flex;gap:12px;padding:4px 16px;background:#181825;border-top:1px solid #313244;font-size:11px;color:#6c7086;flex-wrap:wrap;flex-shrink:0}
 .status-bar .ok{color:#a6e3a1}.status-bar .err{color:#f38ba8}.status-bar .warn{color:#fab387}
@@ -167,10 +167,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="toolbar">
 <button class="btn btn-primary" onclick="uploadCode()" id="btnUpload" title="Upload & kompilér (Ctrl+S)">Kompilér</button>
 <button class="btn btn-success btn-sm" onclick="saveConfig()" title="Gem til NVS flash">Gem Config</button>
-<div class="toggle">
-<input type="checkbox" id="chkEnabled" onchange="toggleEnabled()">
-<label for="chkEnabled">Aktiveret</label>
-</div>
+<button class="btn btn-sm" id="btnStartStop" style="background:#a6e3a1;color:#1e1e2e" onclick="toggleStartStop()" title="Start/stop program">Start</button>
+<button class="btn btn-sm" style="background:#fab387;color:#1e1e2e" onclick="reinitProgram()" title="Cold restart: nulstil variabler til startværdier">Reinit</button>
 <button class="btn btn-danger btn-sm" onclick="deleteProgram()">Slet</button>
 <button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="downloadBackup()" title="Download .st fil">Download</button>
 <div class="view-btns">
@@ -535,7 +533,7 @@ async function selectSlot(s){
 async function loadSource(s){
   const ed=document.getElementById('editor');
   const p=programs[s-1];
-  document.getElementById('chkEnabled').checked=p&&p.enabled;
+  updateStartStopBtn(p&&p.enabled);
   document.getElementById('stSlot').textContent='Slot '+s;
   updatePool();
   if(!p||!p.source_size){
@@ -579,13 +577,28 @@ async function uploadCode(){
   document.getElementById('btnUpload').disabled=false;
 }
 
-async function toggleEnabled(){
-  const en=document.getElementById('chkEnabled').checked;
+function updateStartStopBtn(running){
+  const b=document.getElementById('btnStartStop');
+  if(running){b.textContent='Stop';b.style.background='#f38ba8';}
+  else{b.textContent='Start';b.style.background='#a6e3a1';}
+  b.dataset.running=running?'1':'0';
+}
+async function toggleStartStop(){
+  const b=document.getElementById('btnStartStop');
+  const running=b.dataset.running==='1';
   try{
-    await api('POST','logic/'+SLOT+'/'+(en?'enable':'disable'));
-    log('info',(en?'Aktiveret':'Deaktiveret')+' program '+SLOT);
+    await api('POST','logic/'+SLOT+'/'+(running?'disable':'enable'));
+    log('info',(running?'Stoppet':'Startet')+' program '+SLOT);
     await loadAll();
   }catch(e){log('error','Fejl: '+e.message);}
+}
+
+async function reinitProgram(){
+  try{
+    await api('POST','logic/'+SLOT+'/reinit');
+    log('info','Program '+SLOT+' cold restart (variabler nulstillet)');
+    await loadAll();
+  }catch(e){log('error','Reinit fejl: '+e.message);}
 }
 
 async function deleteProgram(){

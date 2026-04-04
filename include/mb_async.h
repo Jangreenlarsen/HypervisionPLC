@@ -61,7 +61,8 @@ typedef struct {
   mb_cache_status_t   status;         // 1 byte
   int32_t             last_error;     // mb_error_code_t
   uint32_t            last_update_ms; // millis() at last update
-} mb_cache_entry_t;                   // ~20 bytes
+  uint8_t             last_fc;        // Actual FC of last completed op (1-6)
+} mb_cache_entry_t;                   // ~21 bytes
 
 typedef struct {
   mb_request_type_t type;             // 1 byte

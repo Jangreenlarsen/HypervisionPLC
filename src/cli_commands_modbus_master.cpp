@@ -50,9 +50,10 @@ void cli_cmd_set_modbus_master_enabled(bool enabled) {
 
 void cli_cmd_set_modbus_master_baudrate(uint32_t baudrate) {
   // Validate baudrate
-  if (baudrate != 9600 && baudrate != 19200 && baudrate != 38400 &&
+  if (baudrate != 2400 && baudrate != 4800 && baudrate != 9600 &&
+      baudrate != 19200 && baudrate != 38400 &&
       baudrate != 57600 && baudrate != 115200) {
-    debug_println("ERROR: Invalid baudrate (9600, 19200, 38400, 57600, 115200)");
+    debug_println("ERROR: Invalid baudrate (2400, 4800, 9600, 19200, 38400, 57600, 115200)");
     return;
   }
 
@@ -148,7 +149,18 @@ void cli_cmd_set_modbus_master_max_requests(uint8_t count) {
   g_modbus_master_config.max_requests_per_cycle = count;
   g_persist_config.modbus_master.max_requests_per_cycle = count;
   debug_printf("[OK] Modbus Master max requests/cycle: %u\n", count);
-  debug_println("     Begræns MB_READ/MB_WRITE kald per ST execution cycle (alle 4 programmer deler kvoten)");
+  debug_println("     Begræns MB_READ/MB_WRITE kald per ST program per cycle");
+  debug_println("NOTE: Use 'save' to persist to NVS");
+}
+
+void cli_cmd_set_modbus_master_cache_ttl(uint16_t ttl_ms) {
+  g_modbus_master_config.cache_ttl_ms = ttl_ms;
+  g_persist_config.modbus_master.cache_ttl_ms = ttl_ms;
+  if (ttl_ms == 0) {
+    debug_println("[OK] Modbus Master cache TTL: 0 (never expire)");
+  } else {
+    debug_printf("[OK] Modbus Master cache TTL: %u ms\n", ttl_ms);
+  }
   debug_println("NOTE: Use 'save' to persist to NVS");
 }
 
@@ -181,7 +193,12 @@ void cli_cmd_show_modbus_master() {
   } else {
     debug_printf("  Inter-frame delay: %u ms (manual)\n", g_modbus_master_config.inter_frame_delay);
   }
-  debug_printf("  Max requests/cycle: %u (MB_READ/MB_WRITE kald per ST cycle, alle programmer)\n", g_modbus_master_config.max_requests_per_cycle);
+  debug_printf("  Max requests/cycle: %u (MB_READ/MB_WRITE kald per ST program per cycle)\n", g_modbus_master_config.max_requests_per_cycle);
+  if (g_modbus_master_config.cache_ttl_ms == 0) {
+    debug_printf("  Cache TTL: 0 (never expire)\n");
+  } else {
+    debug_printf("  Cache TTL: %u ms\n", g_modbus_master_config.cache_ttl_ms);
+  }
   debug_printf("\n");
 
   debug_printf("Statistics:\n");
@@ -219,7 +236,7 @@ void cli_cmd_show_modbus_master() {
   if (async_state->entry_count > 0) {
     debug_printf("Cache Entries:\n");
     debug_printf("  %-4s %-5s %-7s %-5s %-7s %-6s %s\n",
-                 "Slot", "Slave", "Addr", "FC", "Value", "Status", "Age(ms)");
+                 "Slot", "Slave", "Addr", "FC", "Value", "Status", "Age");
     for (uint8_t i = 0; i < async_state->entry_count; i++) {
       const mb_cache_entry_t *e = &async_state->entries[i];
       const char *status_str = "EMPTY";
@@ -228,17 +245,45 @@ void cli_cmd_show_modbus_master() {
       else if (e->status == MB_CACHE_ERROR) status_str = "ERROR";
 
       const char *fc_str = "?";
-      if (e->key.req_type == MB_REQ_READ_COIL) fc_str = "FC01";
-      else if (e->key.req_type == MB_REQ_READ_INPUT) fc_str = "FC02";
-      else if (e->key.req_type == MB_REQ_READ_HOLDING) fc_str = "FC03";
-      else if (e->key.req_type == MB_REQ_READ_INPUT_REG) fc_str = "FC04";
+      uint8_t disp_fc = (e->last_fc > 0) ? e->last_fc : e->key.req_type;
+      if (disp_fc == MB_REQ_READ_COIL) fc_str = "FC01";
+      else if (disp_fc == MB_REQ_READ_INPUT) fc_str = "FC02";
+      else if (disp_fc == MB_REQ_READ_HOLDING) fc_str = "FC03";
+      else if (disp_fc == MB_REQ_READ_INPUT_REG) fc_str = "FC04";
+      else if (disp_fc == MB_REQ_WRITE_COIL) fc_str = "FC05";
+      else if (disp_fc == MB_REQ_WRITE_HOLDING) fc_str = "FC06";
 
-      uint32_t age = (e->last_update_ms > 0) ? (millis() - e->last_update_ms) : 0;
+      uint32_t age_ms = (e->last_update_ms > 0) ? (millis() - e->last_update_ms) : 0;
+      char age_buf[16];
+      if (age_ms < 1000) {
+        snprintf(age_buf, sizeof(age_buf), "%ums", (unsigned)age_ms);
+      } else if (age_ms < 60000) {
+        snprintf(age_buf, sizeof(age_buf), "%.1fs", age_ms / 1000.0f);
+      } else {
+        snprintf(age_buf, sizeof(age_buf), "%.1fm", age_ms / 60000.0f);
+      }
 
-      debug_printf("  %-4d %-5d %-7d %-5s %-7d %-6s %u\n",
+      // Mark expired entries
+      bool expired = (g_modbus_master_config.cache_ttl_ms > 0 &&
+                      e->last_update_ms > 0 &&
+                      age_ms >= g_modbus_master_config.cache_ttl_ms);
+      debug_printf("  %-4d %-5d %-7d %-5s %-7d %-6s %s%s\n",
                    i, e->key.slave_id, e->key.address, fc_str,
-                   e->value.int_val, status_str, age);
+                   e->value.int_val, status_str, age_buf,
+                   expired ? " [EXP]" : "");
     }
     debug_printf("\n");
   }
+
+  debug_printf("Configuration commands:\n");
+  debug_printf("  set modbus-master enabled <on|off>\n");
+  debug_printf("  set modbus-master baudrate <rate>\n");
+  debug_printf("  set modbus-master parity <none|even|odd>\n");
+  debug_printf("  set modbus-master stop-bits <1|2>\n");
+  debug_printf("  set modbus-master timeout <ms>\n");
+  debug_printf("  set modbus-master inter-frame-delay <ms>\n");
+  debug_printf("  set modbus-master max-requests <count>\n");
+  debug_printf("  set modbus-master cache-ttl <ms>   (0=never expire)\n");
+  debug_printf("  Brug 'set modbus-master ?' for detaljeret hjælp\n");
+  debug_printf("\n");
 }

@@ -241,6 +241,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="row"><span class="lbl">Cache hits/misses</span><span class="val val-n" id="mcHitMiss">-</span></div>
 <div class="row"><span class="lbl">Hit rate</span><span class="val val-n" id="mcHitRate">-</span></div>
 <div class="row"><span class="lbl">Queue full</span><span class="val val-err" id="mcQueueFull">-</span></div>
+<div class="row"><span class="lbl">Cache TTL</span><span class="val val-n" id="mcTtl">-</span></div>
 <div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
 </div>
 </div>
@@ -740,15 +741,20 @@ function updateDashboard(m){
       const total=hits+misses;
       $('mcHitRate').textContent=total>0?(hits/total*100).toFixed(1)+'%':'N/A';
       $('mcQueueFull').textContent=fmtN(qfull);
+      const ttl=g(m,'modbus_master_cache_ttl_ms');
+      $('mcTtl').textContent=(ttl==null)?'-':(ttl==0?'0 (aldrig expire)':ttl+' ms');
       // Per-slave table
       const slaves=gAll(m,'modbus_master_slave_status');
       if(slaves.length>0){
-        let h='<table class="tbl"><tr><th>Slave</th><th>Addr</th><th>FC</th><th>Status</th></tr>';
+        let h='<table class="tbl"><tr><th>Slave</th><th>Addr</th><th>FC</th><th>Status</th><th>Age</th></tr>';
         for(const s of slaves){
           const st=s.labels.status||'?';
-          const cls=st==='valid'?'val-ok':st==='error'?'val-err':'val-warn';
+          const ams=parseInt(s.labels.age_ms||'0');
+          const exp=(ttl>0 && ams>=ttl);
+          const cls=exp?'val-warn':(st==='valid'?'val-ok':st==='error'?'val-err':'val-warn');
+          const age=ams<1000?ams+'ms':ams<60000?(ams/1000).toFixed(1)+'s':(ams/60000).toFixed(1)+'m';
           h+='<tr><td>#'+s.labels.slave+'</td><td>'+s.labels.addr+'</td><td>FC'+s.labels.fc+'</td>';
-          h+='<td class="'+cls+'">'+st+'</td></tr>';
+          h+='<td class="'+cls+'">'+st+(exp?' [EXP]':'')+'</td><td>'+age+'</td></tr>';
         }
         h+='</table>';
         $('mcSlaves').innerHTML=h;

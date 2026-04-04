@@ -73,6 +73,7 @@ esp_err_t api_handler_logic_source_get(httpd_req_t *req);
 esp_err_t api_handler_logic_source_post(httpd_req_t *req);
 esp_err_t api_handler_logic_enable(httpd_req_t *req);
 esp_err_t api_handler_logic_disable(httpd_req_t *req);
+esp_err_t api_handler_logic_reinit(httpd_req_t *req);
 esp_err_t api_handler_logic_stats(httpd_req_t *req);
 esp_err_t api_handler_counter_reset(httpd_req_t *req);
 esp_err_t api_handler_counter_start(httpd_req_t *req);
@@ -508,6 +509,7 @@ esp_err_t api_handler_endpoints(httpd_req_t *req)
     "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/source\",\"desc\":\"Upload ST code\"},"
     "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/enable\",\"desc\":\"Enable program\"},"
     "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/disable\",\"desc\":\"Disable program\"},"
+    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/reinit\",\"desc\":\"Cold restart (reset variables)\"},"
     "{\"method\":\"DELETE\",\"path\":\"/api/logic/{1-4}\",\"desc\":\"Delete program\"},"
     "{\"method\":\"GET\",\"path\":\"/api/logic/{1-4}/stats\",\"desc\":\"Program stats\"},"
     "{\"method\":\"POST\",\"path\":\"/api/logic/settings\",\"desc\":\"Logic engine settings\"},"
@@ -1195,6 +1197,9 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
     if (uri_len >= 8 && strcmp(uri + uri_len - 8, "/disable") == 0) {
       return api_handler_logic_disable(req);
     }
+    if (uri_len >= 7 && strcmp(uri + uri_len - 7, "/reinit") == 0) {
+      return api_handler_logic_reinit(req);
+    }
     // GAP-13: Variable binding
     if (uri_len >= 5 && strcmp(uri + uri_len - 5, "/bind") == 0) {
       return api_handler_logic_bind_post(req);
@@ -1866,6 +1871,41 @@ esp_err_t api_handler_logic_disable(httpd_req_t *req)
   return api_send_json(req, buf);
 }
 
+esp_err_t api_handler_logic_reinit(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  int id = api_extract_id_from_uri(req, "/api/logic/");
+  if (id < 1 || id > ST_LOGIC_MAX_PROGRAMS) {
+    return api_send_error(req, 400, "Invalid logic program ID");
+  }
+
+  st_logic_engine_state_t *state = st_logic_get_state();
+  if (!state) {
+    return api_send_error(req, 500, "ST Logic not initialized");
+  }
+
+  st_logic_program_config_t *prog = st_logic_get_program(state, id - 1);
+  if (!prog || !prog->compiled) {
+    return api_send_error(req, 400, "Program not compiled");
+  }
+
+  if (!st_logic_reinit(state, id - 1)) {
+    return api_send_error(req, 500, "Failed to reinitialize program");
+  }
+
+  JsonDocument doc;
+  doc["status"] = 200;
+  doc["program"] = id;
+  doc["message"] = "Cold restart: variables reset to initial values";
+
+  char buf[256];
+  serializeJson(doc, buf, sizeof(buf));
+
+  return api_send_json(req, buf);
+}
+
 esp_err_t api_handler_logic_delete(httpd_req_t *req)
 {
   // FEAT-020: Route debug DELETE to debug handler
@@ -2006,6 +2046,7 @@ esp_err_t api_handler_config_get(httpd_req_t *req)
     master["timeout_ms"] = g_persist_config.modbus_master.timeout_ms;
     master["inter_frame_delay_ms"] = g_persist_config.modbus_master.inter_frame_delay;
     master["max_requests_per_cycle"] = g_persist_config.modbus_master.max_requests_per_cycle;
+    master["cache_ttl_ms"] = g_persist_config.modbus_master.cache_ttl_ms;
   }
 
   // ── ANALOG OUTPUTS (AO mode) ──
@@ -2316,6 +2357,7 @@ esp_err_t api_handler_modbus_get(httpd_req_t *req)
     cfg["timeout_ms"] = g_modbus_master_config.timeout_ms;
     cfg["inter_frame_delay_ms"] = g_modbus_master_config.inter_frame_delay;
     cfg["max_requests_per_cycle"] = g_modbus_master_config.max_requests_per_cycle;
+    cfg["cache_ttl_ms"] = g_modbus_master_config.cache_ttl_ms;
 
     JsonObject stats = doc["stats"].to<JsonObject>();
     stats["total_requests"] = g_modbus_master_config.total_requests;
@@ -2426,6 +2468,11 @@ esp_err_t api_handler_modbus_post(httpd_req_t *req)
       uint8_t m = doc["max_requests_per_cycle"].as<uint8_t>();
       g_modbus_master_config.max_requests_per_cycle = m;
       g_persist_config.modbus_master.max_requests_per_cycle = m;
+    }
+    if (doc.containsKey("cache_ttl_ms")) {
+      uint16_t ttl = doc["cache_ttl_ms"].as<uint16_t>();
+      g_modbus_master_config.cache_ttl_ms = ttl;
+      g_persist_config.modbus_master.cache_ttl_ms = ttl;
     }
     // Reconfigure if master is enabled
     if (g_modbus_master_config.enabled) {
@@ -3601,7 +3648,15 @@ esp_err_t api_handler_user_me(httpd_req_t *req)
 esp_err_t api_handler_cli_exec(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH_WRITE(req);
+  CHECK_AUTH_ROLE(req, ROLE_CLI);
+
+  // Also require write privilege (same as CHECK_AUTH_WRITE but after role check)
+  {
+    int _uid = http_server_auth_user(req);
+    if (!rbac_has_write(_uid)) {
+      return api_send_error(req, 403, "Write privilege required");
+    }
+  }
 
   char content[512];
   int ret = httpd_req_recv(req, content, sizeof(content) - 1);
@@ -3941,6 +3996,7 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   master["timeout_ms"] = g_persist_config.modbus_master.timeout_ms;
   master["inter_frame_delay"] = g_persist_config.modbus_master.inter_frame_delay;
   master["max_requests_per_cycle"] = g_persist_config.modbus_master.max_requests_per_cycle;
+  master["cache_ttl_ms"] = g_persist_config.modbus_master.cache_ttl_ms;
 
   // ── ANALOG OUTPUTS ──
   doc["ao1_mode"] = g_persist_config.ao1_mode;
@@ -4346,6 +4402,7 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
     if (m.containsKey("timeout_ms")) g_persist_config.modbus_master.timeout_ms = m["timeout_ms"];
     if (m.containsKey("inter_frame_delay")) g_persist_config.modbus_master.inter_frame_delay = m["inter_frame_delay"];
     if (m.containsKey("max_requests_per_cycle")) g_persist_config.modbus_master.max_requests_per_cycle = m["max_requests_per_cycle"];
+    if (m.containsKey("cache_ttl_ms")) g_persist_config.modbus_master.cache_ttl_ms = m["cache_ttl_ms"];
   }
 
   // ── RESTORE HOSTNAME ──
@@ -5703,6 +5760,9 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
     PROM_APPEND("# HELP modbus_master_queue_full_count Queue full rejections\n");
     PROM_APPEND("# TYPE modbus_master_queue_full_count counter\n");
     PROM_APPEND("modbus_master_queue_full_count %lu\n", (unsigned long)mb_async->queue_full_count);
+    PROM_APPEND("# HELP modbus_master_cache_ttl_ms Cache entry TTL in ms (0=never expire)\n");
+    PROM_APPEND("# TYPE modbus_master_cache_ttl_ms gauge\n");
+    PROM_APPEND("modbus_master_cache_ttl_ms %u\n", (unsigned)g_modbus_master_config.cache_ttl_ms);
 
     // Per-slave cache entries with status
     PROM_APPEND("# HELP modbus_master_slave_status Per-slave cache entry status\n");
@@ -5713,8 +5773,10 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
         const char *st = (e->status == MB_CACHE_VALID) ? "valid" :
                          (e->status == MB_CACHE_PENDING) ? "pending" :
                          (e->status == MB_CACHE_ERROR) ? "error" : "empty";
-        PROM_APPEND("modbus_master_slave_status{slave=\"%d\",addr=\"%d\",fc=\"%d\",status=\"%s\"} %d\n",
-                     e->key.slave_id, e->key.address, e->key.req_type, st,
+        uint32_t age_ms = (e->last_update_ms > 0) ? (millis() - e->last_update_ms) : 0;
+        uint8_t disp_fc = (e->last_fc > 0) ? e->last_fc : e->key.req_type;
+        PROM_APPEND("modbus_master_slave_status{slave=\"%d\",addr=\"%d\",fc=\"%d\",status=\"%s\",age_ms=\"%u\"} %d\n",
+                     e->key.slave_id, e->key.address, disp_fc, st, age_ms,
                      (e->status == MB_CACHE_VALID) ? 1 : (e->status == MB_CACHE_ERROR) ? -1 : 0);
       }
     }

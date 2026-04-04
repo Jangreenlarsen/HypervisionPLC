@@ -37,7 +37,12 @@ mb_cache_entry_t *mb_cache_find(uint8_t slave_id, uint16_t address, uint8_t req_
 mb_cache_entry_t *mb_cache_get_or_create(uint8_t slave_id, uint16_t address, uint8_t req_type) {
   // Try find existing
   mb_cache_entry_t *e = mb_cache_find(slave_id, address, req_type);
-  if (e) return e;
+  if (e) {
+    g_mb_async.cache_hits++;
+    return e;
+  }
+
+  g_mb_async.cache_misses++;
 
   // Create new if space available
   if (g_mb_async.entry_count >= MB_CACHE_MAX_ENTRIES) {
@@ -49,6 +54,7 @@ mb_cache_entry_t *mb_cache_get_or_create(uint8_t slave_id, uint16_t address, uin
   e->key.slave_id = slave_id;
   e->key.address = address;
   e->key.req_type = req_type;
+  e->last_fc = req_type;  // Default to keyed type until a real op completes
   e->status = MB_CACHE_EMPTY;
   return e;
 }
@@ -58,9 +64,10 @@ mb_cache_entry_t *mb_cache_get_or_create(uint8_t slave_id, uint16_t address, uin
  * ============================================================================ */
 
 bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t address) {
-  // Check cache — if already PENDING, skip (deduplication)
+  // Check cache — if already PENDING and cache enabled, skip (deduplication)
+  extern bool g_mb_cache_enabled;
   mb_cache_entry_t *entry = mb_cache_find(slave_id, address, (uint8_t)type);
-  if (entry && entry->status == MB_CACHE_PENDING) {
+  if (g_mb_cache_enabled && entry && entry->status == MB_CACHE_PENDING) {
     return true;  // Already queued
   }
 
@@ -191,6 +198,10 @@ static void mb_async_task_func(void *pvParameters) {
     if (req.type == MB_REQ_WRITE_HOLDING) cache_type = (uint8_t)MB_REQ_READ_HOLDING;
 
     mb_cache_entry_t *entry = mb_cache_find(req.slave_id, req.address, cache_type);
+    if (!entry && (req.type == MB_REQ_WRITE_COIL || req.type == MB_REQ_WRITE_HOLDING)) {
+      // Write to address we've never read — create entry so UI can show it
+      entry = mb_cache_get_or_create(req.slave_id, req.address, cache_type);
+    }
     if (entry) {
       portENTER_CRITICAL(&mb_cache_spinlock);
       if (err == MB_OK) {
@@ -201,6 +212,7 @@ static void mb_async_task_func(void *pvParameters) {
       }
       entry->last_error = err;
       entry->last_update_ms = millis();
+      entry->last_fc = (uint8_t)req.type;  // Track actual operation FC (FC01-FC06)
       portEXIT_CRITICAL(&mb_cache_spinlock);
     }
 
