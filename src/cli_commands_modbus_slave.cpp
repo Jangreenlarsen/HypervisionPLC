@@ -45,9 +45,10 @@ void cli_cmd_set_modbus_slave_slave_id(uint8_t id) {
 
 void cli_cmd_set_modbus_slave_baudrate(uint32_t baudrate) {
   // Validate baudrate
-  if (baudrate != 9600 && baudrate != 19200 && baudrate != 38400 &&
+  if (baudrate != 2400 && baudrate != 4800 && baudrate != 9600 &&
+      baudrate != 19200 && baudrate != 38400 &&
       baudrate != 57600 && baudrate != 115200) {
-    debug_println("ERROR: Invalid baudrate (9600, 19200, 38400, 57600, 115200)");
+    debug_println("ERROR: Invalid baudrate (2400, 4800, 9600, 19200, 38400, 57600, 115200)");
     return;
   }
 

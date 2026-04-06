@@ -57,6 +57,7 @@ static void config_init_defaults(PersistConfig* cfg) {
   cfg->modbus_master.timeout_ms = MODBUS_MASTER_DEFAULT_TIMEOUT;  // 500ms
   cfg->modbus_master.inter_frame_delay = 0;  // 0=auto (t3.5 calculated from baudrate)
   cfg->modbus_master.max_requests_per_cycle = MODBUS_MASTER_DEFAULT_MAX_REQUESTS;  // 10
+  cfg->modbus_master.cache_ttl_ms = 0;  // 0 = never expire (default)
   cfg->modbus_master.total_requests = 0;
   cfg->modbus_master.successful_requests = 0;
   cfg->modbus_master.timeout_errors = 0;

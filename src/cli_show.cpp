@@ -1014,14 +1014,17 @@ void cli_cmd_show_config(const char *section) {
   debug_print_uint(g_persist_config.network.telnet_port);
   debug_println("");
 
-  debug_print("  username: ");
-  debug_println(g_persist_config.network.telnet_username[0] ? g_persist_config.network.telnet_username : "(not set)");
-
-  debug_print("  password: ");
-  debug_println(g_persist_config.network.telnet_password[0] ? "********" : "(not set)");
-
-  debug_print("  auth mode: ");
-  debug_println(g_persist_config.rbac.enabled ? "RBAC (centralized)" : "local");
+  debug_print("  auth: ");
+  if (g_persist_config.rbac.enabled) {
+    debug_printf("RBAC (%d users)\n", rbac_get_user_count());
+    debug_println("  auth-mode: RBAC (multi-user) — see 'show config rbac' or 'show users'");
+  } else {
+    debug_println("local");
+    debug_print("  username: ");
+    debug_println(g_persist_config.network.telnet_username[0] ? g_persist_config.network.telnet_username : "(not set)");
+    debug_print("  password: ");
+    debug_println(g_persist_config.network.telnet_password[0] ? "********" : "(not set)");
+  }
 
   } // end show_telnet
 
@@ -1143,6 +1146,16 @@ void cli_cmd_show_config(const char *section) {
   debug_println("\n[API SSE]");
   debug_print("  server: ");
   debug_println(g_persist_config.network.http.sse_enabled ? "enabled" : "disabled");
+
+  debug_print("  auth: ");
+  if (g_persist_config.rbac.enabled) {
+    debug_printf("RBAC (%d users)\n", rbac_get_user_count());
+    debug_println("  auth-mode: RBAC (multi-user) — see 'show config rbac' or 'show users'");
+  } else if (g_persist_config.network.http.auth_enabled) {
+    debug_println("enabled (legacy single-user)");
+  } else {
+    debug_println("disabled");
+  }
 
   debug_print("  port: ");
   if (g_persist_config.network.http.sse_port == 0) {
@@ -1470,12 +1483,16 @@ void cli_cmd_show_config(const char *section) {
   debug_print("set telnet ");
   debug_println(g_persist_config.network.telnet_enabled ? "enable" : "disable");
   if (g_persist_config.network.telnet_enabled) {
-    if (g_persist_config.network.telnet_username[0]) {
-      debug_print("set telnet user ");
-      debug_println(g_persist_config.network.telnet_username);
-    }
-    if (g_persist_config.network.telnet_password[0]) {
-      debug_println("set telnet pass ********");
+    if (g_persist_config.rbac.enabled) {
+      debug_println("# auth: RBAC active — see 'show config rbac'");
+    } else {
+      if (g_persist_config.network.telnet_username[0]) {
+        debug_print("set telnet user ");
+        debug_println(g_persist_config.network.telnet_username);
+      }
+      if (g_persist_config.network.telnet_password[0]) {
+        debug_println("set telnet pass ********");
+      }
     }
     debug_print("set telnet port ");
     debug_print_uint(g_persist_config.network.telnet_port);
@@ -1567,6 +1584,9 @@ void cli_cmd_show_config(const char *section) {
   debug_println("\n# API SSE");
   debug_println(g_persist_config.network.http.sse_enabled ? "set sse enable" : "set sse disable");
   if (g_persist_config.network.http.sse_enabled) {
+    if (g_persist_config.rbac.enabled) {
+      debug_println("# auth: RBAC active — see 'show config rbac'");
+    }
     debug_print("set sse port ");
     debug_print_uint(g_persist_config.network.http.sse_port);
     debug_println("");

@@ -101,10 +101,15 @@ typedef enum {
   ST_BUILTIN_BIT_CLR,       // BIT_CLR(value, bit_pos) → INT (clear bit N)
   ST_BUILTIN_BIT_TST,       // BIT_TST(value, bit_pos) → BOOL (test bit N)
 
+  // Multi-register Modbus (v7.9.2)
+  ST_BUILTIN_MB_READ_HOLDINGS,   // MB_READ_HOLDINGS(slave, addr, count, array) → BOOL (FC03 multi + array fill)
+  ST_BUILTIN_MB_WRITE_HOLDINGS,  // MB_WRITE_HOLDINGS(slave, addr, count, array) → BOOL (FC16 multi from array)
+
   // Async Modbus Status (v7.7.0)
   ST_BUILTIN_MB_SUCCESS,    // MB_SUCCESS() → BOOL (last cache read was valid)
   ST_BUILTIN_MB_BUSY,       // MB_BUSY() → BOOL (requests pending in queue)
   ST_BUILTIN_MB_ERROR,      // MB_ERROR() → INT (last error code)
+  ST_BUILTIN_MB_CACHE,      // MB_CACHE(enabled) → BOOL (enable/disable read cache dedup, v7.9.1)
 
   // Hardware Counter Access (v7.7.2)
   ST_BUILTIN_CNT_SETUP,      // CNT_SETUP(id, hw_mode, edge, dir, prescaler, gpio) → BOOL

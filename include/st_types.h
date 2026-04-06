@@ -116,8 +116,10 @@ typedef enum {
   // Delimiters
   ST_TOK_LPAREN,            // (
   ST_TOK_RPAREN,            // )
-  ST_TOK_LBRACKET,          // [ (array index, future)
+  ST_TOK_LBRACKET,          // [ (array index)
   ST_TOK_RBRACKET,          // ]
+  ST_TOK_DOTDOT,            // .. (array range, FEAT-004)
+  ST_TOK_ARRAY,             // ARRAY keyword (FEAT-004)
   ST_TOK_SEMICOLON,         // ;
   ST_TOK_COMMA,             // ,
   ST_TOK_COLON,             // :
@@ -169,6 +171,11 @@ typedef struct {
   uint8_t is_input;         // VAR_INPUT flag
   uint8_t is_output;        // VAR_OUTPUT flag
   uint8_t is_exported;      // EXPORT flag (v5.1.0 - map to IR 220-251 pool)
+  // FEAT-004: Array support
+  uint8_t is_array;         // 1 = ARRAY variable
+  uint8_t array_size;       // Number of elements (0 if not array)
+  int16_t array_lower;      // Lower bound (e.g., 0)
+  int16_t array_upper;      // Upper bound (e.g., 7)
 } st_variable_decl_t;
 
 /* ============================================================================
@@ -198,6 +205,7 @@ typedef enum {
   ST_AST_BINARY_OP,         // expr op expr (+, -, *, /, AND, OR, <, >, etc.)
   ST_AST_UNARY_OP,          // op expr (NOT, -)
   ST_AST_FUNCTION_CALL,     // func(arg1, arg2, ...) (future)
+  ST_AST_ARRAY_ACCESS,      // array[index] (FEAT-004)
 } st_ast_node_type_t;
 
 /* Forward declarations for recursive AST structure */
@@ -269,13 +277,21 @@ typedef struct {
 typedef struct {
   char var_name[64];        // Variable being assigned
   st_ast_node_t *expr;      // Expression
+  st_ast_node_t *index_expr; // FEAT-004: Array index (NULL for scalar)
 } st_assignment_t;
 
+/* FEAT-004: Array element access */
 typedef struct {
-  char func_name[64];        // "MB_WRITE_COIL" or "MB_WRITE_HOLDING"
+  char var_name[64];        // Array variable name
+  st_ast_node_t *index_expr; // Index expression
+} st_array_access_t;
+
+typedef struct {
+  char func_name[64];        // "MB_WRITE_COIL" or "MB_WRITE_HOLDING" or "MB_WRITE_HOLDINGS"
   st_ast_node_t *slave_id;   // Slave ID expression
   st_ast_node_t *address;    // Address expression
   st_ast_node_t *value;      // Value expression (right side of :=)
+  st_ast_node_t *count;      // Count expression (v7.9.2: MB_WRITE_HOLDINGS only, NULL for single-reg)
   uint16_t func_id;          // ST_BUILTIN_MB_WRITE_COIL or ST_BUILTIN_MB_WRITE_HOLDING (enum value)
 } st_remote_write_t;
 
@@ -338,6 +354,7 @@ typedef struct st_ast_node {
     st_literal_t literal;
     st_variable_ref_t variable;
     st_function_call_t function_call;
+    st_array_access_t array_access;  // FEAT-004
   } data;
 
   // Heap-allocated only for ST_AST_FUNCTION_DEF / ST_AST_FUNCTION_BLOCK_DEF nodes.
@@ -510,6 +527,10 @@ typedef enum {
   ST_OP_STORE_LOCAL,        // Store to local variable (var_index = local index)
   ST_OP_LOAD_LOCAL,         // Load local variable (var_index = local index)
 
+  // FEAT-004: Array operations
+  ST_OP_LOAD_ARRAY,         // Load array element: base_index + (pop() - lower_bound)
+  ST_OP_STORE_ARRAY,        // Store array element: base_index + (pop() - lower_bound) = pop()
+
   // Misc
   ST_OP_NOP,                // No operation
   ST_OP_HALT,               // Stop execution
@@ -534,6 +555,12 @@ typedef struct {
       uint8_t instance_id;  // FB instance ID (0xFF = stateless FUNCTION)
       uint16_t padding;     // Padding to 4 bytes
     } user_call;
+    struct {                // FEAT-004: Array operations
+      uint8_t base_index;   // Base variable slot
+      uint8_t array_size;   // Number of elements (for bounds check)
+      int8_t  lower_bound;  // Lower bound offset (usually 0)
+      uint8_t padding;
+    } array_op;
   } arg;
 } st_bytecode_instr_t;
 

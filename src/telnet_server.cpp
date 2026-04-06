@@ -342,6 +342,30 @@ static void telnet_handle_auth_input(TelnetServer *server, const char *input) {
     }
 
     if (auth_ok) {
+      // RBAC: Check if user has CLI role before granting access
+      if (rbac_uid != 99 && g_persist_config.rbac.enabled && !rbac_has_role(rbac_uid, ROLE_CLI)) {
+        server->auth_attempts++;
+        telnet_server_writeline(server, "");
+        telnet_server_writeline(server, "ERROR: User does not have CLI role");
+        ESP_LOGW(TAG, "RBAC: user '%s' denied — no CLI role", server->auth_username);
+
+        if (server->auth_attempts >= TELNET_MAX_AUTH_ATTEMPTS) {
+          server->auth_lockout_time = millis() + TELNET_LOCKOUT_TIME_MS;
+          telnet_server_writeline(server, "Too many failed attempts. Locking out for 30 seconds.");
+          telnet_server_writeline(server, "");
+        } else {
+          server->auth_state = TELNET_AUTH_WAITING;
+          memset(server->auth_username, 0, sizeof(server->auth_username));
+          telnet_send_retry_prompt(server);
+        }
+
+        server->input_pos = 0;
+        server->cursor_pos = 0;
+        server->input_ready = 0;
+        memset(server->input_buffer, 0, TELNET_INPUT_BUFFER_SIZE);
+        return;
+      }
+
       // Authentication successful!
       server->auth_state = TELNET_AUTH_AUTHENTICATED;
       server->auth_attempts = 0;
@@ -948,8 +972,13 @@ int telnet_server_loop(TelnetServer *server)
           // Feed this line to upload mode (handles ST code and END_UPLOAD)
           cli_shell_feed_upload_line(telnet_console, server->input_buffer);
         } else {
-          // Execute as normal command
-          cli_shell_execute_command(telnet_console, server->input_buffer);
+          // RBAC: Check if command is allowed for this user's privilege level
+          if (!rbac_cli_allowed(server->rbac_user_index, server->input_buffer)) {
+            console_println(telnet_console, "ERROR: Write privilege required for this command");
+          } else {
+            // Execute as normal command
+            cli_shell_execute_command(telnet_console, server->input_buffer);
+          }
         }
 
         // Check if "exit" command was issued

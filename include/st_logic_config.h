@@ -176,6 +176,14 @@ bool st_logic_compile_chunked(st_logic_engine_state_t *state, uint8_t program_id
 bool st_logic_set_enabled(st_logic_engine_state_t *state, uint8_t program_id, uint8_t enabled);
 
 /**
+ * @brief Cold restart: reset variables to compiled initial values
+ * @param state Logic engine state
+ * @param program_id Program ID (0-3)
+ * @return true if successful (false if not compiled)
+ */
+bool st_logic_reinit(st_logic_engine_state_t *state, uint8_t program_id);
+
+/**
  * @brief Delete/clear a logic program
  * @param state Logic engine state
  * @param program_id Program ID (0-3)

@@ -134,6 +134,9 @@ static const keyword_entry_t keywords[] = {
   {"FUNCTION_BLOCK", ST_TOK_FUNCTION_BLOCK},
   {"END_FUNCTION_BLOCK", ST_TOK_END_FUNCTION_BLOCK},
 
+  // FEAT-004: Array support
+  {"ARRAY", ST_TOK_ARRAY},
+
   // Operators
   {"AND", ST_TOK_AND},
   {"OR", ST_TOK_OR},
@@ -504,12 +507,22 @@ bool st_lexer_next_token(st_lexer_t *lexer, st_token_t *token) {
   // Numbers
   if (isdigit(lexer->current_char)) {
     // Check if it's a real (contains . or e/E later)
+    // FEAT-004: '..' is range operator, not decimal point (e.g., 0..7)
     uint32_t temp_pos = lexer->pos;
+    uint32_t temp_line = lexer->line;
+    uint32_t temp_col = lexer->column;
     while (isdigit(lexer->current_char)) {
       lexer_advance(lexer);
     }
-    bool is_real = (lexer->current_char == '.' || lexer->current_char == 'e' || lexer->current_char == 'E');
+    bool is_real = false;
+    if (lexer->current_char == '.' && lexer_peek(lexer, 1) != '.') {
+      is_real = true;  // Decimal point, not range operator
+    } else if (lexer->current_char == 'e' || lexer->current_char == 'E') {
+      is_real = true;
+    }
     lexer->pos = temp_pos;
+    lexer->line = temp_line;
+    lexer->column = temp_col;
     lexer->current_char = lexer->input[lexer->pos];
 
     if (is_real) {
@@ -562,6 +575,15 @@ bool st_lexer_next_token(st_lexer_t *lexer, st_token_t *token) {
   if (strcmp(two_char, "**") == 0) {
     token->type = ST_TOK_POWER;
     strncpy(token->value, "**", 255);
+    token->value[255] = '\0';
+    lexer_advance(lexer);
+    lexer_advance(lexer);
+    return true;
+  }
+  // FEAT-004: Range operator (..) for ARRAY declarations
+  if (strcmp(two_char, "..") == 0) {
+    token->type = ST_TOK_DOTDOT;
+    strncpy(token->value, "..", 255);
     token->value[255] = '\0';
     lexer_advance(lexer);
     lexer_advance(lexer);
@@ -733,6 +755,8 @@ const char *st_token_type_to_string(st_token_type_t type) {
     case ST_TOK_AND:            return "AND";
     case ST_TOK_OR:             return "OR";
     case ST_TOK_NOT:            return "NOT";
+    case ST_TOK_DOTDOT:         return "DOTDOT";
+    case ST_TOK_ARRAY:          return "ARRAY";
     case ST_TOK_EOF:            return "EOF";
     case ST_TOK_ERROR:          return "ERROR";
     default:                    return "UNKNOWN";

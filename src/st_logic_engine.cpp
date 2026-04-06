@@ -257,12 +257,6 @@ bool st_logic_engine_loop(st_logic_engine_state_t *state,
   // Update timestamp for next cycle
   state->last_run_time = now;
 
-  // BUG-133 FIX: Reset Modbus Master request counter at start of each ST execution cycle
-  // Without this reset, the counter would accumulate indefinitely and block all requests
-  // after max_requests_per_cycle (default 10) is reached. This ensures each cycle gets
-  // a fresh quota of allowed Modbus requests.
-  g_mb_request_count = 0;
-
   bool all_success = true;
 
   // Execute each program in sequence
@@ -273,6 +267,13 @@ bool st_logic_engine_loop(st_logic_engine_state_t *state,
     st_logic_program_config_t *prog = &state->programs[prog_id];
 
     if (!prog->enabled || !prog->compiled) continue;
+
+    // BUG-133 FIX (v2): Reset Modbus request counter PER SLOT, not per cycle.
+    // Each program gets its own full quota of max_requests_per_cycle.
+    // Previously reset once before the loop, causing slot 0 to exhaust the quota
+    // and block slots 1-3 from issuing any Modbus requests.
+    g_mb_request_count = 0;
+    g_mb_cache_enabled = true;  // Reset cache mode to default per slot
 
     // Execute program bytecode
     bool success = st_logic_execute_program(state, prog_id);

@@ -266,10 +266,22 @@ bool config_apply(const PersistConfig* cfg) {
   }
 
   // Apply Wi-Fi power save setting (v6.0.4+)
-  wifi_ps_type_t ps_mode = cfg->network.wifi_power_save ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE;
-  esp_wifi_set_ps(ps_mode);
-  debug_print("  Wi-Fi power save: ");
-  debug_println(cfg->network.wifi_power_save ? "ON (min modem)" : "OFF (low latency)");
+  // Guard: only call esp_wifi_set_ps() if WiFi stack is initialized
+  // Calling before WiFi init causes ESP_ERR_WIFI_NOT_INIT and potential crash
+  if (cfg->network.enabled) {
+    wifi_ps_type_t ps_mode = cfg->network.wifi_power_save ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE;
+    esp_err_t wifi_err = esp_wifi_set_ps(ps_mode);
+    if (wifi_err == ESP_OK) {
+      debug_print("  Wi-Fi power save: ");
+      debug_println(cfg->network.wifi_power_save ? "ON (min modem)" : "OFF (low latency)");
+    } else {
+      debug_print("  Wi-Fi power save: deferred (WiFi not yet started, err=");
+      debug_print(esp_err_to_name(wifi_err));
+      debug_println(")");
+    }
+  } else {
+    debug_println("  Wi-Fi power save: skipped (WiFi disabled)");
+  }
 
   // Apply Ethernet configuration (v6.1.0+)
   debug_print("  Ethernet: ");

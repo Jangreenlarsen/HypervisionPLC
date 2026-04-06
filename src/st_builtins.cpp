@@ -508,6 +508,16 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
       result.int_val = 0;
       break;
 
+    case ST_BUILTIN_MB_READ_HOLDINGS:
+      // 4-argument function - handled in VM (with array)
+      result.int_val = 0;
+      break;
+
+    case ST_BUILTIN_MB_WRITE_HOLDINGS:
+      // 4-argument function - handled in VM (with array)
+      result.int_val = 0;
+      break;
+
     // Async Modbus Status (v7.7.0 — 0-arg)
     case ST_BUILTIN_MB_SUCCESS:
       result = st_builtin_mb_success_func();
@@ -519,6 +529,11 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
 
     case ST_BUILTIN_MB_ERROR:
       result = st_builtin_mb_error_func();
+      break;
+
+    case ST_BUILTIN_MB_CACHE:
+      // 1-arg — handled in st_builtin_call (arg1 = enabled BOOL)
+      result = st_builtin_mb_cache_func(arg1);
       break;
 
     // Hardware Counter Access (v7.7.2) - multi-arg functions handled in VM
@@ -584,6 +599,8 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_READ_INPUT_REG: return "MB_READ_INPUT_REG";
     case ST_BUILTIN_MB_WRITE_COIL:     return "MB_WRITE_COIL";
     case ST_BUILTIN_MB_WRITE_HOLDING:  return "MB_WRITE_HOLDING";
+    case ST_BUILTIN_MB_READ_HOLDINGS:  return "MB_READ_HOLDINGS";
+    case ST_BUILTIN_MB_WRITE_HOLDINGS: return "MB_WRITE_HOLDINGS";
     case ST_BUILTIN_R_TRIG:        return "R_TRIG";
     case ST_BUILTIN_F_TRIG:        return "F_TRIG";
     case ST_BUILTIN_TON:           return "TON";
@@ -598,6 +615,7 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_SUCCESS:    return "MB_SUCCESS";
     case ST_BUILTIN_MB_BUSY:       return "MB_BUSY";
     case ST_BUILTIN_MB_ERROR:      return "MB_ERROR";
+    case ST_BUILTIN_MB_CACHE:      return "MB_CACHE";
     case ST_BUILTIN_CNT_SETUP:     return "CNT_SETUP";
     case ST_BUILTIN_CNT_SETUP_ADV: return "CNT_SETUP_ADV";
     case ST_BUILTIN_CNT_SETUP_CMP: return "CNT_SETUP_CMP";
@@ -661,6 +679,11 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_WRITE_HOLDING:  // MB_WRITE_HOLDING(slave_id, address, value)
       return 3;
 
+    // 4-argument multi-register functions (v7.9.2)
+    case ST_BUILTIN_MB_READ_HOLDINGS:  // MB_READ_HOLDINGS(slave, addr, count, array)
+    case ST_BUILTIN_MB_WRITE_HOLDINGS: // MB_WRITE_HOLDINGS(slave, addr, count, array)
+      return 4;
+
     // 1-argument functions (v4.0+)
     case ST_BUILTIN_PERSIST_SAVE:
     case ST_BUILTIN_PERSIST_LOAD:
@@ -705,6 +728,10 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_ERROR:      // MB_ERROR()
       return 0;
 
+    // 1-argument Modbus control (v7.9.1)
+    case ST_BUILTIN_MB_CACHE:      // MB_CACHE(enabled)
+      return 1;
+
     // Hardware Counter Access (v7.7.2)
     case ST_BUILTIN_CNT_SETUP:     // CNT_SETUP(id, hw_mode, edge, dir, prescaler, gpio)
       return 6;
@@ -748,6 +775,8 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_READ_INPUT:     // MB_READ_INPUT → BOOL
     case ST_BUILTIN_MB_WRITE_COIL:     // MB_WRITE_COIL → BOOL (success flag)
     case ST_BUILTIN_MB_WRITE_HOLDING:  // MB_WRITE_HOLDING → BOOL (success flag)
+    case ST_BUILTIN_MB_READ_HOLDINGS:  // MB_READ_HOLDINGS → BOOL (queued flag)
+    case ST_BUILTIN_MB_WRITE_HOLDINGS: // MB_WRITE_HOLDINGS → BOOL (queued flag)
     case ST_BUILTIN_CNT_SETUP:         // CNT_SETUP → BOOL (success)
     case ST_BUILTIN_CNT_SETUP_ADV:     // CNT_SETUP_ADV → BOOL (success)
     case ST_BUILTIN_CNT_SETUP_CMP:     // CNT_SETUP_CMP → BOOL (success)
@@ -764,6 +793,7 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_BIT_TST:           // BIT_TST → BOOL
     case ST_BUILTIN_MB_SUCCESS:        // MB_SUCCESS → BOOL
     case ST_BUILTIN_MB_BUSY:           // MB_BUSY → BOOL
+    case ST_BUILTIN_MB_CACHE:          // MB_CACHE → BOOL (previous state)
       return ST_TYPE_BOOL;
 
     // Returns DINT

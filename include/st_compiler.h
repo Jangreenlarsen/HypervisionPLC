@@ -34,6 +34,10 @@ typedef struct {
   uint8_t func_local_index;   // Local variable index within function (0-based)
   st_value_t initial_value;   // Initial value from VAR declaration (v7.7.1)
   uint8_t has_initial_value;  // 1 = explicit initial value declared
+  // FEAT-004: Array support
+  uint8_t is_array;           // 1 = array variable
+  uint8_t array_size;         // Number of elements
+  int16_t array_lower;        // Lower bound (for index offset)
 } st_symbol_t;
 
 /* Symbol table */

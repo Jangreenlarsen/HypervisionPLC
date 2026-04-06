@@ -182,11 +182,16 @@ void st_ast_node_free(st_ast_node_t *node) {
       break;
     case ST_AST_ASSIGNMENT:
       st_ast_node_free(node->data.assignment.expr);
+      st_ast_node_free(node->data.assignment.index_expr);  // FEAT-004
+      break;
+    case ST_AST_ARRAY_ACCESS:  // FEAT-004
+      st_ast_node_free(node->data.array_access.index_expr);
       break;
     case ST_AST_REMOTE_WRITE:
       st_ast_node_free(node->data.remote_write.slave_id);
       st_ast_node_free(node->data.remote_write.address);
       st_ast_node_free(node->data.remote_write.value);
+      if (node->data.remote_write.count) st_ast_node_free(node->data.remote_write.count);
       break;
     case ST_AST_FUNCTION_CALL:
       for (uint8_t i = 0; i < node->data.function_call.arg_count; i++) {
@@ -398,6 +403,33 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
         parser_error(parser, "Expected ')' after function arguments");
       }
 
+      return node;
+    }
+    // FEAT-004: Check for array index access (followed by '[')
+    else if (parser_match(parser, ST_TOK_LBRACKET)) {
+      parser_advance(parser); // consume '['
+
+      st_ast_node_t *index_expr = parser_parse_expression(parser);
+      if (!index_expr) {
+        parser_error(parser, "Expected index expression in array access");
+        return NULL;
+      }
+
+      if (!parser_expect(parser, ST_TOK_RBRACKET)) {
+        parser_error(parser, "Expected ']' after array index");
+        st_ast_node_free(index_expr);
+        return NULL;
+      }
+
+      st_ast_node_t *node = ast_node_alloc(ST_AST_ARRAY_ACCESS, line);
+      if (!node) {
+        parser_error(parser, "Out of memory");
+        st_ast_node_free(index_expr);
+        return NULL;
+      }
+      strncpy(node->data.array_access.var_name, identifier, 63);
+      node->data.array_access.var_name[63] = '\0';
+      node->data.array_access.index_expr = index_expr;
       return node;
     } else {
       // It's a variable reference
@@ -662,12 +694,61 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
   var_name[63] = '\0';
   parser_advance(parser);
 
+  // FEAT-004: Array element assignment: arr[index] := expr
+  if (parser_match(parser, ST_TOK_LBRACKET)) {
+    parser_advance(parser); // consume '['
+
+    st_ast_node_t *index_expr = parser_parse_expression(parser);
+    if (!index_expr) {
+      parser_error(parser, "Expected index expression in array assignment");
+      return NULL;
+    }
+
+    if (!parser_expect(parser, ST_TOK_RBRACKET)) {
+      parser_error(parser, "Expected ']' after array index");
+      st_ast_node_free(index_expr);
+      return NULL;
+    }
+
+    if (!parser_expect(parser, ST_TOK_ASSIGN)) {
+      parser_error(parser, "Expected := in array assignment");
+      st_ast_node_free(index_expr);
+      return NULL;
+    }
+
+    st_ast_node_t *expr = parser_parse_expression(parser);
+    if (!expr) {
+      st_ast_node_free(index_expr);
+      return NULL;
+    }
+
+    st_ast_node_t *node = ast_node_alloc(ST_AST_ASSIGNMENT, line);
+    if (!node) {
+      parser_error(parser, "Out of memory");
+      st_ast_node_free(index_expr);
+      st_ast_node_free(expr);
+      return NULL;
+    }
+    strncpy(node->data.assignment.var_name, var_name, 63);
+    node->data.assignment.var_name[63] = '\0';
+    node->data.assignment.expr = expr;
+    node->data.assignment.index_expr = index_expr;
+
+    // Consume optional semicolon
+    if (parser_match(parser, ST_TOK_SEMICOLON)) {
+      parser_advance(parser);
+    }
+    return node;
+  }
+
   // v4.6.0: Check for new remote write syntax: MB_WRITE_XXX(id, addr) := value
   if (parser_match(parser, ST_TOK_LPAREN)) {
-    // Check if this is MB_WRITE_COIL or MB_WRITE_HOLDING
+    // Check if this is MB_WRITE_COIL, MB_WRITE_HOLDING, or MB_WRITE_HOLDINGS
     if (strcasecmp(var_name, "MB_WRITE_COIL") == 0 ||
-        strcasecmp(var_name, "MB_WRITE_HOLDING") == 0) {
+        strcasecmp(var_name, "MB_WRITE_HOLDING") == 0 ||
+        strcasecmp(var_name, "MB_WRITE_HOLDINGS") == 0) {
 
+      bool is_multi = (strcasecmp(var_name, "MB_WRITE_HOLDINGS") == 0);
       parser_advance(parser); // consume '('
 
       // Parse slave_id argument
@@ -688,27 +769,47 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
         return NULL;
       }
 
+      // v7.9.2: MB_WRITE_HOLDINGS has 3rd arg: count
+      st_ast_node_t *count = NULL;
+      if (is_multi) {
+        if (!parser_expect(parser, ST_TOK_COMMA)) {
+          parser_error(parser, "Expected comma after address in MB_WRITE_HOLDINGS");
+          st_ast_node_free(slave_id);
+          st_ast_node_free(address);
+          return NULL;
+        }
+        count = parser_parse_expression(parser);
+        if (!count) {
+          st_ast_node_free(slave_id);
+          st_ast_node_free(address);
+          return NULL;
+        }
+      }
+
       // Expect closing ')'
       if (!parser_expect(parser, ST_TOK_RPAREN)) {
         parser_error(parser, "Expected ')' after MB_WRITE arguments");
         st_ast_node_free(slave_id);
         st_ast_node_free(address);
+        if (count) st_ast_node_free(count);
         return NULL;
       }
 
       // Expect ':=' for assignment syntax
       if (!parser_expect(parser, ST_TOK_ASSIGN)) {
-        parser_error(parser, "Expected := after MB_WRITE function (use new syntax: MB_WRITE_XXX(id, addr) := value)");
+        parser_error(parser, "Expected := after MB_WRITE function");
         st_ast_node_free(slave_id);
         st_ast_node_free(address);
+        if (count) st_ast_node_free(count);
         return NULL;
       }
 
-      // Parse value expression
+      // Parse value expression (single value or array variable)
       st_ast_node_t *value = parser_parse_expression(parser);
       if (!value) {
         st_ast_node_free(slave_id);
         st_ast_node_free(address);
+        if (count) st_ast_node_free(count);
         return NULL;
       }
 
@@ -718,6 +819,7 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
         parser_error(parser, "Out of memory");
         st_ast_node_free(slave_id);
         st_ast_node_free(address);
+        if (count) st_ast_node_free(count);
         st_ast_node_free(value);
         return NULL;
       }
@@ -727,10 +829,13 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
       node->data.remote_write.slave_id = slave_id;
       node->data.remote_write.address = address;
       node->data.remote_write.value = value;
+      node->data.remote_write.count = count;  // NULL for single-reg ops
 
       // Set function ID
       if (strcasecmp(var_name, "MB_WRITE_COIL") == 0) {
         node->data.remote_write.func_id = ST_BUILTIN_MB_WRITE_COIL;
+      } else if (strcasecmp(var_name, "MB_WRITE_HOLDINGS") == 0) {
+        node->data.remote_write.func_id = ST_BUILTIN_MB_WRITE_HOLDINGS;
       } else {
         node->data.remote_write.func_id = ST_BUILTIN_MB_WRITE_HOLDING;
       }
@@ -1424,9 +1529,98 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
         return false;
       }
 
-      // Expect data type
+      // FEAT-004: Check for ARRAY declaration
+      var->is_array = 0;
+      var->array_size = 0;
+      var->array_lower = 0;
+      var->array_upper = 0;
+
+      // Expect data type or ARRAY
       st_datatype_t datatype = ST_TYPE_NONE;
-      if (parser_match(parser, ST_TOK_BOOL)) {
+      if (parser_match(parser, ST_TOK_ARRAY)) {
+        // ARRAY[lower..upper] OF element_type
+        parser_advance(parser); // consume ARRAY
+
+        if (!parser_expect(parser, ST_TOK_LBRACKET)) {
+          parser_error(parser, "Expected '[' after ARRAY");
+          return false;
+        }
+
+        // Parse lower bound (integer literal)
+        if (!parser_match(parser, ST_TOK_INT)) {
+          parser_error(parser, "Expected integer lower bound in ARRAY declaration");
+          return false;
+        }
+        int16_t lower = (int16_t)strtol(parser->current_token.value, NULL, 0);
+        parser_advance(parser);
+
+        // Expect ..
+        if (!parser_expect(parser, ST_TOK_DOTDOT)) {
+          parser_error(parser, "Expected '..' in ARRAY range");
+          return false;
+        }
+
+        // Parse upper bound (integer literal)
+        if (!parser_match(parser, ST_TOK_INT)) {
+          parser_error(parser, "Expected integer upper bound in ARRAY declaration");
+          return false;
+        }
+        int16_t upper = (int16_t)strtol(parser->current_token.value, NULL, 0);
+        parser_advance(parser);
+
+        if (!parser_expect(parser, ST_TOK_RBRACKET)) {
+          parser_error(parser, "Expected ']' after ARRAY range");
+          return false;
+        }
+
+        // Expect OF keyword
+        if (!parser_expect(parser, ST_TOK_OF)) {
+          parser_error(parser, "Expected 'OF' after ARRAY range");
+          return false;
+        }
+
+        // Validate bounds
+        if (upper < lower) {
+          parser_error(parser, "ARRAY upper bound must be >= lower bound");
+          return false;
+        }
+        uint8_t arr_size = (uint8_t)(upper - lower + 1);
+        if (arr_size > 24) {
+          parser_error(parser, "ARRAY too large (max 24 elements)");
+          return false;
+        }
+        // Check total variable slots (current count -1 because we already incremented + arr_size)
+        if ((*var_count - 1) + arr_size > 32) {
+          parser_error(parser, "ARRAY would exceed 32-variable limit");
+          return false;
+        }
+
+        var->is_array = 1;
+        var->array_size = arr_size;
+        var->array_lower = lower;
+        var->array_upper = upper;
+
+        // Parse element type
+        if (parser_match(parser, ST_TOK_BOOL)) {
+          datatype = ST_TYPE_BOOL;
+          parser_advance(parser);
+        } else if (parser_match(parser, ST_TOK_INT_KW)) {
+          datatype = ST_TYPE_INT;
+          parser_advance(parser);
+        } else if (parser_match(parser, ST_TOK_DINT_KW)) {
+          datatype = ST_TYPE_DINT;
+          parser_advance(parser);
+        } else if (parser_match(parser, ST_TOK_DWORD)) {
+          datatype = ST_TYPE_DWORD;
+          parser_advance(parser);
+        } else if (parser_match(parser, ST_TOK_REAL_KW)) {
+          datatype = ST_TYPE_REAL;
+          parser_advance(parser);
+        } else {
+          parser_error(parser, "Expected element type after OF (BOOL, INT, DINT, DWORD, REAL)");
+          return false;
+        }
+      } else if (parser_match(parser, ST_TOK_BOOL)) {
         datatype = ST_TYPE_BOOL;
         parser_advance(parser);
       } else if (parser_match(parser, ST_TOK_INT_KW)) {
@@ -1442,7 +1636,7 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
         datatype = ST_TYPE_REAL;
         parser_advance(parser);
       } else {
-        parser_error(parser, "Expected data type (BOOL, INT, DINT, DWORD, REAL)");
+        parser_error(parser, "Expected data type (BOOL, INT, DINT, DWORD, REAL, ARRAY)");
         return false;
       }
 

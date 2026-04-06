@@ -597,9 +597,10 @@ på Core 1.
 - Første kald til en ny adresse returnerer 0 (cache tom) — næste cyklus har den rigtige værdi
 - Identiske read-requests deduplikeres automatisk (kun én queue-entry per adresse)
 
-**Global Status Variables:**
+**Status Variables (globale — delt mellem alle program-slots):**
 - `mb_last_error` (INT) - Error code fra sidste cache-opslag (0 = success)
 - `mb_success` (BOOL) - TRUE hvis cached data er gyldig
+- Tjek altid `MB_SUCCESS()` umiddelbart efter et MB_READ kald
 
 **Error Codes:**
 - 0 = MB_OK
@@ -611,67 +612,146 @@ på Core 1.
 
 ---
 
-#### Reading Functions (2 arguments, async cached)
+#### Funktionsoversigt
+
+| Funktion | FC | Args | Retur | Beskrivelse |
+|----------|-----|------|-------|-------------|
+| `MB_READ_COIL` | FC01 | 2 | BOOL | Læs enkelt coil |
+| `MB_READ_INPUT` | FC02 | 2 | BOOL | Læs enkelt discrete input |
+| `MB_READ_HOLDING` | FC03 | 2 | INT | Læs enkelt holding register |
+| `MB_READ_INPUT_REG` | FC04 | 2 | INT | Læs enkelt input register |
+| `MB_WRITE_COIL` | FC05 | 3 | BOOL | Skriv enkelt coil |
+| `MB_WRITE_HOLDING` | FC06 | 3 | BOOL | Skriv enkelt holding register |
+| `MB_READ_HOLDINGS` | FC03 | 3+arr | BOOL | Læs flere holding registre til ARRAY (v7.9.2) |
+| `MB_WRITE_HOLDINGS` | FC16 | 3+arr | BOOL | Skriv flere holding registre fra ARRAY (v7.9.2) |
+| `MB_SUCCESS` | — | 0 | BOOL | Sidste cache-opslag var gyldigt |
+| `MB_BUSY` | — | 0 | BOOL | Async kø har ventende requests |
+| `MB_ERROR` | — | 0 | INT | Sidste fejlkode (0=OK) |
+| `MB_CACHE` | — | 1 | BOOL | Aktiver/deaktiver cache dedup |
+
+---
+
+#### Single-Register Read (FC01–FC04)
+
+Alle read-funktioner returnerer **cached værdi** og køer en background refresh.
 
 ```structured-text
-(* MB_READ_COIL: Read single coil from remote device *)
+(* FC01: Læs coil fra remote slave *)
 coil_value := MB_READ_COIL(slave_id, address);
-(* Returns: BOOL — cached coil state, queues refresh *)
+(* Returns: BOOL — cached coil state *)
 
-(* MB_READ_INPUT: Read single discrete input from remote device *)
+(* FC02: Læs discrete input fra remote slave *)
 input_value := MB_READ_INPUT(slave_id, address);
-(* Returns: BOOL — cached input state, queues refresh *)
+(* Returns: BOOL — cached input state *)
 
-(* MB_READ_HOLDING: Read single holding register from remote device *)
+(* FC03: Læs holding register fra remote slave *)
 register_value := MB_READ_HOLDING(slave_id, address);
-(* Returns: INT — cached register value, queues refresh *)
+(* Returns: INT — cached register value *)
 
-(* MB_READ_INPUT_REG: Read single input register from remote device *)
+(* FC04: Læs input register fra remote slave *)
 input_reg := MB_READ_INPUT_REG(slave_id, address);
-(* Returns: INT — cached register value, queues refresh *)
+(* Returns: INT — cached register value *)
 ```
 
-#### Writing Functions (3 arguments, async queued)
+#### Single-Register Write (FC05–FC06)
+
+Writes køes i baggrunden og returnerer straks.
+To syntaxer understøttes — begge er ækvivalente:
 
 ```structured-text
-(* MB_WRITE_COIL: Write single coil to remote device *)
+(* Funktions-syntax *)
 result := MB_WRITE_COIL(slave_id, address, value);
-(* Returns: BOOL — TRUE if queued successfully *)
-
-(* MB_WRITE_HOLDING: Write single holding register to remote device *)
 result := MB_WRITE_HOLDING(slave_id, address, value);
-(* Returns: BOOL — TRUE if queued successfully *)
+
+(* Assignment-syntax (anbefalet — mere læsbar) *)
+MB_WRITE_COIL(slave_id, address) := value;
+MB_WRITE_HOLDING(slave_id, address) := value;
 ```
 
-#### Status Functions (0 arguments, v7.7.0)
+#### Multi-Register Read/Write med ARRAY (v7.9.2, FC03/FC16)
+
+Læs/skriv op til 16 consecutive holding registre i én Modbus-transaktion.
+Bruger native ARRAY OF INT — data kopieres direkte til/fra array-variable slots.
 
 ```structured-text
-(* MB_SUCCESS: Check if last cached read had valid data *)
-ok := MB_SUCCESS();
-(* Returns: BOOL — TRUE if cache entry was VALID *)
+(* FC03 multi-read: Læs count registre ind i array *)
+array_var := MB_READ_HOLDINGS(slave_id, start_address, count);
 
-(* MB_BUSY: Check if async queue has pending requests *)
-busy := MB_BUSY();
-(* Returns: BOOL — TRUE if requests are still in queue *)
+(* FC16 multi-write: Skriv count registre fra array *)
+MB_WRITE_HOLDINGS(slave_id, start_address, count) := array_var;
+```
 
-(* MB_ERROR: Get last Modbus error code *)
-err := MB_ERROR();
-(* Returns: INT — error code (0=OK, 1=TIMEOUT, etc.) *)
+**Krav:** `array_var` skal være deklareret som `ARRAY[0..N] OF INT` med mindst `count` elementer.
+
+#### Status Functions (v7.7.0)
+
+Tjek altid `MB_SUCCESS()` umiddelbart efter et MB_READ kald:
+
+```structured-text
+ok   := MB_SUCCESS();   (* TRUE hvis cached data er gyldig *)
+busy := MB_BUSY();      (* TRUE hvis requests venter i kø *)
+err  := MB_ERROR();     (* Fejlkode: 0=OK, 1=TIMEOUT, 2=CRC, 3=EXCEPTION *)
 ```
 
 ---
 
-#### Example: Read Remote Sensor (async)
+### Programmeringseksempler — Modbus Master
+
+#### Eksempel 1: Læs coil og discrete input (FC01/FC02)
 
 ```structured-text
 VAR
-  remote_sensor: INT;
-  local_output: INT;
-  data_valid: BOOL;
+  remote_run    : BOOL;   (* Coil: motor kører *)
+  door_closed   : BOOL;   (* Discrete input: dør-kontakt *)
+  safe_to_run   : BOOL;
 END_VAR
 
-(* Read holding register #100 from slave ID 5 *)
-(* Returnerer cached værdi — baggrundstask refresher automatisk *)
+(* Læs motor-status coil fra slave 2, adresse 0 *)
+remote_run := MB_READ_COIL(2, 0);
+
+(* Læs dør-kontakt input fra slave 2, adresse 10 *)
+door_closed := MB_READ_INPUT(2, 10);
+
+(* Sikkerhedslogik: motor kun tilladt når dør er lukket *)
+IF MB_SUCCESS() THEN
+  safe_to_run := remote_run AND door_closed;
+END_IF;
+```
+
+#### Eksempel 2: Skriv coil — fjernstyr relæ (FC05)
+
+```structured-text
+VAR
+  temperature     : INT;
+  heating_enabled : BOOL;
+END_VAR
+
+(* Temperatur-regulering *)
+IF temperature < 18 THEN
+  heating_enabled := TRUE;
+ELSIF temperature > 22 THEN
+  heating_enabled := FALSE;
+END_IF;
+
+(* Skriv til remote relæ-coil #20 på slave 3 *)
+MB_WRITE_COIL(3, 20) := heating_enabled;
+
+IF MB_ERROR() <> 0 THEN
+  (* Kommunikationsfejl — log eller alarm *)
+END_IF;
+```
+
+#### Eksempel 3: Læs/skriv enkelt holding register (FC03/FC06)
+
+```structured-text
+VAR
+  remote_sensor : INT;
+  local_output  : INT;
+  setpoint      : INT;
+  data_valid    : BOOL;
+END_VAR
+
+(* Læs sensor-værdi fra slave 5, holding register #100 *)
 remote_sensor := MB_READ_HOLDING(5, 100);
 
 (* Tjek om cached data er gyldig *)
@@ -679,83 +759,132 @@ IF MB_SUCCESS() THEN
   local_output := remote_sensor;
   data_valid := TRUE;
 ELSE
-  (* Første kald eller kommunikationsfejl — brug sidst kendte værdi *)
   data_valid := FALSE;
 END_IF;
+
+(* Skriv setpoint til slave 5, holding register #200 *)
+setpoint := 250;
+MB_WRITE_HOLDING(5, 200) := setpoint;
 ```
 
-#### Example: Control Remote Relay (async)
+#### Eksempel 4: Multi-device monitoring (FC03 enkelt)
 
 ```structured-text
 VAR
-  temperature: INT;
-  heating_enabled: BOOL;
-  write_queued: BOOL;
+  dev1_temp : INT;
+  dev2_temp : INT;
+  dev3_temp : INT;
+  max_temp  : INT;
+  alarm     : BOOL;
 END_VAR
 
-(* Read local temperature from HR#10 *)
-temperature := 20;  (* Assume bound to reg:10 *)
+(* Læs temperatur fra 3 remote slaves *)
+(* Alle returnerer straks med cached værdier *)
+dev1_temp := MB_READ_HOLDING(1, 100);
+dev2_temp := MB_READ_HOLDING(2, 100);
+dev3_temp := MB_READ_HOLDING(3, 100);
 
-(* Control remote relay based on temperature *)
-IF temperature < 18 THEN
-  heating_enabled := TRUE;
-ELSE
-  heating_enabled := FALSE;
-END_IF;
+(* Find max temperatur *)
+max_temp := MAX(MAX(dev1_temp, dev2_temp), dev3_temp);
 
-(* Write to remote coil #20 on slave ID 3 *)
-(* Returnerer straks — skrivningen sker i baggrunden *)
-write_queued := MB_WRITE_COIL(3, 20, heating_enabled);
-
-IF NOT write_queued THEN
-  (* Queue fuld — prøv igen næste cyklus *)
-END_IF;
+(* Alarm hvis over 50 grader *)
+alarm := (max_temp > 50);
 ```
 
-#### Example: Multi-Device Monitoring (async)
+#### Eksempel 5: Multi-register read med ARRAY (FC03, v7.9.2)
 
 ```structured-text
 VAR
-  device1_temp: INT;
-  device2_temp: INT;
-  device3_temp: INT;
-  max_temp: INT;
-  alarm: BOOL;
+  sensor_data : ARRAY[0..3] OF INT;   (* 4 consecutive registre *)
+  temp        : INT;
+  humidity    : INT;
+  pressure    : INT;
+  wind_speed  : INT;
 END_VAR
 
-(* Read temperature from 3 remote devices *)
-(* Alle 3 returnerer straks med cached værdier *)
-(* Baggrundstask refresher dem asynkront *)
-device1_temp := MB_READ_HOLDING(1, 100);  (* Slave 1, HR#100 *)
-device2_temp := MB_READ_HOLDING(2, 100);  (* Slave 2, HR#100 *)
-device3_temp := MB_READ_HOLDING(3, 100);  (* Slave 3, HR#100 *)
+(* Læs 4 registre fra slave 10, start-adresse 100 *)
+(* Én FC03-pakke: mere effektivt end 4 separate reads *)
+sensor_data := MB_READ_HOLDINGS(10, 100, 4);
 
-(* Find maximum temperature *)
-max_temp := MAX(device1_temp, device2_temp);
-max_temp := MAX(max_temp, device3_temp);
-
-(* Trigger alarm if any device exceeds 50 *)
-IF max_temp > 50 THEN
-  alarm := TRUE;
-ELSE
-  alarm := FALSE;
+IF MB_SUCCESS() THEN
+  temp       := sensor_data[0];   (* Register 100 *)
+  humidity   := sensor_data[1];   (* Register 101 *)
+  pressure   := sensor_data[2];   (* Register 102 *)
+  wind_speed := sensor_data[3];   (* Register 103 *)
 END_IF;
 ```
 
-#### Example: Wait for Completion (async)
+#### Eksempel 6: Multi-register write med ARRAY (FC16, v7.9.2)
 
 ```structured-text
 VAR
-  sensor_val: INT;
-  ready: BOOL;
+  setpoints : ARRAY[0..2] OF INT;   (* 3 setpoints *)
+END_VAR
+
+(* Forbered setpoint-værdier *)
+setpoints[0] := 250;    (* Temperatur setpoint *)
+setpoints[1] := 60;     (* Humidity setpoint *)
+setpoints[2] := 1013;   (* Pressure setpoint *)
+
+(* Skriv alle 3 til slave 10, start-adresse 200 *)
+(* Én FC16-pakke i stedet for 3 separate FC06 *)
+MB_WRITE_HOLDINGS(10, 200, 3) := setpoints;
+```
+
+#### Eksempel 7: Komplet SCADA gateway (read + write, single + multi)
+
+```structured-text
+VAR
+  (* Input: læs fra remote enhed *)
+  inputs   : ARRAY[0..7] OF INT;    (* 8 sensor-registre *)
+
+  (* Output: skriv til remote enhed *)
+  outputs  : ARRAY[0..3] OF INT;    (* 4 styring-registre *)
+
+  (* Lokal logik *)
+  avg_temp : INT;
+  alarm    : BOOL;
+  pump_on  : BOOL;
+END_VAR
+
+(* --- READS --- *)
+(* Læs 8 sensor-registre fra slave 1, adresse 0-7 *)
+inputs := MB_READ_HOLDINGS(1, 0, 8);
+
+IF MB_SUCCESS() THEN
+  (* Beregn gennemsnit af 4 temperatur-sensorer *)
+  avg_temp := (inputs[0] + inputs[1] + inputs[2] + inputs[3]) / 4;
+
+  (* Alarm hvis gennemsnit over 80 *)
+  alarm := (avg_temp > 80);
+
+  (* Pumpe-logik baseret på niveau-sensor *)
+  pump_on := (inputs[4] < 200);   (* Niveau under 200 → pump ON *)
+END_IF;
+
+(* --- WRITES --- *)
+outputs[0] := avg_temp;            (* Feedback: gennemsnitstemperatur *)
+outputs[1] := BOOL_TO_INT(alarm);  (* Alarm-status *)
+outputs[2] := BOOL_TO_INT(pump_on);(* Pumpe-kommando *)
+outputs[3] := 1;                   (* Heartbeat *)
+
+(* Skriv 4 styrings-registre til slave 1, adresse 100-103 *)
+MB_WRITE_HOLDINGS(1, 100, 4) := outputs;
+```
+
+#### Eksempel 8: Vent på completion med MB_BUSY
+
+```structured-text
+VAR
+  sensor_val : INT;
+  ready      : BOOL;
 END_VAR
 
 (* Kø en read-request *)
 sensor_val := MB_READ_HOLDING(1, 100);
 
-(* Vent til alle pending requests er behandlet *)
+(* Tjek om alle pending requests er behandlet *)
 IF NOT MB_BUSY() THEN
-  (* Alle requests er færdige — data er opdateret *)
   ready := TRUE;
   sensor_val := MB_READ_HOLDING(1, 100);  (* Nu med frisk cached værdi *)
 END_IF;
@@ -763,15 +892,39 @@ END_IF;
 
 #### Rate Limiting & Cache
 
-**Request Limit:** Max 10 requests per ST execution cycle (configurable).
+**Request Limit:** Max 10 requests per ST program per cycle (configurable).
+- Hver af de 4 program-slots får sin egen uafhængige quota
+- Med default 10 kan 4 aktive programmer lave op til 40 Modbus requests per cycle
 - Configure: `set modbus-master max-requests 20`
 - If exceeded, function returns error MB_MAX_REQUESTS_EXCEEDED (code 4)
 
 **Cache:**
-- 32 entries max (unique slave+address+function combinations)
+- 32 entries max (unique slave+address+function combinations) — delt mellem alle slots
 - Read deduplication: identical reads queued only once
 - Cache auto-refresh: hvert kald til MB_READ_* køer automatisk en refresh
+- Async queue: 16 entries — delt mellem alle slots
 - Diagnostik: `show modbus-master` viser cache entries og statistik
+
+**Multi-Program Arkitektur (v7.9.0.2+):**
+
+Alle 4 ST program-slots kan bruge Modbus operationer samtidig:
+
+```
+Cycle N:
+├─ Logic1: g_mb_request_count = 0 → op til 10 requests
+├─ Logic2: g_mb_request_count = 0 → op til 10 requests
+├─ Logic3: g_mb_request_count = 0 → op til 10 requests
+└─ Logic4: g_mb_request_count = 0 → op til 10 requests
+```
+
+**Variabel-isolation:** Variabler er fuldt isoleret per program-slot. To programmer
+kan have variabler med samme navn (f.eks. `counter`) uden konflikter — de kompileres
+til separate indices i hvert programs eget `variables[32]` array.
+
+**Delte ressourcer:**
+- Cache (32 entries) og async queue (16 entries) er globale
+- Hvis alle slots fylder cachen, returnerer nye cache-opslag fejl
+- Prioritér at fordele Modbus-adresser så cache-bruget er effektivt
 
 **Best Practice:**
 - Eksisterende ST-programmer virker uændret (backward-kompatibel)
@@ -779,6 +932,7 @@ END_IF;
 - Brug `MB_SUCCESS()` til at tjekke om cached data er gyldig
 - Brug `MB_BUSY()` til at vente på at alle requests er behandlet
 - Brug `MB_ERROR()` til fejldiagnostik
+- Samme variabel-navne i forskellige slots er OK — ingen konflikter
 
 ---
 
@@ -881,7 +1035,9 @@ result := ROR(val, -4);  (* Same as ROR(val, 12) for 16-bit *)
 │  ┌─────────────────────────────────────┐                │
 │  │ st_logic_engine_loop()                │                │
 │  │  - For each enabled Logic program:    │                │
+│  │    * Reset Modbus request counter     │                │
 │  │    * Execute compiled bytecode        │                │
+│  │    * Each slot gets own MB quota      │                │
 │  │    * Programs run independently       │                │
 │  │    * Non-blocking (< 1ms)             │                │
 │  └─────────────────────────────────────┘                │
@@ -905,6 +1061,8 @@ result := ROR(val, -4);  (* Same as ROR(val, 12) for 16-bit *)
 - **Both** write outputs after program execution
 - ST variables and GPIO pins are treated identically
 - Programs don't interfere with each other or the Modbus RTU service
+- Variabler med samme navn i forskellige slots er **fuldt isoleret** (separate arrays)
+- Hvert program-slot får sin **egen Modbus request quota** (default 10 per slot)
 
 ---
 
@@ -1018,3 +1176,5 @@ Then check Modbus register #101 after executing the program.
 - **v4.4.0** - Added Modbus Master functions (MB_READ_*, MB_WRITE_*)
 - **v4.4.0** - Added LIMIT and SEL functions
 - **v7.7.0** - Async Modbus Master: non-blocking reads/writes, MB_SUCCESS/MB_BUSY/MB_ERROR builtins
+- **v7.9.0.2** - Per-slot Modbus request quota: alle 4 slots kan køre Modbus uafhængigt
+- **v7.9.2.0** - Multi-register Modbus: MB_READ_HOLDINGS/MB_WRITE_HOLDINGS med native ARRAY support (FC03/FC16)

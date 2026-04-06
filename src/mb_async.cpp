@@ -10,6 +10,7 @@
 
 #include "mb_async.h"
 #include "modbus_master.h"
+#include "st_builtin_modbus.h"
 
 /* ============================================================================
  * GLOBALS
@@ -118,6 +119,52 @@ bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t add
   return true;
 }
 
+bool mb_async_queue_read_multi(uint8_t slave_id, uint16_t address, uint8_t count) {
+  if (count == 0 || count > 16) return false;
+
+  mb_async_request_t req;
+  req.type = MB_REQ_READ_HOLDINGS;
+  req.slave_id = slave_id;
+  req.address = address;
+  req.write_value.int_val = 0;
+  req.count = count;
+
+  // Mark all individual cache entries as pending
+  for (uint8_t i = 0; i < count; i++) {
+    mb_cache_entry_t *entry = mb_cache_get_or_create(slave_id, address + i, (uint8_t)MB_REQ_READ_HOLDING);
+    if (entry) {
+      portENTER_CRITICAL(&mb_cache_spinlock);
+      entry->status = MB_CACHE_PENDING;
+      portEXIT_CRITICAL(&mb_cache_spinlock);
+    }
+  }
+
+  if (xQueueSend(g_mb_async.request_queue, &req, 0) != pdTRUE) {
+    g_mb_async.queue_full_count++;
+    return false;
+  }
+  return true;
+}
+
+bool mb_async_queue_write_multi(uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values) {
+  if (count == 0 || count > 16) return false;
+
+  mb_async_request_t req;
+  memset(&req, 0, sizeof(req));
+  req.type = MB_REQ_WRITE_HOLDINGS;
+  req.slave_id = slave_id;
+  req.address = address;
+  req.count = count;
+  // Copy values into request — sent to async task via queue
+  memcpy(req.multi_regs, values, count * sizeof(uint16_t));
+
+  if (xQueueSend(g_mb_async.request_queue, &req, 0) != pdTRUE) {
+    g_mb_async.queue_full_count++;
+    return false;
+  }
+  return true;
+}
+
 bool mb_async_is_busy() {
   if (!g_mb_async.request_queue) return false;
   return uxQueueMessagesWaiting(g_mb_async.request_queue) > 0;
@@ -177,6 +224,62 @@ static void mb_async_task_func(void *pvParameters) {
         result.bool_val = (err == MB_OK);
         break;
       }
+      case MB_REQ_READ_HOLDINGS: {
+        // FC03 multi-register read — update individual cache entries
+        uint8_t cnt = req.count;
+        if (cnt == 0 || cnt > 16) { err = MB_INVALID_ADDRESS; break; }
+        uint16_t regs[16];
+        err = modbus_master_read_holdings(req.slave_id, req.address, cnt, regs);
+        // Copy results to shared multi-reg buffer for MB_GET_REG()
+        if (err == MB_OK) {
+          memcpy(g_mb_multi_reg_buf, regs, cnt * sizeof(uint16_t));
+        }
+        // Update each individual cache entry
+        for (uint8_t i = 0; i < cnt; i++) {
+          mb_cache_entry_t *ce = mb_cache_get_or_create(req.slave_id, req.address + i, (uint8_t)MB_REQ_READ_HOLDING);
+          if (ce) {
+            portENTER_CRITICAL(&mb_cache_spinlock);
+            if (err == MB_OK) {
+              ce->value.int_val = (int32_t)regs[i];
+              ce->status = MB_CACHE_VALID;
+            } else {
+              ce->status = MB_CACHE_ERROR;
+            }
+            ce->last_error = err;
+            ce->last_update_ms = millis();
+            ce->last_fc = (uint8_t)MB_REQ_READ_HOLDINGS;
+            portEXIT_CRITICAL(&mb_cache_spinlock);
+          }
+        }
+        result.bool_val = (err == MB_OK);
+        break;
+      }
+      case MB_REQ_WRITE_HOLDINGS: {
+        // FC16 multi-register write — gather values from cache entries
+        uint8_t cnt = req.count;
+        if (cnt == 0 || cnt > 16) { err = MB_INVALID_ADDRESS; break; }
+        // Write values from request buffer (copied from g_mb_multi_reg_buf at queue time)
+        err = modbus_master_write_holdings(req.slave_id, req.address, cnt, req.multi_regs);
+        // Update cache entries with written values
+        for (uint8_t i = 0; i < cnt; i++) {
+          mb_cache_entry_t *ce = mb_cache_get_or_create(req.slave_id, req.address + i, (uint8_t)MB_REQ_READ_HOLDING);
+          if (ce) {
+            portENTER_CRITICAL(&mb_cache_spinlock);
+            if (err == MB_OK) {
+              ce->value.int_val = (int32_t)req.multi_regs[i];
+              ce->status = MB_CACHE_VALID;
+            } else {
+              ce->status = MB_CACHE_ERROR;
+            }
+            ce->last_error = err;
+            ce->last_update_ms = millis();
+            ce->last_fc = (uint8_t)MB_REQ_WRITE_HOLDINGS;
+            portEXIT_CRITICAL(&mb_cache_spinlock);
+          }
+        }
+        result.bool_val = (err == MB_OK);
+        break;
+      }
     }
 
     // Apply inter-frame delay (on background task — doesn't block ST Logic)
@@ -191,31 +294,39 @@ static void mb_async_task_func(void *pvParameters) {
       }
     }
 
-    // Update cache (thread-safe)
-    uint8_t cache_type = (uint8_t)req.type;
-    // For writes, update the corresponding read cache
-    if (req.type == MB_REQ_WRITE_COIL) cache_type = (uint8_t)MB_REQ_READ_COIL;
-    if (req.type == MB_REQ_WRITE_HOLDING) cache_type = (uint8_t)MB_REQ_READ_HOLDING;
-
-    mb_cache_entry_t *entry = mb_cache_find(req.slave_id, req.address, cache_type);
-    if (!entry && (req.type == MB_REQ_WRITE_COIL || req.type == MB_REQ_WRITE_HOLDING)) {
-      // Write to address we've never read — create entry so UI can show it
-      entry = mb_cache_get_or_create(req.slave_id, req.address, cache_type);
+    // Multi-register ops handle their own cache updates — skip for them
+    if (req.type == MB_REQ_READ_HOLDINGS || req.type == MB_REQ_WRITE_HOLDINGS) {
+      goto skip_cache_update;
     }
-    if (entry) {
-      portENTER_CRITICAL(&mb_cache_spinlock);
-      if (err == MB_OK) {
-        entry->value = result;
-        entry->status = MB_CACHE_VALID;
-      } else {
-        entry->status = MB_CACHE_ERROR;
+
+    // Update cache (thread-safe) — single-register ops
+    {
+      uint8_t cache_type = (uint8_t)req.type;
+      // For writes, update the corresponding read cache
+      if (req.type == MB_REQ_WRITE_COIL) cache_type = (uint8_t)MB_REQ_READ_COIL;
+      if (req.type == MB_REQ_WRITE_HOLDING) cache_type = (uint8_t)MB_REQ_READ_HOLDING;
+
+      mb_cache_entry_t *entry = mb_cache_find(req.slave_id, req.address, cache_type);
+      if (!entry && (req.type == MB_REQ_WRITE_COIL || req.type == MB_REQ_WRITE_HOLDING)) {
+        // Write to address we've never read — create entry so UI can show it
+        entry = mb_cache_get_or_create(req.slave_id, req.address, cache_type);
       }
-      entry->last_error = err;
-      entry->last_update_ms = millis();
-      entry->last_fc = (uint8_t)req.type;  // Track actual operation FC (FC01-FC06)
-      portEXIT_CRITICAL(&mb_cache_spinlock);
+      if (entry) {
+        portENTER_CRITICAL(&mb_cache_spinlock);
+        if (err == MB_OK) {
+          entry->value = result;
+          entry->status = MB_CACHE_VALID;
+        } else {
+          entry->status = MB_CACHE_ERROR;
+        }
+        entry->last_error = err;
+        entry->last_update_ms = millis();
+        entry->last_fc = (uint8_t)req.type;  // Track actual operation FC (FC01-FC06)
+        portEXIT_CRITICAL(&mb_cache_spinlock);
+      }
     }
 
+    skip_cache_update:
     // Stats
     if (err != MB_OK) {
       g_mb_async.total_errors++;

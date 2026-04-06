@@ -4,6 +4,7 @@
  */
 
 #include "st_logic_config.h"
+#include "st_logic_engine.h"   // st_logic_lock/unlock_variables
 #include "st_parser.h"
 #include "st_compiler.h"
 #include "st_debug.h"  // FEAT-008: Reset debug state on delete/compile
@@ -836,6 +837,49 @@ bool st_logic_set_enabled(st_logic_engine_state_t *state, uint8_t program_id, ui
   st_logic_program_config_t *prog = &state->programs[program_id];
   prog->enabled = (enabled != 0);
 
+  return true;
+}
+
+bool st_logic_reinit(st_logic_engine_state_t *state, uint8_t program_id) {
+  if (program_id >= ST_LOGIC_MAX_PROGRAMS) return false;
+
+  st_logic_program_config_t *prog = &state->programs[program_id];
+  if (!prog->compiled) return false;
+
+  // Reset variables to compiled initial values (cold restart)
+  st_logic_lock_variables();
+  memcpy(prog->bytecode.variables, prog->bytecode.var_initial,
+         prog->bytecode.var_count * sizeof(st_value_t));
+  st_logic_unlock_variables();
+
+  // Reset stateful storage (TON/TOF timers, R_TRIG/F_TRIG edges, CTU/CTD counters)
+  if (prog->bytecode.stateful) {
+    st_stateful_reset((st_stateful_storage_t*)prog->bytecode.stateful);
+  }
+
+  // Reset FB instances
+  if (prog->bytecode.func_registry) {
+    st_function_registry_t *reg = (st_function_registry_t*)prog->bytecode.func_registry;
+    for (uint8_t i = 0; i < reg->fb_instance_count && i < ST_MAX_FB_INSTANCES; i++) {
+      reg->fb_instances[i].initialized = 0;
+    }
+  }
+
+  // Reset execution statistics
+  prog->execution_count = 0;
+  prog->error_count = 0;
+  prog->last_execution_us = 0;
+  prog->total_execution_us = 0;
+  prog->min_execution_us = 0;
+  prog->max_execution_us = 0;
+  prog->overrun_count = 0;
+  prog->last_error[0] = '\0';
+
+  // Reset debug state
+  st_debug_state_t *debug = &state->debugger[program_id];
+  st_debug_stop(debug);
+
+  ESP_LOGI("ST_LOGIC", "Program %d cold restart (variables reinitialized)", program_id + 1);
   return true;
 }
 

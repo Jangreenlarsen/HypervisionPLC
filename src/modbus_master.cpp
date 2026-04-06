@@ -25,6 +25,7 @@ modbus_master_config_t g_modbus_master_config = {
   .timeout_ms = MODBUS_MASTER_DEFAULT_TIMEOUT,
   .inter_frame_delay = MODBUS_MASTER_DEFAULT_INTER_FRAME,
   .max_requests_per_cycle = MODBUS_MASTER_DEFAULT_MAX_REQUESTS,
+  .cache_ttl_ms = 0,  // 0 = never expire
   .total_requests = 0,
   .successful_requests = 0,
   .timeout_errors = 0,
@@ -56,6 +57,7 @@ void modbus_master_init() {
   g_modbus_master_config.timeout_ms = g_persist_config.modbus_master.timeout_ms;
   g_modbus_master_config.inter_frame_delay = g_persist_config.modbus_master.inter_frame_delay;
   g_modbus_master_config.max_requests_per_cycle = g_persist_config.modbus_master.max_requests_per_cycle;
+  g_modbus_master_config.cache_ttl_ms = g_persist_config.modbus_master.cache_ttl_ms;
 
 #if MODBUS_SINGLE_TRANSCEIVER
   // ES32D26: shared transceiver — DIR pin already configured by uart_driver
@@ -67,6 +69,21 @@ void modbus_master_init() {
 #endif
 
   // Initialize UART if enabled
+#if MODBUS_SINGLE_TRANSCEIVER
+  // ES32D26: DEFER UART reconfigure — GPIO1/3 shares with USB serial.
+  // If we reconfigure now, USB console dies BEFORE WiFi/Telnet is ready.
+  // main.cpp calls modbus_master_activate_uart() after network services start.
+  // Config is synced above, so async task and ST builtins work once UART is live.
+#else
+  if (g_modbus_master_config.enabled) {
+    modbus_master_reconfigure();
+  }
+#endif
+}
+
+void modbus_master_activate_uart() {
+  // Called from main.cpp AFTER network services are started.
+  // Safe to take over GPIO1/3 now — Telnet is available as fallback console.
   if (g_modbus_master_config.enabled) {
     modbus_master_reconfigure();
   }
@@ -494,5 +511,77 @@ mb_error_code_t modbus_master_write_holding(uint8_t slave_id, uint16_t address, 
   g_modbus_master_config.total_requests++;
 
   mb_error_code_t err = modbus_master_send_request(request, 8, response, &response_len, sizeof(response));
+  return err;
+}
+
+mb_error_code_t modbus_master_read_holdings(uint8_t slave_id, uint16_t address, uint8_t count, uint16_t *results) {
+  if (count == 0 || count > 16) return MB_INVALID_ADDRESS;
+
+  uint8_t request[8];
+  // Response: slave(1) + FC(1) + byte_count(1) + data(count*2) + CRC(2)
+  uint8_t response[5 + 16 * 2];  // Max 16 registers
+  uint8_t response_len;
+
+  // Build request: FC03 (Read Holding Registers) with count
+  request[0] = slave_id;
+  request[1] = 0x03;
+  request[2] = (address >> 8) & 0xFF;
+  request[3] = address & 0xFF;
+  request[4] = 0x00;
+  request[5] = count;
+  uint16_t crc = modbus_master_calc_crc(request, 6);
+  request[6] = crc & 0xFF;
+  request[7] = (crc >> 8) & 0xFF;
+
+  g_modbus_master_config.total_requests++;
+
+  mb_error_code_t err = modbus_master_send_request(request, 8, response, &response_len, sizeof(response));
+  if (err != MB_OK) {
+    memset(results, 0, count * sizeof(uint16_t));
+    return err;
+  }
+
+  // Parse response: slave_id + FC03 + byte_count + data[count*2] + CRC
+  uint8_t expected_bytes = count * 2;
+  if (response_len >= (uint8_t)(5 + expected_bytes) && response[1] == 0x03 && response[2] == expected_bytes) {
+    for (uint8_t i = 0; i < count; i++) {
+      results[i] = (response[3 + i * 2] << 8) | response[4 + i * 2];
+    }
+    return MB_OK;
+  }
+
+  return MB_CRC_ERROR;
+}
+
+mb_error_code_t modbus_master_write_holdings(uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values) {
+  if (count == 0 || count > 16) return MB_INVALID_ADDRESS;
+
+  // Request: slave(1) + FC16(1) + addr(2) + count(2) + byte_count(1) + data(count*2) + CRC(2)
+  uint8_t request[9 + 16 * 2];  // Max 16 registers
+  uint8_t response[8];
+  uint8_t response_len;
+
+  uint8_t byte_count = count * 2;
+
+  // Build request: FC16 (Write Multiple Registers)
+  request[0] = slave_id;
+  request[1] = 0x10;  // FC16
+  request[2] = (address >> 8) & 0xFF;
+  request[3] = address & 0xFF;
+  request[4] = 0x00;
+  request[5] = count;
+  request[6] = byte_count;
+  for (uint8_t i = 0; i < count; i++) {
+    request[7 + i * 2] = (values[i] >> 8) & 0xFF;
+    request[8 + i * 2] = values[i] & 0xFF;
+  }
+  uint8_t req_len = 7 + byte_count;
+  uint16_t crc = modbus_master_calc_crc(request, req_len);
+  request[req_len] = crc & 0xFF;
+  request[req_len + 1] = (crc >> 8) & 0xFF;
+
+  g_modbus_master_config.total_requests++;
+
+  mb_error_code_t err = modbus_master_send_request(request, req_len + 2, response, &response_len, sizeof(response));
   return err;
 }

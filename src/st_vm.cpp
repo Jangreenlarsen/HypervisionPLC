@@ -250,6 +250,108 @@ static bool st_vm_exec_store_var(st_vm_t *vm, st_bytecode_instr_t *instr) {
   return !vm->error;
 }
 
+// FEAT-004: Load array element
+static bool st_vm_exec_load_array(st_vm_t *vm, st_bytecode_instr_t *instr) {
+  // Pop index from stack
+  st_value_t idx_val;
+  st_datatype_t idx_type;
+  if (!st_vm_pop_typed(vm, &idx_val, &idx_type)) return false;
+
+  // Convert index to integer
+  int32_t index;
+  if (idx_type == ST_TYPE_INT) index = idx_val.int_val;
+  else if (idx_type == ST_TYPE_DINT) index = idx_val.dint_val;
+  else if (idx_type == ST_TYPE_BOOL) index = idx_val.bool_val ? 1 : 0;
+  else {
+    snprintf(vm->error_msg, sizeof(vm->error_msg), "Array index must be integer");
+    vm->error = 1;
+    return false;
+  }
+
+  uint8_t base = instr->arg.array_op.base_index;
+  uint8_t size = instr->arg.array_op.array_size;
+  int8_t lower = instr->arg.array_op.lower_bound;
+
+  int32_t offset = index - lower;
+  if (offset < 0 || offset >= size) {
+    snprintf(vm->error_msg, sizeof(vm->error_msg),
+             "Array index %ld out of bounds [%d..%d]", (long)index, lower, lower + size - 1);
+    vm->error = 1;
+    return false;
+  }
+
+  uint8_t var_idx = base + (uint8_t)offset;
+  st_value_t val = st_vm_get_variable(vm, var_idx);
+  if (vm->error) return false;
+  st_datatype_t var_type = vm->program->var_types[var_idx];
+  return st_vm_push_typed(vm, val, var_type);
+}
+
+// FEAT-004: Store array element
+static bool st_vm_exec_store_array(st_vm_t *vm, st_bytecode_instr_t *instr) {
+  // Pop index from stack
+  st_value_t idx_val;
+  st_datatype_t idx_type;
+  if (!st_vm_pop_typed(vm, &idx_val, &idx_type)) return false;
+
+  // Convert index to integer
+  int32_t index;
+  if (idx_type == ST_TYPE_INT) index = idx_val.int_val;
+  else if (idx_type == ST_TYPE_DINT) index = idx_val.dint_val;
+  else if (idx_type == ST_TYPE_BOOL) index = idx_val.bool_val ? 1 : 0;
+  else {
+    snprintf(vm->error_msg, sizeof(vm->error_msg), "Array index must be integer");
+    vm->error = 1;
+    return false;
+  }
+
+  // Pop value from stack
+  st_value_t val;
+  st_datatype_t val_type;
+  if (!st_vm_pop_typed(vm, &val, &val_type)) return false;
+
+  uint8_t base = instr->arg.array_op.base_index;
+  uint8_t size = instr->arg.array_op.array_size;
+  int8_t lower = instr->arg.array_op.lower_bound;
+
+  int32_t offset = index - lower;
+  if (offset < 0 || offset >= size) {
+    snprintf(vm->error_msg, sizeof(vm->error_msg),
+             "Array index %ld out of bounds [%d..%d]", (long)index, lower, lower + size - 1);
+    vm->error = 1;
+    return false;
+  }
+
+  uint8_t var_idx = base + (uint8_t)offset;
+
+  // Type conversion (same as store_var)
+  st_datatype_t var_type = vm->program->var_types[var_idx];
+  st_value_t converted_val = val;
+  if (val_type != var_type) {
+    if (val_type == ST_TYPE_INT && var_type == ST_TYPE_INT) {
+      // Same type, no conversion
+    } else if (val_type == ST_TYPE_DINT && var_type == ST_TYPE_INT) {
+      int32_t temp = val.dint_val;
+      if (temp > INT16_MAX) temp = INT16_MAX;
+      if (temp < INT16_MIN) temp = INT16_MIN;
+      converted_val.int_val = (int16_t)temp;
+    } else if (val_type == ST_TYPE_INT && var_type == ST_TYPE_DINT) {
+      converted_val.dint_val = (int32_t)val.int_val;
+    } else if (val_type == ST_TYPE_REAL && var_type == ST_TYPE_INT) {
+      int32_t temp = (int32_t)val.real_val;
+      if (temp > INT16_MAX) temp = INT16_MAX;
+      if (temp < INT16_MIN) temp = INT16_MIN;
+      converted_val.int_val = (int16_t)temp;
+    } else if (val_type == ST_TYPE_INT && var_type == ST_TYPE_REAL) {
+      converted_val.real_val = (float)val.int_val;
+    }
+    // For other conversions, use value as-is
+  }
+
+  st_vm_set_variable(vm, var_idx, converted_val);
+  return !vm->error;
+}
+
 static bool st_vm_exec_dup(st_vm_t *vm, st_bytecode_instr_t *instr) {
   // Duplicate the top stack value
   if (vm->sp == 0) {
@@ -1134,6 +1236,56 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
       // arg1 = K (selector), arg2 = IN0, arg3 = IN1, arg4 = IN2
       result = st_builtin_mux(arg1, arg2, arg3, arg4);
     }
+    else if (func_id == ST_BUILTIN_MB_READ_HOLDINGS || func_id == ST_BUILTIN_MB_WRITE_HOLDINGS) {
+      // v7.9.2: Multi-register Modbus with array — arg1=slave, arg2=addr, arg3=count, arg4=array_base_index
+      st_value_t slave_int, addr_int, count_int;
+
+      // Slave ID: type promotion
+      if (arg1_type == ST_TYPE_DINT) {
+        slave_int.int_val = (arg1.dint_val > 247) ? 247 : arg1.dint_val;
+      } else if (arg1_type == ST_TYPE_DWORD) {
+        slave_int.int_val = (arg1.dword_val > 247) ? 247 : arg1.dword_val;
+      } else {
+        slave_int.int_val = arg1.int_val;
+      }
+
+      // Address: type promotion
+      if (arg2_type == ST_TYPE_DINT) {
+        addr_int.int_val = (arg2.dint_val > 65535) ? 65535 : arg2.dint_val;
+      } else if (arg2_type == ST_TYPE_DWORD) {
+        addr_int.int_val = (arg2.dword_val > 65535) ? 65535 : arg2.dword_val;
+      } else {
+        addr_int.int_val = arg2.int_val;
+      }
+
+      // Count: clamp to 1-16
+      if (arg3_type == ST_TYPE_DINT) {
+        count_int.int_val = (arg3.dint_val > 16) ? 16 : arg3.dint_val;
+      } else if (arg3_type == ST_TYPE_DWORD) {
+        count_int.int_val = (arg3.dword_val > 16) ? 16 : arg3.dword_val;
+      } else {
+        count_int.int_val = arg3.int_val;
+      }
+
+      // arg4 = array base variable index (injected by compiler)
+      uint8_t arr_base = (uint8_t)arg4.int_val;
+      uint8_t cnt = (uint8_t)count_int.int_val;
+
+      if (func_id == ST_BUILTIN_MB_WRITE_HOLDINGS) {
+        // Gather values from array variable slots → g_mb_multi_reg_buf
+        for (uint8_t i = 0; i < cnt && (arr_base + i) < vm->var_count; i++) {
+          g_mb_multi_reg_buf[i] = (uint16_t)vm->variables[arr_base + i].int_val;
+        }
+        result = st_builtin_mb_write_holdings(slave_int, addr_int, count_int);
+      } else {
+        // MB_READ_HOLDINGS: queue async read, results will populate array on next cycle
+        result = st_builtin_mb_read_holdings(slave_int, addr_int, count_int);
+        // Copy current buffer values to array slots (from previous completed read)
+        for (uint8_t i = 0; i < cnt && (arr_base + i) < vm->var_count; i++) {
+          vm->variables[arr_base + i].int_val = (int16_t)g_mb_multi_reg_buf[i];
+        }
+      }
+    }
   } else if (func_id == ST_BUILTIN_ROL && arg_count == 2) {
     // ROL: Rotate left (type-dependent)
     result = st_builtin_rol(arg1, arg2, arg1_type);
@@ -1860,6 +2012,9 @@ bool st_vm_step(st_vm_t *vm) {
     case ST_OP_JMP:             result = st_vm_exec_jmp(vm, instr); break;
     case ST_OP_JMP_IF_FALSE:    result = st_vm_exec_jmp_if_false(vm, instr); break;
     case ST_OP_JMP_IF_TRUE:     result = st_vm_exec_jmp_if_true(vm, instr); break;
+    // FEAT-004: Array opcodes
+    case ST_OP_LOAD_ARRAY:      result = st_vm_exec_load_array(vm, instr); break;
+    case ST_OP_STORE_ARRAY:     result = st_vm_exec_store_array(vm, instr); break;
     case ST_OP_NOP:             break;
     case ST_OP_HALT:
       vm->halted = 1;

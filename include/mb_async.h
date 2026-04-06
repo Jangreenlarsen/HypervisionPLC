@@ -39,7 +39,9 @@ typedef enum {
   MB_REQ_READ_HOLDING,        // FC03
   MB_REQ_READ_INPUT_REG,      // FC04
   MB_REQ_WRITE_COIL,          // FC05
-  MB_REQ_WRITE_HOLDING        // FC06
+  MB_REQ_WRITE_HOLDING,       // FC06
+  MB_REQ_READ_HOLDINGS,       // FC03 multi-register (v7.9.2)
+  MB_REQ_WRITE_HOLDINGS       // FC16 multi-register (v7.9.2)
 } mb_request_type_t;
 
 typedef enum {
@@ -68,8 +70,10 @@ typedef struct {
   mb_request_type_t type;             // 1 byte
   uint8_t           slave_id;         // 1 byte
   uint16_t          address;          // 2 bytes
-  st_value_t        write_value;      // 4 bytes (only for writes)
-} mb_async_request_t;                 // 8 bytes
+  st_value_t        write_value;      // 4 bytes (only for single writes)
+  uint8_t           count;            // register count for multi-register ops (v7.9.2)
+  uint16_t          multi_regs[16];   // buffer for FC16 write values (v7.9.2)
+} mb_async_request_t;                 // 41 bytes
 
 typedef struct {
   // Cache
@@ -137,6 +141,21 @@ bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t addr
  * @return true if queued successfully
  */
 bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t address, st_value_t value);
+
+/**
+ * @brief Queue a multi-register read (FC03 with count > 1)
+ * Updates individual cache entries for each address in range.
+ * @return true if queued successfully
+ */
+bool mb_async_queue_read_multi(uint8_t slave_id, uint16_t address, uint8_t count);
+
+/**
+ * @brief Queue a multi-register write (FC16)
+ * Writes values from provided buffer via FC16.
+ * @param values Array of uint16_t values to write (count entries)
+ * @return true if queued successfully
+ */
+bool mb_async_queue_write_multi(uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values);
 
 /**
  * @brief Check if any requests are pending in queue

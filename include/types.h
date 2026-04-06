@@ -398,6 +398,7 @@ typedef struct {
   uint16_t timeout_ms;          // Response timeout (default: 500ms)
   uint16_t inter_frame_delay;   // 0=auto (t3.5 from baudrate), >0=manual ms
   uint8_t max_requests_per_cycle; // Max requests per ST execution (default: 10)
+  uint16_t cache_ttl_ms;         // Cache TTL in ms (0=never expire, default: 0)
 
   // Runtime statistics
   uint32_t total_requests;      // Total requests sent

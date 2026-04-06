@@ -464,6 +464,15 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "MB_READ_INPUT_REG") == 0) func_id = ST_BUILTIN_MB_READ_INPUT_REG;
       else if (strcasecmp(node->data.function_call.func_name, "MB_WRITE_COIL") == 0) func_id = ST_BUILTIN_MB_WRITE_COIL;
       else if (strcasecmp(node->data.function_call.func_name, "MB_WRITE_HOLDING") == 0) func_id = ST_BUILTIN_MB_WRITE_HOLDING;
+      // v7.9.2: Multi-register Modbus
+      else if (strcasecmp(node->data.function_call.func_name, "MB_READ_HOLDINGS") == 0) {
+        st_compiler_error(compiler, "Use: array := MB_READ_HOLDINGS(slave, addr, count)");
+        return false;
+      }
+      else if (strcasecmp(node->data.function_call.func_name, "MB_WRITE_HOLDINGS") == 0) {
+        st_compiler_error(compiler, "Use: MB_WRITE_HOLDINGS(slave, addr, count) := array");
+        return false;
+      }
       // Stateful functions (v4.7+)
       else if (strcasecmp(node->data.function_call.func_name, "R_TRIG") == 0) func_id = ST_BUILTIN_R_TRIG;
       else if (strcasecmp(node->data.function_call.func_name, "F_TRIG") == 0) func_id = ST_BUILTIN_F_TRIG;
@@ -489,6 +498,7 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "MB_SUCCESS") == 0) func_id = ST_BUILTIN_MB_SUCCESS;
       else if (strcasecmp(node->data.function_call.func_name, "MB_BUSY") == 0) func_id = ST_BUILTIN_MB_BUSY;
       else if (strcasecmp(node->data.function_call.func_name, "MB_ERROR") == 0) func_id = ST_BUILTIN_MB_ERROR;
+      else if (strcasecmp(node->data.function_call.func_name, "MB_CACHE") == 0) func_id = ST_BUILTIN_MB_CACHE;
       // v7.7.2: Hardware Counter Access
       else if (strcasecmp(node->data.function_call.func_name, "CNT_SETUP") == 0) func_id = ST_BUILTIN_CNT_SETUP;
       else if (strcasecmp(node->data.function_call.func_name, "CNT_SETUP_ADV") == 0) func_id = ST_BUILTIN_CNT_SETUP_ADV;
@@ -642,6 +652,40 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       return st_compiler_emit_builtin_call(compiler, (int32_t)func_id, instance_id);
     }
 
+    // FEAT-004: Array element access
+    case ST_AST_ARRAY_ACCESS: {
+      // Look up array base symbol
+      uint8_t var_index = st_compiler_lookup_symbol(compiler, node->data.array_access.var_name);
+      if (var_index == 0xFF) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Unknown array: %s", node->data.array_access.var_name);
+        st_compiler_error(compiler, msg);
+        return false;
+      }
+      st_symbol_t *sym = &compiler->symbol_table.symbols[var_index];
+      if (!sym->is_array) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Variable '%s' is not an array", node->data.array_access.var_name);
+        st_compiler_error(compiler, msg);
+        return false;
+      }
+
+      // Compile index expression (pushes index onto stack)
+      if (!st_compiler_compile_expr(compiler, node->data.array_access.index_expr)) {
+        return false;
+      }
+
+      // Emit LOAD_ARRAY instruction
+      if (!st_compiler_ensure_space(compiler, 1)) return false;
+      st_bytecode_instr_t *instr = &compiler->bytecode[compiler->bytecode_ptr++];
+      instr->opcode = ST_OP_LOAD_ARRAY;
+      instr->arg.array_op.base_index = var_index;
+      instr->arg.array_op.array_size = sym->array_size;
+      instr->arg.array_op.lower_bound = (int8_t)sym->array_lower;
+      instr->arg.array_op.padding = 0;
+      return true;
+    }
+
     default:
       st_compiler_error(compiler, "Expression node type not supported");
       return false;
@@ -683,6 +727,52 @@ static bool st_compiler_emit_store_symbol(st_compiler_t *compiler, uint8_t var_i
  * ============================================================================ */
 
 static bool st_compiler_compile_assignment(st_compiler_t *compiler, st_ast_node_t *node) {
+  // v7.9.2: Special case: array := MB_READ_HOLDINGS(slave, addr, count)
+  st_ast_node_t *rhs = node->data.assignment.expr;
+  if (rhs && rhs->type == ST_AST_FUNCTION_CALL &&
+      strcasecmp(rhs->data.function_call.func_name, "MB_READ_HOLDINGS") == 0 &&
+      rhs->data.function_call.arg_count == 3 &&
+      !node->data.assignment.index_expr) {
+    // LHS must be an array variable
+    uint8_t arr_idx = st_compiler_lookup_symbol(compiler, node->data.assignment.var_name);
+    if (arr_idx == 0xFF) {
+      char msg[128];
+      snprintf(msg, sizeof(msg), "Unknown variable: %s", node->data.assignment.var_name);
+      st_compiler_error(compiler, msg);
+      return false;
+    }
+    st_symbol_t *sym = &compiler->symbol_table.symbols[arr_idx];
+    if (!sym->is_array) {
+      char msg[128];
+      snprintf(msg, sizeof(msg), "'%s' is not an array — MB_READ_HOLDINGS requires ARRAY OF INT", node->data.assignment.var_name);
+      st_compiler_error(compiler, msg);
+      return false;
+    }
+
+    // Compile 3 function args
+    for (uint8_t i = 0; i < 3; i++) {
+      if (!st_compiler_compile_expr(compiler, rhs->data.function_call.args[i])) {
+        return false;
+      }
+    }
+    // Push array base_index as hidden 4th arg
+    if (!st_compiler_ensure_space(compiler, 1)) return false;
+    st_bytecode_instr_t *push_instr = &compiler->bytecode[compiler->bytecode_ptr++];
+    push_instr->opcode = ST_OP_PUSH_INT;
+    push_instr->arg.int_arg = (int32_t)arr_idx;
+
+    // Emit CALL_BUILTIN MB_READ_HOLDINGS (4 args — VM fills array + pushes BOOL)
+    if (!st_compiler_emit_int(compiler, ST_OP_CALL_BUILTIN, (int32_t)ST_BUILTIN_MB_READ_HOLDINGS)) {
+      return false;
+    }
+
+    // Store BOOL success result to array base slot (regs[0] gets overwritten on next read anyway)
+    // Actually discard it — array is already filled by VM
+    if (!st_compiler_ensure_space(compiler, 1)) return false;
+    compiler->bytecode[compiler->bytecode_ptr++].opcode = ST_OP_POP;
+    return true;
+  }
+
   // Compile RHS expression (result on stack)
   if (!st_compiler_compile_expr(compiler, node->data.assignment.expr)) {
     return false;
@@ -695,6 +785,32 @@ static bool st_compiler_compile_assignment(st_compiler_t *compiler, st_ast_node_
     snprintf(msg, sizeof(msg), "Unknown variable: %s", node->data.assignment.var_name);
     st_compiler_error(compiler, msg);
     return false;
+  }
+
+  // FEAT-004: Array element assignment
+  if (node->data.assignment.index_expr) {
+    st_symbol_t *sym = &compiler->symbol_table.symbols[var_index];
+    if (!sym->is_array) {
+      char msg[128];
+      snprintf(msg, sizeof(msg), "Variable '%s' is not an array", node->data.assignment.var_name);
+      st_compiler_error(compiler, msg);
+      return false;
+    }
+
+    // Compile index expression (pushes index onto stack)
+    if (!st_compiler_compile_expr(compiler, node->data.assignment.index_expr)) {
+      return false;
+    }
+
+    // Emit STORE_ARRAY: stack has [value, index]
+    if (!st_compiler_ensure_space(compiler, 1)) return false;
+    st_bytecode_instr_t *instr = &compiler->bytecode[compiler->bytecode_ptr++];
+    instr->opcode = ST_OP_STORE_ARRAY;
+    instr->arg.array_op.base_index = var_index;
+    instr->arg.array_op.array_size = sym->array_size;
+    instr->arg.array_op.lower_bound = (int8_t)sym->array_lower;
+    instr->arg.array_op.padding = 0;
+    return true;
   }
 
   // FEAT-003: Emit scope-aware STORE (global, local, or param)
@@ -713,7 +829,51 @@ static bool st_compiler_compile_remote_write(st_compiler_t *compiler, st_ast_nod
     return false;
   }
 
-  // Compile value expression onto stack
+  // v7.9.2: MB_WRITE_HOLDINGS(slave, addr, count) := array_var
+  if (node->data.remote_write.func_id == ST_BUILTIN_MB_WRITE_HOLDINGS) {
+    // Compile count expression
+    if (!st_compiler_compile_expr(compiler, node->data.remote_write.count)) {
+      return false;
+    }
+
+    // Value must be an array variable — resolve to base_index
+    st_ast_node_t *val = node->data.remote_write.value;
+    if (val->type != ST_AST_VARIABLE) {
+      st_compiler_error(compiler, "MB_WRITE_HOLDINGS: right side of := must be an array variable");
+      return false;
+    }
+    uint8_t var_idx = st_compiler_lookup_symbol(compiler, val->data.variable.var_name);
+    if (var_idx == 0xFF) {
+      char msg[128];
+      snprintf(msg, sizeof(msg), "Unknown variable: %s", val->data.variable.var_name);
+      st_compiler_error(compiler, msg);
+      return false;
+    }
+    st_symbol_t *sym = &compiler->symbol_table.symbols[var_idx];
+    if (!sym->is_array) {
+      char msg[128];
+      snprintf(msg, sizeof(msg), "'%s' is not an array — requires ARRAY OF INT", val->data.variable.var_name);
+      st_compiler_error(compiler, msg);
+      return false;
+    }
+
+    // Push array base_index as INT constant (4th arg for VM)
+    if (!st_compiler_ensure_space(compiler, 1)) return false;
+    st_bytecode_instr_t *push_instr = &compiler->bytecode[compiler->bytecode_ptr++];
+    push_instr->opcode = ST_OP_PUSH_INT;
+    push_instr->arg.int_arg = (int32_t)var_idx;
+
+    // Emit CALL_BUILTIN MB_WRITE_HOLDINGS (4-arg: slave, addr, count, array_base)
+    if (!st_compiler_emit_int(compiler, ST_OP_CALL_BUILTIN, (int32_t)ST_BUILTIN_MB_WRITE_HOLDINGS)) {
+      return false;
+    }
+
+    // Pop unused BOOL result
+    return st_compiler_ensure_space(compiler, 1) &&
+           (compiler->bytecode[compiler->bytecode_ptr++].opcode = ST_OP_POP, true);
+  }
+
+  // Single-register write: compile value expression onto stack
   if (!st_compiler_compile_expr(compiler, node->data.remote_write.value)) {
     return false;
   }
@@ -1403,16 +1563,44 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
   // Phase 1: Build symbol table from variable declarations
   for (int i = 0; i < program->var_count; i++) {
     st_variable_decl_t *var = &program->variables[i];
-    uint8_t index = st_compiler_add_symbol(compiler, var->name, var->type,
-                                            var->is_input, var->is_output, var->is_exported);
-    if (index == 0xFF) {
-      return NULL;  // Error already reported
+
+    // FEAT-004: Array variables expand to consecutive slots
+    if (var->is_array) {
+      // Add base symbol with array metadata
+      uint8_t base_index = st_compiler_add_symbol(compiler, var->name, var->type,
+                                                   var->is_input, var->is_output, var->is_exported);
+      if (base_index == 0xFF) {
+        return NULL;
+      }
+      st_symbol_t *base_sym = &compiler->symbol_table.symbols[base_index];
+      base_sym->is_array = 1;
+      base_sym->array_size = var->array_size;
+      base_sym->array_lower = var->array_lower;
+      base_sym->initial_value = var->initial_value;
+      base_sym->has_initial_value = 0;
+
+      // Reserve additional slots for array elements [1..N-1]
+      for (uint8_t e = 1; e < var->array_size; e++) {
+        char elem_name[64];
+        snprintf(elem_name, sizeof(elem_name), "%s[%d]", var->name, var->array_lower + e);
+        uint8_t elem_index = st_compiler_add_symbol(compiler, elem_name, var->type,
+                                                     var->is_input, var->is_output, var->is_exported);
+        if (elem_index == 0xFF) {
+          return NULL;
+        }
+      }
+    } else {
+      uint8_t index = st_compiler_add_symbol(compiler, var->name, var->type,
+                                              var->is_input, var->is_output, var->is_exported);
+      if (index == 0xFF) {
+        return NULL;  // Error already reported
+      }
+      // v7.7.1: Carry initial value from VAR declaration to symbol table
+      st_symbol_t *sym = &compiler->symbol_table.symbols[index];
+      sym->initial_value = var->initial_value;
+      // Check if non-zero initial value was declared
+      sym->has_initial_value = (var->initial_value.int_val != 0) ? 1 : 0;
     }
-    // v7.7.1: Carry initial value from VAR declaration to symbol table
-    st_symbol_t *sym = &compiler->symbol_table.symbols[index];
-    sym->initial_value = var->initial_value;
-    // Check if non-zero initial value was declared
-    sym->has_initial_value = (var->initial_value.int_val != 0) ? 1 : 0;
   }
 
   // FEAT-003: Phase 1.5 - Scan for FUNCTION/FUNCTION_BLOCK definitions
@@ -1526,8 +1714,13 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
     bytecode->variables[i] = sym->has_initial_value ? sym->initial_value : (st_value_t){.int_val = 0};
     bytecode->var_initial[i] = bytecode->variables[i];  // Save initial value for reset/persist
     // Save variable name and type for CLI binding
-    strncpy(bytecode->var_names[i], sym->name, sizeof(bytecode->var_names[i]) - 1);
-    bytecode->var_names[i][sizeof(bytecode->var_names[i]) - 1] = '\0';
+    // FEAT-004: Rename array base symbol for display (CH → CH[0])
+    if (sym->is_array) {
+      snprintf(bytecode->var_names[i], sizeof(bytecode->var_names[i]), "%s[%d]", sym->name, sym->array_lower);
+    } else {
+      strncpy(bytecode->var_names[i], sym->name, sizeof(bytecode->var_names[i]) - 1);
+      bytecode->var_names[i][sizeof(bytecode->var_names[i]) - 1] = '\0';
+    }
     bytecode->var_types[i] = sym->type;  // Store variable type (BOOL, INT, etc.)
     bytecode->var_export_flags[i] = sym->is_exported;  // v5.1.0 - IR pool export flag
     if (sym->is_exported) {
@@ -1726,6 +1919,9 @@ const char *st_opcode_to_string(st_opcode_t opcode) {
     case ST_OP_LOAD_PARAM:      return "LOAD_PARAM";
     case ST_OP_STORE_LOCAL:     return "STORE_LOCAL";
     case ST_OP_LOAD_LOCAL:      return "LOAD_LOCAL";
+    // FEAT-004: Array opcodes
+    case ST_OP_LOAD_ARRAY:      return "LOAD_ARRAY";
+    case ST_OP_STORE_ARRAY:     return "STORE_ARRAY";
     case ST_OP_NOP:             return "NOP";
     case ST_OP_HALT:            return "HALT";
     default:                    return "UNKNOWN";

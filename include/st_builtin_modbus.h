@@ -63,6 +63,42 @@ st_value_t st_builtin_mb_write_coil(st_value_t slave_id, st_value_t address, st_
 st_value_t st_builtin_mb_write_holding(st_value_t slave_id, st_value_t address, st_value_t value);
 
 /* ============================================================================
+ * MULTI-REGISTER FUNCTIONS (v7.9.2 — FC03 multi / FC16)
+ * ============================================================================ */
+
+/**
+ * @brief MB_READ_HOLDINGS(slave_id, address, count, array) → BOOL
+ *
+ * Reads multiple consecutive holding registers from remote slave (FC03).
+ * Results are written directly into the provided ARRAY OF INT variable.
+ * Also cached in individual cache entries (addr, addr+1, ...).
+ *
+ * Usage:
+ *   VAR regs : ARRAY[0..3] OF INT; END_VAR
+ *   MB_READ_HOLDINGS(1, 100, 4, regs);
+ *   (* regs[0] = reg100, regs[1] = reg101, ... *)
+ *
+ * Returns TRUE if queued successfully. count: 1-16 registers.
+ */
+st_value_t st_builtin_mb_read_holdings(st_value_t slave_id, st_value_t address, st_value_t count);
+
+/**
+ * @brief MB_WRITE_HOLDINGS(slave_id, address, count, array) → BOOL
+ *
+ * Writes multiple consecutive holding registers via FC16.
+ * Values are read directly from the provided ARRAY OF INT variable.
+ *
+ * Usage:
+ *   VAR regs : ARRAY[0..1] OF INT; END_VAR
+ *   regs[0] := 1234;
+ *   regs[1] := 5678;
+ *   MB_WRITE_HOLDINGS(1, 200, 2, regs);
+ *
+ * Returns TRUE if queued successfully. count: 1-16 registers.
+ */
+st_value_t st_builtin_mb_write_holdings(st_value_t slave_id, st_value_t address, st_value_t count);
+
+/* ============================================================================
  * ASYNC STATUS FUNCTIONS (v7.7.0 — 0-arg builtins)
  * ============================================================================ */
 
@@ -84,6 +120,15 @@ st_value_t st_builtin_mb_busy_func();
  */
 st_value_t st_builtin_mb_error_func();
 
+/**
+ * @brief MB_CACHE(enabled) → BOOL
+ * Enable/disable cache deduplication for subsequent MB_READ_* calls.
+ * When FALSE, reads always queue a fresh request (bypass dedup).
+ * When TRUE (default), reads use cached value if request already pending.
+ * Returns previous cache state.
+ */
+st_value_t st_builtin_mb_cache_func(st_value_t enabled);
+
 /* ============================================================================
  * GLOBAL STATUS VARIABLES (accessible from ST Logic)
  * ============================================================================ */
@@ -92,5 +137,10 @@ st_value_t st_builtin_mb_error_func();
 extern int32_t g_mb_last_error;   // mb_error_code_t (0=OK, 1=Timeout, etc.)
 extern bool g_mb_success;         // TRUE if last operation succeeded
 extern uint8_t g_mb_request_count; // Current request count in this execution
+extern bool g_mb_cache_enabled;   // TRUE = cache dedup active (default), FALSE = always refresh
+
+// Multi-register buffer for MB_SET_REG/MB_GET_REG (v7.9.2)
+#define MB_MULTI_REG_MAX 16
+extern uint16_t g_mb_multi_reg_buf[MB_MULTI_REG_MAX];
 
 #endif // ST_BUILTIN_MODBUS_H

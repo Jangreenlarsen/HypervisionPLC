@@ -499,10 +499,15 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.1.2"
+#define PROJECT_VERSION     "7.9.2.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.9.2 (2026-04-06): FEAT: Multi-register Modbus Master fra ST Logic
+ *                    - MB_READ_HOLDINGS(slave, addr, count): FC03 multi-register read
+ *                    - MB_WRITE_HOLDINGS(slave, addr, count): FC16 multi-register write
+ *                    - Protocol: modbus_master_read_holdings() + write_holdings()
+ *                    - Async: MB_REQ_READ_HOLDINGS/WRITE_HOLDINGS i mb_async task
  * v7.7.2 (2026-03-31): FEAT: HW Counter Access fra ST Logic
  *                    - 9 nye ST builtins: CNT_SETUP, CNT_SETUP_ADV, CNT_SETUP_CMP,
  *                      CNT_ENABLE, CNT_CTRL, CNT_VALUE, CNT_RAW, CNT_FREQ, CNT_STATUS

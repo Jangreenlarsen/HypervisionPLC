@@ -170,6 +170,33 @@ int cli_cmd_set_logic_enabled(st_logic_engine_state_t *logic_state, uint8_t prog
 }
 
 /**
+ * @brief set logic <id> reinit
+ *
+ * Cold restart: Reset all variables to compiled initial values (VAR declarations).
+ * Also resets stateful builtins (TON/TOF, R_TRIG/F_TRIG, CTU/CTD) and FB instances.
+ */
+int cli_cmd_set_logic_reinit(st_logic_engine_state_t *logic_state, uint8_t program_id) {
+  if (program_id >= ST_LOGIC_MAX_PROGRAMS) {
+    debug_printf("ERROR: Invalid program ID (0-%d)\n", ST_LOGIC_MAX_PROGRAMS - 1);
+    return -1;
+  }
+
+  st_logic_program_config_t *prog = st_logic_get_program(logic_state, program_id);
+  if (!prog || !prog->compiled) {
+    debug_println("ERROR: Program not compiled. Nothing to reinitialize.");
+    return -1;
+  }
+
+  if (!st_logic_reinit(logic_state, program_id)) {
+    debug_println("ERROR: Failed to reinitialize program");
+    return -1;
+  }
+
+  debug_printf("[OK] Logic%d cold restart (variables reset to initial values)\n", program_id + 1);
+  return 0;
+}
+
+/**
  * @brief set logic debug:true|false
  *
  * Enable/disable debug output for ST Logic (bytecode printing, execution trace, etc.)

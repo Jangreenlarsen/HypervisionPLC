@@ -95,9 +95,13 @@ void setup() {
   Serial.println("OK");
 
   // Initialize subsystems (with default configs)
-  Serial.print("Subsystems: ");
+  // Granular boot diagnostics: each letter = one subsystem initialized
+  Serial.print("Subsystems: "); Serial.flush();
+  Serial.print("C"); Serial.flush();   // Counter
   counter_engine_init();    // Counter feature (SW/SW-ISR/HW modes)
+  Serial.print("T"); Serial.flush();   // Timer
   timer_engine_init();      // Timer feature (4 modes)
+  Serial.print("L"); Serial.flush();   // ST Logic
   st_logic_init(st_logic_get_state());  // ST Logic Mode (4 independent programs)
 
   // Modbus mode-based initialization (v7.2.0+)
@@ -105,18 +109,23 @@ void setup() {
 #if MODBUS_SINGLE_TRANSCEIVER
   // ES32D26: single transceiver — slave OR master, not both
   if (mb_mode == MODBUS_MODE_SLAVE) {
+    Serial.print("Ms"); Serial.flush();  // Modbus slave
     modbus_server_init(g_persist_config.modbus_slave.slave_id);
-    Serial.println("Modbus: SLAVE mode (RS485 shared transceiver)");
+    Serial.println(" Modbus: SLAVE mode (RS485 shared transceiver)");
   } else if (mb_mode == MODBUS_MODE_MASTER) {
+    Serial.print("Mm"); Serial.flush();  // Modbus master
     modbus_master_init();
-    Serial.println("Modbus: MASTER mode (RS485 shared transceiver)");
+    Serial.println(" Modbus: MASTER mode (RS485 shared transceiver)");
     Serial.println("  OBS: USB console tabt naar RS485 aktiveres");
   } else {
-    Serial.println("Modbus: OFF (RS485 disabled, USB console aktiv)");
+    Serial.print("M-"); Serial.flush();  // Modbus off
+    Serial.println(" Modbus: OFF (RS485 disabled, USB console aktiv)");
   }
 #else
   // Other boards: dual-UART — slave and master can run simultaneously
+  Serial.print("Ms"); Serial.flush();  // Modbus slave
   modbus_server_init(g_persist_config.modbus_slave.slave_id);    // Modbus RTU server (UART0)
+  Serial.print("Mm"); Serial.flush();  // Modbus master
   modbus_master_init();     // Modbus RTU master (UART1, separate RS485 port)
 #endif
 
@@ -124,16 +133,20 @@ void setup() {
   // On ES32D26 (single transceiver): master only runs in MASTER mode
 #if MODBUS_SINGLE_TRANSCEIVER
   if (mb_mode == MODBUS_MODE_MASTER) {
+    Serial.print("A"); Serial.flush();  // Async
     mb_async_init();        // Async Modbus Master background task (v7.7.0)
   }
 #else
   if (g_modbus_master_config.enabled) {
+    Serial.print("A"); Serial.flush();  // Async
     mb_async_init();        // Async Modbus Master background task (v7.7.0)
   }
 #endif
+  Serial.print("H"); Serial.flush();   // Heartbeat
   heartbeat_init();         // LED blink on GPIO2
+  Serial.print("S"); Serial.flush();   // SSE
   sse_init();               // SSE real-time events (v7.0.0)
-  Serial.println("OK");
+  Serial.println(" OK");
 
   // Load ST Logic programs from persistent config
   Serial.print("ST Logic: ");
@@ -194,6 +207,51 @@ void setup() {
   } else {
     Serial.println("ERROR: Failed to initialize network manager");
   }
+
+  // ES32D26: Deferred Modbus Master UART activation
+  // GPIO1/3 shares USB serial with RS485 — give user chance to abort
+#if MODBUS_SINGLE_TRANSCEIVER
+  if (mb_mode == MODBUS_MODE_MASTER) {
+    Serial.println();
+    Serial.println(">> RS485 Master mode: USB console vil blive overtaget.");
+    Serial.println(">> Tryk MELLEMRUM inden 5 sek for at forblive i USB console...");
+    Serial.flush();
+
+    bool aborted = false;
+    uint32_t deadline = millis() + 5000;
+    while (millis() < deadline) {
+      if (Serial.available()) {
+        int ch = Serial.read();
+        if (ch == ' ') {
+          aborted = true;
+          break;
+        }
+      }
+      // Countdown feedback
+      uint32_t remaining = (deadline - millis()) / 1000;
+      static uint32_t last_sec = 99;
+      if (remaining != last_sec) {
+        last_sec = remaining;
+        Serial.printf("\r>> %u...  ", remaining + 1);
+        Serial.flush();
+      }
+      delay(50);
+    }
+
+    if (aborted) {
+      Serial.println("\r>> ABORTED — USB console aktiv, RS485 IKKE aktiveret.");
+      Serial.println(">> Modbus Master er DISABLED denne session.");
+      Serial.println(">> Brug 'reboot' for at aktivere RS485 igen.");
+      g_modbus_master_config.enabled = false;
+    } else {
+      Serial.println("\r>> Aktiverer RS485 master — USB console tabt.");
+      Serial.println(">> Brug Telnet for console-adgang.");
+      Serial.flush();
+      delay(100);
+      modbus_master_activate_uart();
+    }
+  }
+#endif
 
   // Initialize NTP time sync (v7.8.1) — after network init
   ntp_driver_init();

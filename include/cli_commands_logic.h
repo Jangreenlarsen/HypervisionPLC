@@ -29,6 +29,12 @@ int cli_cmd_set_logic_enabled(st_logic_engine_state_t *logic_state, uint8_t prog
                               bool enabled);
 
 /**
+ * @brief set logic <id> reinit
+ * Cold restart: reset variables to compiled initial values
+ */
+int cli_cmd_set_logic_reinit(st_logic_engine_state_t *logic_state, uint8_t program_id);
+
+/**
  * @brief set logic debug:true|false
  * Enable/disable debug output for ST Logic
  */

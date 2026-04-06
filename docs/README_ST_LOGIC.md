@@ -1,6 +1,6 @@
 # 🚀 ST Logic Mode - Complete System Guide
 
-**ESP32 Modbus RTU Server v4.1.1** - Structured Text Programming Engine
+**ESP32 Modbus RTU Server v7.9.2** - Structured Text Programming Engine
 
 ---
 
@@ -29,7 +29,9 @@ ST Logic Mode allows you to upload and execute **Structured Text (ST) programs**
 - ✅ **IEC 61131-3 Structured Text** (ST-Light Profile)
 - ✅ **Bytecode Compilation** (<100ms per program)
 - ✅ **Non-Blocking Execution** (2-100ms cycle time, configurable via `set logic interval:X`)
-- ✅ **Modbus Integration** - Direct register/coil access
+- ✅ **Modbus Integration** - Direct register/coil access (FC01-FC06)
+- ✅ **Modbus Master** - Async remote read/write (FC01-FC06 single, FC03/FC16 multi-register)
+- ✅ **ARRAY Support** - Native ARRAY OF INT for multi-register Modbus operationer
 - ✅ **GPIO Control** - UP to 34 GPIO pins via variable binding
 - ✅ **Persistent Storage** - Programs and bindings saved to NVS
 - ✅ **Error Diagnostics** - Compilation errors, runtime errors, statistics
@@ -78,10 +80,11 @@ Phase 1: SYNC INPUTS (read all inputs)
   └─ Modbus registers → ST variables (INPUT bindings)
 
 Phase 2: EXECUTE PROGRAMS (run enabled ST logic)
-  ├─ Logic1 executes (if enabled)
-  ├─ Logic2 executes (if enabled)
-  ├─ Logic3 executes (if enabled)
-  └─ Logic4 executes (if enabled)
+  ├─ Reset Modbus request counter → Logic1 executes (if enabled)
+  ├─ Reset Modbus request counter → Logic2 executes (if enabled)
+  ├─ Reset Modbus request counter → Logic3 executes (if enabled)
+  └─ Reset Modbus request counter → Logic4 executes (if enabled)
+  (Hvert slot får sin egen Modbus quota — variabler er isoleret per slot)
 
 Phase 3: SYNC OUTPUTS (write all outputs)
   ├─ Coils → GPIO pins
@@ -371,6 +374,85 @@ show logic 1
 #   [2] button ← Input#5 (input)
 #   Total: 3 bindings
 ```
+
+---
+
+## Modbus Master Functions (v7.7.0+ / v7.9.2)
+
+ST Logic programmer kan fungere som Modbus Master — læse/skrive remote slave-enheder via async background task.
+
+### Funktionsoversigt
+
+| Funktion | FC | Args | Retur | Beskrivelse |
+|----------|-----|------|-------|-------------|
+| `MB_READ_COIL` | FC01 | 2 | BOOL | Læs enkelt coil |
+| `MB_READ_INPUT` | FC02 | 2 | BOOL | Læs enkelt discrete input |
+| `MB_READ_HOLDING` | FC03 | 2 | INT | Læs enkelt holding register |
+| `MB_READ_INPUT_REG` | FC04 | 2 | INT | Læs enkelt input register |
+| `MB_WRITE_COIL` | FC05 | 3 | BOOL | Skriv enkelt coil |
+| `MB_WRITE_HOLDING` | FC06 | 3 | BOOL | Skriv enkelt holding register |
+| `MB_READ_HOLDINGS` | FC03 | 3+arr | BOOL | Læs flere registre til ARRAY (v7.9.2) |
+| `MB_WRITE_HOLDINGS` | FC16 | 3+arr | BOOL | Skriv flere registre fra ARRAY (v7.9.2) |
+| `MB_SUCCESS` | — | 0 | BOOL | Sidste cache-opslag gyldigt? |
+| `MB_BUSY` | — | 0 | BOOL | Ventende requests i kø? |
+| `MB_ERROR` | — | 0 | INT | Fejlkode (0=OK, 1=TIMEOUT, 2=CRC) |
+| `MB_CACHE` | — | 1 | BOOL | Aktiver/deaktiver cache dedup |
+
+### Single-Register Syntax
+
+```structured-text
+(* READ — returnerer cached værdi, køer background refresh *)
+coil_val    := MB_READ_COIL(slave_id, address);
+input_val   := MB_READ_INPUT(slave_id, address);
+reg_val     := MB_READ_HOLDING(slave_id, address);
+input_reg   := MB_READ_INPUT_REG(slave_id, address);
+
+(* WRITE — assignment-syntax (anbefalet) *)
+MB_WRITE_COIL(slave_id, address) := value;
+MB_WRITE_HOLDING(slave_id, address) := value;
+
+(* WRITE — funktions-syntax (alternativ) *)
+result := MB_WRITE_COIL(slave_id, address, value);
+result := MB_WRITE_HOLDING(slave_id, address, value);
+```
+
+### Multi-Register ARRAY Syntax (v7.9.2)
+
+Læs/skriv op til 16 consecutive holding registre i én Modbus-transaktion:
+
+```structured-text
+VAR
+  data : ARRAY[0..3] OF INT;
+END_VAR
+
+(* FC03 multi-read: én pakke for 4 registre *)
+data := MB_READ_HOLDINGS(slave_id, start_address, 4);
+
+(* FC16 multi-write: én pakke for 4 registre *)
+MB_WRITE_HOLDINGS(slave_id, start_address, 4) := data;
+```
+
+### Status Check
+
+```structured-text
+val := MB_READ_HOLDING(1, 100);
+IF MB_SUCCESS() THEN
+  (* Data er gyldig — brug val *)
+END_IF;
+IF MB_ERROR() <> 0 THEN
+  (* Fejl — timeout, CRC, exception *)
+END_IF;
+```
+
+### Async Arkitektur
+
+- Alle reads/writes er **non-blocking** — VM returnerer straks med cached data
+- Background FreeRTOS task (Core 0) udfører egentlige RS-485 transaktioner
+- 32-entry cache, 16-entry async kø
+- Max 10 requests per program per cycle (konfigurerbart)
+- Alle 4 logic-slots kan bruge Modbus uafhængigt
+
+Se [`ST_USAGE_GUIDE.md`](ST_USAGE_GUIDE.md) for detaljerede programmeringseksempler.
 
 ---
 
@@ -1109,7 +1191,7 @@ Results: 18/18 tests passed (100.0%)
 
 ### Dependencies & Integration
 
-- **Modbus Server:** Integrated with FC01-10 register/coil system
+- **Modbus Server:** Integrated with FC01-10 register/coil system + Modbus Master (FC01-FC06 single, FC03/FC16 multi)
 - **GPIO Mapping:** Unified with physical GPIO pins
 - **Configuration:** Persistent via NVS with schema versioning
 - **CLI System:** Fully integrated with 70+ command set
@@ -1119,7 +1201,8 @@ Results: 18/18 tests passed (100.0%)
 | Document | Purpose |
 |----------|---------|
 | `README_ST_LOGIC.md` | This file - Complete system guide |
-| `ST_USAGE_GUIDE.md` | Quick reference for CLI commands |
+| `ST_USAGE_GUIDE.md` | Quick reference for CLI commands and Modbus Master examples |
+| `../tests/TEST_PLAN_MODBUS_ST.md` | Test plan for alle MB_READ/MB_WRITE operationer |
 | `GPIO2_ST_QUICK_START.md` | LED demo setup guide |
 | `ST_IEC61131_COMPLIANCE.md` | IEC 61131-3 compliance report |
 | `ST_LOGIC_MODE_TEST_REPORT.md` | Test execution results |

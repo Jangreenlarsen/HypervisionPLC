@@ -46,6 +46,15 @@ void modbus_master_set_enabled(bool enabled);
 void modbus_master_reconfigure();
 
 /**
+ * @brief Activate UART for master mode (ES32D26 deferred init)
+ *
+ * On ES32D26, UART shares GPIO1/3 with USB serial. This function
+ * should be called AFTER network services (WiFi/Telnet) are started,
+ * so there's a fallback console before USB serial is taken over.
+ */
+void modbus_master_activate_uart();
+
+/**
  * @brief Reset statistics counters
  */
 void modbus_master_reset_stats();
@@ -113,6 +122,32 @@ mb_error_code_t modbus_master_write_coil(uint8_t slave_id, uint16_t address, boo
  * @return mb_error_code_t Error code (MB_OK on success)
  */
 mb_error_code_t modbus_master_write_holding(uint8_t slave_id, uint16_t address, uint16_t value);
+
+/* ============================================================================
+ * MULTI-REGISTER FUNCTIONS (FC03 multi / FC16)
+ * ============================================================================ */
+
+/**
+ * @brief Read Multiple Holding Registers (FC03, count > 1)
+ *
+ * @param slave_id Slave address (1-247)
+ * @param address Start register address (0-65535)
+ * @param count Number of registers to read (1-16)
+ * @param results Array to store results (must hold count uint16_t's)
+ * @return mb_error_code_t Error code (MB_OK on success)
+ */
+mb_error_code_t modbus_master_read_holdings(uint8_t slave_id, uint16_t address, uint8_t count, uint16_t *results);
+
+/**
+ * @brief Write Multiple Holding Registers (FC16)
+ *
+ * @param slave_id Slave address (1-247)
+ * @param address Start register address (0-65535)
+ * @param count Number of registers to write (1-16)
+ * @param values Array of values to write (count uint16_t's)
+ * @return mb_error_code_t Error code (MB_OK on success)
+ */
+mb_error_code_t modbus_master_write_holdings(uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values);
 
 /* ============================================================================
  * INTERNAL FUNCTIONS
