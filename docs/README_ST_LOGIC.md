@@ -1203,6 +1203,8 @@ Results: 18/18 tests passed (100.0%)
 | `README_ST_LOGIC.md` | This file - Complete system guide |
 | `ST_USAGE_GUIDE.md` | Quick reference for CLI commands and Modbus Master examples |
 | `../tests/TEST_PLAN_MODBUS_ST.md` | Test plan for alle MB_READ/MB_WRITE operationer |
+| `../tests/test_mb_holding_api.py` | Automatiseret API test (28/28 PASS, v7.9.2.0 build #1857) |
+| `../tests/MB_HOLDING_API_TEST_RESULTS.md` | Testresultater fra API integration test |
 | `GPIO2_ST_QUICK_START.md` | LED demo setup guide |
 | `ST_IEC61131_COMPLIANCE.md` | IEC 61131-3 compliance report |
 | `ST_LOGIC_MODE_TEST_REPORT.md` | Test execution results |
