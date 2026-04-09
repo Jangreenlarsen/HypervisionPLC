@@ -416,7 +416,8 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
           return st_compiler_emit_int(compiler, ST_OP_PUSH_REAL, bits);
         }
         case ST_TYPE_DINT:
-          return st_compiler_emit_int(compiler, ST_OP_PUSH_INT, node->data.literal.value.dint_val);
+          // DINT uses PUSH_DWORD for full 32-bit range (PUSH_INT is only 16-bit)
+          return st_compiler_emit_int(compiler, ST_OP_PUSH_DWORD, node->data.literal.value.dint_val);
         case ST_TYPE_TIME:
           // FEAT-121: TIME stored as DWORD (unsigned 32-bit milliseconds)
           return st_compiler_emit_int(compiler, ST_OP_PUSH_DWORD, node->data.literal.value.dint_val);
@@ -1436,6 +1437,16 @@ bool st_compiler_compile_node(st_compiler_t *compiler, st_ast_node_t *node) {
       // This case handles inline function definitions (future: local functions)
       st_compiler_error(compiler, "Function definitions must be at top level");
       return false;
+
+    // FEAT-122: Function/FB call as statement (e.g. TON(IN:=x, PT:=T#5s, Q=>motor);)
+    case ST_AST_FUNCTION_CALL:
+      if (!st_compiler_compile_expr(compiler, node)) return false;
+      // Pop the return value from the stack (statement context — result unused)
+      if (!st_compiler_ensure_space(compiler, 1)) return false;
+      compiler->bytecode[compiler->bytecode_ptr].opcode = ST_OP_POP;
+      compiler->bytecode[compiler->bytecode_ptr].arg.int_arg = 0;
+      compiler->bytecode_ptr++;
+      break;
 
     default:
       // Ignore other node types (they're part of expressions)

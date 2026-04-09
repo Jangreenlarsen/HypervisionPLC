@@ -28,6 +28,11 @@
 #define MB_ASYNC_TASK_STACK  4096   // Background task stack (bytes)
 #define MB_ASYNC_TASK_PRIO      3   // Task priority (below WiFi, above idle)
 #define MB_ASYNC_TASK_CORE      0   // Run on Core 0 (main loop = Core 1)
+#define MB_MULTI_REG_POOL_SIZE  4   // Ring-buffer slots for FC16 write values
+#define MB_SLAVE_BACKOFF_MAX    8   // Max tracked slaves for adaptive backoff
+#define MB_BACKOFF_INITIAL_MS  50   // Initial extra delay after first timeout
+#define MB_BACKOFF_MAX_MS    2000   // Max backoff delay (2 seconds)
+#define MB_BACKOFF_DECAY_MS   100   // Reduce backoff by this much on each success
 
 /* ============================================================================
  * TYPES
@@ -72,8 +77,8 @@ typedef struct {
   uint16_t          address;          // 2 bytes
   st_value_t        write_value;      // 4 bytes (only for single writes)
   uint8_t           count;            // register count for multi-register ops (v7.9.2)
-  uint16_t          multi_regs[16];   // buffer for FC16 write values (v7.9.2)
-} mb_async_request_t;                 // 41 bytes
+  uint8_t           multi_pool_slot;  // index into g_mb_multi_write_pool (v7.9.3: was multi_regs[16])
+} mb_async_request_t;                 // 10 bytes (was 41 — saves 31 bytes × 16 queue = 496 bytes)
 
 typedef struct {
   // Cache
@@ -85,6 +90,14 @@ typedef struct {
   TaskHandle_t     task_handle;
   volatile bool    task_running;
 
+  // Per-slave adaptive backoff (v7.9.3: intelligent timeout handling)
+  struct {
+    uint8_t  slave_id;           // 0 = unused slot
+    uint16_t backoff_ms;         // Current extra delay for this slave
+    uint16_t timeout_count;      // Consecutive timeouts
+    uint16_t success_count;      // Consecutive successes (for decay)
+  } slave_backoff[MB_SLAVE_BACKOFF_MAX];
+
   // Statistics
   uint32_t cache_hits;
   uint32_t cache_misses;
@@ -92,6 +105,7 @@ typedef struct {
   uint32_t total_requests;
   uint32_t total_errors;
   uint32_t total_timeouts;
+  uint32_t stats_since_ms;        // millis() at last stats reset (v7.9.3.2)
 } mb_async_state_t;
 
 /* ============================================================================
@@ -173,7 +187,20 @@ const mb_async_state_t *mb_async_get_state();
  */
 void mb_async_reset_cache();
 
+/**
+ * @brief Reset statistics counters (cache hits/misses, requests, errors, backoff)
+ */
+void mb_async_reset_stats();
+
+/* Global async state */
+extern mb_async_state_t g_mb_async;
+
 /* Spinlock for thread-safe cache access between Core 0 and Core 1 */
 extern portMUX_TYPE mb_cache_spinlock;
+
+/* Ring-buffer pool for FC16 multi-register write values (v7.9.3)
+ * 4 slots × 16 regs × 2 bytes = 128 bytes (was 32 bytes × 16 queue items = 512 bytes inline) */
+extern uint16_t g_mb_multi_write_pool[MB_MULTI_REG_POOL_SIZE][16];
+extern volatile uint8_t g_mb_multi_write_next;  // Next free slot (0-3, wraps)
 
 #endif // MB_ASYNC_H

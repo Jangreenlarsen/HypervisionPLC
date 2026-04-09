@@ -230,6 +230,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="card" data-card-id="modbusmaster">
 <h2>Modbus Master <span class="badge badge-off" id="badgeMaster">-</span></h2>
 <div class="row"><span class="lbl">Interface</span><span class="val val-n" id="mmConfigInfo" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl">Statistik siden</span><span class="val val-n" id="mmStatsSince" style="font-size:11px">-</span></div>
 <div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="mmTotal">-</span></div>
 <div class="row"><span class="lbl">Success</span><span class="val val-ok" id="mmOk">-</span></div>
 <div class="row"><span class="lbl">Timeout fejl</span><span class="val val-err" id="mmTimeout">-</span></div>
@@ -243,6 +244,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="row"><span class="lbl">Queue full</span><span class="val val-err" id="mcQueueFull">-</span></div>
 <div class="row"><span class="lbl">Cache TTL</span><span class="val val-n" id="mcTtl">-</span></div>
 <div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
+<div id="mcBackoff" style="margin-top:6px"></div>
+<div style="border-top:1px solid #313244;margin-top:8px;padding-top:6px;text-align:center"><button id="btnResetMasterStats" onclick="resetMasterStats()" style="background:#45475a;color:#cdd6f4;border:1px solid #585b70;border-radius:4px;padding:4px 14px;cursor:pointer;font-size:12px">Nulstil statistik</button></div>
 </div>
 </div>
 
@@ -562,6 +565,8 @@ function updateDashboard(m){
   // Modbus Master
   const mmT=g(m,'modbus_master_requests_total');
   const mmO=g(m,'modbus_master_success_total');
+  {const ageMs=g(m,'modbus_master_stats_age_ms');
+  $('mmStatsSince').textContent=ageMs!=null?fmtUptime(ageMs)+' siden':'-';}
   $('mmTotal').textContent=fmtN(mmT);
   $('mmOk').textContent=fmtN(mmO);
   $('mmTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
@@ -759,9 +764,26 @@ function updateDashboard(m){
         h+='</table>';
         $('mcSlaves').innerHTML=h;
       }else{$('mcSlaves').innerHTML='<span class="empty-msg">Ingen aktive slaves</span>';}
+      // Adaptive backoff table
+      const boffs=gAll(m,'modbus_master_slave_backoff');
+      if(boffs.length>0){
+        let bh='<div style="border-top:1px solid #313244;margin-top:6px;padding-top:4px"><span class="lbl" style="font-size:11px;color:#6c7086">Adaptive Backoff</span></div>';
+        bh+='<table class="tbl"><tr><th>Slave</th><th>Backoff</th><th>Timeouts</th><th>OK</th></tr>';
+        for(const b of boffs){
+          const ms=parseInt(b.value);
+          const to=b.labels.timeouts||'0';
+          const ok=b.labels.successes||'0';
+          const cls=ms>=1000?'val-err':ms>0?'val-warn':'val-ok';
+          bh+='<tr><td>#'+b.labels.slave+'</td><td class="'+cls+'">'+(ms>0?ms+'ms':'0')+'</td>';
+          bh+='<td>'+to+'</td><td>'+ok+'</td></tr>';
+        }
+        bh+='</table>';
+        $('mcBackoff').innerHTML=bh;
+      }else{$('mcBackoff').innerHTML='';}
     }else{
       $('mcEntries').textContent='Inaktiv';
       $('mcSlaves').innerHTML='<span class="empty-msg">Master ikke startet</span>';
+      $('mcBackoff').innerHTML='';
     }
   }
 
@@ -1200,6 +1222,26 @@ function restoreCardOrder(){
     grid.querySelectorAll('.card[data-card-id]').forEach(c=>{map[c.dataset.cardId]=c;});
     saved.forEach(id=>{if(map[id])grid.appendChild(map[id]);});
   }).catch(()=>{});
+}
+
+function resetMasterStats(){
+  var auth=sessionStorage.getItem('hfplc_auth');
+  var opts={method:'POST'};
+  if(auth)opts.headers={'Authorization':auth};
+  fetch('/api/modbus/master/reset-stats',opts).then(r=>{
+    if(r.ok){fetchMetrics();}else{alert('Fejl ved nulstilling');}
+  }).catch(()=>alert('Netværksfejl'));
+}
+function fmtUptime(ms){
+  if(ms==null||ms<=0)return'-';
+  var s=Math.floor(ms/1000);
+  if(s<60)return s+'s';
+  var m=Math.floor(s/60);s%=60;
+  if(m<60)return m+'m '+s+'s';
+  var h=Math.floor(m/60);m%=60;
+  if(h<24)return h+'t '+m+'m';
+  var d=Math.floor(h/24);h%=24;
+  return d+'d '+h+'t';
 }
 
 function init(){

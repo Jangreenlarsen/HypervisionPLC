@@ -21,4 +21,10 @@ void cli_cmd_set_modbus_master_cache_ttl(uint16_t ttl_ms);
 // SHOW command
 void cli_cmd_show_modbus_master();
 
+// REMOTE READ/WRITE commands (mb read / mb write)
+void cli_cmd_mb_read(uint8_t argc, char **argv);
+void cli_cmd_mb_write(uint8_t argc, char **argv);
+void cli_cmd_mb_reset_backoff(uint8_t argc, char **argv);
+void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id);
+
 #endif // CLI_COMMANDS_MODBUS_MASTER_H

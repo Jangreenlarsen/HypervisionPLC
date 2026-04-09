@@ -55,8 +55,9 @@ typedef struct {
 /* Compiler state machine */
 typedef struct {
   st_symbol_table_t symbol_table;
-  st_bytecode_instr_t *bytecode;      // Pointer to output instructions buffer (no internal copy)
+  st_bytecode_instr_t *bytecode;      // Pointer to output instructions buffer (dynamically grown)
   uint16_t bytecode_ptr;              // Current bytecode pointer
+  uint16_t bytecode_capacity;         // Allocated capacity (grows with realloc)
 
   uint32_t error_count;
   char error_msg[256];

@@ -336,16 +336,20 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
     errno = 0;
     long val = strtol(parser->current_token.value, NULL, 0);
 
-    // INT range: -32768 to 32767 (16-bit)
-    // For DINT literals, use different parsing (future enhancement)
-    if (errno == ERANGE || val > INT16_MAX || val < INT16_MIN) {
-      parser_error(parser, "Integer literal overflow (INT range: -32768 to 32767)");
+    if (errno == ERANGE || val > INT32_MAX || val < INT32_MIN) {
+      parser_error(parser, "Integer literal overflow (DINT range: -2147483648 to 2147483647)");
       free(node);
       return NULL;
     }
 
-    node->data.literal.type = ST_TYPE_INT;
-    node->data.literal.value.int_val = (int16_t)val;
+    // Auto-promote to DINT if value exceeds INT16 range
+    if (val > INT16_MAX || val < INT16_MIN) {
+      node->data.literal.type = ST_TYPE_DINT;
+      node->data.literal.value.dint_val = (int32_t)val;
+    } else {
+      node->data.literal.type = ST_TYPE_INT;
+      node->data.literal.value.int_val = (int16_t)val;
+    }
     parser_advance(parser);
     return node;
   }

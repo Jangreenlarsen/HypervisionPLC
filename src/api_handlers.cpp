@@ -1289,6 +1289,9 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
         case ST_TYPE_REAL:
           v["value"] = val.real_val;
           break;
+        case ST_TYPE_TIME:
+          v["value"] = val.dint_val;
+          break;
         default:
           v["value"] = val.int_val;
           break;

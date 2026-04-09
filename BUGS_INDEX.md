@@ -398,6 +398,10 @@
 | FEAT-124 | ST Logic CTU counter (Count Up) | ✅ DONE | 🟡 HIGH | v7.9.4.0 | IEC 61131-3 CTU function block med named-parameter syntax: `CTU(CU := pulse, RESET := rst, PV := 100, Q => done, CV => count)`. Edge-triggered, output bindings via LOAD_FB_FIELD. |
 | FEAT-125 | ST Logic CTD counter (Count Down) | ✅ DONE | 🟡 HIGH | v7.9.4.0 | IEC 61131-3 CTD function block med named-parameter syntax: `CTD(CD := pulse, LOAD := ld, PV := 100, Q => done, CV => count)`. Edge-triggered, deler counter infrastruktur med CTU. |
 | FEAT-126 | ST Logic CTUD counter (Up/Down) | ✅ DONE | 🟡 HIGH | v7.9.4.0 | IEC 61131-3 CTUD function block med named-parameter syntax: `CTUD(CU := up, CD := down, RESET := rst, LOAD := ld, PV := 100, QU => at_max, QD => at_zero, CV => count)`. 3 output bindings (QU, QD, CV). |
+| BUG-311 | Function call statement ikke kompileret | ✅ FIXED | 🔴 CRITICAL | v7.9.4.1 | `ST_AST_FUNCTION_CALL` manglede i compiler statement-switch → `default: break` ignorerede hele FB-kaldet. TON/TOF/CTU etc. som statement (ikke assignment) genererede 0 instrukser. FIX: Tilføjet case med compile_expr + POP (st_compiler.cpp) |
+| BUG-312 | TIME variabel vist som int16 i REST API | ✅ FIXED | 🟡 HIGH | v7.9.4.1 | `ST_TYPE_TIME` manglede i API handler value-switch → faldt til `default: val.int_val` (16-bit). T#60s=60000 vistes som -5536. FIX: Tilføjet TIME case med dint_val (api_handlers.cpp) |
+| BUG-313 | DINT literal >32767 crasher ESP32 | ✅ FIXED | 🔴 CRITICAL | v7.9.4.1 | DINT brugte PUSH_INT (16-bit int_arg). Værdier >32767 overfyldte int16 og crashede VM'en. FIX: DINT literals bruger nu PUSH_DWORD (32-bit) ligesom TIME (st_compiler.cpp) |
+| BUG-314 | Integer literal auto-promote til DINT | ✅ FIXED | 🟡 HIGH | v7.9.4.1 | Parser afviste alle integers >32767 med "INT overflow" fejl. DINT variabler kunne ikke initialiseres med store tal. FIX: Auto-promote literal til ST_TYPE_DINT når værdi > INT16_MAX eller < INT16_MIN (st_parser.cpp) |
 
 ## Quick Lookup by Category
 

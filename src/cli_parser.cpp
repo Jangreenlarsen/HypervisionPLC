@@ -24,6 +24,7 @@
 #include "cli_commands_logic.h"
 #include "cli_commands_modbus_master.h"
 #include "cli_commands_modbus_slave.h"
+#include "mb_async.h"
 #include "st_logic_config.h"
 #include "debug.h"
 #include "gpio_driver.h"
@@ -2198,7 +2199,7 @@ bool cli_parser_execute(char* line) {
     debug_println("  set hostname <name>     - Set hostname");
     debug_println("  set echo on|off         - Remote echo\n");
 
-    debug_println("Modbus Read/Write (r, w):");
+    debug_println("Modbus Local Read/Write (r, w):");
     debug_println("  read h-reg <addr> [count] [type]  - Read holding registers");
     debug_println("  read coil <addr> [count]           - Read coils");
     debug_println("  read input <addr> [count]          - Read discrete inputs");
@@ -2206,6 +2207,15 @@ bool cli_parser_execute(char* line) {
     debug_println("  write h-reg <addr> value uint <val> - Write unsigned holding register");
     debug_println("  write h-reg <addr> value int <val>  - Write signed holding register");
     debug_println("  write coil <addr> value <0|1>      - Write coil\n");
+
+    debug_println("Modbus Master Remote (mb):");
+    debug_println("  mb read holding <slave> <addr> [count] - FC03 remote read");
+    debug_println("  mb read coil <slave> <addr>       - FC01 remote read");
+    debug_println("  mb write holding <slave> <addr> <val>  - FC06 remote write");
+    debug_println("  mb write coil <slave> <addr> <0|1>     - FC05 remote write");
+    debug_println("  mb scan [start] [end]             - Scan for slaves");
+    debug_println("  mb reset backoff|stats|cache      - Reset diagnostik");
+    debug_println("  mb ?                              - Detaljeret hjaelp\n");
 
     debug_println("Network:");
     debug_println("  ping <ip> [count]       - ICMP ping (default 4)");
@@ -2302,6 +2312,81 @@ bool cli_parser_execute(char* line) {
       return false;
     }
 
+  } else if (!strcmp(cmd, "MB")) {
+    // mb <subcommand> — Remote Modbus Master read/write/scan/reset
+    if (argc < 2) {
+      debug_println("Brug: mb <kommando> [parametre]");
+      debug_println("  mb read <type> <slave_id> <address> [count]");
+      debug_println("  mb write <type> <slave_id> <address> <value>");
+      debug_println("  mb scan [start_id] [end_id]");
+      debug_println("  mb reset backoff [slave_id]");
+      debug_println("  mb reset stats");
+      debug_println("  mb reset cache");
+      debug_println("Brug 'mb read' eller 'mb write' for detaljeret hjaelp");
+      return false;
+    }
+
+    const char* subcmd = normalize_alias(argv[1]);
+
+    if (!strcmp(subcmd, "READ") || !strcmp(subcmd, "RD") || !strcmp(subcmd, "R")) {
+      cli_cmd_mb_read(argc - 2, argv + 2);
+      return true;
+    } else if (!strcmp(subcmd, "WRITE") || !strcmp(subcmd, "WR") || !strcmp(subcmd, "W")) {
+      cli_cmd_mb_write(argc - 2, argv + 2);
+      return true;
+    } else if (!strcmp(subcmd, "SCAN")) {
+      uint8_t start_id = (argc >= 3) ? atoi(argv[2]) : 1;
+      uint8_t end_id = (argc >= 4) ? atoi(argv[3]) : 247;
+      cli_cmd_mb_scan(start_id, end_id);
+      return true;
+    } else if (!strcmp(subcmd, "RESET")) {
+      if (argc < 3) {
+        debug_println("Brug: mb reset backoff [slave_id] | mb reset stats | mb reset cache");
+        return false;
+      }
+      const char* what_reset = normalize_alias(argv[2]);
+      if (!strcmp(what_reset, "BACKOFF") || !strcmp(what_reset, "BO")) {
+        cli_cmd_mb_reset_backoff(argc - 3, argv + 3);
+        return true;
+      } else if (!strcmp(what_reset, "STATS")) {
+        mb_async_reset_stats();
+        debug_println("[OK] Modbus Master statistik nulstillet");
+        return true;
+      } else if (!strcmp(what_reset, "CACHE")) {
+        mb_async_reset_cache();
+        debug_println("[OK] Modbus Master cache ryddet");
+        return true;
+      } else {
+        debug_println("Brug: mb reset backoff [slave_id] | mb reset stats | mb reset cache");
+        return false;
+      }
+    } else if (!strcmp(subcmd, "HELP") || !strcmp(subcmd, "?")) {
+      debug_println("\n=== MODBUS MASTER REMOTE COMMANDS ===\n");
+      debug_println("Read fra remote slave:");
+      debug_println("  mb read coil <slave_id> <addr>            - FC01 Read Coil");
+      debug_println("  mb read input <slave_id> <addr>           - FC02 Read Discrete Input");
+      debug_println("  mb read holding <slave_id> <addr> [count] - FC03 Read Holding Register(s)");
+      debug_println("  mb read input-reg <slave_id> <addr>       - FC04 Read Input Register");
+      debug_println("");
+      debug_println("Write til remote slave:");
+      debug_println("  mb write coil <slave_id> <addr> <0|1|on|off> - FC05 Write Coil");
+      debug_println("  mb write holding <slave_id> <addr> <value>   - FC06 Write Register");
+      debug_println("");
+      debug_println("Diagnostik:");
+      debug_println("  mb scan [start] [end]          - Scan for slaves (default: 1-247)");
+      debug_println("  mb scan 80 110                 - Scan specifikt range");
+      debug_println("  mb reset backoff [slave_id]    - Nulstil adaptive backoff");
+      debug_println("  mb reset stats                 - Nulstil statistik");
+      debug_println("  mb reset cache                 - Ryd cache entries");
+      debug_println("");
+      debug_println("Aliases: mb rd = mb read, mb wr = mb write");
+      debug_println("");
+      return true;
+    } else {
+      debug_printf("MB: ukendt kommando '%s' (brug: read, write, scan, reset, help)\n", argv[1]);
+      return false;
+    }
+
   } else {
     debug_println("Unknown command");
     return false;
@@ -2379,6 +2464,20 @@ void cli_parser_print_help(void) {
   debug_println("  write coil <id> value <on|off>     - Write coil");
   debug_println("  read input <id> <count>            - Read discrete inputs");
   debug_println("");
+  debug_println("Modbus Master Remote Commands:");
+  debug_println("  mb read holding <slave_id> <addr> [count]    - FC03 Read remote holding register(s)");
+  debug_println("  mb read coil <slave_id> <addr>               - FC01 Read remote coil");
+  debug_println("  mb read input <slave_id> <addr>              - FC02 Read remote discrete input");
+  debug_println("  mb read input-reg <slave_id> <addr>          - FC04 Read remote input register");
+  debug_println("  mb write holding <slave_id> <addr> <value>   - FC06 Write remote register");
+  debug_println("  mb write coil <slave_id> <addr> <on|off>     - FC05 Write remote coil");
+  debug_println("  mb scan [start_id] [end_id]                  - Scan for slaves on bus");
+  debug_println("  mb reset backoff [slave_id]                  - Reset adaptive backoff");
+  debug_println("  mb reset stats                               - Reset master statistics");
+  debug_println("  mb reset cache                               - Clear cache entries");
+  debug_println("  mb ?                                         - Detaljeret hjaelp");
+  debug_println("");
+
   debug_println("Configuration:");
   debug_println("  set holding-reg STATIC <address> Value [type] <value>");
   debug_println("  set holding-reg DYNAMIC <address> counter<id>:<func> or timer<id>:<func>");

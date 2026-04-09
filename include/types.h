@@ -411,6 +411,9 @@ typedef struct {
   uint8_t last_error_slave_id;  // Slave ID of last failed request
   uint16_t last_error_address;  // Register address of last failed request
   uint8_t last_error_type;      // mb_error_code_t of last error
+
+  // Stats reset timestamp (v7.9.3.2)
+  uint32_t stats_since_ms;      // millis() at last stats reset
 } modbus_master_config_t;
 
 /* ============================================================================

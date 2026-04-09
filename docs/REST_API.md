@@ -859,6 +859,30 @@ Toggle GPIO2 user mode.
 
 ---
 
+#### POST /api/modbus/master/reset-stats
+
+*Tilføjet i v7.9.3.2*
+
+Nulstiller alle Modbus Master statistik-tællere (requests, success, timeouts, CRC, exceptions, cache hits/misses, queue full, adaptive backoff). Statistik-tidspunktet nulstilles til nuværende tidspunkt.
+
+**Request Body:** Ingen (tomt POST)
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "message": "Master statistics reset"
+}
+```
+
+**Eksempel:**
+```bash
+curl -X POST http://192.168.1.100/api/modbus/master/reset-stats \
+  -H "Authorization: Basic YWRtaW46bW9kYnVzMTIz"
+```
+
+---
+
 ### CORS
 
 *Tilføjet i v6.3.0 (FEAT-027)*
@@ -923,10 +947,12 @@ esp32_heap_free_bytes 94904
 | | `modbus_slave_success_total` | counter | — | Succesfulde |
 | | `modbus_slave_crc_errors_total` | counter | — | CRC fejl |
 | | `modbus_slave_exceptions_total` | counter | — | Exception responses |
-| **Modbus Master** | `modbus_master_requests_total` | counter | — | Totale master requests |
+| **Modbus Master** | `modbus_master_stats_age_ms` | gauge | — | Tid siden sidste stats reset (ms) |
+| | `modbus_master_requests_total` | counter | — | Totale master requests |
 | | `modbus_master_success_total` | counter | — | Succesfulde |
 | | `modbus_master_timeout_errors_total` | counter | — | Timeout fejl |
 | | `modbus_master_crc_errors_total` | counter | — | CRC fejl |
+| | `modbus_master_slave_backoff` | gauge | `slave`, `timeouts`, `successes` | Adaptive backoff delay (ms) per slave |
 | **SSE** | `sse_clients_active` | gauge | — | Aktive SSE klienter |
 | **Network** | `wifi_connected` | gauge | — | WiFi status (0/1) |
 | | `wifi_rssi_dbm` | gauge | — | WiFi signalstyrke (dBm) |

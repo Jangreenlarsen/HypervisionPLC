@@ -499,10 +499,16 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.4.0"
+#define PROJECT_VERSION     "7.9.5.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.9.5.0 (2026-04-09): FEAT: mb CLI — remote Modbus Master read/write/scan/reset backoff
+ * v7.9.4.1 (2026-04-09): FIX: 4 bugs fundet under FEAT-121-126 integration test (23/23 PASS)
+ *                    - BUG-311: ST_AST_FUNCTION_CALL ikke håndteret i statement compiler (kun expr)
+ *                    - BUG-312: TIME variabel vist som int16 i REST API (manglende ST_TYPE_TIME case)
+ *                    - BUG-313: DINT literal >32767 crashede ESP32 (parser overflow + PUSH_INT 16-bit)
+ *                    - BUG-314: Integer auto-promote til DINT ved overflow (>INT16_MAX / <INT16_MIN)
  * v7.9.4.0 (2026-04-08): FEAT-121-126: IEC 61131-3 TIME, TON, TOF, CTU, CTD, CTUD
  *                    - FEAT-121: ST_TYPE_TIME native datatype, TIME keyword, T# literals som TIME
  *                    - FEAT-122-123: TON/TOF med IEC 61131-3 named-parameter syntax (IN:=, PT:=, Q=>, ET=>)

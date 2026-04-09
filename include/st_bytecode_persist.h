@@ -18,7 +18,7 @@
 
 /* Magic number "STBC" */
 #define ST_BYTECODE_MAGIC   0x53544243
-#define ST_BYTECODE_VERSION 2  // v2: includes initial values per variable
+#define ST_BYTECODE_VERSION 3  // v3: var_names reduced from 32 to 16 bytes
 
 /* Bytecode file header (16 bytes) */
 typedef struct __attribute__((packed)) {

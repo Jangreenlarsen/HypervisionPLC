@@ -168,6 +168,227 @@ void cli_cmd_set_modbus_master_cache_ttl(uint16_t ttl_ms) {
  * SHOW COMMAND
  * ============================================================================ */
 
+/* ============================================================================
+ * REMOTE READ/WRITE COMMANDS (mb read / mb write)
+ * ============================================================================ */
+
+static const char* mb_error_str(mb_error_code_t err) {
+  switch (err) {
+    case MB_OK:              return "OK";
+    case MB_TIMEOUT:         return "TIMEOUT (slave svarer ikke)";
+    case MB_CRC_ERROR:       return "CRC ERROR (data korrupt)";
+    case MB_EXCEPTION:       return "EXCEPTION (slave afviste)";
+    case MB_NOT_ENABLED:     return "NOT ENABLED (set modbus-master enabled on)";
+    case MB_INVALID_SLAVE:   return "INVALID SLAVE ID (1-247)";
+    case MB_INVALID_ADDRESS: return "INVALID ADDRESS";
+    default:                 return "UNKNOWN ERROR";
+  }
+}
+
+void cli_cmd_mb_read(uint8_t argc, char **argv) {
+  // mb read <fc> <slave_id> <address> [count]
+  // fc: coil, input, holding, input-reg
+  if (argc < 3) {
+    debug_println("Brug: mb read <type> <slave_id> <address> [count]");
+    debug_println("  type: coil (FC01), input (FC02), holding (FC03), input-reg (FC04)");
+    debug_println("  slave_id: 1-247");
+    debug_println("  address: 0-65535");
+    debug_println("  count: 1-16 (kun for holding, default 1)");
+    debug_println("Eksempel: mb read holding 90 0");
+    debug_println("          mb read holding 100 254 4");
+    return;
+  }
+
+  if (!g_modbus_master_config.enabled) {
+    debug_println("FEJL: Modbus Master er ikke aktiveret (set modbus-master enabled on)");
+    return;
+  }
+
+  const char *type = argv[0];
+  uint8_t slave_id = atoi(argv[1]);
+  uint16_t address = atoi(argv[2]);
+  uint8_t count = (argc >= 4) ? atoi(argv[3]) : 1;
+
+  if (slave_id < 1 || slave_id > 247) {
+    debug_println("FEJL: slave_id skal vaere 1-247");
+    return;
+  }
+
+  debug_printf("[MB READ] slave=%d addr=%d type=%s count=%d ...\n", slave_id, address, type, count);
+
+  if (strcasecmp(type, "coil") == 0) {
+    bool val = false;
+    mb_error_code_t err = modbus_master_read_coil(slave_id, address, &val);
+    g_modbus_master_config.total_requests++;
+    if (err == MB_OK) {
+      debug_printf("  Coil[%d] @ slave %d = %s\n", address, slave_id, val ? "ON (1)" : "OFF (0)");
+    } else {
+      debug_printf("  FEJL: %s\n", mb_error_str(err));
+    }
+  } else if (strcasecmp(type, "input") == 0) {
+    bool val = false;
+    mb_error_code_t err = modbus_master_read_input(slave_id, address, &val);
+    g_modbus_master_config.total_requests++;
+    if (err == MB_OK) {
+      debug_printf("  Input[%d] @ slave %d = %s\n", address, slave_id, val ? "ON (1)" : "OFF (0)");
+    } else {
+      debug_printf("  FEJL: %s\n", mb_error_str(err));
+    }
+  } else if (strcasecmp(type, "holding") == 0 || strcasecmp(type, "h-reg") == 0 || strcasecmp(type, "hreg") == 0) {
+    if (count > 16) { debug_println("FEJL: max 16 registre"); return; }
+    if (count == 1) {
+      uint16_t val = 0;
+      mb_error_code_t err = modbus_master_read_holding(slave_id, address, &val);
+      g_modbus_master_config.total_requests++;
+      if (err == MB_OK) {
+        debug_printf("  Holding[%d] @ slave %d = %u (0x%04X) (signed: %d)\n",
+                     address, slave_id, val, val, (int16_t)val);
+      } else {
+        debug_printf("  FEJL: %s\n", mb_error_str(err));
+      }
+    } else {
+      uint16_t vals[16];
+      mb_error_code_t err = modbus_master_read_holdings(slave_id, address, count, vals);
+      g_modbus_master_config.total_requests++;
+      if (err == MB_OK) {
+        debug_printf("  Holding[%d..%d] @ slave %d:\n", address, address + count - 1, slave_id);
+        for (uint8_t i = 0; i < count; i++) {
+          debug_printf("    [%d] = %u (0x%04X) (signed: %d)\n",
+                       address + i, vals[i], vals[i], (int16_t)vals[i]);
+        }
+      } else {
+        debug_printf("  FEJL: %s\n", mb_error_str(err));
+      }
+    }
+  } else if (strcasecmp(type, "input-reg") == 0 || strcasecmp(type, "i-reg") == 0 || strcasecmp(type, "ireg") == 0) {
+    uint16_t val = 0;
+    mb_error_code_t err = modbus_master_read_input_register(slave_id, address, &val);
+    g_modbus_master_config.total_requests++;
+    if (err == MB_OK) {
+      debug_printf("  InputReg[%d] @ slave %d = %u (0x%04X) (signed: %d)\n",
+                   address, slave_id, val, val, (int16_t)val);
+    } else {
+      debug_printf("  FEJL: %s\n", mb_error_str(err));
+    }
+  } else {
+    debug_printf("FEJL: Ukendt type '%s' (brug: coil, input, holding, input-reg)\n", type);
+  }
+}
+
+void cli_cmd_mb_write(uint8_t argc, char **argv) {
+  // mb write <fc> <slave_id> <address> <value>
+  if (argc < 4) {
+    debug_println("Brug: mb write <type> <slave_id> <address> <value>");
+    debug_println("  type: coil (FC05), holding (FC06)");
+    debug_println("  coil value: 0/1/on/off");
+    debug_println("  holding value: 0-65535");
+    debug_println("Eksempel: mb write coil 90 0 on");
+    debug_println("          mb write holding 100 254 1234");
+    return;
+  }
+
+  if (!g_modbus_master_config.enabled) {
+    debug_println("FEJL: Modbus Master er ikke aktiveret (set modbus-master enabled on)");
+    return;
+  }
+
+  const char *type = argv[0];
+  uint8_t slave_id = atoi(argv[1]);
+  uint16_t address = atoi(argv[2]);
+  const char *value_str = argv[3];
+
+  if (slave_id < 1 || slave_id > 247) {
+    debug_println("FEJL: slave_id skal vaere 1-247");
+    return;
+  }
+
+  if (strcasecmp(type, "coil") == 0) {
+    bool val = (strcasecmp(value_str, "on") == 0 || strcasecmp(value_str, "1") == 0 ||
+                strcasecmp(value_str, "true") == 0);
+    debug_printf("[MB WRITE] coil slave=%d addr=%d val=%s ...\n", slave_id, address, val ? "ON" : "OFF");
+    mb_error_code_t err = modbus_master_write_coil(slave_id, address, val);
+    g_modbus_master_config.total_requests++;
+    if (err == MB_OK) {
+      debug_printf("  OK: Coil[%d] @ slave %d = %s\n", address, slave_id, val ? "ON" : "OFF");
+    } else {
+      debug_printf("  FEJL: %s\n", mb_error_str(err));
+    }
+  } else if (strcasecmp(type, "holding") == 0 || strcasecmp(type, "h-reg") == 0 || strcasecmp(type, "hreg") == 0) {
+    uint16_t val = (uint16_t)atol(value_str);
+    debug_printf("[MB WRITE] holding slave=%d addr=%d val=%u ...\n", slave_id, address, val);
+    mb_error_code_t err = modbus_master_write_holding(slave_id, address, val);
+    g_modbus_master_config.total_requests++;
+    if (err == MB_OK) {
+      debug_printf("  OK: Holding[%d] @ slave %d = %u (0x%04X)\n", address, slave_id, val, val);
+    } else {
+      debug_printf("  FEJL: %s\n", mb_error_str(err));
+    }
+  } else {
+    debug_printf("FEJL: Ukendt type '%s' (brug: coil, holding)\n", type);
+  }
+}
+
+void cli_cmd_mb_reset_backoff(uint8_t argc, char **argv) {
+  if (argc >= 1) {
+    uint8_t slave_id = atoi(argv[0]);
+    if (slave_id > 0) {
+      // Reset specific slave
+      for (uint8_t i = 0; i < MB_SLAVE_BACKOFF_MAX; i++) {
+        if (g_mb_async.slave_backoff[i].slave_id == slave_id) {
+          g_mb_async.slave_backoff[i].backoff_ms = 0;
+          g_mb_async.slave_backoff[i].timeout_count = 0;
+          g_mb_async.slave_backoff[i].success_count = 0;
+          debug_printf("[OK] Backoff nulstillet for slave %d\n", slave_id);
+          return;
+        }
+      }
+      debug_printf("Slave %d har ingen backoff entry\n", slave_id);
+      return;
+    }
+  }
+  // Reset all
+  memset(g_mb_async.slave_backoff, 0, sizeof(g_mb_async.slave_backoff));
+  debug_println("[OK] Backoff nulstillet for alle slaves");
+}
+
+void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id) {
+  if (start_id < 1) start_id = 1;
+  if (end_id > 247) end_id = 247;
+  if (start_id > end_id) {
+    debug_println("FEJL: start_id skal vaere <= end_id");
+    return;
+  }
+
+  if (!g_modbus_master_config.enabled) {
+    debug_println("FEJL: Modbus Master er ikke aktiveret");
+    return;
+  }
+
+  debug_printf("[MB SCAN] Scanning slave %d-%d (FC03, addr 0) ...\n", start_id, end_id);
+  uint8_t found = 0;
+
+  for (uint8_t id = start_id; id <= end_id; id++) {
+    uint16_t val = 0;
+    mb_error_code_t err = modbus_master_read_holding(id, 0, &val);
+    g_modbus_master_config.total_requests++;
+    if (err == MB_OK) {
+      debug_printf("  Slave %3d: FUNDET (holding[0] = %u)\n", id, val);
+      found++;
+    } else if (err == MB_EXCEPTION) {
+      debug_printf("  Slave %3d: EXCEPTION (svarer men afviser FC03 addr 0)\n", id);
+      found++;
+    }
+    // Timeout = ingen slave — vis ikke
+    delay(10); // Kort pause mellem scans
+  }
+
+  debug_printf("[MB SCAN] Faerdigt: %d slave(s) fundet af %d testet\n", found, end_id - start_id + 1);
+}
+
+/* ============================================================================
+ * SHOW COMMAND
+ * ============================================================================ */
+
 void cli_cmd_show_modbus_master() {
   debug_printf("\n=== MODBUS MASTER CONFIGURATION ===\n");
   debug_printf("Status: %s\n", g_modbus_master_config.enabled ? "ENABLED" : "DISABLED");
@@ -232,6 +453,28 @@ void cli_cmd_show_modbus_master() {
   debug_printf("  Async errors: %u\n", async_state->total_errors);
   debug_printf("  Async timeouts: %u\n", async_state->total_timeouts);
   debug_printf("\n");
+
+  // Adaptive backoff per slave (v7.9.3)
+  bool has_backoff = false;
+  for (uint8_t i = 0; i < MB_SLAVE_BACKOFF_MAX; i++) {
+    if (async_state->slave_backoff[i].slave_id != 0) {
+      has_backoff = true;
+      break;
+    }
+  }
+  if (has_backoff) {
+    debug_printf("Adaptive Backoff:\n");
+    debug_printf("  %-6s %-10s %-9s %s\n", "Slave", "Backoff", "Timeouts", "Successes");
+    for (uint8_t i = 0; i < MB_SLAVE_BACKOFF_MAX; i++) {
+      if (async_state->slave_backoff[i].slave_id == 0) continue;
+      debug_printf("  %-6d %-10s %-9u %u\n",
+                   async_state->slave_backoff[i].slave_id,
+                   (String(async_state->slave_backoff[i].backoff_ms) + "ms").c_str(),
+                   async_state->slave_backoff[i].timeout_count,
+                   async_state->slave_backoff[i].success_count);
+    }
+    debug_printf("\n");
+  }
 
   if (async_state->entry_count > 0) {
     debug_printf("Cache Entries:\n");

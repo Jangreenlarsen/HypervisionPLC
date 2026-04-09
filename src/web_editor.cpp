@@ -177,10 +177,15 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <button class="vbtn" onclick="setView('monitor',this)">Monitor</button>
 </div>
 <div style="flex:1"></div>
-<span style="font-size:11px;color:#6c7086">Pool:</span>
+<span style="font-size:11px;color:#6c7086" title="Kildekode pool">Pool:</span>
 <div class="pool-bar">
 <div class="pool-fill" id="poolFill"></div>
 <div class="pool-text" id="poolText">-</div>
+</div>
+<span style="font-size:11px;color:#6c7086;margin-left:6px" title="Heap til compiler">Heap:</span>
+<div class="pool-bar" style="min-width:110px">
+<div class="pool-fill" id="heapFill"></div>
+<div class="pool-text" id="heapText">-</div>
 </div>
 <button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="toggleSidebar()">Ref</button>
 </div>
@@ -480,13 +485,19 @@ async function api(method,path,body){
   return r.json();
 }
 
+let resourceTimer=null;
 async function init(){
   try{
     const st=await api('GET','status');
     document.getElementById('deviceInfo').textContent=
-      'v'+(st.version||'?')+' Build #'+(st.build||'?')+' — Heap: '+((st.heap_free/1024)|0)+'KB fri';
+      'v'+(st.version||'?')+' Build #'+(st.build||'?');
   }catch(e){}
   await loadAll();
+  // Poll compiler resources every 5 seconds
+  if(resourceTimer)clearInterval(resourceTimer);
+  resourceTimer=setInterval(async()=>{
+    try{const d=await api('GET','logic');if(d.resources)updatePool(d.resources);}catch(e){}
+  },5000);
 }
 
 async function loadAll(){
@@ -496,6 +507,7 @@ async function loadAll(){
       d.programs.forEach((p,i)=>{programs[i]=p;});
     }
     updateTabs();
+    updatePool(d.resources||null);
     await loadSource(SLOT);
   }catch(e){log('error','Fejl: '+e.message);}
 }
@@ -634,13 +646,26 @@ function downloadBackup(){
   log('info','Downloaded: '+name);
 }
 
-function updatePool(){
-  let used=0,total=8000;
-  programs.forEach(p=>{if(p)used+=(p.source_size||0);});
+let lastResources=null;
+function updatePool(res){
+  // Pool bar (kildekode)
+  const total=res?res.pool_total:8000;
+  const used=res?res.pool_used:0;
   const pct=Math.min(100,(used/total*100)|0);
   document.getElementById('poolFill').style.width=pct+'%';
   document.getElementById('poolFill').style.background=pct>90?'#f38ba8':pct>70?'#fab387':'#89b4fa';
   document.getElementById('poolText').textContent=used+'/'+total+' ('+pct+'%)';
+  // Heap bar (compiler ressourcer)
+  if(res){
+    lastResources=res;
+    const hf=res.heap_free;const lb=res.largest_block;const nodes=res.max_ast_nodes;
+    const hpct=Math.min(100,Math.max(0,100-((lb/65536*100)|0)));
+    document.getElementById('heapFill').style.width=hpct+'%';
+    document.getElementById('heapFill').style.background=lb<20000?'#f38ba8':lb<35000?'#fab387':'#a6e3a1';
+    document.getElementById('heapText').textContent=((lb/1024)|0)+'KB blok / ~'+nodes+' nodes';
+    document.getElementById('heapFill').parentElement.title=
+      'Heap fri: '+((hf/1024)|0)+'KB | Storste blok: '+((lb/1024)|0)+'KB | Max AST nodes: '+nodes+' | Node: '+res.ast_node_size+' bytes';
+  }
 }
 
 function updateStatus(cls,text){

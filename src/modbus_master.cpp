@@ -58,6 +58,7 @@ void modbus_master_init() {
   g_modbus_master_config.inter_frame_delay = g_persist_config.modbus_master.inter_frame_delay;
   g_modbus_master_config.max_requests_per_cycle = g_persist_config.modbus_master.max_requests_per_cycle;
   g_modbus_master_config.cache_ttl_ms = g_persist_config.modbus_master.cache_ttl_ms;
+  g_modbus_master_config.stats_since_ms = millis();
 
 #if MODBUS_SINGLE_TRANSCEIVER
   // ES32D26: shared transceiver — DIR pin already configured by uart_driver
@@ -224,13 +225,19 @@ mb_error_code_t modbus_master_send_request(
   digitalWrite(uart_get_master_dir_pin(), LOW);
 
   // Wait for response with timeout
+  // Two-phase timeout: full timeout_ms for first byte, then shorter inter-char timeout
   uint32_t start_time = millis();
   uint8_t bytes_received = 0;
   bool timeout = false;
+  // Inter-character timeout: T3.5 at baudrate (min 2ms, max 20ms)
+  uint32_t interchar_ms = (uint32_t)(38500UL / g_modbus_master_config.baudrate);
+  if (interchar_ms < 2) interchar_ms = 2;
+  if (interchar_ms > 20) interchar_ms = 20;
 
   while (bytes_received < max_response_len) {
-    // Check timeout
-    if (millis() - start_time > g_modbus_master_config.timeout_ms) {
+    // Check timeout: use full timeout for first byte, inter-char after that
+    uint32_t active_timeout = (bytes_received == 0) ? g_modbus_master_config.timeout_ms : interchar_ms;
+    if (millis() - start_time > active_timeout) {
       timeout = true;
       break;
     }
@@ -246,7 +253,7 @@ mb_error_code_t modbus_master_send_request(
 #else
     if (ModbusSerial.available()) {
       response[bytes_received++] = ModbusSerial.read();
-      start_time = millis(); // Reset timeout on each received byte
+      start_time = millis(); // Reset for inter-character timeout
 #endif
 
       // Check if we have minimum response (slave_id + function + data + CRC)
@@ -280,6 +287,11 @@ mb_error_code_t modbus_master_send_request(
             }
           } else if (function_code == 0x05 || function_code == 0x06) {
             // Write Single: slave_id + fc + address(2) + value(2) + CRC(2) = 8 bytes
+            if (bytes_received >= 8) {
+              break; // Complete response
+            }
+          } else if (function_code == 0x10) {
+            // FC16 Write Multiple: slave_id + fc + address(2) + count(2) + CRC(2) = 8 bytes
             if (bytes_received >= 8) {
               break; // Complete response
             }

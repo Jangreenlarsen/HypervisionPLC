@@ -19,6 +19,10 @@
 mb_async_state_t g_mb_async = {0};
 portMUX_TYPE mb_cache_spinlock = portMUX_INITIALIZER_UNLOCKED;
 
+// Ring-buffer pool for FC16 multi-register write values
+uint16_t g_mb_multi_write_pool[MB_MULTI_REG_POOL_SIZE][16] = {0};
+volatile uint8_t g_mb_multi_write_next = 0;
+
 /* ============================================================================
  * CACHE FUNCTIONS
  * ============================================================================ */
@@ -46,11 +50,23 @@ mb_cache_entry_t *mb_cache_get_or_create(uint8_t slave_id, uint16_t address, uin
   g_mb_async.cache_misses++;
 
   // Create new if space available
-  if (g_mb_async.entry_count >= MB_CACHE_MAX_ENTRIES) {
-    return NULL;  // Cache full
+  if (g_mb_async.entry_count < MB_CACHE_MAX_ENTRIES) {
+    e = &g_mb_async.entries[g_mb_async.entry_count++];
+  } else {
+    // LRU eviction: find oldest entry (lowest last_update_ms)
+    uint32_t oldest_ms = UINT32_MAX;
+    uint8_t oldest_idx = 0;
+    for (uint8_t i = 0; i < MB_CACHE_MAX_ENTRIES; i++) {
+      // Skip PENDING entries (active request in flight)
+      if (g_mb_async.entries[i].status == MB_CACHE_PENDING) continue;
+      if (g_mb_async.entries[i].last_update_ms < oldest_ms) {
+        oldest_ms = g_mb_async.entries[i].last_update_ms;
+        oldest_idx = i;
+      }
+    }
+    e = &g_mb_async.entries[oldest_idx];
   }
 
-  e = &g_mb_async.entries[g_mb_async.entry_count++];
   memset(e, 0, sizeof(mb_cache_entry_t));
   e->key.slave_id = slave_id;
   e->key.address = address;
@@ -104,8 +120,19 @@ bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t addr
 }
 
 bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t address, st_value_t value) {
-  // Writes are always queued (no deduplication — each write matters)
+  // Write deduplication: skip if cache shows same value already written successfully
+  extern bool g_mb_cache_enabled;
+  if (g_mb_cache_enabled) {
+    uint8_t read_type = (type == MB_REQ_WRITE_COIL) ? (uint8_t)MB_REQ_READ_COIL : (uint8_t)MB_REQ_READ_HOLDING;
+    mb_cache_entry_t *cached = mb_cache_find(slave_id, address, read_type);
+    if (cached && cached->status == MB_CACHE_VALID &&
+        cached->value.int_val == value.int_val) {
+      return true;  // Same value already confirmed written — skip
+    }
+  }
+
   mb_async_request_t req;
+  memset(&req, 0, sizeof(req));
   req.type = type;
   req.slave_id = slave_id;
   req.address = address;
@@ -114,6 +141,16 @@ bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t add
   if (xQueueSend(g_mb_async.request_queue, &req, 0) != pdTRUE) {
     g_mb_async.queue_full_count++;
     return false;
+  }
+
+  // Update cache to reflect the pending write value
+  uint8_t cache_type = (type == MB_REQ_WRITE_COIL) ? (uint8_t)MB_REQ_READ_COIL : (uint8_t)MB_REQ_READ_HOLDING;
+  mb_cache_entry_t *entry = mb_cache_get_or_create(slave_id, address, cache_type);
+  if (entry) {
+    portENTER_CRITICAL(&mb_cache_spinlock);
+    entry->value = value;
+    entry->status = MB_CACHE_PENDING;
+    portEXIT_CRITICAL(&mb_cache_spinlock);
   }
 
   return true;
@@ -149,14 +186,18 @@ bool mb_async_queue_read_multi(uint8_t slave_id, uint16_t address, uint8_t count
 bool mb_async_queue_write_multi(uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values) {
   if (count == 0 || count > 16) return false;
 
+  // Allocate a pool slot for multi-reg values (ring-buffer, wraps at 4)
+  uint8_t slot = g_mb_multi_write_next;
+  g_mb_multi_write_next = (g_mb_multi_write_next + 1) % MB_MULTI_REG_POOL_SIZE;
+  memcpy(g_mb_multi_write_pool[slot], values, count * sizeof(uint16_t));
+
   mb_async_request_t req;
   memset(&req, 0, sizeof(req));
   req.type = MB_REQ_WRITE_HOLDINGS;
   req.slave_id = slave_id;
   req.address = address;
   req.count = count;
-  // Copy values into request — sent to async task via queue
-  memcpy(req.multi_regs, values, count * sizeof(uint16_t));
+  req.multi_pool_slot = slot;
 
   if (xQueueSend(g_mb_async.request_queue, &req, 0) != pdTRUE) {
     g_mb_async.queue_full_count++;
@@ -168,6 +209,75 @@ bool mb_async_queue_write_multi(uint8_t slave_id, uint16_t address, uint8_t coun
 bool mb_async_is_busy() {
   if (!g_mb_async.request_queue) return false;
   return uxQueueMessagesWaiting(g_mb_async.request_queue) > 0;
+}
+
+/* ============================================================================
+ * PER-SLAVE ADAPTIVE BACKOFF (v7.9.3)
+ *
+ * Tracks consecutive timeouts per slave_id. On timeout:
+ *   backoff doubles (50→100→200→400→800→1600→2000ms cap)
+ * On success:
+ *   backoff decays by 100ms per success until 0
+ *
+ * Effect: if slave ID 250 doesn't exist, first request takes 500ms (timeout),
+ * but subsequent requests wait 2s between attempts instead of flooding the bus.
+ * ============================================================================ */
+
+static uint8_t mb_backoff_find_or_create(uint8_t slave_id) {
+  // Find existing slot
+  for (uint8_t i = 0; i < MB_SLAVE_BACKOFF_MAX; i++) {
+    if (g_mb_async.slave_backoff[i].slave_id == slave_id) return i;
+  }
+  // Find empty slot
+  for (uint8_t i = 0; i < MB_SLAVE_BACKOFF_MAX; i++) {
+    if (g_mb_async.slave_backoff[i].slave_id == 0) {
+      g_mb_async.slave_backoff[i].slave_id = slave_id;
+      return i;
+    }
+  }
+  // All slots used — evict the one with lowest backoff (least problematic)
+  uint8_t min_idx = 0;
+  uint16_t min_bo = UINT16_MAX;
+  for (uint8_t i = 0; i < MB_SLAVE_BACKOFF_MAX; i++) {
+    if (g_mb_async.slave_backoff[i].backoff_ms < min_bo) {
+      min_bo = g_mb_async.slave_backoff[i].backoff_ms;
+      min_idx = i;
+    }
+  }
+  memset(&g_mb_async.slave_backoff[min_idx], 0, sizeof(g_mb_async.slave_backoff[0]));
+  g_mb_async.slave_backoff[min_idx].slave_id = slave_id;
+  return min_idx;
+}
+
+static void mb_backoff_on_timeout(uint8_t slave_id) {
+  uint8_t idx = mb_backoff_find_or_create(slave_id);
+  auto &s = g_mb_async.slave_backoff[idx];
+  s.timeout_count++;
+  s.success_count = 0;
+  if (s.backoff_ms == 0) {
+    s.backoff_ms = MB_BACKOFF_INITIAL_MS;
+  } else {
+    s.backoff_ms = (s.backoff_ms * 2 > MB_BACKOFF_MAX_MS) ? MB_BACKOFF_MAX_MS : s.backoff_ms * 2;
+  }
+}
+
+static void mb_backoff_on_success(uint8_t slave_id) {
+  uint8_t idx = mb_backoff_find_or_create(slave_id);
+  auto &s = g_mb_async.slave_backoff[idx];
+  s.timeout_count = 0;
+  s.success_count++;
+  if (s.backoff_ms > 0) {
+    s.backoff_ms = (s.backoff_ms > MB_BACKOFF_DECAY_MS) ? (s.backoff_ms - MB_BACKOFF_DECAY_MS) : 0;
+  }
+}
+
+static uint16_t mb_backoff_get_delay(uint8_t slave_id) {
+  for (uint8_t i = 0; i < MB_SLAVE_BACKOFF_MAX; i++) {
+    if (g_mb_async.slave_backoff[i].slave_id == slave_id) {
+      return g_mb_async.slave_backoff[i].backoff_ms;
+    }
+  }
+  return 0;
 }
 
 /* ============================================================================
@@ -184,6 +294,12 @@ static void mb_async_task_func(void *pvParameters) {
     }
 
     g_mb_async.total_requests++;
+
+    // Apply per-slave backoff delay before sending (reduces bus flooding on timeouts)
+    uint16_t backoff = mb_backoff_get_delay(req.slave_id);
+    if (backoff > 0) {
+      vTaskDelay(pdMS_TO_TICKS(backoff));
+    }
 
     mb_error_code_t err = MB_OK;
     st_value_t result;
@@ -255,18 +371,18 @@ static void mb_async_task_func(void *pvParameters) {
         break;
       }
       case MB_REQ_WRITE_HOLDINGS: {
-        // FC16 multi-register write — gather values from cache entries
+        // FC16 multi-register write — read values from pool slot
         uint8_t cnt = req.count;
         if (cnt == 0 || cnt > 16) { err = MB_INVALID_ADDRESS; break; }
-        // Write values from request buffer (copied from g_mb_multi_reg_buf at queue time)
-        err = modbus_master_write_holdings(req.slave_id, req.address, cnt, req.multi_regs);
+        uint16_t *write_vals = g_mb_multi_write_pool[req.multi_pool_slot];
+        err = modbus_master_write_holdings(req.slave_id, req.address, cnt, write_vals);
         // Update cache entries with written values
         for (uint8_t i = 0; i < cnt; i++) {
           mb_cache_entry_t *ce = mb_cache_get_or_create(req.slave_id, req.address + i, (uint8_t)MB_REQ_READ_HOLDING);
           if (ce) {
             portENTER_CRITICAL(&mb_cache_spinlock);
             if (err == MB_OK) {
-              ce->value.int_val = (int32_t)req.multi_regs[i];
+              ce->value.int_val = (int32_t)write_vals[i];
               ce->status = MB_CACHE_VALID;
             } else {
               ce->status = MB_CACHE_ERROR;
@@ -327,6 +443,13 @@ static void mb_async_task_func(void *pvParameters) {
     }
 
     skip_cache_update:
+    // Adaptive backoff: increase delay on timeout, decrease on success
+    if (err == MB_TIMEOUT) {
+      mb_backoff_on_timeout(req.slave_id);
+    } else if (err == MB_OK) {
+      mb_backoff_on_success(req.slave_id);
+    }
+
     // Stats
     if (err != MB_OK) {
       g_mb_async.total_errors++;
@@ -343,6 +466,7 @@ static void mb_async_task_func(void *pvParameters) {
 
 void mb_async_init() {
   memset(&g_mb_async, 0, sizeof(g_mb_async));
+  g_mb_async.stats_since_ms = millis();
 
   g_mb_async.request_queue = xQueueCreate(MB_ASYNC_QUEUE_SIZE, sizeof(mb_async_request_t));
   if (!g_mb_async.request_queue) {
@@ -406,4 +530,25 @@ void mb_async_reset_cache() {
   g_mb_async.entry_count = 0;
   memset(g_mb_async.entries, 0, sizeof(g_mb_async.entries));
   portEXIT_CRITICAL(&mb_cache_spinlock);
+}
+
+void mb_async_reset_stats() {
+  portENTER_CRITICAL(&mb_cache_spinlock);
+  g_mb_async.cache_hits = 0;
+  g_mb_async.cache_misses = 0;
+  g_mb_async.queue_full_count = 0;
+  g_mb_async.total_requests = 0;
+  g_mb_async.total_errors = 0;
+  g_mb_async.total_timeouts = 0;
+  g_mb_async.stats_since_ms = millis();
+  memset(g_mb_async.slave_backoff, 0, sizeof(g_mb_async.slave_backoff));
+  portEXIT_CRITICAL(&mb_cache_spinlock);
+
+  // Also reset modbus_master_config stats
+  g_modbus_master_config.total_requests = 0;
+  g_modbus_master_config.successful_requests = 0;
+  g_modbus_master_config.timeout_errors = 0;
+  g_modbus_master_config.crc_errors = 0;
+  g_modbus_master_config.exception_errors = 0;
+  g_modbus_master_config.stats_since_ms = millis();
 }
