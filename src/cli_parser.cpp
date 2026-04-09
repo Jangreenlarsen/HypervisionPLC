@@ -2327,33 +2327,34 @@ bool cli_parser_execute(char* line) {
       return false;
     }
 
-    const char* subcmd = normalize_alias(argv[1]);
+    // Use strcasecmp for mb subcommands — they're not all in normalize_alias
+    const char* subcmd = argv[1];
 
-    if (!strcmp(subcmd, "READ") || !strcmp(subcmd, "RD") || !strcmp(subcmd, "R")) {
+    if (!strcasecmp(subcmd, "read") || !strcasecmp(subcmd, "rd") || !strcasecmp(subcmd, "r")) {
       cli_cmd_mb_read(argc - 2, argv + 2);
       return true;
-    } else if (!strcmp(subcmd, "WRITE") || !strcmp(subcmd, "WR") || !strcmp(subcmd, "W")) {
+    } else if (!strcasecmp(subcmd, "write") || !strcasecmp(subcmd, "wr") || !strcasecmp(subcmd, "w")) {
       cli_cmd_mb_write(argc - 2, argv + 2);
       return true;
-    } else if (!strcmp(subcmd, "SCAN")) {
+    } else if (!strcasecmp(subcmd, "scan")) {
       uint8_t start_id = (argc >= 3) ? atoi(argv[2]) : 1;
       uint8_t end_id = (argc >= 4) ? atoi(argv[3]) : 247;
       cli_cmd_mb_scan(start_id, end_id);
       return true;
-    } else if (!strcmp(subcmd, "RESET")) {
+    } else if (!strcasecmp(subcmd, "reset") || !strcasecmp(subcmd, "rst")) {
       if (argc < 3) {
         debug_println("Brug: mb reset backoff [slave_id] | mb reset stats | mb reset cache");
         return false;
       }
-      const char* what_reset = normalize_alias(argv[2]);
-      if (!strcmp(what_reset, "BACKOFF") || !strcmp(what_reset, "BO")) {
+      const char* what_reset = argv[2];
+      if (!strcasecmp(what_reset, "backoff") || !strcasecmp(what_reset, "bo")) {
         cli_cmd_mb_reset_backoff(argc - 3, argv + 3);
         return true;
-      } else if (!strcmp(what_reset, "STATS")) {
+      } else if (!strcasecmp(what_reset, "stats")) {
         mb_async_reset_stats();
         debug_println("[OK] Modbus Master statistik nulstillet");
         return true;
-      } else if (!strcmp(what_reset, "CACHE")) {
+      } else if (!strcasecmp(what_reset, "cache")) {
         mb_async_reset_cache();
         debug_println("[OK] Modbus Master cache ryddet");
         return true;
@@ -2361,7 +2362,7 @@ bool cli_parser_execute(char* line) {
         debug_println("Brug: mb reset backoff [slave_id] | mb reset stats | mb reset cache");
         return false;
       }
-    } else if (!strcmp(subcmd, "HELP") || !strcmp(subcmd, "?")) {
+    } else if (!strcasecmp(subcmd, "help") || !strcmp(subcmd, "?")) {
       debug_println("\n=== MODBUS MASTER REMOTE COMMANDS ===\n");
       debug_println("Read fra remote slave:");
       debug_println("  mb read coil <slave_id> <addr>            - FC01 Read Coil");
