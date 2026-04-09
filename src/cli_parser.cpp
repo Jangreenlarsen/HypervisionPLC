@@ -178,7 +178,8 @@ static const char* normalize_alias(const char* s) {
   // Modbus Master/Slave/Mode commands
   if (str_eq_i(s, "MODBUS-MASTER") || str_eq_i(s, "MB-MASTER")) return "MODBUS-MASTER";
   if (str_eq_i(s, "MODBUS-SLAVE") || str_eq_i(s, "MB-SLAVE")) return "MODBUS-SLAVE";
-  if (str_eq_i(s, "MODBUS") || str_eq_i(s, "MB")) return "MODBUS";
+  if (str_eq_i(s, "MODBUS")) return "MODBUS";
+  if (str_eq_i(s, "MB")) return "MB";
   if (str_eq_i(s, "MODE")) return "MODE";
   if (str_eq_i(s, "SLAVE")) return "SLAVE";
   if (str_eq_i(s, "MASTER")) return "MASTER";
