@@ -25,6 +25,6 @@ void cli_cmd_show_modbus_master();
 void cli_cmd_mb_read(uint8_t argc, char **argv);
 void cli_cmd_mb_write(uint8_t argc, char **argv);
 void cli_cmd_mb_reset_backoff(uint8_t argc, char **argv);
-void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id);
+void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id, uint32_t temp_baud = 0);
 
 #endif // CLI_COMMANDS_MODBUS_MASTER_H

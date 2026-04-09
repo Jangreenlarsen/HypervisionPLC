@@ -2337,9 +2337,36 @@ bool cli_parser_execute(char* line) {
       cli_cmd_mb_write(argc - 2, argv + 2);
       return true;
     } else if (!strcasecmp(subcmd, "scan")) {
-      uint8_t start_id = (argc >= 3) ? atoi(argv[2]) : 1;
-      uint8_t end_id = (argc >= 4) ? atoi(argv[3]) : 247;
-      cli_cmd_mb_scan(start_id, end_id);
+      // mb scan [start] [end] [baudrate]
+      // Detect baudrate: last numeric arg that's a valid baud
+      uint8_t start_id = 1, end_id = 247;
+      uint32_t scan_baud = 0;
+      if (argc >= 5) {
+        // mb scan <start> <end> <baud>
+        start_id = atoi(argv[2]);
+        end_id = atoi(argv[3]);
+        uint32_t v = atol(argv[4]);
+        if (v == 2400 || v == 4800 || v == 9600 || v == 19200 || v == 38400 || v == 57600 || v == 115200)
+          scan_baud = v;
+      } else if (argc >= 4) {
+        start_id = atoi(argv[2]);
+        uint32_t v = atol(argv[3]);
+        if (v == 2400 || v == 4800 || v == 9600 || v == 19200 || v == 38400 || v == 57600 || v == 115200) {
+          // mb scan <start> <baud> — scan single id range with baud
+          end_id = start_id;
+          scan_baud = v;
+        } else {
+          end_id = (uint8_t)v;
+        }
+      } else if (argc >= 3) {
+        uint32_t v = atol(argv[2]);
+        if (v == 2400 || v == 4800 || v == 9600 || v == 19200 || v == 38400 || v == 57600 || v == 115200) {
+          scan_baud = v;  // mb scan <baud> — full scan with baud
+        } else {
+          start_id = (uint8_t)v;
+        }
+      }
+      cli_cmd_mb_scan(start_id, end_id, scan_baud);
       return true;
     } else if (!strcasecmp(subcmd, "reset") || !strcasecmp(subcmd, "rst")) {
       if (argc < 3) {
@@ -2365,24 +2392,28 @@ bool cli_parser_execute(char* line) {
     } else if (!strcasecmp(subcmd, "help") || !strcmp(subcmd, "?")) {
       debug_println("\n=== MODBUS MASTER REMOTE COMMANDS ===\n");
       debug_println("Read fra remote slave:");
-      debug_println("  mb read coil <slave_id> <addr>            - FC01 Read Coil");
-      debug_println("  mb read input <slave_id> <addr>           - FC02 Read Discrete Input");
-      debug_println("  mb read holding <slave_id> <addr> [count] - FC03 Read Holding Register(s)");
-      debug_println("  mb read input-reg <slave_id> <addr>       - FC04 Read Input Register");
+      debug_println("  mb read coil <slave> <addr> [baud]            - FC01 Read Coil");
+      debug_println("  mb read input <slave> <addr> [baud]           - FC02 Read Discrete Input");
+      debug_println("  mb read holding <slave> <addr> [count] [baud] - FC03 Read Holding Register(s)");
+      debug_println("  mb read input-reg <slave> <addr> [baud]       - FC04 Read Input Register");
       debug_println("");
       debug_println("Write til remote slave:");
-      debug_println("  mb write coil <slave_id> <addr> <0|1|on|off> - FC05 Write Coil");
-      debug_println("  mb write holding <slave_id> <addr> <value>   - FC06 Write Register");
+      debug_println("  mb write coil <slave> <addr> <0|1|on|off> [baud]  - FC05 Write Coil");
+      debug_println("  mb write holding <slave> <addr> <value> [baud]    - FC06 Write Register");
       debug_println("");
       debug_println("Diagnostik:");
-      debug_println("  mb scan [start] [end]          - Scan for slaves (default: 1-247)");
-      debug_println("  mb scan 80 110                 - Scan specifikt range");
+      debug_println("  mb scan [start] [end] [baud]   - Scan for slaves (default: 1-247)");
       debug_println("  mb reset backoff [slave_id]    - Nulstil adaptive backoff");
       debug_println("  mb reset stats                 - Nulstil statistik");
       debug_println("  mb reset cache                 - Ryd cache entries");
       debug_println("");
-      debug_println("Aliases: mb rd = mb read, mb wr = mb write");
+      debug_println("Baudrate override (valgfri, sidste parameter):");
+      debug_println("  Gyldige: 2400, 4800, 9600, 19200, 38400, 57600, 115200");
+      debug_println("  mb read holding 90 0 19200     - Laes med 19200 baud");
+      debug_println("  mb scan 80 110 9600            - Scan med 9600 baud");
+      debug_println("  Baudrate gendannes automatisk efter kommandoen");
       debug_println("");
+      debug_println("Aliases: mb rd = mb read, mb wr = mb write");
       return true;
     } else {
       debug_printf("MB: ukendt kommando '%s' (brug: read, write, scan, reset, help)\n", argv[1]);

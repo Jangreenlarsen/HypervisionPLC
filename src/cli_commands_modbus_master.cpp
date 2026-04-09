@@ -185,17 +185,57 @@ static const char* mb_error_str(mb_error_code_t err) {
   }
 }
 
+// Valid baudrates for temporary override
+static bool mb_is_valid_baudrate(uint32_t baud) {
+  return (baud == 2400 || baud == 4800 || baud == 9600 || baud == 19200 ||
+          baud == 38400 || baud == 57600 || baud == 115200);
+}
+
+// Detect if last argument is a baudrate (common standard values)
+// Returns baudrate if found, 0 if not
+static uint32_t mb_detect_baud_arg(uint8_t argc, char **argv, uint8_t min_args) {
+  if (argc <= min_args) return 0;  // No extra arg beyond required
+  uint32_t val = atol(argv[argc - 1]);
+  return mb_is_valid_baudrate(val) ? val : 0;
+}
+
+// RAII-style temporary baudrate switcher
+struct MbTempBaud {
+  uint32_t saved_baud;
+  bool switched;
+
+  MbTempBaud(uint32_t temp_baud) : saved_baud(0), switched(false) {
+    if (temp_baud > 0 && temp_baud != g_modbus_master_config.baudrate) {
+      saved_baud = g_modbus_master_config.baudrate;
+      g_modbus_master_config.baudrate = temp_baud;
+      modbus_master_reconfigure();
+      switched = true;
+      debug_printf("  [BAUD] Midlertidig baudrate: %u (normal: %u)\n", temp_baud, saved_baud);
+    }
+  }
+
+  ~MbTempBaud() {
+    if (switched) {
+      g_modbus_master_config.baudrate = saved_baud;
+      modbus_master_reconfigure();
+      debug_printf("  [BAUD] Gendannet baudrate: %u\n", saved_baud);
+    }
+  }
+};
+
 void cli_cmd_mb_read(uint8_t argc, char **argv) {
-  // mb read <fc> <slave_id> <address> [count]
-  // fc: coil, input, holding, input-reg
+  // mb read <type> <slave_id> <address> [count] [baudrate]
   if (argc < 3) {
-    debug_println("Brug: mb read <type> <slave_id> <address> [count]");
+    debug_println("Brug: mb read <type> <slave_id> <address> [count] [baudrate]");
     debug_println("  type: coil (FC01), input (FC02), holding (FC03), input-reg (FC04)");
     debug_println("  slave_id: 1-247");
     debug_println("  address: 0-65535");
     debug_println("  count: 1-16 (kun for holding, default 1)");
+    debug_println("  baudrate: 2400-115200 (valgfri, midlertidig override)");
     debug_println("Eksempel: mb read holding 90 0");
     debug_println("          mb read holding 100 254 4");
+    debug_println("          mb read holding 90 0 19200");
+    debug_println("          mb read holding 100 254 4 9600");
     return;
   }
 
@@ -207,13 +247,44 @@ void cli_cmd_mb_read(uint8_t argc, char **argv) {
   const char *type = argv[0];
   uint8_t slave_id = atoi(argv[1]);
   uint16_t address = atoi(argv[2]);
-  uint8_t count = (argc >= 4) ? atoi(argv[3]) : 1;
+
+  // Detect optional baudrate as last arg
+  // For coil/input/input-reg: 3 required args (type, slave, addr) → baud at [3]
+  // For holding: 3 required + optional count → need to figure out which is count vs baud
+  uint32_t temp_baud = 0;
+  uint8_t count = 1;
+
+  if (strcasecmp(type, "holding") == 0 || strcasecmp(type, "h-reg") == 0 || strcasecmp(type, "hreg") == 0) {
+    // holding: mb read holding <slave> <addr> [count] [baud]
+    if (argc >= 5) {
+      // Two extra args: argv[3]=count, argv[4]=baud
+      uint32_t last_val = atol(argv[4]);
+      if (mb_is_valid_baudrate(last_val)) {
+        count = atoi(argv[3]);
+        temp_baud = last_val;
+      } else {
+        count = atoi(argv[3]);
+      }
+    } else if (argc >= 4) {
+      // One extra arg: could be count OR baud
+      uint32_t val = atol(argv[3]);
+      if (mb_is_valid_baudrate(val) && val > 16) {
+        temp_baud = val;  // It's a baudrate (all valid bauds are > 16)
+      } else {
+        count = atoi(argv[3]);
+      }
+    }
+  } else {
+    // coil/input/input-reg: mb read coil <slave> <addr> [baud]
+    temp_baud = mb_detect_baud_arg(argc, argv, 3);
+  }
 
   if (slave_id < 1 || slave_id > 247) {
     debug_println("FEJL: slave_id skal vaere 1-247");
     return;
   }
 
+  MbTempBaud baud_guard(temp_baud);
   debug_printf("[MB READ] slave=%d addr=%d type=%s count=%d ...\n", slave_id, address, type, count);
 
   if (strcasecmp(type, "coil") == 0) {
@@ -276,14 +347,16 @@ void cli_cmd_mb_read(uint8_t argc, char **argv) {
 }
 
 void cli_cmd_mb_write(uint8_t argc, char **argv) {
-  // mb write <fc> <slave_id> <address> <value>
+  // mb write <type> <slave_id> <address> <value> [baudrate]
   if (argc < 4) {
-    debug_println("Brug: mb write <type> <slave_id> <address> <value>");
+    debug_println("Brug: mb write <type> <slave_id> <address> <value> [baudrate]");
     debug_println("  type: coil (FC05), holding (FC06)");
     debug_println("  coil value: 0/1/on/off");
     debug_println("  holding value: 0-65535");
+    debug_println("  baudrate: 2400-115200 (valgfri, midlertidig override)");
     debug_println("Eksempel: mb write coil 90 0 on");
     debug_println("          mb write holding 100 254 1234");
+    debug_println("          mb write holding 100 254 1234 19200");
     return;
   }
 
@@ -297,10 +370,15 @@ void cli_cmd_mb_write(uint8_t argc, char **argv) {
   uint16_t address = atoi(argv[2]);
   const char *value_str = argv[3];
 
+  // Detect optional baudrate as last arg (argv[4])
+  uint32_t temp_baud = mb_detect_baud_arg(argc, argv, 4);
+
   if (slave_id < 1 || slave_id > 247) {
     debug_println("FEJL: slave_id skal vaere 1-247");
     return;
   }
+
+  MbTempBaud baud_guard(temp_baud);
 
   if (strcasecmp(type, "coil") == 0) {
     bool val = (strcasecmp(value_str, "on") == 0 || strcasecmp(value_str, "1") == 0 ||
@@ -351,7 +429,7 @@ void cli_cmd_mb_reset_backoff(uint8_t argc, char **argv) {
   debug_println("[OK] Backoff nulstillet for alle slaves");
 }
 
-void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id) {
+void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id, uint32_t temp_baud) {
   if (start_id < 1) start_id = 1;
   if (end_id > 247) end_id = 247;
   if (start_id > end_id) {
@@ -364,6 +442,7 @@ void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id) {
     return;
   }
 
+  MbTempBaud baud_guard(temp_baud);
   debug_printf("[MB SCAN] Scanning slave %d-%d (FC03, addr 0) ...\n", start_id, end_id);
   uint8_t found = 0;
 
