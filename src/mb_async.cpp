@@ -271,15 +271,6 @@ static void mb_backoff_on_success(uint8_t slave_id) {
   }
 }
 
-static uint16_t mb_backoff_get_delay(uint8_t slave_id) {
-  for (uint8_t i = 0; i < MB_SLAVE_BACKOFF_MAX; i++) {
-    if (g_mb_async.slave_backoff[i].slave_id == slave_id) {
-      return g_mb_async.slave_backoff[i].backoff_ms;
-    }
-  }
-  return 0;
-}
-
 /* ============================================================================
  * BACKGROUND TASK
  * ============================================================================ */
@@ -295,10 +286,37 @@ static void mb_async_task_func(void *pvParameters) {
 
     g_mb_async.total_requests++;
 
-    // Apply per-slave backoff delay before sending (reduces bus flooding on timeouts)
-    uint16_t backoff = mb_backoff_get_delay(req.slave_id);
-    if (backoff > 0) {
-      vTaskDelay(pdMS_TO_TICKS(backoff));
+    // Per-slave backoff: SKIP request if slave is in backoff cooldown
+    // Instead of blocking the entire queue with vTaskDelay, we check elapsed
+    // time since last attempt and skip if not enough time has passed.
+    {
+      uint8_t bo_idx = 255;
+      for (uint8_t i = 0; i < MB_SLAVE_BACKOFF_MAX; i++) {
+        if (g_mb_async.slave_backoff[i].slave_id == req.slave_id) {
+          bo_idx = i;
+          break;
+        }
+      }
+      if (bo_idx < MB_SLAVE_BACKOFF_MAX && g_mb_async.slave_backoff[bo_idx].backoff_ms > 0) {
+        uint32_t elapsed = millis() - g_mb_async.slave_backoff[bo_idx].last_attempt_ms;
+        if (elapsed < g_mb_async.slave_backoff[bo_idx].backoff_ms) {
+          // Not enough time passed — skip this request, update cache to ERROR
+          uint8_t cache_type = (uint8_t)req.type;
+          if (req.type == MB_REQ_WRITE_COIL) cache_type = (uint8_t)MB_REQ_READ_COIL;
+          if (req.type == MB_REQ_WRITE_HOLDING) cache_type = (uint8_t)MB_REQ_READ_HOLDING;
+          mb_cache_entry_t *entry = mb_cache_find(req.slave_id, req.address, cache_type);
+          if (entry) {
+            portENTER_CRITICAL(&mb_cache_spinlock);
+            entry->status = MB_CACHE_ERROR;
+            entry->last_error = MB_TIMEOUT;
+            portEXIT_CRITICAL(&mb_cache_spinlock);
+          }
+          g_mb_async.total_errors++;
+          g_mb_async.total_timeouts++;
+          continue;  // Skip to next request — no bus delay
+        }
+        g_mb_async.slave_backoff[bo_idx].last_attempt_ms = millis();
+      }
     }
 
     mb_error_code_t err = MB_OK;

@@ -90,12 +90,13 @@ typedef struct {
   TaskHandle_t     task_handle;
   volatile bool    task_running;
 
-  // Per-slave adaptive backoff (v7.9.3: intelligent timeout handling)
+  // Per-slave adaptive backoff (v7.9.5: non-blocking skip instead of vTaskDelay)
   struct {
     uint8_t  slave_id;           // 0 = unused slot
-    uint16_t backoff_ms;         // Current extra delay for this slave
+    uint16_t backoff_ms;         // Current cooldown for this slave
     uint16_t timeout_count;      // Consecutive timeouts
     uint16_t success_count;      // Consecutive successes (for decay)
+    uint32_t last_attempt_ms;    // millis() of last actual bus attempt
   } slave_backoff[MB_SLAVE_BACKOFF_MAX];
 
   // Statistics
