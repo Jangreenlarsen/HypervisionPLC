@@ -21,7 +21,8 @@ st_value_t st_builtin_ton(st_value_t IN, st_value_t PT, st_timer_instance_t* ins
 
   bool current_IN = IN.bool_val;
   // v4.7+: PT validation - negative values → 0 (prevent huge unsigned conversion)
-  uint32_t preset_time = (PT.int_val < 0) ? 0 : (uint32_t)PT.int_val;
+  // FEAT-121: Use dint_val for TIME support (32-bit range, up to ~24.8 days)
+  uint32_t preset_time = (PT.dint_val < 0) ? 0 : (uint32_t)PT.dint_val;
   uint32_t now = millis();
 
   // Detect rising edge on IN
@@ -76,7 +77,8 @@ st_value_t st_builtin_tof(st_value_t IN, st_value_t PT, st_timer_instance_t* ins
 
   bool current_IN = IN.bool_val;
   // v4.7+: PT validation - negative values → 0 (prevent huge unsigned conversion)
-  uint32_t preset_time = (PT.int_val < 0) ? 0 : (uint32_t)PT.int_val;
+  // FEAT-121: Use dint_val for TIME support (32-bit range, up to ~24.8 days)
+  uint32_t preset_time = (PT.dint_val < 0) ? 0 : (uint32_t)PT.dint_val;
   uint32_t now = millis();
 
   // Detect falling edge on IN
@@ -131,7 +133,8 @@ st_value_t st_builtin_tp(st_value_t IN, st_value_t PT, st_timer_instance_t* inst
 
   bool current_IN = IN.bool_val;
   // v4.7+: PT validation - negative values → 0 (prevent huge unsigned conversion)
-  uint32_t preset_time = (PT.int_val < 0) ? 0 : (uint32_t)PT.int_val;
+  // FEAT-121: Use dint_val for TIME support (32-bit range, up to ~24.8 days)
+  uint32_t preset_time = (PT.dint_val < 0) ? 0 : (uint32_t)PT.dint_val;
   uint32_t now = millis();
 
   // Detect rising edge on IN

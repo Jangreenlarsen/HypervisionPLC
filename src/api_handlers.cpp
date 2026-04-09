@@ -1135,6 +1135,22 @@ esp_err_t api_handler_logic(httpd_req_t *req)
   doc["execution_interval_ms"] = state->execution_interval_ms;
   doc["total_cycles"] = state->total_cycles;
 
+  // Compiler resource info (realtime heap + pool stats)
+  JsonObject res = doc["resources"].to<JsonObject>();
+  res["heap_free"] = (uint32_t)esp_get_free_heap_size();
+  res["largest_block"] = (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  res["min_free"] = (uint32_t)esp_get_minimum_free_heap_size();
+  uint32_t pool_used = 0, pool_free = 0, pool_largest = 0;
+  st_logic_get_pool_stats(state, &pool_used, &pool_free, &pool_largest);
+  res["pool_total"] = (uint32_t)ST_LOGIC_POOL_SIZE;
+  res["pool_used"] = pool_used;
+  res["pool_free"] = pool_free;
+  // Estimated max AST nodes that can be allocated (node_size ~84 bytes + 24KB reserve for compiler)
+  uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  uint32_t available_for_ast = (largest > 24576) ? (largest - 24576) : 0;
+  res["ast_node_size"] = (uint32_t)sizeof(st_ast_node_t);
+  res["max_ast_nodes"] = (available_for_ast > 0) ? (uint32_t)(available_for_ast / sizeof(st_ast_node_t)) : 0;
+
   JsonArray programs = doc["programs"].to<JsonArray>();
 
   for (int i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
@@ -1253,6 +1269,7 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
         case ST_TYPE_INT:  type_str = "INT"; break;
         case ST_TYPE_DINT: type_str = "DINT"; break;
         case ST_TYPE_REAL: type_str = "REAL"; break;
+        case ST_TYPE_TIME: type_str = "TIME"; break;
         default: break;
       }
       v["type"] = type_str;
@@ -2385,6 +2402,12 @@ esp_err_t api_handler_modbus_post(httpd_req_t *req)
   const char *uri = req->uri;
   bool is_slave = (strstr(uri, "/slave") != NULL);
   bool is_master = (strstr(uri, "/master") != NULL);
+
+  // POST /api/modbus/master/reset-stats — reset all master statistics (v7.9.3.2)
+  if (strstr(uri, "/master/reset-stats") != NULL) {
+    mb_async_reset_stats();
+    return api_send_json(req, "{\"status\":\"ok\",\"message\":\"Master statistics reset\"}");
+  }
 
   if (!is_slave && !is_master) {
     return api_send_error(req, 400, "Use /api/modbus/slave or /api/modbus/master");
@@ -3773,6 +3796,7 @@ esp_err_t api_handler_bindings_list(httpd_req_t *req)
           case ST_TYPE_BOOL: type_str = "BOOL"; break;
           case ST_TYPE_DINT: type_str = "DINT"; break;
           case ST_TYPE_REAL: type_str = "REAL"; break;
+          case ST_TYPE_TIME: type_str = "TIME"; break;
           default: break;
         }
         b["type"] = type_str;
@@ -5725,6 +5749,11 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   PROM_APPEND("modbus_master_config_stopbits %d\n", g_modbus_master_config.stop_bits);
 
   // --- Modbus Master metrics ---
+  PROM_APPEND("# HELP modbus_master_stats_age_ms Milliseconds since last stats reset\n");
+  PROM_APPEND("# TYPE modbus_master_stats_age_ms gauge\n");
+  PROM_APPEND("modbus_master_stats_age_ms %lu\n",
+    g_modbus_master_config.stats_since_ms > 0 ? (unsigned long)(millis() - g_modbus_master_config.stats_since_ms) : (unsigned long)millis());
+
   PROM_APPEND("# HELP modbus_master_requests_total Total Modbus master requests\n");
   PROM_APPEND("# TYPE modbus_master_requests_total counter\n");
   PROM_APPEND("modbus_master_requests_total %lu\n", g_modbus_master_config.total_requests);
@@ -5778,6 +5807,18 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
         PROM_APPEND("modbus_master_slave_status{slave=\"%d\",addr=\"%d\",fc=\"%d\",status=\"%s\",age_ms=\"%u\"} %d\n",
                      e->key.slave_id, e->key.address, disp_fc, st, age_ms,
                      (e->status == MB_CACHE_VALID) ? 1 : (e->status == MB_CACHE_ERROR) ? -1 : 0);
+      }
+    }
+    // Per-slave adaptive backoff status
+    PROM_APPEND("# HELP modbus_master_slave_backoff Per-slave adaptive backoff delay in ms\n");
+    PROM_APPEND("# TYPE modbus_master_slave_backoff gauge\n");
+    for (int i = 0; i < MB_SLAVE_BACKOFF_MAX; i++) {
+      if (mb_async->slave_backoff[i].slave_id > 0) {
+        PROM_APPEND("modbus_master_slave_backoff{slave=\"%d\",timeouts=\"%d\",successes=\"%d\"} %d\n",
+                     mb_async->slave_backoff[i].slave_id,
+                     mb_async->slave_backoff[i].timeout_count,
+                     mb_async->slave_backoff[i].success_count,
+                     mb_async->slave_backoff[i].backoff_ms);
       }
     }
   }

@@ -394,6 +394,7 @@ void st_logic_print_program(st_logic_engine_state_t *state, uint8_t program_id, 
         case ST_TYPE_DINT: debug_printf("DINT"); break;
         case ST_TYPE_DWORD: debug_printf("DWORD"); break;
         case ST_TYPE_REAL: debug_printf("REAL"); break;
+        case ST_TYPE_TIME: debug_printf("TIME"); break;
         default: debug_printf("???"); break;
       }
 

@@ -1,6 +1,6 @@
 # 🚀 ST Logic Mode - Complete System Guide
 
-**ESP32 Modbus RTU Server v7.9.2** - Structured Text Programming Engine
+**ESP32 Modbus RTU Server v7.9.4.0** - Structured Text Programming Engine
 
 ---
 
@@ -32,6 +32,8 @@ ST Logic Mode allows you to upload and execute **Structured Text (ST) programs**
 - ✅ **Modbus Integration** - Direct register/coil access (FC01-FC06)
 - ✅ **Modbus Master** - Async remote read/write (FC01-FC06 single, FC03/FC16 multi-register)
 - ✅ **ARRAY Support** - Native ARRAY OF INT for multi-register Modbus operationer
+- ✅ **TIME Datatype** - IEC 61131-3 TIME med T# literals (`T#5s`, `T#1h30m`)
+- ✅ **Timer/Counter FBs** - TON, TOF, TP, CTU, CTD, CTUD med named-parameter syntax
 - ✅ **GPIO Control** - UP to 34 GPIO pins via variable binding
 - ✅ **Persistent Storage** - Programs and bindings saved to NVS
 - ✅ **Error Diagnostics** - Compilation errors, runtime errors, statistics
@@ -179,6 +181,9 @@ show logic 1
 | **DINT** | 32-bit | -2147483648 to 2147483647 | `large_value := 100000` |
 | **DWORD** | 32-bit | 0 to 4294967295 | `flags := 4000000000` |
 | **REAL** | 32-bit float | IEEE 754 | `temp := 25.5` |
+| **TIME** | 32-bit ms | 0 to ~24.8 days | `delay := T#5s` |
+
+**TIME Literals (v7.9.4.0):** `T#100ms`, `T#5s`, `T#1m30s`, `T#2h`, `T#1d`. Enheder kan kombineres.
 
 **Multi-Register Types:**
 - DINT, DWORD, REAL use 2 consecutive Modbus registers (LSW first, MSW second)
@@ -193,6 +198,7 @@ VAR
   temperature: REAL;      (* Sensor temperature *)
   large_count: DINT;      (* Large counter -2147483648 to 2147483647 *)
   flags: DWORD;           (* Status flags 0 to 4294967295 *)
+  delay: TIME := T#5s;    (* Time value in milliseconds *)
 END_VAR
 ```
 
@@ -293,6 +299,37 @@ dword_val := INT_TO_DWORD(42);         (* 42 → 42 (32-bit) *)
 int_from_dword := DWORD_TO_INT(1000);  (* 1000 → 1000 *)
 ```
 
+#### Timer & Counter Function Blocks (v7.9.4.0)
+
+IEC 61131-3 standard function blocks med named-parameter syntax og output bindings.
+
+```structured-text
+(* TON: On-delay timer — Q=TRUE efter IN har vaeret TRUE i PT tid *)
+TON(IN := start_btn, PT := T#5s, Q => motor_on, ET => elapsed);
+
+(* TOF: Off-delay timer — Q forbliver TRUE i PT tid efter IN gar FALSE *)
+TOF(IN := motion, PT := T#30s, Q => light_on, ET => remaining);
+
+(* TP: Pulse timer — fast puls af PT laengde *)
+pulse_out := TP(trigger, 500);
+
+(* CTU: Count Up — Q=TRUE naar CV >= PV *)
+CTU(CU := pulse, RESET := rst, PV := 100, Q => done, CV => count);
+
+(* CTD: Count Down — Q=TRUE naar CV <= 0 *)
+CTD(CD := pulse, LOAD := ld, PV := 50, Q => empty, CV => remaining);
+
+(* CTUD: Count Up/Down — 3 outputs *)
+CTUD(CU := inc, CD := dec, RESET := rst, LOAD := ld, PV := 100,
+     QU => at_max, QD => at_zero, CV => count);
+
+(* Backward-kompatibel positionel syntax virker stadig *)
+motor_on := TON(start_btn, 5000);
+batch_done := CTU(pulse, reset, 100);
+```
+
+Se [ST_USAGE_GUIDE.md](ST_USAGE_GUIDE.md) for detaljeret dokumentation med timing-diagrammer og eksempler.
+
 ---
 
 ## Variable Bindings
@@ -377,7 +414,7 @@ show logic 1
 
 ---
 
-## Modbus Master Functions (v7.7.0+ / v7.9.2)
+## Modbus Master Functions (v7.7.0+ / v7.9.2 / v7.9.3.2)
 
 ST Logic programmer kan fungere som Modbus Master — læse/skrive remote slave-enheder via async background task.
 
@@ -448,9 +485,24 @@ END_IF;
 
 - Alle reads/writes er **non-blocking** — VM returnerer straks med cached data
 - Background FreeRTOS task (Core 0) udfører egentlige RS-485 transaktioner
-- 32-entry cache, 16-entry async kø
+- 32-entry cache med LRU eviction, 16-entry async kø
 - Max 10 requests per program per cycle (konfigurerbart)
 - Alle 4 logic-slots kan bruge Modbus uafhængigt
+- Write deduplication: skriver kun til bus hvis værdien er ændret
+
+### Adaptive Backoff (v7.9.3.2)
+
+Intelligent per-slave timeout-håndtering forhindrer bus-flooding mod offline slaves:
+
+- **Exponential backoff:** Ved timeout fordobles delay (start 50ms, max 2000ms)
+- **Lineær decay:** Ved succes reduceres delay med 100ms
+- **Op til 8 slaves** tracked uafhængigt
+- **Synlighed:** CLI `show modbus-master`, web dashboard, Prometheus metric `modbus_master_slave_backoff`
+
+### Timeout-håndtering (v7.9.3.2)
+
+- **Dual-phase timeout:** Inter-character timeout beregnet fra baudrate (T3.5), fuld timeout kun for første byte
+- **FC16 response fix:** Korrekt 8-byte response parsing for Write Multiple Registers
 
 Se [`ST_USAGE_GUIDE.md`](ST_USAGE_GUIDE.md) for detaljerede programmeringseksempler.
 
@@ -1045,9 +1097,24 @@ write_single_register(204, 100)     # Set Logic1 var[0] to 100
 - **Register Limit:** 256 holding registers (0-255) - registers 200-251 reserved for ST Logic
 - **Coil Limit:** 256 coils (0-255)
 - **Max GPIO Mappings:** 32 (increased from 8)
-- **Max Variables:** 32 per program
-- **Max Instructions:** 512 per program
+- **Max Variables:** 32 per program (navne max 15 tegn)
+- **Max Instructions:** 2048 per program (dynamisk buffer, start 256)
 - **Execution Steps:** 10,000 step limit (prevents infinite loops)
+
+### Compiler Memory (v7.9.3 Heap Optimization)
+
+| Komponent | Storrelse | Allokering | Detaljer |
+|-----------|-----------|-----------|----------|
+| AST node (`st_ast_node_t`) | **84 bytes/node** | Heap pool | Var 156 bytes (46% reduktion) |
+| AST pool (typisk 256-475 nodes) | **21-40 KB** | Heap (temp) | Frigivet efter parse |
+| Bytecode temp buffer | **2-16 KB** | Heap (temp) | Dynamisk: start 256, grow 256-blokke |
+| Function registry | **3.6 KB** | Heap | Kun ved FUNCTION/FB brug |
+| var_names[32][16] | **512 B/program** | Inline | Var 1 KB (32 bytes/navn) |
+| Source pool | **8 KB** | Statisk | Delt mellem 4 programmer |
+
+**Peak under kompilering:** ~22 KB (var ~39 KB for v7.9.2)
+
+**Web Editor:** Realtime heap-bar viser tilgangelige compiler-ressourcer (auto-poll 5s)
 
 ---
 
@@ -1140,10 +1207,11 @@ ST Logic Mode provides:
 
 #### Program Storage
 - **Programs Stored:** 4 independent logic programs (Logic1-Logic4)
-- **Per Program Limit:** 5 KB source code max
-- **Bytecode Limit:** 512 instructions max
-- **Variable Limit:** 32 variables per program
+- **Per Program Limit:** 5 KB source code max (8 KB shared pool)
+- **Bytecode Limit:** 2048 instructions max (dynamisk allokering, start 256)
+- **Variable Limit:** 32 variables per program (navne max 15 tegn)
 - **Storage Medium:** NVS (Non-Volatile Storage)
+- **Bytecode Cache:** SPIFFS (`/logic_N.bc`, format v3)
 
 #### Execution Model
 - **Cycle Frequency:** 100 Hz (every 10ms)
@@ -1177,15 +1245,16 @@ Results: 18/18 tests passed (100.0%)
 ### Performance Metrics
 
 - **Compilation Time:** <100ms per program
-- **Memory Usage:** ~50KB for 4 programs (bytecode + source)
+- **Memory Usage:** ~40KB for 4 programs (bytecode + source), peak ~22KB under kompilering
+- **AST Node:** 84 bytes (optimeret fra 156 bytes i v7.9.3)
 - **Execution Overhead:** <1% of CPU time
 - **Response Time:** <10ms variable synchronization
 
 ### Known Limitations
 
-1. **Variable Count:** Maximum 32 variables per program
-2. **Code Size:** Maximum 5 KB source code per program
-3. **Instruction Limit:** 512 bytecode instructions
+1. **Variable Count:** Maximum 32 variables per program (navne max 15 tegn)
+2. **Code Size:** Maximum 5 KB source code per program (8 KB shared pool)
+3. **Instruction Limit:** 2048 bytecode instructions (dynamisk allokering)
 4. **Step Limit:** 10,000 steps per execution (prevents infinite loops)
 5. **Data Types:** INT (16-bit), DWORD (32-bit), BOOL, REAL (32-bit float)
 

@@ -34,6 +34,7 @@ void st_compiler_init(st_compiler_t *compiler) {
   memset(compiler, 0, sizeof(*compiler));
   compiler->symbol_table.count = 0;
   compiler->bytecode_ptr = 0;
+  compiler->bytecode_capacity = 0;
   compiler->loop_depth = 0;
   compiler->patch_count = 0;
   compiler->exit_patch_total = 0;
@@ -201,10 +202,23 @@ uint8_t st_compiler_lookup_symbol(st_compiler_t *compiler, const char *name) {
  * ============================================================================ */
 
 static bool st_compiler_ensure_space(st_compiler_t *compiler, int count) {
-  if (compiler->bytecode_ptr + count >= 1024) {
-    st_compiler_error(compiler, "Bytecode buffer overflow (max 1024 instructions)");
+  if (compiler->bytecode_ptr + count < compiler->bytecode_capacity) {
+    return true;  // Plenty of space
+  }
+  // Grow buffer in 256-instruction chunks (2 KB each)
+  uint16_t new_cap = compiler->bytecode_capacity + 256;
+  if (new_cap > 2048) {
+    st_compiler_error(compiler, "Bytecode buffer overflow (max 2048 instructions)");
     return false;
   }
+  st_bytecode_instr_t *new_buf = (st_bytecode_instr_t *)realloc(
+      compiler->bytecode, new_cap * sizeof(st_bytecode_instr_t));
+  if (!new_buf) {
+    st_compiler_error(compiler, "Bytecode buffer realloc failed");
+    return false;
+  }
+  compiler->bytecode = new_buf;
+  compiler->bytecode_capacity = new_cap;
   return true;
 }
 
@@ -273,17 +287,17 @@ uint16_t st_compiler_emit_jump(st_compiler_t *compiler, st_opcode_t opcode) {
 }
 
 void st_compiler_patch_jump(st_compiler_t *compiler, uint16_t jump_addr, uint16_t target_addr) {
-  // BUG-037 FIX: Changed from 512 to 1024 (matches bytecode array size in st_compiler.h)
-  if (jump_addr >= 1024) {
+  // Validate against current capacity (dynamic buffer)
+  if (jump_addr >= compiler->bytecode_capacity) {
     // BUG-074: Log error instead of silent fail
     st_compiler_error(compiler, "Jump patch address out of bounds");
     return;
   }
 
-  // BUG-162 FIX: Validate target_addr bounds
-  if (target_addr >= 1024) {
+  // BUG-162 FIX: Validate target_addr bounds (allow up to bytecode_ptr, which is next write pos)
+  if (target_addr > compiler->bytecode_ptr) {
     snprintf(compiler->error_msg, sizeof(compiler->error_msg),
-             "Jump target address %u out of bounds (max 1024)", target_addr);
+             "Jump target address %u out of bounds (max %u)", target_addr, compiler->bytecode_ptr);
     compiler->error_count++;
     return;
   }
@@ -401,6 +415,11 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
           memcpy(&bits, &node->data.literal.value.real_val, sizeof(float));
           return st_compiler_emit_int(compiler, ST_OP_PUSH_REAL, bits);
         }
+        case ST_TYPE_DINT:
+          return st_compiler_emit_int(compiler, ST_OP_PUSH_INT, node->data.literal.value.dint_val);
+        case ST_TYPE_TIME:
+          // FEAT-121: TIME stored as DWORD (unsigned 32-bit milliseconds)
+          return st_compiler_emit_int(compiler, ST_OP_PUSH_DWORD, node->data.literal.value.dint_val);
         default:
           st_compiler_error(compiler, "Unknown literal type");
           return false;
@@ -649,7 +668,56 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       // Stateless functions (SCALE) use instance_id = 0
 
       // Emit CALL_BUILTIN instruction with instance ID
-      return st_compiler_emit_builtin_call(compiler, (int32_t)func_id, instance_id);
+      if (!st_compiler_emit_builtin_call(compiler, (int32_t)func_id, instance_id)) {
+        return false;
+      }
+
+      // FEAT-122: Emit output bindings for FB calls (Q => var, ET => var, CV => var)
+      if (node->data.function_call.output_count > 0) {
+        // Determine fb_type: 0=timer (TON/TOF/TP), 1=counter (CTU/CTD/CTUD)
+        uint8_t fb_type = 0;
+        if (func_id == ST_BUILTIN_CTU || func_id == ST_BUILTIN_CTD || func_id == ST_BUILTIN_CTUD) {
+          fb_type = 1;
+        }
+
+        for (uint8_t i = 0; i < node->data.function_call.output_count; i++) {
+          const st_fb_output_binding_t *binding = &node->data.function_call.output_bindings[i];
+          uint8_t target_var = st_compiler_lookup_symbol(compiler, binding->var_name);
+          if (target_var == 0xFF) {
+            char msg[128];
+            snprintf(msg, sizeof(msg), "Unknown variable in output binding: %s", binding->var_name);
+            st_compiler_error(compiler, msg);
+            return false;
+          }
+
+          if (binding->field_id == 0) {
+            // Q/QU output — already on stack from CALL_BUILTIN
+            // DUP to keep it on stack (for possible assignment), then STORE_VAR
+            if (!st_compiler_ensure_space(compiler, 2)) return false;
+            compiler->bytecode[compiler->bytecode_ptr].opcode = ST_OP_DUP;
+            compiler->bytecode[compiler->bytecode_ptr].arg.int_arg = 0;
+            compiler->bytecode_ptr++;
+            compiler->bytecode[compiler->bytecode_ptr].opcode = ST_OP_STORE_VAR;
+            compiler->bytecode[compiler->bytecode_ptr].arg.var_index = target_var;
+            compiler->bytecode_ptr++;
+          } else {
+            // ET, QD, CV — load from FB instance field
+            if (!st_compiler_ensure_space(compiler, 2)) return false;
+            st_bytecode_instr_t *fb_instr = &compiler->bytecode[compiler->bytecode_ptr++];
+            fb_instr->opcode = ST_OP_LOAD_FB_FIELD;
+            fb_instr->arg.fb_field.fb_type = fb_type;
+            fb_instr->arg.fb_field.instance_id = instance_id;
+            fb_instr->arg.fb_field.field_id = binding->field_id;
+            fb_instr->arg.fb_field.padding = 0;
+
+            compiler->bytecode[compiler->bytecode_ptr].opcode = ST_OP_STORE_VAR;
+            compiler->bytecode[compiler->bytecode_ptr].arg.var_index = target_var;
+            compiler->bytecode_ptr++;
+          }
+        }
+      }
+
+      return true;
     }
 
     // FEAT-004: Array element access
@@ -1554,7 +1622,9 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
     }
     memset(output, 0, sizeof(*output));
   }
-  compiler->bytecode = (st_bytecode_instr_t *)malloc(1024 * sizeof(st_bytecode_instr_t));
+  // Start with 256 instructions (2 KB), grow dynamically via realloc (was fixed 1024 = 8 KB)
+  compiler->bytecode_capacity = 256;
+  compiler->bytecode = (st_bytecode_instr_t *)malloc(256 * sizeof(st_bytecode_instr_t));
   if (!compiler->bytecode) {
     st_compiler_error(compiler, "Memory allocation failed for bytecode buffer");
     return NULL;
@@ -1791,8 +1861,9 @@ st_bytecode_instr_t *st_compiler_compile_segment(st_compiler_t *compiler,
   if (!compiler || !out_count) return NULL;
   *out_count = 0;
 
-  // Allocate temp buffer for this segment
-  compiler->bytecode = (st_bytecode_instr_t *)malloc(1024 * sizeof(st_bytecode_instr_t));
+  // Allocate temp buffer for this segment (start small, grows via realloc)
+  compiler->bytecode_capacity = 256;
+  compiler->bytecode = (st_bytecode_instr_t *)malloc(256 * sizeof(st_bytecode_instr_t));
   if (!compiler->bytecode) {
     st_compiler_error(compiler, "Segment: malloc failed for bytecode buffer");
     return NULL;
@@ -1922,6 +1993,7 @@ const char *st_opcode_to_string(st_opcode_t opcode) {
     // FEAT-004: Array opcodes
     case ST_OP_LOAD_ARRAY:      return "LOAD_ARRAY";
     case ST_OP_STORE_ARRAY:     return "STORE_ARRAY";
+    case ST_OP_LOAD_FB_FIELD:   return "LOAD_FB_FIELD";
     case ST_OP_NOP:             return "NOP";
     case ST_OP_HALT:            return "HALT";
     default:                    return "UNKNOWN";
@@ -1963,6 +2035,12 @@ void st_bytecode_print(st_bytecode_program_t *bytecode) {
       case ST_OP_LOAD_VAR:
       case ST_OP_PUSH_VAR:
         snprintf(line, sizeof(line), "  [%3d] %-18s var[%d]", i, opname, instr->arg.var_index);
+        break;
+
+      case ST_OP_LOAD_FB_FIELD:
+        snprintf(line, sizeof(line), "  [%3d] %-18s %s[%d].field%d", i, opname,
+                 instr->arg.fb_field.fb_type == 0 ? "timer" : "counter",
+                 instr->arg.fb_field.instance_id, instr->arg.fb_field.field_id);
         break;
 
       default:

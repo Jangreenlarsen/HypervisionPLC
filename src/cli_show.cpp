@@ -933,6 +933,7 @@ void cli_cmd_show_config(const char *section) {
         case ST_TYPE_DINT: debug_print("DINT"); break;
         case ST_TYPE_DWORD: debug_print("DWORD"); break;
         case ST_TYPE_REAL: debug_print("REAL"); break;
+        case ST_TYPE_TIME: debug_print("TIME"); break;
         default: debug_print("???"); break;
       }
 

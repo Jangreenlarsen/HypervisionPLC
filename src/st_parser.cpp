@@ -69,6 +69,59 @@ static void parser_error(st_parser_t *parser, const char *msg) {
 }
 
 /* ============================================================================
+ * FEAT-122: IEC 61131-3 Function Block Named Parameter Mapping
+ * ============================================================================ */
+
+// Known function block names for named-parameter syntax
+static bool is_known_fb(const char *name) {
+  return (strcasecmp(name, "TON") == 0 || strcasecmp(name, "TOF") == 0 ||
+          strcasecmp(name, "TP") == 0 || strcasecmp(name, "CTU") == 0 ||
+          strcasecmp(name, "CTD") == 0 || strcasecmp(name, "CTUD") == 0);
+}
+
+// Map input parameter name to positional slot index (-1 = unknown)
+static int fb_get_input_slot(const char *fb_name, const char *param_name) {
+  if (strcasecmp(fb_name, "TON") == 0 || strcasecmp(fb_name, "TOF") == 0 ||
+      strcasecmp(fb_name, "TP") == 0) {
+    if (strcasecmp(param_name, "IN") == 0) return 0;
+    if (strcasecmp(param_name, "PT") == 0) return 1;
+  } else if (strcasecmp(fb_name, "CTU") == 0) {
+    if (strcasecmp(param_name, "CU") == 0) return 0;
+    if (strcasecmp(param_name, "RESET") == 0) return 1;
+    if (strcasecmp(param_name, "PV") == 0) return 2;
+  } else if (strcasecmp(fb_name, "CTD") == 0) {
+    if (strcasecmp(param_name, "CD") == 0) return 0;
+    if (strcasecmp(param_name, "LOAD") == 0) return 1;
+    if (strcasecmp(param_name, "PV") == 0) return 2;
+  } else if (strcasecmp(fb_name, "CTUD") == 0) {
+    if (strcasecmp(param_name, "CU") == 0) return 0;
+    if (strcasecmp(param_name, "CD") == 0) return 1;
+    if (strcasecmp(param_name, "RESET") == 0) return 2;
+    if (strcasecmp(param_name, "LOAD") == 0) return 3;
+    if (strcasecmp(param_name, "PV") == 0) return 4;
+  }
+  return -1;
+}
+
+// Map output parameter name to field_id (-1 = unknown)
+// Timer: Q=0, ET=1  |  Counter: Q/QU=0, QD=1, CV=2
+static int fb_get_output_field(const char *fb_name, const char *param_name) {
+  if (strcasecmp(fb_name, "TON") == 0 || strcasecmp(fb_name, "TOF") == 0 ||
+      strcasecmp(fb_name, "TP") == 0) {
+    if (strcasecmp(param_name, "Q") == 0) return 0;
+    if (strcasecmp(param_name, "ET") == 0) return 1;
+  } else if (strcasecmp(fb_name, "CTU") == 0 || strcasecmp(fb_name, "CTD") == 0) {
+    if (strcasecmp(param_name, "Q") == 0) return 0;
+    if (strcasecmp(param_name, "CV") == 0) return 1;
+  } else if (strcasecmp(fb_name, "CTUD") == 0) {
+    if (strcasecmp(param_name, "QU") == 0) return 0;
+    if (strcasecmp(param_name, "QD") == 0) return 1;
+    if (strcasecmp(param_name, "CV") == 0) return 2;
+  }
+  return -1;
+}
+
+/* ============================================================================
  * AST NODE ALLOCATION
  * ============================================================================ */
 
@@ -164,6 +217,7 @@ void st_ast_node_free(st_ast_node_t *node) {
       for (uint8_t i = 0; i < node->data.case_stmt.branch_count; i++) {
         st_ast_node_free(node->data.case_stmt.branches[i].body);
       }
+      free(node->data.case_stmt.branches);  // Heap-allocated branches array
       st_ast_node_free(node->data.case_stmt.else_body);
       break;
     case ST_AST_FOR:
@@ -318,15 +372,15 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
     return node;
   }
 
-  // FEAT-006: TIME literal (T#5s, T#100ms, etc.) → stored as DINT milliseconds
+  // FEAT-006/121: TIME literal (T#5s, T#100ms, etc.) → stored as TIME (milliseconds)
   if (parser_match(parser, ST_TOK_TIME)) {
     st_ast_node_t *node = ast_node_alloc(ST_AST_LITERAL, line);
     if (!node) {
       parser_error(parser, "Out of memory");
       return NULL;
     }
-    // TIME literals are stored as DINT (milliseconds)
-    node->data.literal.type = ST_TYPE_DINT;
+    // FEAT-121: TIME literals stored as ST_TYPE_TIME (milliseconds, semantic DINT)
+    node->data.literal.type = ST_TYPE_TIME;
     errno = 0;
     long val = strtol(parser->current_token.value, NULL, 10);
     if (errno == ERANGE) {
@@ -341,9 +395,9 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
 
   // Variable or Function Call
   if (parser_match(parser, ST_TOK_IDENT)) {
-    char identifier[64];
-    strncpy(identifier, parser->current_token.value, 63);
-    identifier[63] = '\0';
+    char identifier[32];
+    strncpy(identifier, parser->current_token.value, 31);
+    identifier[31] = '\0';
     parser_advance(parser);
 
     // Check if this is a function call (followed by '(')
@@ -356,33 +410,111 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
         parser_error(parser, "Out of memory");
         return NULL;
       }
-      strncpy(node->data.function_call.func_name, identifier, 63);
-      node->data.function_call.func_name[63] = '\0';
+      strncpy(node->data.function_call.func_name, identifier, 31);
+      node->data.function_call.func_name[31] = '\0';
       node->data.function_call.arg_count = 0;
+      node->data.function_call.output_count = 0;
 
       // Parse arguments (if any)
       if (!parser_match(parser, ST_TOK_RPAREN)) {
-        // Parse first argument
-        st_ast_node_t *arg = parser_parse_expression(parser);
-        // BUG-104: Check if argument parsing failed
-        if (!arg) {
-          st_ast_node_free(node);
-          return NULL;
-        }
-        if (node->data.function_call.arg_count < 8) {
-          node->data.function_call.args[node->data.function_call.arg_count++] = arg;
-        } else {
-          parser_error(parser, "Too many function arguments (max 8)");
-          st_ast_node_free(arg);
-          st_ast_node_free(node);
-          return NULL;
+        // FEAT-122: Detect named parameter syntax (IDENT followed by := or =>)
+        bool named_mode = false;
+        if (parser_match(parser, ST_TOK_IDENT) &&
+            (parser->peek_token.type == ST_TOK_ASSIGN || parser->peek_token.type == ST_TOK_OUTPUT_ARROW)) {
+          if (is_known_fb(identifier)) {
+            named_mode = true;
+          } else {
+            parser_error(parser, "Named parameters only supported for function blocks (TON/TOF/TP/CTU/CTD/CTUD)");
+            st_ast_node_free(node);
+            return NULL;
+          }
         }
 
-        // Parse additional arguments (comma-separated)
-        while (parser_match(parser, ST_TOK_COMMA)) {
-          parser_advance(parser); // consume ','
-          arg = parser_parse_expression(parser);
-          // BUG-104: Check if argument parsing failed
+        if (named_mode) {
+          // FEAT-122: Parse named parameters: IN := expr, PT := T#5s, Q => var, ET => var
+          memset(node->data.function_call.args, 0, sizeof(node->data.function_call.args));
+          uint8_t max_inputs = 8;  // safety limit
+
+          while (!parser_match(parser, ST_TOK_RPAREN) && !parser_match(parser, ST_TOK_EOF)) {
+            if (!parser_match(parser, ST_TOK_IDENT)) {
+              parser_error(parser, "Expected parameter name in function block call");
+              st_ast_node_free(node);
+              return NULL;
+            }
+            char param_name[32];
+            strncpy(param_name, parser->current_token.value, 31);
+            param_name[31] = '\0';
+            parser_advance(parser);  // consume param name
+
+            if (parser_match(parser, ST_TOK_ASSIGN)) {
+              // Input parameter: name := expr
+              parser_advance(parser);  // consume :=
+              int slot = fb_get_input_slot(identifier, param_name);
+              if (slot < 0) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "Unknown input parameter '%s' for %s", param_name, identifier);
+                parser_error(parser, msg);
+                st_ast_node_free(node);
+                return NULL;
+              }
+              st_ast_node_t *arg = parser_parse_expression(parser);
+              if (!arg) {
+                st_ast_node_free(node);
+                return NULL;
+              }
+              if (node->data.function_call.args[slot] != NULL) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "Duplicate input parameter '%s'", param_name);
+                parser_error(parser, msg);
+                st_ast_node_free(arg);
+                st_ast_node_free(node);
+                return NULL;
+              }
+              node->data.function_call.args[slot] = arg;
+              // Track max slot used for arg_count
+              if ((uint8_t)(slot + 1) > node->data.function_call.arg_count) {
+                node->data.function_call.arg_count = (uint8_t)(slot + 1);
+              }
+            } else if (parser_match(parser, ST_TOK_OUTPUT_ARROW)) {
+              // Output parameter: name => variable
+              parser_advance(parser);  // consume =>
+              int field_id = fb_get_output_field(identifier, param_name);
+              if (field_id < 0) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "Unknown output parameter '%s' for %s", param_name, identifier);
+                parser_error(parser, msg);
+                st_ast_node_free(node);
+                return NULL;
+              }
+              if (!parser_match(parser, ST_TOK_IDENT)) {
+                parser_error(parser, "Expected variable name after '=>'");
+                st_ast_node_free(node);
+                return NULL;
+              }
+              if (node->data.function_call.output_count >= 4) {
+                parser_error(parser, "Too many output bindings (max 4)");
+                st_ast_node_free(node);
+                return NULL;
+              }
+              st_fb_output_binding_t *binding = &node->data.function_call.output_bindings[node->data.function_call.output_count++];
+              strncpy(binding->var_name, parser->current_token.value, 15);
+              binding->var_name[15] = '\0';
+              binding->field_id = (uint8_t)field_id;
+              parser_advance(parser);  // consume variable name
+            } else {
+              parser_error(parser, "Expected ':=' or '=>' after parameter name");
+              st_ast_node_free(node);
+              return NULL;
+            }
+
+            // Consume comma separator if present
+            if (parser_match(parser, ST_TOK_COMMA)) {
+              parser_advance(parser);
+            }
+          }
+        } else {
+          // Positional arguments (backward compatible)
+          st_ast_node_t *arg = parser_parse_expression(parser);
           if (!arg) {
             st_ast_node_free(node);
             return NULL;
@@ -394,6 +526,23 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
             st_ast_node_free(arg);
             st_ast_node_free(node);
             return NULL;
+          }
+
+          while (parser_match(parser, ST_TOK_COMMA)) {
+            parser_advance(parser);
+            arg = parser_parse_expression(parser);
+            if (!arg) {
+              st_ast_node_free(node);
+              return NULL;
+            }
+            if (node->data.function_call.arg_count < 8) {
+              node->data.function_call.args[node->data.function_call.arg_count++] = arg;
+            } else {
+              parser_error(parser, "Too many function arguments (max 8)");
+              st_ast_node_free(arg);
+              st_ast_node_free(node);
+              return NULL;
+            }
           }
         }
       }
@@ -427,8 +576,8 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
         st_ast_node_free(index_expr);
         return NULL;
       }
-      strncpy(node->data.array_access.var_name, identifier, 63);
-      node->data.array_access.var_name[63] = '\0';
+      strncpy(node->data.array_access.var_name, identifier, 31);
+      node->data.array_access.var_name[31] = '\0';
       node->data.array_access.index_expr = index_expr;
       return node;
     } else {
@@ -439,8 +588,8 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
         parser_error(parser, "Out of memory");
         return NULL;
       }
-      strncpy(node->data.variable.var_name, identifier, 63);
-      node->data.variable.var_name[63] = '\0';
+      strncpy(node->data.variable.var_name, identifier, 31);
+      node->data.variable.var_name[31] = '\0';
       return node;
     }
   }
@@ -682,7 +831,7 @@ static st_ast_node_t *st_parser_parse_statements_for_case(st_parser_t *parser);
 /* Parse assignment: var := expr; */
 static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
   uint32_t line = parser->current_token.line;
-  char var_name[64] = {0};
+  char var_name[32] = {0};
 
   if (!parser_match(parser, ST_TOK_IDENT)) {
     parser_error(parser, "Expected variable name in assignment");
@@ -690,8 +839,8 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
   }
 
   // BUG-032 FIX: Use strncpy to prevent buffer overflow
-  strncpy(var_name, parser->current_token.value, 63);
-  var_name[63] = '\0';
+  strncpy(var_name, parser->current_token.value, 31);
+  var_name[31] = '\0';
   parser_advance(parser);
 
   // FEAT-004: Array element assignment: arr[index] := expr
@@ -729,8 +878,8 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
       st_ast_node_free(expr);
       return NULL;
     }
-    strncpy(node->data.assignment.var_name, var_name, 63);
-    node->data.assignment.var_name[63] = '\0';
+    strncpy(node->data.assignment.var_name, var_name, 31);
+    node->data.assignment.var_name[31] = '\0';
     node->data.assignment.expr = expr;
     node->data.assignment.index_expr = index_expr;
 
@@ -824,8 +973,8 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
         return NULL;
       }
 
-      strncpy(node->data.remote_write.func_name, var_name, 63);
-      node->data.remote_write.func_name[63] = '\0';
+      strncpy(node->data.remote_write.func_name, var_name, 31);
+      node->data.remote_write.func_name[31] = '\0';
       node->data.remote_write.slave_id = slave_id;
       node->data.remote_write.address = address;
       node->data.remote_write.value = value;
@@ -855,23 +1004,114 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
         parser_error(parser, "Out of memory");
         return NULL;
       }
-      strncpy(node->data.function_call.func_name, var_name, 63);
-      node->data.function_call.func_name[63] = '\0';
+      strncpy(node->data.function_call.func_name, var_name, 31);
+      node->data.function_call.func_name[31] = '\0';
       node->data.function_call.arg_count = 0;
+      node->data.function_call.output_count = 0;
 
       // Parse arguments (if any)
       if (!parser_match(parser, ST_TOK_RPAREN)) {
-        st_ast_node_t *arg = parser_parse_expression(parser);
-        if (!arg) { st_ast_node_free(node); return NULL; }
-        if (node->data.function_call.arg_count < 8) {
-          node->data.function_call.args[node->data.function_call.arg_count++] = arg;
+        // FEAT-122: Detect named parameter syntax
+        bool named_mode = false;
+        if (parser_match(parser, ST_TOK_IDENT) &&
+            (parser->peek_token.type == ST_TOK_ASSIGN || parser->peek_token.type == ST_TOK_OUTPUT_ARROW)) {
+          if (is_known_fb(var_name)) {
+            named_mode = true;
+          } else {
+            parser_error(parser, "Named parameters only supported for function blocks (TON/TOF/TP/CTU/CTD/CTUD)");
+            st_ast_node_free(node);
+            return NULL;
+          }
         }
-        while (parser_match(parser, ST_TOK_COMMA)) {
-          parser_advance(parser);
-          arg = parser_parse_expression(parser);
+
+        if (named_mode) {
+          // FEAT-122: Parse named parameters
+          memset(node->data.function_call.args, 0, sizeof(node->data.function_call.args));
+
+          while (!parser_match(parser, ST_TOK_RPAREN) && !parser_match(parser, ST_TOK_EOF)) {
+            if (!parser_match(parser, ST_TOK_IDENT)) {
+              parser_error(parser, "Expected parameter name in function block call");
+              st_ast_node_free(node);
+              return NULL;
+            }
+            char param_name[32];
+            strncpy(param_name, parser->current_token.value, 31);
+            param_name[31] = '\0';
+            parser_advance(parser);
+
+            if (parser_match(parser, ST_TOK_ASSIGN)) {
+              parser_advance(parser);
+              int slot = fb_get_input_slot(var_name, param_name);
+              if (slot < 0) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "Unknown input parameter '%s' for %s", param_name, var_name);
+                parser_error(parser, msg);
+                st_ast_node_free(node);
+                return NULL;
+              }
+              st_ast_node_t *arg = parser_parse_expression(parser);
+              if (!arg) { st_ast_node_free(node); return NULL; }
+              if (node->data.function_call.args[slot] != NULL) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "Duplicate input parameter '%s'", param_name);
+                parser_error(parser, msg);
+                st_ast_node_free(arg);
+                st_ast_node_free(node);
+                return NULL;
+              }
+              node->data.function_call.args[slot] = arg;
+              if ((uint8_t)(slot + 1) > node->data.function_call.arg_count) {
+                node->data.function_call.arg_count = (uint8_t)(slot + 1);
+              }
+            } else if (parser_match(parser, ST_TOK_OUTPUT_ARROW)) {
+              parser_advance(parser);
+              int field_id = fb_get_output_field(var_name, param_name);
+              if (field_id < 0) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "Unknown output parameter '%s' for %s", param_name, var_name);
+                parser_error(parser, msg);
+                st_ast_node_free(node);
+                return NULL;
+              }
+              if (!parser_match(parser, ST_TOK_IDENT)) {
+                parser_error(parser, "Expected variable name after '=>'");
+                st_ast_node_free(node);
+                return NULL;
+              }
+              if (node->data.function_call.output_count >= 4) {
+                parser_error(parser, "Too many output bindings (max 4)");
+                st_ast_node_free(node);
+                return NULL;
+              }
+              st_fb_output_binding_t *binding = &node->data.function_call.output_bindings[node->data.function_call.output_count++];
+              strncpy(binding->var_name, parser->current_token.value, 15);
+              binding->var_name[15] = '\0';
+              binding->field_id = (uint8_t)field_id;
+              parser_advance(parser);
+            } else {
+              parser_error(parser, "Expected ':=' or '=>' after parameter name");
+              st_ast_node_free(node);
+              return NULL;
+            }
+
+            if (parser_match(parser, ST_TOK_COMMA)) {
+              parser_advance(parser);
+            }
+          }
+        } else {
+          // Positional arguments (backward compatible)
+          st_ast_node_t *arg = parser_parse_expression(parser);
           if (!arg) { st_ast_node_free(node); return NULL; }
           if (node->data.function_call.arg_count < 8) {
             node->data.function_call.args[node->data.function_call.arg_count++] = arg;
+          }
+          while (parser_match(parser, ST_TOK_COMMA)) {
+            parser_advance(parser);
+            arg = parser_parse_expression(parser);
+            if (!arg) { st_ast_node_free(node); return NULL; }
+            if (node->data.function_call.arg_count < 8) {
+              node->data.function_call.args[node->data.function_call.arg_count++] = arg;
+            }
           }
         }
       }
@@ -916,8 +1156,8 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
     return NULL;
   }
   // BUG-032 FIX: Use strncpy to prevent buffer overflow
-  strncpy(node->data.assignment.var_name, var_name, 63);
-  node->data.assignment.var_name[63] = '\0';
+  strncpy(node->data.assignment.var_name, var_name, 31);
+  node->data.assignment.var_name[31] = '\0';
   node->data.assignment.expr = expr;
 
   // Consume optional semicolon
@@ -1080,6 +1320,15 @@ static st_ast_node_t *parser_parse_case_statement(st_parser_t *parser) {
   node->data.case_stmt.expr = expr;
   node->data.case_stmt.branch_count = 0;
   node->data.case_stmt.else_body = NULL;
+  // Heap-allocate branches array (was inline branches[16] = 128 bytes, now pointer + 128 bytes separate)
+  node->data.case_stmt.branches = (st_case_branch_t *)malloc(16 * sizeof(st_case_branch_t));
+  if (!node->data.case_stmt.branches) {
+    parser_error(parser, "Out of memory for CASE branches");
+    st_ast_node_free(expr);
+    free(node);  // Don't use st_ast_node_free — branches is NULL
+    return NULL;
+  }
+  memset(node->data.case_stmt.branches, 0, 16 * sizeof(st_case_branch_t));
 
   // Parse case branches until END_CASE or ELSE
   while (!parser_match(parser, ST_TOK_END_CASE) &&
@@ -1153,10 +1402,10 @@ static st_ast_node_t *parser_parse_for_statement(st_parser_t *parser) {
     return NULL;
   }
 
-  char var_name[64] = {0};
+  char var_name[32] = {0};
   // BUG-032 FIX: Use strncpy to prevent buffer overflow
-  strncpy(var_name, parser->current_token.value, 63);
-  var_name[63] = '\0';
+  strncpy(var_name, parser->current_token.value, 31);
+  var_name[31] = '\0';
   parser_advance(parser);
 
   if (!parser_expect(parser, ST_TOK_ASSIGN)) {
@@ -1220,8 +1469,8 @@ static st_ast_node_t *parser_parse_for_statement(st_parser_t *parser) {
     return NULL;
   }
   // BUG-032 FIX: Use strncpy to prevent buffer overflow
-  strncpy(node->data.for_stmt.var_name, var_name, 63);
-  node->data.for_stmt.var_name[63] = '\0';
+  strncpy(node->data.for_stmt.var_name, var_name, 31);
+  node->data.for_stmt.var_name[31] = '\0';
   node->data.for_stmt.start = start;
   node->data.for_stmt.end = end;
   node->data.for_stmt.step = step;
@@ -1616,8 +1865,11 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
         } else if (parser_match(parser, ST_TOK_REAL_KW)) {
           datatype = ST_TYPE_REAL;
           parser_advance(parser);
+        } else if (parser_match(parser, ST_TOK_TIME_KW)) {
+          datatype = ST_TYPE_TIME;
+          parser_advance(parser);
         } else {
-          parser_error(parser, "Expected element type after OF (BOOL, INT, DINT, DWORD, REAL)");
+          parser_error(parser, "Expected element type after OF (BOOL, INT, DINT, DWORD, REAL, TIME)");
           return false;
         }
       } else if (parser_match(parser, ST_TOK_BOOL)) {
@@ -1635,8 +1887,11 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
       } else if (parser_match(parser, ST_TOK_REAL_KW)) {
         datatype = ST_TYPE_REAL;
         parser_advance(parser);
+      } else if (parser_match(parser, ST_TOK_TIME_KW)) {
+        datatype = ST_TYPE_TIME;
+        parser_advance(parser);
       } else {
-        parser_error(parser, "Expected data type (BOOL, INT, DINT, DWORD, REAL, ARRAY)");
+        parser_error(parser, "Expected data type (BOOL, INT, DINT, DWORD, REAL, TIME, ARRAY)");
         return false;
       }
 
@@ -1740,8 +1995,8 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
   memset(node->function_def, 0, sizeof(st_function_def_t));
 
   // Copy function name
-  strncpy(node->function_def->func_name, parser->current_token.value, 63);
-  node->function_def->func_name[63] = '\0';
+  strncpy(node->function_def->func_name, parser->current_token.value, 31);
+  node->function_def->func_name[31] = '\0';
   node->function_def->is_function_block = is_function_block ? 1 : 0;
   node->function_def->param_count = 0;
   node->function_def->local_count = 0;
@@ -1773,8 +2028,11 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
     } else if (parser_match(parser, ST_TOK_REAL_KW)) {
       node->function_def->return_type = ST_TYPE_REAL;
       parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_TIME_KW)) {
+      node->function_def->return_type = ST_TYPE_TIME;
+      parser_advance(parser);
     } else {
-      parser_error(parser, "Expected return type (BOOL, INT, DINT, DWORD, REAL)");
+      parser_error(parser, "Expected return type (BOOL, INT, DINT, DWORD, REAL, TIME)");
       st_ast_node_free(node);
       return NULL;
     }
@@ -1859,6 +2117,9 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
         parser_advance(parser);
       } else if (parser_match(parser, ST_TOK_REAL_KW)) {
         var->type = ST_TYPE_REAL;
+        parser_advance(parser);
+      } else if (parser_match(parser, ST_TOK_TIME_KW)) {
+        var->type = ST_TYPE_TIME;
         parser_advance(parser);
       } else {
         parser_error(parser, "Expected data type");
@@ -2062,7 +2323,8 @@ void st_ast_node_print(st_ast_node_t *node, int indent) {
       switch (node->data.literal.type) {
         case ST_TYPE_BOOL: debug_printf("BOOL(%d)\n", node->data.literal.value.bool_val); break;
         case ST_TYPE_INT: debug_printf("INT(%d)\n", node->data.literal.value.int_val); break;
-        case ST_TYPE_DINT: debug_printf("DINT(%ld)\n", (long)node->data.literal.value.dint_val); break;  // FEAT-006: TIME literals
+        case ST_TYPE_DINT: debug_printf("DINT(%ld)\n", (long)node->data.literal.value.dint_val); break;
+        case ST_TYPE_TIME: debug_printf("TIME(%ldms)\n", (long)node->data.literal.value.dint_val); break;  // FEAT-121
         case ST_TYPE_DWORD: debug_printf("DWORD(%u)\n", node->data.literal.value.dword_val); break;
         case ST_TYPE_REAL: debug_printf("REAL(%f)\n", node->data.literal.value.real_val); break;
         default: debug_printf("?\n");

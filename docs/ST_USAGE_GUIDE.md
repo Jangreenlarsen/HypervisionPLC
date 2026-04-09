@@ -425,145 +425,477 @@ sine_30 := SIN(PI / 6.0);    (* → 0.5 (30 degrees) *)
 cosine_60 := COS(PI / 3.0);  (* → 0.5 (60 degrees) *)
 ```
 
-### Counter Functions (v4.8.1+)
+### TIME Datatype (v7.9.4.0, FEAT-121)
 
-IEC 61131-3 standard counter function blocks for counting events.
+IEC 61131-3 TIME datatype til tidsbaseret logik. Repræsenteres internt som 32-bit millisekunder (op til ~24.8 dage).
 
-**Note:** All counters maintain internal state and require stateful storage.
-
----
-
-#### CTU - Count Up Counter
-
-Increments counter on rising edge of CU input. Output Q goes TRUE when count reaches preset value PV.
+#### TIME Literal Syntax
 
 ```structured-text
 VAR
-  pulse: BOOL;
-  reset: BOOL;
-  batch_done: BOOL;
+  short_delay : TIME := T#100ms;       (* 100 millisekunder *)
+  five_sec    : TIME := T#5s;          (* 5000 ms *)
+  one_min     : TIME := T#1m;          (* 60000 ms *)
+  complex     : TIME := T#1h30m5s;     (* 5405000 ms *)
+  max_time    : TIME := T#24d;         (* ~24 dage *)
+END_VAR
+```
+
+**Understøttede enheder:**
+| Enhed | Eksempel | Millisekunder |
+|-------|----------|---------------|
+| `ms`  | `T#100ms` | 100 |
+| `s`   | `T#5s` | 5000 |
+| `m`   | `T#2m` | 120000 |
+| `h`   | `T#1h` | 3600000 |
+| `d`   | `T#1d` | 86400000 |
+
+Enheder kan kombineres: `T#1h30m15s100ms` = 5415100 ms.
+
+**Aritmetik:** TIME-værdier understøtter standard aritmetik og sammenligninger:
+```structured-text
+total := delay1 + delay2;       (* TIME + TIME *)
+remaining := timeout - elapsed;  (* TIME - TIME *)
+IF elapsed > T#10s THEN ...     (* TIME sammenligning *)
+```
+
+---
+
+### Timer Function Blocks (v4.7+, named params v7.9.4.0)
+
+IEC 61131-3 standard timer function blocks med millisekund-præcision. Alle timere bevarer tilstand mellem programcyklusser (stateful).
+
+**Max 8 timer-instanser per program.**
+
+Understøtter to syntaxer:
+1. **IEC 61131-3 named parameters** (v7.9.4.0) — anbefalet
+2. **Positionel syntax** — backward-kompatibel
+
+---
+
+#### TON - On-Delay Timer (FEAT-122)
+
+Aktiverer output Q efter input IN har vaeret TRUE i PT tid. Bruges til debouncing, forsinkede aktiveringer og timeout-overvagning.
+
+**Timing-diagram:**
+```
+IN:  __|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾|_______
+Q:   _________|‾‾‾‾‾‾‾‾‾|_______
+ET:  0...PT   PT  PT  PT  0
+          ^-- Q goes TRUE after PT elapsed
+```
+
+**IEC 61131-3 syntax (anbefalet):**
+```structured-text
+VAR
+  start_btn : BOOL;
+  motor_on  : BOOL;
+  elapsed   : TIME;
 END_VAR
 
-(* Count to 100 - batch complete *)
+(* Motor starter 5 sekunder efter knap trykkes *)
+TON(IN := start_btn, PT := T#5s, Q => motor_on, ET => elapsed);
+```
+
+**Positionel syntax (backward-kompatibel):**
+```structured-text
+motor_on := TON(start_btn, 5000);   (* 5000 ms = 5 sekunder *)
+```
+
+**Input parametre:**
+| Param | Type | Beskrivelse |
+|-------|------|-------------|
+| `IN`  | BOOL | Trigger input — timer korer mens TRUE |
+| `PT`  | TIME/INT | Preset tid i millisekunder |
+
+**Output parametre:**
+| Param | Type | Beskrivelse |
+|-------|------|-------------|
+| `Q`   | BOOL | Output — TRUE naar IN har vaeret TRUE i >= PT tid |
+| `ET`  | TIME | Elapsed time — tid siden IN gik TRUE (0 naar IN=FALSE) |
+
+**Opforsel:**
+- Rising edge pa IN: Start timer, ET=0, Q=FALSE
+- IN=TRUE og ET < PT: Timer korer, Q=FALSE, ET stiger
+- IN=TRUE og ET >= PT: Timer faerdig, Q=TRUE, ET=PT
+- IN=FALSE: Nulstil alt, Q=FALSE, ET=0
+
+---
+
+#### TOF - Off-Delay Timer (FEAT-123)
+
+Holder output Q aktiv i PT tid efter input IN gar FALSE. Bruges til efterkoring, hold-tider og forsinket slukning.
+
+**Timing-diagram:**
+```
+IN:  __|‾‾‾‾‾|_________________
+Q:   __|‾‾‾‾‾‾‾‾‾‾‾‾‾|________
+ET:  0  0  0  0...PT   0
+                   ^-- Q goes FALSE after PT elapsed
+```
+
+**IEC 61131-3 syntax:**
+```structured-text
+VAR
+  motion     : BOOL;
+  light_on   : BOOL;
+  remaining  : TIME;
+END_VAR
+
+(* Lys forbliver taendt 30 sekunder efter bevaegelse stopper *)
+TOF(IN := motion, PT := T#30s, Q => light_on, ET => remaining);
+```
+
+**Positionel syntax:**
+```structured-text
+light_on := TOF(motion, 30000);
+```
+
+**Input/Output parametre:** Samme som TON.
+
+**Opforsel:**
+- Rising edge pa IN: Q=TRUE straks, ET=0
+- IN=TRUE: Q forbliver TRUE, ET=0
+- Falling edge pa IN: Start timer, ET=0
+- IN=FALSE og ET < PT: Q forbliver TRUE, ET stiger
+- IN=FALSE og ET >= PT: Q=FALSE
+
+---
+
+#### TP - Pulse Timer
+
+Genererer en puls af fast laengde PT pa rising edge af IN. Bruges til faste pulsbredder og one-shot signaler.
+
+**Timing-diagram:**
+```
+IN:  __|‾‾‾‾‾‾‾‾‾‾‾‾‾‾|_______
+Q:   __|‾‾‾‾‾‾‾|______________
+ET:  0...PT     PT  0  0  0
+          ^-- Q goes FALSE after PT, ignoring IN
+```
+
+**Positionel syntax:**
+```structured-text
+VAR
+  trigger : BOOL;
+  pulse   : BOOL;
+END_VAR
+
+pulse := TP(trigger, 500);   (* 500ms puls *)
+```
+
+---
+
+#### Eksempel: Start-forsinket motor med timeout
+
+```structured-text
+VAR
+  start_btn    : BOOL;
+  stop_btn     : BOOL;
+  motor_enable : BOOL;
+  motor_run    : BOOL;
+  start_delay  : TIME;
+END_VAR
+
+(* 3 sekunders startforsinkelse *)
+TON(IN := start_btn AND NOT stop_btn,
+    PT := T#3s,
+    Q  => motor_enable,
+    ET => start_delay);
+
+(* Motor korer kun naar delay er overstaaet og stop ikke er aktiv *)
+motor_run := motor_enable AND NOT stop_btn;
+```
+
+#### Eksempel: Bevaegelsessensor med efterkoring
+
+```structured-text
+VAR
+  pir_sensor   : BOOL;     (* PIR bevaegelsessensor *)
+  light        : BOOL;     (* Lys output *)
+  hold_time    : TIME;
+END_VAR
+
+(* Lys slukker 2 minutter efter sidste bevaegelse *)
+TOF(IN := pir_sensor, PT := T#2m, Q => light, ET => hold_time);
+```
+
+#### Eksempel: Debounce med TON
+
+```structured-text
+VAR
+  raw_input    : BOOL;     (* Raa kontakt-signal med bounce *)
+  debounced    : BOOL;     (* Stabilt signal *)
+END_VAR
+
+(* Input skal vaere stabil i 50ms for at tael *)
+debounced := TON(raw_input, 50);
+```
+
+---
+
+### Counter Function Blocks (v4.8.1+, named params v7.9.4.0)
+
+IEC 61131-3 standard counter function blocks til taelling af haendelser. Alle tael edge-triggered og bevarer tilstand mellem cyklusser (stateful).
+
+**Max 8 counter-instanser per program.**
+
+Understotter to syntaxer:
+1. **IEC 61131-3 named parameters** (v7.9.4.0) — anbefalet
+2. **Positionel syntax** — backward-kompatibel
+
+---
+
+#### CTU - Count Up Counter (FEAT-124)
+
+Inkrementerer taeller pa rising edge af CU. Output Q gar TRUE naar count naar preset PV.
+
+**IEC 61131-3 syntax (anbefalet):**
+```structured-text
+VAR
+  pulse      : BOOL;
+  reset      : BOOL;
+  batch_done : BOOL;
+  count      : INT;
+END_VAR
+
+(* Tael til 100 — batch faerdig *)
+CTU(CU := pulse, RESET := reset, PV := 100,
+    Q => batch_done, CV => count);
+
+(* batch_done = TRUE naar count >= 100 *)
+(* count indeholder aktuel taellervaerdi *)
+```
+
+**Positionel syntax:**
+```structured-text
 batch_done := CTU(pulse, reset, 100);
-
-(* When batch_done = TRUE, counter reached 100 *)
 ```
 
-**Parameters:**
-- `CU` (BOOL) - Count-up input (rising edge triggers increment)
-- `RESET` (BOOL) - Reset input (TRUE resets CV to 0)
-- `PV` (INT) - Preset value (count limit)
+**Input parametre:**
+| Param | Type | Beskrivelse |
+|-------|------|-------------|
+| `CU`    | BOOL | Count-up input (rising edge trigger) |
+| `RESET` | BOOL | Reset input (TRUE nulstiller CV til 0) |
+| `PV`    | INT  | Preset vaerdi (maaltael) |
 
-**Returns:** Q (BOOL) - TRUE when CV >= PV
+**Output parametre:**
+| Param | Type | Beskrivelse |
+|-------|------|-------------|
+| `Q`   | BOOL | TRUE naar CV >= PV |
+| `CV`  | INT  | Aktuel taellervaerdi |
+
+**Opforsel:**
+- Rising edge pa CU: CV++ (clamp ved INT32_MAX)
+- RESET=TRUE: CV=0, Q=FALSE (hojeste prioritet)
+- CV >= PV: Q=TRUE
 
 ---
 
-#### CTD - Count Down Counter
+#### CTD - Count Down Counter (FEAT-125)
 
-Decrements counter on rising edge of CD input. Output Q goes TRUE when count reaches zero.
+Dekrementerer taeller pa rising edge af CD. Output Q gar TRUE naar count naar nul.
 
+**IEC 61131-3 syntax:**
 ```structured-text
 VAR
-  pulse: BOOL;
-  load: BOOL;
-  empty: BOOL;
+  pulse      : BOOL;
+  load       : BOOL;
+  empty      : BOOL;
+  remaining  : INT;
 END_VAR
 
-(* Count down from 50 *)
+(* Nedtael fra 50 *)
+CTD(CD := pulse, LOAD := load, PV := 50,
+    Q => empty, CV => remaining);
+
+(* empty = TRUE naar remaining <= 0 *)
+```
+
+**Positionel syntax:**
+```structured-text
 empty := CTD(pulse, load, 50);
-
-(* When empty = TRUE, counter reached 0 *)
 ```
 
-**Parameters:**
-- `CD` (BOOL) - Count-down input (rising edge triggers decrement)
-- `LOAD` (BOOL) - Load input (TRUE loads PV into CV)
-- `PV` (INT) - Preset value (starting count)
+**Input parametre:**
+| Param | Type | Beskrivelse |
+|-------|------|-------------|
+| `CD`   | BOOL | Count-down input (rising edge trigger) |
+| `LOAD` | BOOL | Load input (rising edge loader PV ind i CV) |
+| `PV`   | INT  | Preset vaerdi (startvaerdi) |
 
-**Returns:** Q (BOOL) - TRUE when CV <= 0
+**Output parametre:**
+| Param | Type | Beskrivelse |
+|-------|------|-------------|
+| `Q`   | BOOL | TRUE naar CV <= 0 |
+| `CV`  | INT  | Aktuel taellervaerdi |
 
 ---
 
-#### CTUD - Count Up/Down Counter
+#### CTUD - Count Up/Down Counter (FEAT-126)
 
-Bidirectional counter - increments on CU, decrements on CD. Two outputs: QU (reached upper limit) and QD (reached zero).
+Bidirektional taeller — inkrementerer pa CU, dekrementerer pa CD. Tre outputs: QU (ovre graense), QD (nul) og CV (vaerdi).
 
+**IEC 61131-3 syntax:**
 ```structured-text
 VAR
-  inc_pulse: BOOL;
-  dec_pulse: BOOL;
-  reset: BOOL;
-  load: BOOL;
-  up_done: BOOL;
-  down_done: BOOL;
+  inc_pulse  : BOOL;
+  dec_pulse  : BOOL;
+  rst        : BOOL;
+  ld         : BOOL;
+  at_max     : BOOL;
+  at_zero    : BOOL;
+  count      : INT;
 END_VAR
 
-(* Count up/down with dual limits *)
-up_done := CTUD(inc_pulse, dec_pulse, reset, load, 100);
-
-(* up_done = TRUE when CV >= 100 (QU output) *)
-(* Access QD via instance storage for down limit *)
+CTUD(CU := inc_pulse, CD := dec_pulse,
+     RESET := rst, LOAD := ld, PV := 100,
+     QU => at_max, QD => at_zero, CV => count);
 ```
 
-**Parameters:**
-- `CU` (BOOL) - Count-up input (rising edge increments)
-- `CD` (BOOL) - Count-down input (rising edge decrements)
-- `RESET` (BOOL) - Reset input (TRUE resets CV to 0)
-- `LOAD` (BOOL) - Load input (TRUE loads PV into CV)
-- `PV` (INT) - Preset value (upper limit)
+**Positionel syntax:**
+```structured-text
+at_max := CTUD(inc_pulse, dec_pulse, rst, ld, 100);
+```
 
-**Returns:** QU (BOOL) - TRUE when CV >= PV
+**Input parametre:**
+| Param | Type | Beskrivelse |
+|-------|------|-------------|
+| `CU`    | BOOL | Count-up input (rising edge) |
+| `CD`    | BOOL | Count-down input (rising edge) |
+| `RESET` | BOOL | Reset (CV=0) |
+| `LOAD`  | BOOL | Load (CV=PV) |
+| `PV`    | INT  | Preset vaerdi (ovre graense) |
 
-**Note:** QD (down limit) is stored in instance but not directly returned. Use CTU/CTD for single-direction counting if only one limit is needed.
+**Output parametre:**
+| Param | Type | Beskrivelse |
+|-------|------|-------------|
+| `QU`  | BOOL | TRUE naar CV >= PV |
+| `QD`  | BOOL | TRUE naar CV <= 0 |
+| `CV`  | INT  | Aktuel taellervaerdi |
 
-**Priority (highest to lowest):**
-1. RESET (always wins)
-2. LOAD (loads PV if RESET is FALSE)
-3. CU/CD (count if neither RESET nor LOAD is TRUE)
+**Prioritet (hojest til lavest):**
+1. RESET (vinder altid — CV=0)
+2. LOAD (CV=PV, kun hvis RESET=FALSE)
+3. CU/CD (taelling, kun hvis hverken RESET eller LOAD)
 
 ---
 
-#### Example: Product Batch Counter
+#### Eksempel: Produktions batch-taeller
 
 ```structured-text
 VAR
-  sensor_trigger: BOOL;
-  reset_button: BOOL;
-  batch_complete: BOOL;
-  product_count: INT;
+  sensor_trigger : BOOL;
+  reset_button   : BOOL;
+  batch_complete : BOOL;
+  product_count  : INT;
 END_VAR
 
-(* Count 100 products per batch *)
-batch_complete := CTU(sensor_trigger, reset_button, 100);
+(* Tael 100 produkter per batch *)
+CTU(CU := sensor_trigger, RESET := reset_button, PV := 100,
+    Q => batch_complete, CV => product_count);
 
 IF batch_complete THEN
-  (* Trigger alarm, stop conveyor, etc. *)
-  product_count := 100;
+  (* Trigger alarm, stop transportbaand, etc. *)
 END_IF;
 ```
 
----
-
-#### Example: Parking Space Counter
+#### Eksempel: Parkerings-taeller med CTUD
 
 ```structured-text
 VAR
-  entry_sensor: BOOL;
-  exit_sensor: BOOL;
-  reset: BOOL;
-  load: BOOL;
-  spaces_full: BOOL;
-  spaces_empty: BOOL;
-  max_spaces: INT := 50;
+  entry_sensor  : BOOL;
+  exit_sensor   : BOOL;
+  reset         : BOOL;
+  load          : BOOL;
+  lot_full      : BOOL;
+  lot_empty     : BOOL;
+  car_count     : INT;
 END_VAR
 
-(* Count cars entering/leaving parking lot *)
-spaces_full := CTUD(entry_sensor, exit_sensor, reset, load, max_spaces);
+(* Tael biler ind/ud af parkeringsplads *)
+CTUD(CU := entry_sensor, CD := exit_sensor,
+     RESET := reset, LOAD := load, PV := 50,
+     QU => lot_full, QD => lot_empty, CV => car_count);
 
-(* spaces_full = TRUE when lot is full (50 cars) *)
-(* spaces_empty would be TRUE when lot is empty (CV = 0) *)
+(* lot_full = TRUE naar 50 biler, lot_empty = TRUE naar 0 biler *)
+(* car_count viser altid det aktuelle antal *)
 ```
+
+#### Eksempel: Timer + Counter kombination
+
+```structured-text
+VAR
+  sensor       : BOOL;
+  debounced    : BOOL;
+  done         : BOOL;
+  count        : INT;
+  elapsed      : TIME;
+END_VAR
+
+(* Debounce sensor-input med 50ms TON *)
+debounced := TON(sensor, 50);
+
+(* Tael stabile pulser op til 1000 *)
+CTU(CU := debounced, RESET := FALSE, PV := 1000,
+    Q => done, CV => count);
+```
+
+---
+
+### Edge Detection Function Blocks (v4.7+)
+
+```structured-text
+(* R_TRIG: Rising edge detection — TRUE for one cycle on 0→1 *)
+rising := R_TRIG(input_signal);
+
+(* F_TRIG: Falling edge detection — TRUE for one cycle on 1→0 *)
+falling := F_TRIG(input_signal);
+```
+
+---
+
+### Latch Function Blocks (v4.7.3+)
+
+```structured-text
+(* SR: Set-dominant bistable — S1 has priority over R *)
+output := SR(set_input, reset_input);
+
+(* RS: Reset-dominant bistable — R1 has priority over S *)
+output := RS(set_input, reset_input);
+```
+
+---
+
+### Signal Processing Function Blocks (v4.8+)
+
+```structured-text
+(* SCALE: Linear scaling between ranges *)
+scaled := SCALE(raw_input, in_min, in_max, out_min, out_max);
+
+(* HYSTERESIS: Schmitt trigger with high/low thresholds *)
+output := HYSTERESIS(sensor_value, high_threshold, low_threshold);
+
+(* BLINK: Pulse generator with configurable on/off times *)
+blink_out := BLINK(enable, on_time_ms, off_time_ms);
+
+(* FILTER: First-order low-pass filter *)
+filtered := FILTER(noisy_input, time_constant_ms);
+```
+
+---
+
+### Oversigt: Alle Function Block Instanser
+
+| Type | Function Blocks | Max instanser | Stateful |
+|------|----------------|---------------|----------|
+| Timer | TON, TOF, TP | 8 per program | Ja |
+| Counter | CTU, CTD, CTUD | 8 per program | Ja |
+| Edge | R_TRIG, F_TRIG | 8 per program | Ja |
+| Latch | SR, RS | 8 per program | Ja |
+| Signal | HYSTERESIS, BLINK, FILTER | 8 per program | Ja |
+
+**Samlet stateful storage:** ~540 bytes per program (4 programmer = ~2.2 KB)
 
 ---
 
@@ -1166,7 +1498,7 @@ Then check Modbus register #101 after executing the program.
 - **Feature:** Structured Text Logic Mode
 - **IEC Standard:** 61131-3 (ST-Light Profile)
 - **First Release:** v2.0.0 (2025-11-30)
-- **Current Version:** v4.4.0 (2025-12-24)
+- **Current Version:** v7.9.3.2 (2026-04-08)
 - **Status:** Production Ready ✅
 
 ### Feature History
@@ -1178,3 +1510,6 @@ Then check Modbus register #101 after executing the program.
 - **v7.7.0** - Async Modbus Master: non-blocking reads/writes, MB_SUCCESS/MB_BUSY/MB_ERROR builtins
 - **v7.9.0.2** - Per-slot Modbus request quota: alle 4 slots kan køre Modbus uafhængigt
 - **v7.9.2.0** - Multi-register Modbus: MB_READ_HOLDINGS/MB_WRITE_HOLDINGS med native ARRAY support (FC03/FC16)
+- **v7.9.3.0** - Compiler heap optimering: AST node 156->84 bytes, dynamisk bytecode buffer, max 2048 instruktioner
+- **v7.9.3.1** - Realtime compiler ressource-info i web editor (heap-bar, AST nodes, auto-poll)
+- **v7.9.3.2** - Modbus Master: FC16 timeout fix, request struct 41→10 bytes, LRU cache eviction, write dedup, adaptive per-slave backoff (50ms→2s), stats reset med tidspunkt (API + web)

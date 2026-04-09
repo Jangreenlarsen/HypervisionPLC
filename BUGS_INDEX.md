@@ -386,12 +386,18 @@
 | FEAT-118 | `show modbus-master` viser konfig-kommandoer | ✅ DONE | 🔵 LOW | v7.9.1.2 | Tilføjet "Configuration commands" sektion i bunden af `show modbus-master` output med komplet liste over alle `set modbus-master` parametre inkl. `cache-ttl`. Brugere kan nu se tilgængelige kommandoer direkte i status-output. (cli_commands_modbus_master.cpp) |
 | FEAT-119 | Web dashboard: Cache TTL + [EXP] markør | ✅ DONE | 🟠 MEDIUM | v7.9.1.2 | Web dashboard Modbus Master-kort viser nu: (1) ny "Cache TTL" række (`0 (aldrig expire)` eller `N ms`), (2) `[EXP]` markør i status-kolonnen når `age_ms >= cache_ttl_ms` (expired entries vises i orange val-warn). Ny Prometheus-metric `modbus_master_cache_ttl_ms` eksponerer TTL-værdien. (api_handlers.cpp, web_dashboard.cpp) |
 | FEAT-120 | ST Logic Multi-Register Modbus Master (FC03/FC16) med ARRAY | ✅ DONE | 🟡 HIGH | v7.9.2.0 | `regs := MB_READ_HOLDINGS(slave, addr, count)` læser op til 16 reg via FC03 direkte ind i ARRAY OF INT. `MB_WRITE_HOLDINGS(slave, addr, count) := regs` skriver fra ARRAY via FC16. Konsistent assignment-syntax med eksisterende single-register ops. Compiler resolver array-variabel til base_index ved compile-time, VM kopierer til/fra variable slots. Cache opdateres per-register. Protokol: `modbus_master_read_holdings()`+`write_holdings()`. (modbus_master.h/cpp, mb_async.h/cpp, st_builtin_modbus.h/cpp, st_builtins.h/cpp, st_compiler.cpp, st_vm.cpp, st_parser.cpp, st_types.h) |
-| FEAT-121 | ST Logic TIME datatype | ❌ OPEN | 🟡 HIGH | v8.x | IEC 61131-3 TIME datatype: `T#5s`, `T#100ms`, `T#1m30s`, `T#2h`. Intern repræsentation i millisekunder (INT/DINT). Kræves af TON/TOF timer function blocks. Literal parsing i lexer, type support i compiler/VM |
-| FEAT-122 | ST Logic TON timer (On-delay) | ❌ OPEN | 🟡 HIGH | v8.x | IEC 61131-3 TON function block: aktiverer output efter input har været TRUE i PT tid. `TON(IN := trigger, PT := T#5s, Q => output, ET => elapsed)`. Stateful FB instance med intern tidsmåling |
-| FEAT-123 | ST Logic TOF timer (Off-delay) | ❌ OPEN | 🟡 HIGH | v8.x | IEC 61131-3 TOF function block: holder output aktiv i PT tid efter input går FALSE. `TOF(IN := trigger, PT := T#3s, Q => output, ET => elapsed)`. Komplementær til TON |
-| FEAT-124 | ST Logic CTU counter (Count Up) | ❌ OPEN | 🟡 HIGH | v8.x | IEC 61131-3 CTU function block: tæller opad fra 0 til PV. `CTU(CU := pulse, RESET := rst, PV := 100, Q => done, CV => count)`. Edge-triggered på CU input |
-| FEAT-125 | ST Logic CTD counter (Count Down) | ❌ OPEN | 🟡 HIGH | v8.x | IEC 61131-3 CTD function block: tæller nedad fra PV til 0. `CTD(CD := pulse, LOAD := ld, PV := 100, Q => done, CV => count)`. Edge-triggered på CD input |
-| FEAT-126 | ST Logic CTUD counter (Up/Down) | ❌ OPEN | 🟡 HIGH | v8.x | IEC 61131-3 CTUD function block: tæller op/ned afhængigt af CU/CD inputs. `CTUD(CU := up, CD := down, RESET := rst, LOAD := ld, PV := 100, QU => at_max, QD => at_zero, CV => count)`. Kombinerer CTU+CTD i én blok |
+| OPT-001 | ST Compiler heap optimering | ✅ DONE | 🟡 HIGH | v7.9.3.0 | AST node 156->84 bytes (46% reduktion): char[64]->char[32] i union + CASE branches heap-allokeret. var_names[32][32]->[32][16] (-2KB RAM). Dynamisk bytecode buffer: start 256, realloc i 256-blokke, max 2048 (var fast 1024=8KB). Function registry functions[64]->[32]. Bytecode persist format v3. Resultat: peak heap 39KB->22KB, largest_block 41KB->49KB. (st_types.h, st_parser.cpp, st_compiler.cpp, st_compiler.h, st_bytecode_persist.h/cpp, constants.h) |
+| FEAT-127 | Realtime compiler ressource-info i web editor | ✅ DONE | 🟠 MEDIUM | v7.9.3.1 | `/api/logic` returnerer `resources{}` med heap_free, largest_block, min_free, pool_total/used/free, ast_node_size, max_ast_nodes. Web editor viser Heap-bar ved siden af Pool-bar med storste blok i KB + max AST nodes. Auto-poll 5s. Farvekoder: gron >35KB, orange 20-35KB, rod <20KB. Tooltip med detaljeret info. (api_handlers.cpp, web_editor.cpp) |
+| OPT-002 | Modbus Master cache + request optimering | ✅ DONE | 🟡 HIGH | v7.9.3.2 | mb_async_request_t 41→10 bytes (ring-buffer pool for FC16 values). LRU eviction når cache fuld (ældste non-PENDING entry). Write dedup: skipper queue hvis cache allerede har samme værdi. Queue memory: 656→160 bytes (-75%). (mb_async.h/cpp) |
+| OPT-003 | Modbus FC16 response timeout fix | ✅ DONE | 🔴 CRITICAL | v7.9.3.2 | FC16 (0x10) manglede i response parser switch — alle FC16 writes ventede fuld timeout (500ms) selvom 8-byte response var modtaget. Tilføjet `function_code == 0x10` case med `bytes_received >= 8` check. Dual-phase timeout: inter-character timeout beregnet fra baudrate (T3.5), fuld timeout kun for første byte. (modbus_master.cpp) |
+| FEAT-128 | Intelligent per-slave adaptive backoff | ✅ DONE | 🟡 HIGH | v7.9.3.2 | Exponential backoff ved timeouts (50ms→2000ms cap), lineær decay ved success (-100ms). Op til 8 slaves tracked. Forhindrer bus-flooding mod offline slaves. Synlig i CLI `show modbus-master` + web dashboard + Prometheus metric `modbus_master_slave_backoff`. (mb_async.h/cpp, cli_commands_modbus_master.cpp, web_dashboard.cpp, api_handlers.cpp) |
+| FEAT-129 | Modbus Master stats reset med tidspunkt | ✅ DONE | 🟠 MEDIUM | v7.9.3.2 | `POST /api/modbus/master/reset-stats` nulstiller alle master+cache statistik-tællere og adaptive backoff. Web dashboard viser "Statistik siden: Xt Ym siden" med `modbus_master_stats_age_ms` metric. Nulstil-knap i Modbus Master kort. (mb_async.h/cpp, types.h, api_handlers.cpp, web_dashboard.cpp, modbus_master.cpp) |
+| FEAT-121 | ST Logic TIME datatype | ✅ DONE | 🟡 HIGH | v7.9.4.0 | IEC 61131-3 TIME datatype: `T#5s`, `T#100ms`, `T#1m30s`, `T#2h`. ST_TYPE_TIME enum, TIME keyword i VAR declarations, T# literals som native TIME type. 32-bit millisekunder via DWORD push. (st_types.h, st_lexer.cpp, st_parser.cpp, st_compiler.cpp, st_vm.cpp) |
+| FEAT-122 | ST Logic TON timer (On-delay) | ✅ DONE | 🟡 HIGH | v7.9.4.0 | IEC 61131-3 TON function block med named-parameter syntax: `TON(IN := trigger, PT := T#5s, Q => output, ET => elapsed)`. Output bindings via `=>` operator og ny ST_OP_LOAD_FB_FIELD opcode. Backward-kompatibel med positionel syntax. (st_parser.cpp, st_compiler.cpp, st_vm.cpp) |
+| FEAT-123 | ST Logic TOF timer (Off-delay) | ✅ DONE | 🟡 HIGH | v7.9.4.0 | IEC 61131-3 TOF function block med named-parameter syntax: `TOF(IN := trigger, PT := T#3s, Q => output, ET => elapsed)`. Deler parser/compiler infrastruktur med TON. |
+| FEAT-124 | ST Logic CTU counter (Count Up) | ✅ DONE | 🟡 HIGH | v7.9.4.0 | IEC 61131-3 CTU function block med named-parameter syntax: `CTU(CU := pulse, RESET := rst, PV := 100, Q => done, CV => count)`. Edge-triggered, output bindings via LOAD_FB_FIELD. |
+| FEAT-125 | ST Logic CTD counter (Count Down) | ✅ DONE | 🟡 HIGH | v7.9.4.0 | IEC 61131-3 CTD function block med named-parameter syntax: `CTD(CD := pulse, LOAD := ld, PV := 100, Q => done, CV => count)`. Edge-triggered, deler counter infrastruktur med CTU. |
+| FEAT-126 | ST Logic CTUD counter (Up/Down) | ✅ DONE | 🟡 HIGH | v7.9.4.0 | IEC 61131-3 CTUD function block med named-parameter syntax: `CTUD(CU := up, CD := down, RESET := rst, LOAD := ld, PV := 100, QU => at_max, QD => at_zero, CV => count)`. 3 output bindings (QU, QD, CV). |
 
 ## Quick Lookup by Category
 
@@ -611,15 +617,15 @@
 | `st_logic_program_config_t` (bytecode+stats+meta) | ~2.5 KB | 4 | **10.0 KB** |
 | ↳ `*instructions` (dynamisk, exact-size) | 8 B/instr | variabel | *se nedenfor* |
 | ↳ `variables[32]` á 8 bytes | 256 B | (inline) | |
-| ↳ `var_names[32][32]` | 1,024 B | (inline) | ~~2,048 B~~ |
+| ↳ `var_names[32][16]` (v7.9.3: var [32][32]) | 512 B | (inline) | ~~1,024 B~~ |
 | ↳ `var_types[32]` + `var_export_flags[32]` | 64 B | (inline) | |
 | ↳ `name[32]` + `last_error[64]` + stats/meta | ~236 B | (inline) | ~~392 B~~ |
-| Dynamisk instructions (per compiled prog) | 8 B/instr | 0-1024 | **variabel** |
+| Dynamisk instructions (per compiled prog) | 8 B/instr | 0-2048 | **variabel** |
 | ↳ Typisk 100-instruktion program | 800 B | per prog | |
 | ↳ Stort 500-instruktion program | 4,000 B | per prog | |
 | `st_stateful_storage_t` (malloc'd per compiled prog) | ~540 B | 0-4 | **0–2.2 KB** |
-| `st_function_registry_t` (kun ved user functions) | ~7.4 KB | 0-4 | **0–29.6 KB** |
-| ↳ `functions[64]` á ~52 bytes (name[32]) | 3,328 B | (inline) | ~~5,376 B~~ |
+| `st_function_registry_t` (kun ved user functions) | ~3.9 KB | 0-4 | **0–15.6 KB** |
+| ↳ `functions[32]` á ~52 bytes (v7.9.3: var [64]) | 1,664 B | (inline) | ~~3,328 B~~ |
 | ↳ `fb_instances[16]` á ~145 bytes | 2,320 B | (inline) | |
 | Engine global state (enabled, interval, cycle stats) | ~60 B | 1 | **0.06 KB** |
 
@@ -637,23 +643,24 @@ EFTER optimeringer: 18.1 – 50.4 KB  → BESPARELSE: 33.6 – 34.2 KB (65% ↓)
 
 | Komponent | Størrelse | Bemærkning |
 |-----------|-----------|------------|
-| AST node pool | **23–82 KB** | 256–512 nodes × ~161 bytes/node (BUG-240 optimering) |
-| ↳ `st_ast_node_t`: 161 bytes | | Reduceret fra 1,920 B (93%!) — function_def→pointer |
+| AST node pool | **21–40 KB** | 256–475 nodes × 84 bytes/node (v7.9.3 optimering) |
+| ↳ `st_ast_node_t`: 84 bytes | | v7.9.3: char[64]→[32] + CASE branches→heap (var 156 B) |
 | ↳ Try-decreasing: 512→256→128→64→32 | | BUG-241: tilpasser sig fragmenteret heap |
 | Parser `st_parser_t` (malloc'd) | **~1.3 KB** | lexer + tokens + error_msg[256] |
 | Compiler `st_compiler_t` (malloc'd) | **~3.0 KB** | symbol_table[32]×74 + patches + stacks |
-| Temp bytecode buffer (1024×8) | **8.0 KB** | Allokeres under kompilering, frigives efter |
+| Temp bytecode buffer (dynamisk) | **2–16 KB** | v7.9.3: start 256 instr (2KB), realloc i 256-blokke, max 2048 |
 | Source code kopi (null-terminated) | **0.1–2 KB** | BUG-212 fix: malloc(source_size+1) |
+| CASE branches (per CASE stmt) | ~128 B | v7.9.3: heap-allokeret 16×8 bytes, free efter parse |
 | CASE jump arrays (per CASE stmt) | ~64 B | malloc/free per CASE branch |
 
-**Peak kompilering:**
+**Peak kompilering (v7.9.3):**
 ```
-Lille program (100 linjer):    ~36 KB peak  (128 AST nodes + parser + compiler + temp bytecode)
-Mellem program (500 linjer):   ~53 KB peak  (256 AST nodes + temp bytecode)
-Stort program (1000+ linjer):  ~94 KB peak  (512 AST nodes + func registry + temp bytecode)
+Lille program (100 linjer):    ~22 KB peak  (128 AST nodes×84B + parser + compiler + 2KB bytecode)
+Mellem program (500 linjer):   ~32 KB peak  (256 AST nodes×84B + 4KB bytecode)
+Stort program (1000+ linjer):  ~55 KB peak  (475 AST nodes×84B + 8KB bytecode + func registry)
 
 Alt frigives efter kompilering ✓ (recovery til permanent level)
-Note: +8 KB peak vs før pga temp bytecode buffer (instructions er nu dynamisk)
+FØR v7.9.3: peak var 36–94 KB — NU: 22–55 KB (40% reduktion)
 ```
 
 #### Runtime VM (stack-allokeret — per execution cycle)

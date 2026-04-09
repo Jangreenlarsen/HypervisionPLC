@@ -27,6 +27,14 @@
 #include <stdint.h>
 
 /* ============================================================================
+ * FEAT-121: TIME type helper — TIME is semantically identical to DINT
+ * Normalize TIME to DINT so all arithmetic/comparison logic works unchanged.
+ * ============================================================================ */
+static inline st_datatype_t st_normalize_type(st_datatype_t t) {
+  return (t == ST_TYPE_TIME) ? ST_TYPE_DINT : t;
+}
+
+/* ============================================================================
  * INITIALIZATION & RESET
  * ============================================================================ */
 
@@ -192,51 +200,55 @@ static bool st_vm_exec_store_var(st_vm_t *vm, st_bytecode_instr_t *instr) {
   // Automatic type conversion on assignment (IEC 61131-3 implicit conversion)
   st_value_t converted_val = val;
 
-  if (val_type != var_type) {
+  // FEAT-121: Normalize TIME to DINT for conversion logic (same representation)
+  if (val_type == ST_TYPE_TIME) val_type = ST_TYPE_DINT;
+  st_datatype_t target_type = (var_type == ST_TYPE_TIME) ? ST_TYPE_DINT : var_type;
+
+  if (val_type != target_type) {
     // REAL → INT: Truncate to 16-bit
-    if (val_type == ST_TYPE_REAL && var_type == ST_TYPE_INT) {
+    if (val_type == ST_TYPE_REAL && target_type == ST_TYPE_INT) {
       int32_t temp = (int32_t)val.real_val;
       if (temp > INT16_MAX) temp = INT16_MAX;
       if (temp < INT16_MIN) temp = INT16_MIN;
       converted_val.int_val = (int16_t)temp;
     }
     // REAL → DINT: Truncate to 32-bit
-    else if (val_type == ST_TYPE_REAL && var_type == ST_TYPE_DINT) {
+    else if (val_type == ST_TYPE_REAL && target_type == ST_TYPE_DINT) {
       converted_val.dint_val = (int32_t)val.real_val;
     }
     // REAL → BOOL: Non-zero = TRUE
-    else if (val_type == ST_TYPE_REAL && var_type == ST_TYPE_BOOL) {
+    else if (val_type == ST_TYPE_REAL && target_type == ST_TYPE_BOOL) {
       converted_val.bool_val = (val.real_val != 0.0f);
     }
     // DINT → INT: Clamp to INT16 range
-    else if (val_type == ST_TYPE_DINT && var_type == ST_TYPE_INT) {
+    else if (val_type == ST_TYPE_DINT && target_type == ST_TYPE_INT) {
       int32_t temp = val.dint_val;
       if (temp > INT16_MAX) temp = INT16_MAX;
       if (temp < INT16_MIN) temp = INT16_MIN;
       converted_val.int_val = (int16_t)temp;
     }
     // DINT → REAL: Convert to float
-    else if (val_type == ST_TYPE_DINT && var_type == ST_TYPE_REAL) {
+    else if (val_type == ST_TYPE_DINT && target_type == ST_TYPE_REAL) {
       converted_val.real_val = (float)val.dint_val;
     }
     // INT → REAL: Convert to float
-    else if (val_type == ST_TYPE_INT && var_type == ST_TYPE_REAL) {
+    else if (val_type == ST_TYPE_INT && target_type == ST_TYPE_REAL) {
       converted_val.real_val = (float)val.int_val;
     }
     // INT → DINT: Sign-extend to 32-bit
-    else if (val_type == ST_TYPE_INT && var_type == ST_TYPE_DINT) {
+    else if (val_type == ST_TYPE_INT && target_type == ST_TYPE_DINT) {
       converted_val.dint_val = (int32_t)val.int_val;
     }
     // INT → BOOL: Non-zero = TRUE
-    else if (val_type == ST_TYPE_INT && var_type == ST_TYPE_BOOL) {
+    else if (val_type == ST_TYPE_INT && target_type == ST_TYPE_BOOL) {
       converted_val.bool_val = (val.int_val != 0);
     }
     // BOOL → INT: TRUE=1, FALSE=0
-    else if (val_type == ST_TYPE_BOOL && var_type == ST_TYPE_INT) {
+    else if (val_type == ST_TYPE_BOOL && target_type == ST_TYPE_INT) {
       converted_val.int_val = val.bool_val ? 1 : 0;
     }
     // BOOL → REAL: TRUE=1.0, FALSE=0.0
-    else if (val_type == ST_TYPE_BOOL && var_type == ST_TYPE_REAL) {
+    else if (val_type == ST_TYPE_BOOL && target_type == ST_TYPE_REAL) {
       converted_val.real_val = val.bool_val ? 1.0f : 0.0f;
     }
     // DWORD conversions (if needed, add more cases)
@@ -2015,6 +2027,74 @@ bool st_vm_step(st_vm_t *vm) {
     // FEAT-004: Array opcodes
     case ST_OP_LOAD_ARRAY:      result = st_vm_exec_load_array(vm, instr); break;
     case ST_OP_STORE_ARRAY:     result = st_vm_exec_store_array(vm, instr); break;
+    // FEAT-122: Load FB instance field (timer Q/ET, counter Q/QU/QD/CV)
+    case ST_OP_LOAD_FB_FIELD: {
+      uint8_t fb_type = instr->arg.fb_field.fb_type;
+      uint8_t inst_id = instr->arg.fb_field.instance_id;
+      uint8_t field_id = instr->arg.fb_field.field_id;
+
+      if (!vm->program || !vm->program->stateful) {
+        snprintf(vm->error_msg, sizeof(vm->error_msg), "No stateful storage for LOAD_FB_FIELD");
+        vm->error = 1;
+        return false;
+      }
+
+      st_stateful_storage_t *stateful = (st_stateful_storage_t *)vm->program->stateful;
+      st_value_t val;
+      st_datatype_t val_type = ST_TYPE_BOOL;
+      memset(&val, 0, sizeof(val));
+
+      if (fb_type == 0) {
+        // Timer: field 0=Q, 1=ET
+        if (inst_id >= stateful->timer_count) {
+          snprintf(vm->error_msg, sizeof(vm->error_msg), "Timer instance %d out of range", inst_id);
+          vm->error = 1;
+          return false;
+        }
+        st_timer_instance_t *ti = &stateful->timers[inst_id];
+        if (field_id == 0) {
+          val.bool_val = ti->Q;
+          val_type = ST_TYPE_BOOL;
+        } else if (field_id == 1) {
+          val.dint_val = (int32_t)ti->ET;
+          val_type = ST_TYPE_DINT;  // TIME represented as DINT in VM
+        }
+      } else if (fb_type == 1) {
+        // Counter: field 0=Q/QU, 1=QD, 2=CV
+        if (inst_id >= stateful->counter_count) {
+          snprintf(vm->error_msg, sizeof(vm->error_msg), "Counter instance %d out of range", inst_id);
+          vm->error = 1;
+          return false;
+        }
+        st_counter_instance_t *ci = &stateful->counters[inst_id];
+        if (field_id == 0) {
+          val.bool_val = ci->Q;
+          val_type = ST_TYPE_BOOL;
+        } else if (field_id == 1) {
+          val.bool_val = ci->QD;
+          val_type = ST_TYPE_BOOL;
+        } else if (field_id == 2) {
+          val.dint_val = ci->CV;
+          val_type = ST_TYPE_DINT;
+        }
+      } else {
+        snprintf(vm->error_msg, sizeof(vm->error_msg), "Unknown FB type %d in LOAD_FB_FIELD", fb_type);
+        vm->error = 1;
+        return false;
+      }
+
+      // Push value onto stack
+      if (vm->sp >= 64) {
+        snprintf(vm->error_msg, sizeof(vm->error_msg), "Stack overflow in LOAD_FB_FIELD");
+        vm->error = 1;
+        return false;
+      }
+      vm->stack[vm->sp] = val;
+      vm->type_stack[vm->sp] = val_type;
+      vm->sp++;
+      break;
+    }
+
     case ST_OP_NOP:             break;
     case ST_OP_HALT:
       vm->halted = 1;

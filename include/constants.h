@@ -91,7 +91,7 @@
 #define ST_MAX_FUNCTION_PARAMS    8     // Max parameters per function
 #define ST_MAX_FUNCTION_LOCALS    16    // Max local variables per function
 #define ST_MAX_CALL_DEPTH         8     // Max nested function calls (recursion limit)
-#define ST_MAX_TOTAL_FUNCTIONS    64    // Builtin (~48) + user-defined (16)
+#define ST_MAX_TOTAL_FUNCTIONS    32    // User-defined (builtins resolved via func_id, not registry)
 
 /* ============================================================================
  * MODULE ENABLE/DISABLE FLAGS (v6.2.0+)
@@ -499,10 +499,35 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.2.0"
+#define PROJECT_VERSION     "7.9.4.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.9.4.0 (2026-04-08): FEAT-121-126: IEC 61131-3 TIME, TON, TOF, CTU, CTD, CTUD
+ *                    - FEAT-121: ST_TYPE_TIME native datatype, TIME keyword, T# literals som TIME
+ *                    - FEAT-122-123: TON/TOF med IEC 61131-3 named-parameter syntax (IN:=, PT:=, Q=>, ET=>)
+ *                    - FEAT-124-126: CTU/CTD/CTUD med named-parameter syntax (CU:=, PV:=, Q=>, CV=>)
+ *                    - Ny opcode ST_OP_LOAD_FB_FIELD: læser timer/counter instance-felter (ET, CV, QD)
+ *                    - Ny token ST_TOK_OUTPUT_ARROW (=>) for output parameter binding
+ *                    - Fuld backward-kompatibilitet med eksisterende positionel syntax
+ *                    - Timer PT udvidet til 32-bit (op til ~24.8 dage, var 32 sekunder)
+ * v7.9.3.2 (2026-04-08): OPT: Modbus Master cache + timeout optimering
+ *                    - Request struct: 41->10 bytes (multi_regs pool), sparer ~496B i queue
+ *                    - Cache LRU eviction: ældste entry erstattes ved fuld cache
+ *                    - Write deduplication: skip identiske writes allerede i cache
+ *                    - FC16 response parsing: manglede 0x10 case (ventede til timeout)
+ *                    - Dual-phase timeout: fuld timeout for første byte, T3.5 interchar derefter
+ *                    - Per-slave adaptive backoff: 50ms->2s ved consecutive timeouts, decay ved success
+ * v7.9.3.1 (2026-04-08): UI: Realtime compiler ressource-info i ST editor
+ *                    - /api/logic returnerer resources{} med heap, pool, AST node stats
+ *                    - Editor Heap-bar: storste blok + max AST nodes (auto-poll 5s)
+ * v7.9.3 (2026-04-08): OPT: ST Compiler heap optimization
+ *                    - AST node: 156 -> 84 bytes (46% reduktion, ~9 KB/128 nodes)
+ *                    - var_names: [32][32] -> [32][16] (512 bytes/program sparet)
+ *                    - Bytecode buffer: dynamisk 256->2048 (var 8 KB fast, nu 2 KB start)
+ *                    - Function registry: functions[64] -> [32] (~1.7 KB/program)
+ *                    - CASE branches: inline[16] -> heap-allokeret pointer
+ *                    - Bytecode persist format v3
  * v7.9.2 (2026-04-06): FEAT: Multi-register Modbus Master fra ST Logic
  *                    - MB_READ_HOLDINGS(slave, addr, count): FC03 multi-register read
  *                    - MB_WRITE_HOLDINGS(slave, addr, count): FC16 multi-register write

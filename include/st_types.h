@@ -41,6 +41,7 @@ typedef enum {
   ST_TOK_DINT_KW,           // DINT (keyword - 32-bit signed, Double INT)
   ST_TOK_DWORD,             // DWORD (or UINT32, ULINT - 32-bit unsigned)
   ST_TOK_REAL_KW,           // REAL (keyword - different from literal ST_TOK_REAL)
+  ST_TOK_TIME_KW,           // TIME (keyword - for VAR declarations, FEAT-121)
 
   // Keywords - Variable declarators (IEC 6.2.3)
   ST_TOK_VAR,               // VAR
@@ -97,6 +98,7 @@ typedef enum {
   ST_TOK_GT,                // >
   ST_TOK_LE,                // <=
   ST_TOK_GE,                // >=
+  ST_TOK_OUTPUT_ARROW,      // => (FEAT-122: output parameter binding)
 
   ST_TOK_PLUS,              // +
   ST_TOK_MINUS,             // -
@@ -151,6 +153,7 @@ typedef enum {
   ST_TYPE_DINT,             // DINT (-2^31 to 2^31-1) - 32-bit signed, 2 registers
   ST_TYPE_DWORD,            // DWORD (0 to 2^32-1) - 32-bit unsigned, 2 registers
   ST_TYPE_REAL,             // REAL (IEEE 754 32-bit float) - 2 registers
+  ST_TYPE_TIME,             // TIME (milliseconds, stored as uint32) - FEAT-121
   ST_TYPE_NONE,             // Used for statements (not variables)
 } st_datatype_t;
 
@@ -223,7 +226,7 @@ typedef struct {
 } st_unary_op_t;
 
 typedef struct {
-  char var_name[64];        // Variable identifier
+  char var_name[32];        // Variable identifier (31 chars max, was 64 — heap optimization)
   st_datatype_t type;       // Type (inferred from context)
 } st_variable_ref_t;
 
@@ -232,10 +235,19 @@ typedef struct {
   st_value_t value;         // Value
 } st_literal_t;
 
+// FEAT-122: Output parameter binding for IEC 61131-3 function blocks
 typedef struct {
-  char func_name[64];       // Function name (e.g., "SAVE", "LOAD", "ABS")
+  char var_name[16];          // Target variable name (15 chars max)
+  uint8_t field_id;           // 0=Q/QU, 1=ET/QD, 2=CV
+} st_fb_output_binding_t;
+
+typedef struct {
+  char func_name[32];       // Function name (31 chars max, was 64 — heap optimization)
   st_ast_node_t *args[8];   // Function arguments (max 8 args, v7.7.2: was 4)
   uint8_t arg_count;        // Number of arguments
+  // FEAT-122: Named parameter output bindings (IEC 61131-3 FB syntax)
+  uint8_t output_count;     // Number of => bindings (0 = positional call)
+  st_fb_output_binding_t output_bindings[4]; // Max 4 output bindings (Q, ET, CV, QD)
 } st_function_call_t;
 
 typedef struct {
@@ -251,13 +263,13 @@ typedef struct {
 
 typedef struct {
   st_ast_node_t *expr;        // Expression being tested
-  st_case_branch_t branches[16];  // Up to 16 case branches
-  uint8_t branch_count;       // Number of branches
+  st_case_branch_t *branches;  // Heap-allocated case branches (was branches[16] — heap optimization)
+  uint8_t branch_count;       // Number of branches (max 16)
   st_ast_node_t *else_body;   // ELSE block (NULL if none)
 } st_case_stmt_t;
 
 typedef struct {
-  char var_name[64];        // Loop variable
+  char var_name[32];        // Loop variable (31 chars max, was 64 — heap optimization)
   st_ast_node_t *start;     // Start expression
   st_ast_node_t *end;       // End expression
   st_ast_node_t *step;      // Step expression (NULL = default 1)
@@ -275,19 +287,19 @@ typedef struct {
 } st_repeat_stmt_t;
 
 typedef struct {
-  char var_name[64];        // Variable being assigned
+  char var_name[32];        // Variable being assigned (31 chars max, was 64 — heap optimization)
   st_ast_node_t *expr;      // Expression
   st_ast_node_t *index_expr; // FEAT-004: Array index (NULL for scalar)
 } st_assignment_t;
 
 /* FEAT-004: Array element access */
 typedef struct {
-  char var_name[64];        // Array variable name
+  char var_name[32];        // Array variable name (31 chars max, was 64 — heap optimization)
   st_ast_node_t *index_expr; // Index expression
 } st_array_access_t;
 
 typedef struct {
-  char func_name[64];        // "MB_WRITE_COIL" or "MB_WRITE_HOLDING" or "MB_WRITE_HOLDINGS"
+  char func_name[32];        // "MB_WRITE_COIL" or "MB_WRITE_HOLDING" etc. (31 chars max, was 64)
   st_ast_node_t *slave_id;   // Slave ID expression
   st_ast_node_t *address;    // Address expression
   st_ast_node_t *value;      // Value expression (right side of :=)
@@ -420,7 +432,7 @@ typedef struct {
  * for CALL_USER dispatch.
  */
 typedef struct {
-  st_function_entry_t functions[64];    // Max ST_MAX_TOTAL_FUNCTIONS
+  st_function_entry_t functions[32];    // Max ST_MAX_TOTAL_FUNCTIONS (heap optimization: was 64)
   uint8_t builtin_count;                // Number of builtin functions
   uint8_t user_count;                   // Number of user-defined functions
 
@@ -531,6 +543,9 @@ typedef enum {
   ST_OP_LOAD_ARRAY,         // Load array element: base_index + (pop() - lower_bound)
   ST_OP_STORE_ARRAY,        // Store array element: base_index + (pop() - lower_bound) = pop()
 
+  // FEAT-122: Function block field access
+  ST_OP_LOAD_FB_FIELD,      // Load timer/counter instance field (Q, ET, CV, etc.)
+
   // Misc
   ST_OP_NOP,                // No operation
   ST_OP_HALT,               // Stop execution
@@ -561,6 +576,12 @@ typedef struct {
       int8_t  lower_bound;  // Lower bound offset (usually 0)
       uint8_t padding;
     } array_op;
+    struct {                // FEAT-122: FB field access (timer/counter instance fields)
+      uint8_t fb_type;      // 0=timer, 1=counter
+      uint8_t instance_id;  // Instance index (0-7)
+      uint8_t field_id;     // Field: timer(0=Q,1=ET), counter(0=Q/QU,1=QD,2=CV)
+      uint8_t padding;
+    } fb_field;
   } arg;
 } st_bytecode_instr_t;
 
@@ -576,7 +597,7 @@ typedef struct {
   // Variable memory
   st_value_t variables[32];        // Max 32 variables (runtime values)
   st_value_t var_initial[32];      // Initial values from VAR declarations (v7.7.1)
-  char var_names[32][32];          // Variable names (for CLI binding by name, 31 chars max)
+  char var_names[32][16];          // Variable names (for CLI binding by name, 15 chars max — heap optimization)
   st_datatype_t var_types[32];     // Variable types (BOOL, INT, etc.) - for bindings display
   uint8_t var_count;
 

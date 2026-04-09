@@ -86,6 +86,7 @@ static const keyword_entry_t keywords[] = {
   {"DINT", ST_TOK_DINT_KW},
   {"DWORD", ST_TOK_DWORD},
   {"REAL", ST_TOK_REAL_KW},
+  {"TIME", ST_TOK_TIME_KW},  // FEAT-121: TIME datatype keyword
 
   // Variable declarations
   {"VAR", ST_TOK_VAR},
@@ -572,6 +573,15 @@ bool st_lexer_next_token(st_lexer_t *lexer, st_token_t *token) {
     lexer_advance(lexer);
     return true;
   }
+  // FEAT-122: Output parameter arrow (=>) for FB output bindings
+  if (strcmp(two_char, "=>") == 0) {
+    token->type = ST_TOK_OUTPUT_ARROW;
+    strncpy(token->value, "=>", 255);
+    token->value[255] = '\0';
+    lexer_advance(lexer);
+    lexer_advance(lexer);
+    return true;
+  }
   if (strcmp(two_char, "**") == 0) {
     token->type = ST_TOK_POWER;
     strncpy(token->value, "**", 255);
@@ -747,6 +757,8 @@ const char *st_token_type_to_string(st_token_type_t type) {
     case ST_TOK_GT:             return "GT";
     case ST_TOK_LE:             return "LE";
     case ST_TOK_GE:             return "GE";
+    case ST_TOK_OUTPUT_ARROW:   return "OUTPUT_ARROW";
+    case ST_TOK_TIME_KW:        return "TIME_KW";
     case ST_TOK_PLUS:           return "PLUS";
     case ST_TOK_MINUS:          return "MINUS";
     case ST_TOK_MUL:            return "MUL";

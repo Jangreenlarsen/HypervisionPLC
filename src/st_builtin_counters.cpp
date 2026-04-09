@@ -21,7 +21,7 @@ st_value_t st_builtin_ctu(st_value_t CU, st_value_t RESET, st_value_t PV, st_cou
 
   bool current_CU = CU.bool_val;
   bool current_RESET = RESET.bool_val;
-  int32_t preset = PV.int_val;
+  int32_t preset = PV.dint_val;
 
   // Update preset value
   instance->PV = preset;
@@ -72,7 +72,7 @@ st_value_t st_builtin_ctd(st_value_t CD, st_value_t LOAD, st_value_t PV, st_coun
 
   bool current_CD = CD.bool_val;
   bool current_LOAD = LOAD.bool_val;
-  int32_t preset = PV.int_val;
+  int32_t preset = PV.dint_val;
 
   // Update preset value
   instance->PV = preset;
@@ -124,7 +124,7 @@ st_value_t st_builtin_ctud(st_value_t CU, st_value_t CD, st_value_t RESET, st_va
   bool current_CD = CD.bool_val;
   bool current_RESET = RESET.bool_val;
   bool current_LOAD = LOAD.bool_val;
-  int32_t preset = PV.int_val;
+  int32_t preset = PV.dint_val;
 
   // Update preset value
   instance->PV = preset;
