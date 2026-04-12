@@ -1,6 +1,6 @@
 # Modbus RTU Server (ESP32)
 
-**Version:** v7.8.1 | **Build:** Auto | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
+**Version:** v7.9.6.4 | **Build:** Auto | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
 
 En komplet, modulær **Modbus RTU Server** implementation til ESP32-WROOM-32 mikrocontroller med **Modbus interfaces** (Slave + Master), ST Structured Text Logic programmering med IEC 61131-3 type system, Wi-Fi netværk, **HTTP REST API** for Node-RED integration, telnet CLI interface, og komplet Modbus register dokumentation. Understøtter flere board-varianter inkl. **ES32D26** med shared RS485 transceiver, 8DI/8DO (shift registers), 8AI og 2AO (DAC).
 
@@ -1034,7 +1034,7 @@ curl -u api_user:password http://10.1.1.30/api/metrics
 
 Se [docs/REST_API.md](docs/REST_API.md#prometheus-metrics) for komplet metrics-reference.
 
-#### Web-baseret ST Logic Editor (v7.3.0)
+#### Web-baseret ST Logic Editor (v7.9.6)
 
 En komplet kode-editor til ST Logic programmer direkte i browseren. Tilgaes via:
 
@@ -1047,10 +1047,19 @@ http://<esp32-ip>/editor
 - Kode-editor med linje-numre, Tab-indent (2 spaces) og Ctrl+S genvej til kompilering
 - Live pool usage meter — viser forbrug af 8KB shared source pool med farveadvarsler
 - ST language reference sidebar med noegleord, typer, operatorer, timer/taeller-blokke og Modbus I/O
-- Kompileringsfejl feedback med tidsstemplet output log
+- Kompileringsfejl feedback med inline linjemarkering (FEAT-131) og tidsstemplet output log
+- Upload .st-filer direkte i editor (FEAT-132), Find/Replace med Ctrl+F/Ctrl+H (FEAT-133)
 - Enable/disable toggle, slet program og gem config til NVS — alt fra browseren
 - Login dialog med HTTP Basic Auth (bruger samme credentials som REST API)
 - Catppuccin Mocha dark theme optimeret til embedded programmering
+
+**Monitor Panel (v7.9.6.4):**
+- Runtime variabel-monitor med oscilloskop-stil trend-kurver (320x40, gitterlinjer)
+- Min/Max labels til venstre for kurve, reel elapsed tid + execution count til hoejre
+- Konfigurerbar opdateringshastighed (500ms-10s), historiklaengde (30-240 punkter), kurvefarve (8 farver)
+- Trend synkroniserer med debug: pauser naar program er stoppet, genoptager ved step/continue
+- X-akse baseret paa reelle timestamps — praecis tidsrepraesentation ogsaa i debug-mode
+- Debug-kontrol: Pause Execute, Single Step, Single Cycle, Normal Execute med statusbadge
 
 **Brug:**
 1. Aaben `http://<esp32-ip>/editor` i en browser
@@ -3752,6 +3761,30 @@ empty := CTD(dispense, reload, 50);              (* Count down from 50 *)
 
 ## 📝 Version History
 
+- **v7.9.6.4** (2026-04-12) - 📈 ST Editor Monitor Trend Forbedringer
+  - **FEAT-137:** Oscilloskop-gitter i trend-kurver (4H+8V linjer, mørk baggrund)
+  - **FEAT-138:** Hastigheds-/historik-kontrol virker korrekt, valgbar kurvefarve (8 farver)
+  - **FEAT-139:** Debug-knapper omdøbt (Pause Execute, Single Step, Single Cycle, Normal Execute)
+  - **Trend sync:** X-akse bruger reelle timestamps, pauser med debug, viser elapsed tid + exec count
+  - **FIX: BUG-322:** SSE bypass'ede polling-interval → uregelmæssig opdatering
+- **v7.9.6.3** (2026-04-12) - 🔧 SSE Dashboard + Editor Fixes
+  - **FIX: BUG-320:** SSE-events opdaterede kun register-grids, resten ventede på 5s polling
+  - **FIX: BUG-321:** Editor monitor SSE brugte 500ms debounce + kun register-topic
+- **v7.9.6.2** (2026-04-12) - 🔐 SSE Token Auth + mb CLI Fix
+  - **FIX: BUG-318:** SSE fejlede med 401 fra web monitor når auth aktiv (token-based auth)
+  - **FIX: BUG-319:** mb mini-form i dashboard brugte forkerte CLI type-navne
+- **v7.9.6.1** (2026-04-12) - 🛡️ CLI RBAC Toggle
+  - **FEAT-136:** `set rbac enable/disable` CLI kommando
+- **v7.9.6.0** (2026-04-11) - 🖥️ Web Editor Udvidelse
+  - **FEAT-131:** Inline kompileringsfejl med linjemarkering i editor
+  - **FEAT-132:** Upload .st-fil direkte i web editor
+  - **FEAT-133:** Find/Replace (Ctrl+F/Ctrl+H) i web editor
+  - **FEAT-134:** Alarm historik filter (severity, ack status, søgning)
+  - **FEAT-135:** Modbus Master mb read/write mini-form i dashboard
+- **v7.9.5.0** (2026-04-11) - 📡 Modbus Master CLI Remote Control
+  - **FEAT:** `mb read/write/scan/reset` CLI kommandoer med baudrate override
+  - **FIX:** mb subkommandoer case-insensitive, alias-normalisering
+  - **FIX:** Adaptive backoff blokerede hele request-køen
 - **v7.8.1** (2026-04-01) - 🕐 NTP Tidssynkronisering
   - **FEAT-101:** ESP-IDF SNTP klient med konfigurerbar server og POSIX tidszone
   - **CLI:** `set ntp enable|server|timezone|interval`, `show ntp`, `show time`
