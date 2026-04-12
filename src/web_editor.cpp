@@ -73,6 +73,14 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .editor-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .editor-container{flex:1;display:flex;overflow:hidden;position:relative}
 .line-nums{min-width:44px;background:#181825;color:#585b70;font:12px/18px 'Cascadia Code','Fira Code','Courier New',monospace;padding:8px 6px 8px 4px;text-align:right;overflow:hidden;user-select:none;border-right:1px solid #313244;white-space:pre}
+.line-nums .errln{background:#f38ba8;color:#1e1e2e;font-weight:700;display:inline-block;width:100%;padding-right:6px;margin-right:-6px}
+.find-bar{display:none;position:absolute;top:8px;right:24px;z-index:60;background:#181825;border:1px solid #45475a;border-radius:6px;padding:8px;box-shadow:0 4px 16px rgba(0,0,0,.5);min-width:280px}
+.find-bar.show{display:block}
+.find-bar input{width:140px;padding:4px 8px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font:12px 'Cascadia Code',monospace}
+.find-bar button{padding:3px 10px;font-size:11px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer;margin-left:2px}
+.find-bar button:hover{background:#45475a;color:#cdd6f4}
+.find-bar .fb-row{display:flex;gap:4px;align-items:center;margin-bottom:4px}
+.find-bar .fb-info{font-size:10px;color:#6c7086}
 #editor{position:absolute;top:0;left:0;width:100%;height:100%;background:transparent;color:transparent;caret-color:#cdd6f4;font:12px/18px 'Cascadia Code','Fira Code','Courier New',monospace;padding:8px;border:none;outline:none;resize:none;tab-size:2;white-space:pre;overflow:auto;z-index:2}
 #editor::placeholder{color:#585b70}
 #highlight{position:absolute;top:0;left:0;width:100%;min-height:100%;font:12px/18px 'Cascadia Code','Fira Code','Courier New',monospace;padding:8px;white-space:pre;overflow:visible;z-index:1;pointer-events:none;tab-size:2;color:#cdd6f4}
@@ -102,8 +110,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .ppad{padding:12px 16px;flex:1;overflow-y:auto}
 .ppad h3{color:#89b4fa;font-size:14px;margin-bottom:10px}
 .btbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
-.btbl th{text-align:left;padding:6px 8px;background:#181825;color:#89b4fa;border-bottom:1px solid #313244;font-weight:600}
-.btbl td{padding:5px 8px;border-bottom:1px solid #313244}
+.btbl th{text-align:left;padding:3px 6px;background:#181825;color:#89b4fa;border-bottom:1px solid #313244;font-weight:600}
+.btbl td{padding:2px 6px;border-bottom:1px solid #313244}
 .btbl tr:hover{background:#313244}
 .bform{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
 .bform select,.bform input[type=number]{padding:4px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px}
@@ -119,9 +127,18 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .ac-popup div:hover,.ac-popup div.sel{background:#313244;color:#89b4fa}
 .ac-popup .ac-kw{color:#cba6f7}.ac-popup .ac-fn{color:#f9e2af}.ac-popup .ac-var{color:#a6e3a1}
 .dbg-bar{display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
-.dbg-bar .badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.dbg-bar .dbg-sep{width:1px;height:24px;background:#45475a;margin:0 4px}
+.dbg-bar .badge{padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap}
 .dbg-run{background:#a6e3a1;color:#1e1e2e}.dbg-pause{background:#f9e2af;color:#1e1e2e}.dbg-off{background:#45475a;color:#a6adc8}
-.spark{display:inline-block;vertical-align:middle;margin-left:6px}
+.spark{display:inline-block;vertical-align:middle}
+.trend-cell{display:flex;align-items:center;gap:4px;min-width:380px}
+.trend-labels{display:flex;flex-direction:column;justify-content:space-between;font-size:10px;font-family:monospace;min-width:70px;text-align:right;height:40px}
+.trend-labels .tmax{color:#a6e3a1}.trend-labels .tmin{color:#f38ba8}
+.trend-time{font-size:10px;color:#89b4fa;font-family:monospace;min-width:46px;text-align:center}
+.trend-paused{color:#f9e2af;font-weight:600}
+.speed-ctrl{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.speed-ctrl label{font-size:12px;color:#a6adc8}
+.speed-ctrl select{background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;padding:2px 6px;font-size:12px}
 @media(max-width:768px){.sidebar{display:none}.pool-bar{max-width:120px}.mstats{gap:6px}.mstat{min-width:80px;padding:6px 8px}}
 </style>
 </head>
@@ -171,6 +188,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <button class="btn btn-sm" style="background:#fab387;color:#1e1e2e" onclick="reinitProgram()" title="Cold restart: nulstil variabler til startværdier">Reinit</button>
 <button class="btn btn-danger btn-sm" onclick="deleteProgram()">Slet</button>
 <button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="downloadBackup()" title="Download .st fil">Download</button>
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="document.getElementById('uploadFile').click()" title="Upload .st fil">Upload</button>
+<input type="file" id="uploadFile" accept=".st,.txt" style="display:none" onchange="handleFileUpload(event)">
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="toggleFind()" title="Find/Replace (Ctrl+F)">Find</button>
 <div class="view-btns">
 <button class="vbtn act" onclick="setView('editor',this)">Editor</button>
 <button class="vbtn" onclick="setView('bindings',this)">Bindings</button>
@@ -199,6 +219,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div style="position:relative;flex:1;overflow:hidden">
 <pre id="highlight" aria-hidden="true"></pre>
 <textarea id="editor" placeholder="(* Skriv dit ST program her *)&#10;&#10;PROGRAM Blink&#10;  VAR&#10;    toggle : BOOL := FALSE;&#10;  END_VAR&#10;&#10;  toggle := NOT toggle;&#10;  coil[1] := toggle;&#10;END_PROGRAM" spellcheck="false"></textarea>
+<div class="find-bar" id="findBar">
+<div class="fb-row"><input type="text" id="findInput" placeholder="Find..." onkeydown="findKey(event)"><button onclick="findNext()">&#9661;</button><button onclick="findPrev()">&#9651;</button><button onclick="toggleFind()">&#10005;</button></div>
+<div class="fb-row"><input type="text" id="replaceInput" placeholder="Erstat..."><button onclick="replaceOne()">Erstat</button><button onclick="replaceAll()">Alle</button></div>
+<div class="fb-info" id="findInfo">0 resultater</div>
+</div>
 </div>
 </div>
 </div>
@@ -293,12 +318,40 @@ di[addr] — Discrete Input</code>
 <div class="ppad">
 <h3>Runtime Monitor — Program <span id="monSlot">1</span></h3>
 <div class="dbg-bar">
-<button class="btn btn-sm btn-warn" onclick="dbgAction('pause')">Pause</button>
-<button class="btn btn-sm btn-primary" onclick="dbgAction('step')">Step</button>
-<button class="btn btn-sm btn-success" onclick="dbgAction('continue')">Continue</button>
-<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="dbgAction('stop')">Stop Debug</button>
+<button class="btn btn-sm btn-warn" onclick="dbgAction('pause')" title="Pause programudførelse">Pause Execute</button>
+<button class="btn btn-sm btn-primary" onclick="dbgAction('step')" title="Udfør én enkelt instruktion">Single Step</button>
+<button class="btn btn-sm btn-success" onclick="dbgAction('continue')" title="Udfør én hel programcyklus">Single Cycle</button>
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="dbgAction('stop')" title="Genoptag normal kontinuerlig udførelse">Normal Execute</button>
+<div class="dbg-sep"></div>
 <span class="badge dbg-off" id="dbgBadge">Normal</span>
-<span style="font-size:11px;color:#6c7086" id="dbgPC"></span>
+</div>
+<div class="speed-ctrl">
+<label>Hastighed:</label>
+<select id="monSpeed" onchange="changeMonSpeed()">
+<option value="500">500ms</option>
+<option value="1000">1s</option>
+<option value="2500" selected>2.5s</option>
+<option value="5000">5s</option>
+<option value="10000">10s</option>
+</select>
+<label>Historik:</label>
+<select id="monHistLen" onchange="changeHistLen()">
+<option value="30">30</option>
+<option value="60" selected>60</option>
+<option value="120">120</option>
+<option value="240">240</option>
+</select>
+<label>Kurvefarve:</label>
+<select id="monColor" onchange="changeTrendColor()">
+<option value="#89b4fa" selected>Blå</option>
+<option value="#a6e3a1">Grøn</option>
+<option value="#f9e2af">Gul</option>
+<option value="#f38ba8">Rød</option>
+<option value="#cba6f7">Lilla</option>
+<option value="#fab387">Orange</option>
+<option value="#94e2d5">Cyan</option>
+<option value="#cdd6f4">Hvid</option>
+</select>
 </div>
 <div class="mstats" id="monStats">
 <div class="mstat"><div class="ml">Udførelser</div><div class="mv" id="monExec">-</div></div>
@@ -336,8 +389,16 @@ let programs=[null,null,null,null];
 let dirty=false;
 let VIEW='editor';
 let monTimer=null;
-let varHistory={};  // sparkline data: {varName: [values]}
-const HIST_LEN=60;
+let varHistory={};  // sparkline data: {varName: [{v:number, t:number, exec:number}]}
+let HIST_LEN=60;
+let monInterval=2500;  // monitor refresh interval ms
+let trendColor='#89b4fa';  // trend line color
+let monBusy=false;  // guard against overlapping refreshes
+let dbgMode='off';  // current debug mode: off, paused, step, run
+let lastExecCount=0;  // track execution count for trend gating
+let monStartTime=0;  // when monitor started (Date.now)
+let errorLine=0;  // FEAT-131: inline compile error line (0 = none)
+let sseConn=null; // FEAT-130: SSE connection for editor monitor
 
 // === ST Syntax Keywords ===
 const ST_KW=['PROGRAM','END_PROGRAM','FUNCTION','FUNCTION_BLOCK','END_FUNCTION','END_FUNCTION_BLOCK','VAR','VAR_INPUT','VAR_OUTPUT','END_VAR','VAR_GLOBAL','BEGIN','END','IF','THEN','ELSIF','ELSE','END_IF','CASE','OF','END_CASE','FOR','TO','BY','DO','END_FOR','WHILE','END_WHILE','REPEAT','UNTIL','END_REPEAT','RETURN','EXIT','TRUE','FALSE','NOT','AND','OR','XOR','MOD','EXPORT'];
@@ -536,6 +597,8 @@ async function selectSlot(s){
   if(dirty&&!confirm('Ugemte ændringer. Skift alligevel?'))return;
   SLOT=s;
   varHistory={};
+  lastExecCount=0;
+  errorLine=0;  // FEAT-131: clear error marker on slot switch
   updateTabs();
   await loadSource(s);
   if(VIEW==='bindings') loadBindings();
@@ -579,12 +642,21 @@ async function uploadCode(){
     if(d.compiled){
       log('success','Kompileret OK — '+(d.instr_count||0)+' instruktioner, '+(d.source_size||0)+' bytes');
       updateStatus('ok','Kompileret');
+      errorLine=0;  // FEAT-131: clear error marker on success
     }else{
-      log('error','Kompileringsfejl: '+(d.compile_error||d.error||'ukendt fejl'));
+      const errMsg=d.compile_error||d.error||'ukendt fejl';
+      log('error','Kompileringsfejl: '+errMsg);
       updateStatus('err','Fejl');
+      // FEAT-131: highlight error line
+      errorLine=parseErrorLine(errMsg);
+      if(errorLine>0){
+        log('info','Springer til linje '+errorLine);
+        setTimeout(()=>scrollToLine(errorLine),100);
+      }
     }
     dirty=false;
     await loadAll();
+    updateLines();  // refresh line numbers (with error marker)
   }catch(e){log('error','Upload fejlede: '+e.message);}
   document.getElementById('btnUpload').disabled=false;
 }
@@ -685,8 +757,41 @@ function log(cls,msg){
 function updateLines(){
   const ed=document.getElementById('editor');
   const n=ed.value.split('\n').length;
-  const nums=[];for(let i=1;i<=n;i++)nums.push(i);
-  document.getElementById('lineNums').textContent=nums.join('\n');
+  const ln=document.getElementById('lineNums');
+  if(errorLine>0&&errorLine<=n){
+    // FEAT-131: highlight error line via HTML
+    let h='';
+    for(let i=1;i<=n;i++){
+      if(i===errorLine)h+='<span class="errln">'+i+'</span>\n';
+      else h+=i+'\n';
+    }
+    ln.innerHTML=h;
+  }else{
+    const nums=[];for(let i=1;i<=n;i++)nums.push(i);
+    ln.textContent=nums.join('\n');
+  }
+}
+
+// FEAT-131: scroll editor to line
+function scrollToLine(lineNum){
+  const ed=document.getElementById('editor');
+  const lines=ed.value.split('\n');
+  if(lineNum<1||lineNum>lines.length)return;
+  // Calculate character position
+  let pos=0;
+  for(let i=0;i<lineNum-1;i++)pos+=lines[i].length+1;
+  ed.focus();
+  ed.selectionStart=pos;
+  ed.selectionEnd=pos+(lines[lineNum-1]||'').length;
+  // Scroll line into view (line-height 18px)
+  ed.scrollTop=Math.max(0,(lineNum-4)*18);
+}
+
+// FEAT-131: Parse "at line N" from error message
+function parseErrorLine(msg){
+  if(!msg)return 0;
+  const m=msg.match(/(?:at\s+line|line)\s+(\d+)/i);
+  return m?parseInt(m[1]):0;
 }
 
 function toggleSidebar(){
@@ -892,36 +997,86 @@ async function delBinding(idx){
 // === Monitor Panel with Sparklines ===
 function startMonitor(){
   stopMonitor();
+  monStartTime=Date.now();
+  lastExecCount=0;
   document.getElementById('monSlot').textContent=SLOT;
   refreshMonitor();
-  monTimer=setInterval(refreshMonitor,1500);
+  monTimer=setInterval(refreshMonitor,monInterval);
+}
+function changeMonSpeed(){
+  monInterval=parseInt(document.getElementById('monSpeed').value);
+  if(monTimer){stopMonitor();startMonitor();}
+}
+function changeHistLen(){
+  const newLen=parseInt(document.getElementById('monHistLen').value);
+  HIST_LEN=newLen;
+  Object.keys(varHistory).forEach(k=>{
+    if(varHistory[k].length>HIST_LEN)varHistory[k]=varHistory[k].slice(-HIST_LEN);
+  });
+}
+function changeTrendColor(){
+  trendColor=document.getElementById('monColor').value;
 }
 function stopMonitor(){if(monTimer){clearInterval(monTimer);monTimer=null;}}
 
-function sparkSVG(vals,w,h){
-  if(!vals||vals.length<2)return'';
+function sparkSVG(entries,w,h){
+  if(!entries||entries.length<2)return{svg:'',min:0,max:0};
+  const vals=entries.map(e=>e.v);
   const mn=Math.min(...vals),mx=Math.max(...vals);
   const range=mx-mn||1;
-  const pts=vals.map((v,i)=>{
-    const x=(i/(vals.length-1))*w;
-    const y=h-((v-mn)/range)*h;
+  // X-axis: proportional to real timestamps
+  const t0=entries[0].t,tEnd=entries[entries.length-1].t;
+  const tRange=tEnd-t0||1;
+  const pts=entries.map((e,i)=>{
+    const x=((e.t-t0)/tRange)*w;
+    const y=h-((e.v-mn)/range)*h;
     return x.toFixed(1)+','+y.toFixed(1);
   }).join(' ');
-  return'<svg class="spark" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'"><polyline fill="none" stroke="#89b4fa" stroke-width="1.5" points="'+pts+'"/></svg>';
+  const cur=vals[vals.length-1];
+  const curY=h-((cur-mn)/range)*h;
+  // Grid lines (oscilloscope style)
+  let grid='';
+  const gridColor='#313244';
+  for(let i=0;i<=4;i++){
+    const gy=(h*i/4).toFixed(1);
+    grid+='<line x1="0" y1="'+gy+'" x2="'+w+'" y2="'+gy+'" stroke="'+gridColor+'" stroke-width="0.5"/>';
+  }
+  for(let i=0;i<=8;i++){
+    const gx=(w*i/8).toFixed(1);
+    grid+='<line x1="'+gx+'" y1="0" x2="'+gx+'" y2="'+h+'" stroke="'+gridColor+'" stroke-width="0.5"/>';
+  }
+  const clr=trendColor;
+  const svg='<svg class="spark" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" style="background:#11111b;border-radius:3px">'
+    +grid
+    +'<polyline fill="none" stroke="'+clr+'" stroke-width="1.5" points="'+pts+'"/>'
+    +'<circle cx="'+w+'" cy="'+curY.toFixed(1)+'" r="2.5" fill="'+clr+'"/>'
+    +'</svg>';
+  return{svg:svg,min:mn,max:mx};
 }
 
 async function refreshMonitor(){
+  if(monBusy)return;
+  monBusy=true;
   document.getElementById('monSlot').textContent=SLOT;
   const p=programs[SLOT-1];
   if(!p||!p.compiled){
     document.getElementById('monEmpty').style.display='block';
     document.getElementById('monBody').innerHTML='';
     ['monExec','monTime','monMinMax','monErrors','monOverruns'].forEach(id=>document.getElementById(id).textContent='-');
+    monBusy=false;
     return;
   }
   try{
     const d=await api('GET','logic/'+SLOT);
-    document.getElementById('monExec').textContent=(d.execution_count||0).toLocaleString();
+    const curExecCount=d.execution_count||0;
+    const execDelta=curExecCount-lastExecCount;
+    const firstPoll=(lastExecCount===0);
+    const progressed=firstPoll||(execDelta>0);
+    lastExecCount=curExecCount;
+
+    const execLabel=firstPoll?curExecCount.toLocaleString()
+      :curExecCount.toLocaleString()+(execDelta>0?' (+'+execDelta+')':' (stopped)');
+    document.getElementById('monExec').textContent=execLabel;
     document.getElementById('monTime').textContent=d.last_execution_us||0;
     document.getElementById('monMinMax').textContent=(d.min_execution_us||0)+' / '+(d.max_execution_us||0);
     const errEl=document.getElementById('monErrors');
@@ -931,37 +1086,60 @@ async function refreshMonitor(){
 
     // Debug state - fetch from debug/state endpoint
     const dbgBadge=document.getElementById('dbgBadge');
-    const dbgPC=document.getElementById('dbgPC');
     try{
       const ds=await api('GET','logic/'+SLOT+'/debug/state');
+      dbgMode=ds.mode||'off';
       const modeMap={off:'dbg-off',paused:'dbg-pause',step:'dbg-pause',run:'dbg-run'};
-      dbgBadge.textContent=(ds.mode||'off').charAt(0).toUpperCase()+(ds.mode||'off').slice(1);
-      dbgBadge.className='badge '+(modeMap[ds.mode]||'dbg-off');
-      dbgPC.textContent=ds.snapshot?'PC='+ds.snapshot.pc:'';
+      const modeLabel=dbgMode.charAt(0).toUpperCase()+dbgMode.slice(1);
+      const pcInfo=ds.snapshot?' | PC='+ds.snapshot.pc:'';
+      dbgBadge.textContent=modeLabel+pcInfo;
+      dbgBadge.className='badge '+(modeMap[dbgMode]||'dbg-off');
     }catch(e){
+      dbgMode='off';
       dbgBadge.textContent='Normal';
       dbgBadge.className='badge dbg-off';
-      dbgPC.textContent='';
     }
+
+    const trendPaused=!progressed;
+    const nowMs=Date.now();
 
     const body=document.getElementById('monBody');
     body.innerHTML='';
     const vars=d.variables||[];
     document.getElementById('monEmpty').style.display=vars.length?'none':'block';
     vars.forEach(v=>{
-      // Track history
+      // Track history with real timestamps and execution count
       if(!varHistory[v.name])varHistory[v.name]=[];
       const numVal=v.type==='BOOL'?(v.value?1:0):parseFloat(v.value)||0;
-      varHistory[v.name].push(numVal);
-      if(varHistory[v.name].length>HIST_LEN)varHistory[v.name].shift();
+      if(!trendPaused){
+        varHistory[v.name].push({v:numVal,t:nowMs,exec:curExecCount});
+        if(varHistory[v.name].length>HIST_LEN)varHistory[v.name].shift();
+      }
 
       const tr=document.createElement('tr');
       const val=v.type==='BOOL'?(v.value?'TRUE':'FALSE'):v.value;
-      const spark=sparkSVG(varHistory[v.name],80,20);
-      tr.innerHTML='<td>'+v.name+'</td><td>'+v.type+'</td><td style="font-family:monospace;color:'+(v.type==='BOOL'?(v.value?'#a6e3a1':'#6c7086'):'#f9e2af')+'">'+val+'</td><td>'+spark+'</td>';
+      const hist=varHistory[v.name];
+      const trend=sparkSVG(hist,320,40);
+      // Calculate real elapsed time from timestamps
+      let timeStr;
+      if(hist.length>=2){
+        const spanMs=hist[hist.length-1].t-hist[0].t;
+        const spanSec=spanMs/1000;
+        const execSpan=hist[hist.length-1].exec-hist[0].exec;
+        const timeP=spanSec>=60?(spanSec/60).toFixed(1)+'m':spanSec.toFixed(0)+'s';
+        timeStr=timeP+' #'+execSpan;
+      }else{
+        timeStr='-';
+      }
+      if(trendPaused&&hist.length>=2) timeStr+=' \u23F8';
+      const labelsHtml=trend.svg?'<div class="trend-labels"><span class="tmax">'+trend.max.toFixed(2)+'</span><span class="tmin">'+trend.min.toFixed(2)+'</span></div>':'';
+      const timeClass=trendPaused?'trend-time trend-paused':'trend-time';
+      const trendHtml=trend.svg?'<div class="trend-cell">'+labelsHtml+trend.svg+'<div class="'+timeClass+'">'+timeStr+'</div></div>':'';
+      tr.innerHTML='<td>'+v.name+'</td><td>'+v.type+'</td><td style="font-family:monospace;color:'+(v.type==='BOOL'?(v.value?'#a6e3a1':'#6c7086'):'#f9e2af')+'">'+val+'</td><td>'+trendHtml+'</td>';
       body.appendChild(tr);
     });
   }catch(e){}
+  monBusy=false;
 }
 
 // === Debug Control (uses existing FEAT-008 API: /api/logic/{id}/debug/{action}) ===
@@ -988,6 +1166,156 @@ else{document.getElementById('userName').textContent='Ikke logget ind';document.
 }
 function doLogout(){sessionStorage.removeItem('hfplc_auth');AUTH='';document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('userMenu').classList.remove('show');if(document.getElementById('loginModal'))document.getElementById('loginModal').classList.add('show')}
 async function doGlobalSave(){var btn=document.getElementById('saveBtn');btn.classList.add('saving');btn.textContent='\u23F3 Gemmer...';try{var h={method:'POST'};if(AUTH)h.headers={'Authorization':AUTH};var r=await fetch('/api/system/save',h);if(r.ok){btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='\u2705 Gemt!';}else{btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}}catch(e){btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}setTimeout(()=>{btn.className='save-btn';btn.innerHTML='&#128190; Save';},2000);}
+
+// === FEAT-132: File Upload ===
+function handleFileUpload(e){
+  const f=e.target.files[0];
+  if(!f)return;
+  if(f.size>16384){log('error','Fil for stor ('+f.size+' bytes, max 16KB)');return;}
+  const reader=new FileReader();
+  reader.onload=function(ev){
+    const ed=document.getElementById('editor');
+    if(dirty&&!confirm('Overskriv nuværende kode med fil-indhold?')){e.target.value='';return;}
+    ed.value=ev.target.result;
+    dirty=true;
+    errorLine=0;
+    updateLines();syncHighlight();
+    log('success','Indlæst: '+f.name+' ('+f.size+' bytes)');
+    e.target.value='';  // reset file input
+  };
+  reader.onerror=function(){log('error','Kunne ikke læse fil');};
+  reader.readAsText(f);
+}
+
+// === FEAT-133: Find/Replace ===
+function toggleFind(){
+  const bar=document.getElementById('findBar');
+  const show=!bar.classList.contains('show');
+  bar.classList.toggle('show',show);
+  if(show){
+    const ed=document.getElementById('editor');
+    const sel=ed.value.substring(ed.selectionStart,ed.selectionEnd);
+    const fi=document.getElementById('findInput');
+    if(sel&&sel.length<64)fi.value=sel;
+    fi.focus();fi.select();
+    updateFindCount();
+  }
+}
+function updateFindCount(){
+  const needle=document.getElementById('findInput').value;
+  const info=document.getElementById('findInfo');
+  if(!needle){info.textContent='0 resultater';return;}
+  const ed=document.getElementById('editor');
+  let count=0,idx=0;
+  const hay=ed.value;
+  while((idx=hay.indexOf(needle,idx))>=0){count++;idx+=needle.length;}
+  info.textContent=count+' resultater';
+}
+function findNext(){
+  const needle=document.getElementById('findInput').value;
+  if(!needle)return;
+  const ed=document.getElementById('editor');
+  const start=ed.selectionEnd;
+  let idx=ed.value.indexOf(needle,start);
+  if(idx<0)idx=ed.value.indexOf(needle);  // wrap
+  if(idx<0){log('info','Ikke fundet: '+needle);return;}
+  ed.focus();
+  ed.selectionStart=idx;
+  ed.selectionEnd=idx+needle.length;
+  // Scroll into view
+  const before=ed.value.substring(0,idx);
+  const line=before.split('\n').length;
+  ed.scrollTop=Math.max(0,(line-4)*18);
+}
+function findPrev(){
+  const needle=document.getElementById('findInput').value;
+  if(!needle)return;
+  const ed=document.getElementById('editor');
+  const before=ed.value.substring(0,Math.max(0,ed.selectionStart-1));
+  let idx=before.lastIndexOf(needle);
+  if(idx<0)idx=ed.value.lastIndexOf(needle);
+  if(idx<0){log('info','Ikke fundet: '+needle);return;}
+  ed.focus();
+  ed.selectionStart=idx;
+  ed.selectionEnd=idx+needle.length;
+  const beforeSel=ed.value.substring(0,idx);
+  const line=beforeSel.split('\n').length;
+  ed.scrollTop=Math.max(0,(line-4)*18);
+}
+function replaceOne(){
+  const needle=document.getElementById('findInput').value;
+  const repl=document.getElementById('replaceInput').value;
+  if(!needle)return;
+  const ed=document.getElementById('editor');
+  const sel=ed.value.substring(ed.selectionStart,ed.selectionEnd);
+  if(sel===needle){
+    ed.value=ed.value.substring(0,ed.selectionStart)+repl+ed.value.substring(ed.selectionEnd);
+    ed.selectionStart=ed.selectionEnd=ed.selectionStart+repl.length;
+    dirty=true;updateLines();syncHighlight();
+  }
+  findNext();
+  updateFindCount();
+}
+function replaceAll(){
+  const needle=document.getElementById('findInput').value;
+  const repl=document.getElementById('replaceInput').value;
+  if(!needle)return;
+  const ed=document.getElementById('editor');
+  const parts=ed.value.split(needle);
+  const count=parts.length-1;
+  if(count===0){log('info','Ikke fundet: '+needle);return;}
+  ed.value=parts.join(repl);
+  dirty=true;updateLines();syncHighlight();
+  log('success','Erstattede '+count+' forekomster');
+  updateFindCount();
+}
+function findKey(e){
+  if(e.key==='Enter'){e.preventDefault();if(e.shiftKey)findPrev();else findNext();}
+  else if(e.key==='Escape'){e.preventDefault();toggleFind();}
+  else setTimeout(updateFindCount,0);
+}
+document.addEventListener('keydown',function(e){
+  if((e.ctrlKey||e.metaKey)&&(e.key==='f'||e.key==='h')){
+    e.preventDefault();
+    if(!document.getElementById('findBar').classList.contains('show'))toggleFind();
+    if(e.key==='h')document.getElementById('replaceInput').focus();
+  }
+});
+
+// === FEAT-130: SSE-driven editor monitor refresh ===
+function editorSseConnect(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    fetch('/api/events/status',opts).then(r=>r.json()).then(s=>{
+      if(!s||!s.sse_enabled)return;
+      let port=s.sse_port;
+      if(!port||port===0){
+        const mainPort=parseInt(location.port||'80')||80;
+        port=mainPort+1;
+      }
+      const tok=s.sse_token?('&token='+encodeURIComponent(s.sse_token)):'';
+      const url=location.protocol+'//'+location.hostname+':'+port+'/api/events?subscribe=all'+tok;
+      try{sseConn=new EventSource(url);}catch(e){return;}
+      // SSE events only trigger a flag; polling timer handles actual refresh
+      function kickMonitor(){
+        // SSE events are informational — polling timer controls rate
+        // No direct refreshMonitor() call to avoid bypassing interval
+      }
+      sseConn.addEventListener('register',kickMonitor);
+      sseConn.addEventListener('counter',kickMonitor);
+      sseConn.addEventListener('timer',kickMonitor);
+      sseConn.onerror=()=>{if(sseConn){sseConn.close();sseConn=null;}setTimeout(editorSseConnect,10000);};
+    }).catch(()=>{});
+  }catch(e){}
+}
+editorSseConnect();
+
+// Pause monitor polling when tab is hidden
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden&&monTimer){clearInterval(monTimer);monTimer=null;}
+  else if(!document.hidden&&VIEW==='monitor'&&!monTimer){startMonitor();}
+});
 updateUserBadge();
 
 </script>

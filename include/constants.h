@@ -499,10 +499,15 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.5.0"
+#define PROJECT_VERSION     "7.9.6.4"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.9.5.1 (2026-04-10): FIX: Modbus Master wire-level kommunikation
+ *                    - BUG-315: uart1_init() hardcoded SERIAL_8N1 → master parity/stop-bits
+ *                               ignoreret på ES32D26 (shared transceiver). Ny uart1_init_ex().
+ *                    - BUG-316: 50µs post-TX delay for lidt ved lav baudrate — sidste byte
+ *                               (CRC hi) kunne afskæres når DE faldt LOW. Nu beregnet fra baudrate.
  * v7.9.5.0 (2026-04-09): FEAT: mb CLI — remote Modbus Master read/write/scan/reset backoff
  * v7.9.4.1 (2026-04-09): FIX: 4 bugs fundet under FEAT-121-126 integration test (23/23 PASS)
  *                    - BUG-311: ST_AST_FUNCTION_CALL ikke håndteret i statement compiler (kun expr)
