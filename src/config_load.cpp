@@ -9,6 +9,7 @@
 #include "config_load.h"
 #include "config_save.h"
 #include "constants.h"
+#include "mb_async.h"
 #include "rbac.h"
 #include "debug.h"
 #include "debug_flags.h"
@@ -58,6 +59,8 @@ static void config_init_defaults(PersistConfig* cfg) {
   cfg->modbus_master.inter_frame_delay = 0;  // 0=auto (t3.5 calculated from baudrate)
   cfg->modbus_master.max_requests_per_cycle = MODBUS_MASTER_DEFAULT_MAX_REQUESTS;  // 10
   cfg->modbus_master.cache_ttl_ms = 0;  // 0 = never expire (default)
+  cfg->modbus_master.cache_max_entries = MB_CACHE_MAX_ENTRIES_DEFAULT;  // 32
+  cfg->modbus_master.queue_max_size = MB_ASYNC_QUEUE_SIZE_DEFAULT;     // 16
   cfg->modbus_master.total_requests = 0;
   cfg->modbus_master.successful_requests = 0;
   cfg->modbus_master.timeout_errors = 0;
@@ -404,6 +407,17 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->schema_version = 18;
 
       debug_println("CONFIG LOAD: Migration 17→18 complete");
+    }
+
+    if (out->schema_version == 18) {
+      debug_println("CONFIG LOAD: Migrating schema 18 → 19 (cache/queue size)");
+
+      out->modbus_master.cache_max_entries = MB_CACHE_MAX_ENTRIES_DEFAULT;
+      out->modbus_master.queue_max_size = MB_ASYNC_QUEUE_SIZE_DEFAULT;
+
+      out->schema_version = 19;
+
+      debug_println("CONFIG LOAD: Migration 18→19 complete");
     } else if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);

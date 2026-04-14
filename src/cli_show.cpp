@@ -365,6 +365,19 @@ void cli_cmd_show_config(const char *section) {
     debug_print("  Max Requests/Cycle: ");
     debug_print_uint(g_persist_config.modbus_master.max_requests_per_cycle);
     debug_println("");
+    debug_print("  Cache TTL: ");
+    if (g_persist_config.modbus_master.cache_ttl_ms == 0) {
+      debug_println("0 (never expire)");
+    } else {
+      debug_print_uint(g_persist_config.modbus_master.cache_ttl_ms);
+      debug_println(" ms");
+    }
+    debug_print("  Cache Size: ");
+    debug_print_uint(g_persist_config.modbus_master.cache_max_entries);
+    debug_println("");
+    debug_print("  Queue Size: ");
+    debug_print_uint(g_persist_config.modbus_master.queue_max_size);
+    debug_println("");
   }
   debug_println("");
   } // end show_modbus
@@ -1397,6 +1410,15 @@ void cli_cmd_show_config(const char *section) {
     }
     debug_print("set modbus-master max-requests ");
     debug_print_uint(g_persist_config.modbus_master.max_requests_per_cycle);
+    debug_println("");
+    debug_print("set modbus-master cache-ttl ");
+    debug_print_uint(g_persist_config.modbus_master.cache_ttl_ms);
+    debug_println("");
+    debug_print("set modbus-master cache-size ");
+    debug_print_uint(g_persist_config.modbus_master.cache_max_entries);
+    debug_println("");
+    debug_print("set modbus-master queue-size ");
+    debug_print_uint(g_persist_config.modbus_master.queue_max_size);
     debug_println("");
   }
   } // end show_modbus

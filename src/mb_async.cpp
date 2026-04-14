@@ -49,14 +49,16 @@ mb_cache_entry_t *mb_cache_get_or_create(uint8_t slave_id, uint16_t address, uin
 
   g_mb_async.cache_misses++;
 
-  // Create new if space available
-  if (g_mb_async.entry_count < MB_CACHE_MAX_ENTRIES) {
+  // Create new if space available (use runtime limit, clamped to compile-time max)
+  uint8_t cache_limit = g_modbus_master_config.cache_max_entries;
+  if (cache_limit == 0 || cache_limit > MB_CACHE_MAX_ENTRIES) cache_limit = MB_CACHE_MAX_ENTRIES;
+  if (g_mb_async.entry_count < cache_limit) {
     e = &g_mb_async.entries[g_mb_async.entry_count++];
   } else {
     // LRU eviction: find oldest entry (lowest last_update_ms)
     uint32_t oldest_ms = UINT32_MAX;
     uint8_t oldest_idx = 0;
-    for (uint8_t i = 0; i < MB_CACHE_MAX_ENTRIES; i++) {
+    for (uint8_t i = 0; i < cache_limit; i++) {
       // Skip PENDING entries (active request in flight)
       if (g_mb_async.entries[i].status == MB_CACHE_PENDING) continue;
       if (g_mb_async.entries[i].last_update_ms < oldest_ms) {
@@ -94,7 +96,11 @@ static bool mb_pq_insert(mb_async_request_t *req) {
 
   req->insert_seq = g_mb_async.pq_seq++;
 
-  if (g_mb_async.pq_count < MB_ASYNC_QUEUE_SIZE) {
+  // Use runtime queue limit (clamped to compile-time max)
+  uint8_t q_limit = g_modbus_master_config.queue_max_size;
+  if (q_limit == 0 || q_limit > MB_ASYNC_QUEUE_SIZE) q_limit = MB_ASYNC_QUEUE_SIZE;
+
+  if (g_mb_async.pq_count < q_limit) {
     // Space available — just append
     g_mb_async.pq_buf[g_mb_async.pq_count] = *req;
     g_mb_async.pq_count++;

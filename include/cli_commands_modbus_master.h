@@ -17,6 +17,8 @@ void cli_cmd_set_modbus_master_timeout(uint16_t ms);
 void cli_cmd_set_modbus_master_inter_frame_delay(uint16_t ms);
 void cli_cmd_set_modbus_master_max_requests(uint8_t count);
 void cli_cmd_set_modbus_master_cache_ttl(uint16_t ttl_ms);
+void cli_cmd_set_modbus_master_cache_size(uint8_t size);
+void cli_cmd_set_modbus_master_queue_size(uint8_t size);
 
 // SHOW command
 void cli_cmd_show_modbus_master();

@@ -399,6 +399,8 @@ typedef struct {
   uint16_t inter_frame_delay;   // 0=auto (t3.5 from baudrate), >0=manual ms
   uint8_t max_requests_per_cycle; // Max requests per ST execution (default: 10)
   uint16_t cache_ttl_ms;         // Cache TTL in ms (0=never expire, default: 0)
+  uint8_t cache_max_entries;     // Runtime cache size limit (1-32, default: 32)
+  uint8_t queue_max_size;        // Runtime queue size limit (4-32, default: 16)
 
   // Runtime statistics
   uint32_t total_requests;      // Total requests sent

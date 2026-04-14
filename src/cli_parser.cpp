@@ -210,6 +210,8 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "INTER-FRAME-DELAY") || str_eq_i(s, "DELAY")) return "INTER-FRAME-DELAY";
   if (str_eq_i(s, "MAX-REQUESTS") || str_eq_i(s, "MAXREQUESTS")) return "MAX-REQUESTS";
   if (str_eq_i(s, "CACHE-TTL") || str_eq_i(s, "CACHETTL") || str_eq_i(s, "CACHE_TTL") || str_eq_i(s, "TTL")) return "CACHE-TTL";
+  if (str_eq_i(s, "CACHE-SIZE") || str_eq_i(s, "CACHESIZE") || str_eq_i(s, "CACHE_SIZE")) return "CACHE-SIZE";
+  if (str_eq_i(s, "QUEUE-SIZE") || str_eq_i(s, "QUEUESIZE") || str_eq_i(s, "QUEUE_SIZE")) return "QUEUE-SIZE";
 
   // Logic subcommands
   if (str_eq_i(s, "PROGRAM") || str_eq_i(s, "PROGRAMS")) return "PROGRAM";
@@ -448,6 +450,8 @@ static void print_modbus_master_help(void) {
   debug_println("                                             (gælder samlet for alle 4 ST programmer)");
   debug_println("  set modbus-master cache-ttl <ms>          - Cache entry TTL (0=aldrig expire, default: 0)");
   debug_println("                                             Expired entries tvinger ny UART-transaktion");
+  debug_println("  set modbus-master cache-size <1-32>       - Max cache entries (default: 32)");
+  debug_println("  set modbus-master queue-size <4-32>       - Max queue entries (default: 16)");
   debug_println("");
   debug_println("Hardware:");
   debug_println("  UART1: TX=GPIO25, RX=GPIO26, DE/RE=GPIO27");
@@ -1846,6 +1850,14 @@ bool cli_parser_execute(char* line) {
       } else if (!strcmp(param, "CACHE-TTL")) {
         uint16_t ttl = atoi(value);
         cli_cmd_set_modbus_master_cache_ttl(ttl);
+        return true;
+      } else if (!strcmp(param, "CACHE-SIZE")) {
+        uint8_t sz = atoi(value);
+        cli_cmd_set_modbus_master_cache_size(sz);
+        return true;
+      } else if (!strcmp(param, "QUEUE-SIZE")) {
+        uint8_t sz = atoi(value);
+        cli_cmd_set_modbus_master_queue_size(sz);
         return true;
       } else {
         debug_println("SET MODBUS-MASTER: unknown parameter");

@@ -197,7 +197,7 @@ typedef enum {
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   18      // Current config schema version (v7.9.6.8: dashboard tabs)
+#define CONFIG_SCHEMA_VERSION   19      // Current config schema version (v7.9.7.2: cache/queue size)
 
 /* ============================================================================
  * RBAC CONSTANTS (v7.6.2)
@@ -499,10 +499,15 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.7.1"
+#define PROJECT_VERSION     "7.9.7.2"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.9.7.2 (2026-04-14): FEAT: Konfigurerbar cache/kø-størrelse via CLI + NVS
+ *                    - set modbus-master cache-size <1-32> og queue-size <4-32>
+ *                    - Runtime limits med compile-time max som øvre grænse
+ *                    - Schema 18→19 migration med defaults (cache:32, queue:16)
+ *                    - show config/running-config viser cache-ttl, cache-size, queue-size
  * v7.9.7.1 (2026-04-14): FEAT: Modbus Master priority queue + forbedret cache statistik
  *                    - Priority køsystem: Write > Read-fresh > Read-refresh
  *                    - Eviction: nyeste lavprioritets-requests droppes først ved fuld kø

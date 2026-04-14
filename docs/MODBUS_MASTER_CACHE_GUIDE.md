@@ -126,14 +126,25 @@ Maks 8 slaves trackes i backoff-tabellen. Ved fuld tabel evictes slaven med lave
 
 ## Konfiguration
 
-| Parameter | Standard | Beskrivelse |
-|-----------|----------|-------------|
-| `MB_CACHE_MAX_ENTRIES` | 32 | Max unikke (slave, addr, fc) kombinationer |
-| `MB_ASYNC_QUEUE_SIZE` | 32 | Max pending requests i priority queue |
+### Compile-time konstanter (mb_async.h)
+
+| Parameter | Værdi | Beskrivelse |
+|-----------|-------|-------------|
+| `MB_CACHE_MAX_ENTRIES` | 32 | Absolut max cache entries (array størrelse) |
+| `MB_ASYNC_QUEUE_SIZE` | 32 | Absolut max queue entries (array størrelse) |
 | `MB_ASYNC_TASK_STACK` | 4096 | Background task stack (bytes) |
 | `MB_ASYNC_TASK_PRIO` | 3 | Task prioritet (under WiFi, over idle) |
 | `MB_ASYNC_TASK_CORE` | 0 | Kører på Core 0 (main loop = Core 1) |
-| `cache_ttl_ms` | 0 | Cache TTL i ms (0 = aldrig expire) — konfigurérbar via CLI |
+
+### Runtime-konfigurerbare via CLI (persisteret i NVS)
+
+| CLI kommando | Standard | Range | Beskrivelse |
+|-------------|----------|-------|-------------|
+| `set modbus-master cache-ttl <ms>` | 0 | 0-65535 | Cache TTL (0 = aldrig expire) |
+| `set modbus-master cache-size <n>` | 32 | 1-32 | Max cache entries |
+| `set modbus-master queue-size <n>` | 16 | 4-32 | Max queue entries |
+
+**Bemærk:** Runtime-værdier kan aldrig overstige compile-time max. Ændringer træder i kraft med det samme, men kræver `save` for at overleve reboot.
 
 ---
 
@@ -158,9 +169,16 @@ Maks 8 slaves trackes i backoff-tabellen. Ved fuld tabel evictes slaven med lave
 ### CLI
 
 ```
-mb stats         # Vis async cache statistik
-mb cache         # Vis alle cache entries
-mb reset         # Nulstil cache + statistik
+mb stats                                    # Vis async cache statistik
+mb cache                                    # Vis alle cache entries
+mb reset                                    # Nulstil cache + statistik
+
+set modbus-master cache-ttl <ms>            # Cache TTL (0=aldrig expire)
+set modbus-master cache-size <1-32>         # Max cache entries (default: 32)
+set modbus-master queue-size <4-32>         # Max queue entries (default: 16)
+
+show config modbus                          # Vis aktuel konfiguration
+show running-config modbus                  # Vis som set-kommandoer (copy-paste)
 ```
 
 ### Dashboard

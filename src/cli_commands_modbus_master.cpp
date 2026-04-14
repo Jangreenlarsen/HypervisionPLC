@@ -164,6 +164,24 @@ void cli_cmd_set_modbus_master_cache_ttl(uint16_t ttl_ms) {
   debug_println("NOTE: Use 'save' to persist to NVS");
 }
 
+void cli_cmd_set_modbus_master_cache_size(uint8_t size) {
+  if (size < 1) size = 1;
+  if (size > MB_CACHE_MAX_ENTRIES) size = MB_CACHE_MAX_ENTRIES;
+  g_modbus_master_config.cache_max_entries = size;
+  g_persist_config.modbus_master.cache_max_entries = size;
+  debug_printf("[OK] Modbus Master cache max entries: %u (compile-max: %d)\n", size, MB_CACHE_MAX_ENTRIES);
+  debug_println("NOTE: Use 'save' to persist. Eksisterende entries over grænsen evictes ved næste insert.");
+}
+
+void cli_cmd_set_modbus_master_queue_size(uint8_t size) {
+  if (size < 4) size = 4;
+  if (size > MB_ASYNC_QUEUE_SIZE) size = MB_ASYNC_QUEUE_SIZE;
+  g_modbus_master_config.queue_max_size = size;
+  g_persist_config.modbus_master.queue_max_size = size;
+  debug_printf("[OK] Modbus Master queue max size: %u (compile-max: %d)\n", size, MB_ASYNC_QUEUE_SIZE);
+  debug_println("NOTE: Use 'save' to persist.");
+}
+
 /* ============================================================================
  * SHOW COMMAND
  * ============================================================================ */
@@ -499,6 +517,10 @@ void cli_cmd_show_modbus_master() {
   } else {
     debug_printf("  Cache TTL: %u ms\n", g_modbus_master_config.cache_ttl_ms);
   }
+  debug_printf("  Cache size: %u / %d (max)\n",
+               g_modbus_master_config.cache_max_entries, MB_CACHE_MAX_ENTRIES);
+  debug_printf("  Queue size: %u / %d (max)\n",
+               g_modbus_master_config.queue_max_size, MB_ASYNC_QUEUE_SIZE);
   debug_printf("\n");
 
   debug_printf("Statistics:\n");
@@ -607,6 +629,8 @@ void cli_cmd_show_modbus_master() {
   debug_printf("  set modbus-master inter-frame-delay <ms>\n");
   debug_printf("  set modbus-master max-requests <count>\n");
   debug_printf("  set modbus-master cache-ttl <ms>   (0=never expire)\n");
+  debug_printf("  set modbus-master cache-size <1-32> (default: 32)\n");
+  debug_printf("  set modbus-master queue-size <4-32> (default: 16)\n");
   debug_printf("  Brug 'set modbus-master ?' for detaljeret hjælp\n");
   debug_printf("\n");
 }

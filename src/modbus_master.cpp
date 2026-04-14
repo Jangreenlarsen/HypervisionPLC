@@ -6,6 +6,7 @@
  */
 
 #include "modbus_master.h"
+#include "mb_async.h"
 #include "uart_driver.h"
 #include "config_struct.h"
 #include <HardwareSerial.h>
@@ -26,6 +27,8 @@ modbus_master_config_t g_modbus_master_config = {
   .inter_frame_delay = MODBUS_MASTER_DEFAULT_INTER_FRAME,
   .max_requests_per_cycle = MODBUS_MASTER_DEFAULT_MAX_REQUESTS,
   .cache_ttl_ms = 0,  // 0 = never expire
+  .cache_max_entries = MB_CACHE_MAX_ENTRIES_DEFAULT,
+  .queue_max_size = MB_ASYNC_QUEUE_SIZE_DEFAULT,
   .total_requests = 0,
   .successful_requests = 0,
   .timeout_errors = 0,
@@ -58,6 +61,8 @@ void modbus_master_init() {
   g_modbus_master_config.inter_frame_delay = g_persist_config.modbus_master.inter_frame_delay;
   g_modbus_master_config.max_requests_per_cycle = g_persist_config.modbus_master.max_requests_per_cycle;
   g_modbus_master_config.cache_ttl_ms = g_persist_config.modbus_master.cache_ttl_ms;
+  g_modbus_master_config.cache_max_entries = g_persist_config.modbus_master.cache_max_entries;
+  g_modbus_master_config.queue_max_size = g_persist_config.modbus_master.queue_max_size;
   g_modbus_master_config.stats_since_ms = millis();
 
 #if MODBUS_SINGLE_TRANSCEIVER
