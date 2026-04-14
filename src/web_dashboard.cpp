@@ -341,9 +341,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <!-- FEAT-075: TCP Forbindelsesmonitor -->
 <div class="card" data-card-id="tcpmonitor">
 <h2>TCP Forbindelser <span class="badge badge-off" id="badgeTcp">0</span></h2>
-<div class="row"><span class="lbl">SSE klienter</span><span class="val val-n" id="tcpSseCount">0</span></div>
-<div class="row"><span class="lbl">Telnet</span><span class="val val-n" id="tcpTelnet">Ingen</span></div>
-<div class="row"><span class="lbl">HTTP req total</span><span class="val val-n" id="tcpHttpTotal">-</span></div>
 <div id="tcpConnBody"><span class="empty-msg">Ingen aktive forbindelser</span></div>
 </div>
 
@@ -458,6 +455,10 @@ const HIST_MAX=120; // 120 samples × 3s = 6 min
 let history={heap:[],mbSlave:[],mbMaster:[],rtSlave:[],rtMaster:[]};
 let prevMbSlave=null,prevMbMaster=null;
 let prevSlaveTotal=null,prevMasterTotal=null;
+// FEAT-075: Cached state from Prometheus (used by fetchConnections)
+let _tcpTelOn=false,_tcpTelIp='',_tcpTelUser='',_tcpTelUp=0;
+let _tcpHttpTotal=0,_tcpHttpOk=0,_tcpHttp4xx=0,_tcpHttp5xx=0;
+let _tcpNtpOn=false,_tcpNtpSync=false,_tcpNtpServer='',_tcpNtpSyncs=0;
 let alarms=[];
 let _stBindings=null;
 let _alarmLog=[];
@@ -755,6 +756,7 @@ function updateDashboard(m){
     fetch('/api/ntp',opts).then(r=>r.json()).then(d=>{
       $('ntpServer').textContent=d.server||'-';
       $('ntpTz').textContent=d.timezone||'UTC';
+      _tcpNtpServer=d.server||'';
       if(d.local_time)window._ntpLocalTime=d.local_time;
     }).catch(()=>{});
   }
@@ -865,27 +867,20 @@ function updateDashboard(m){
     }
   }
 
-  // === FEAT-075: TCP Forbindelsesmonitor ===
+  // === FEAT-075: TCP Forbindelsesmonitor (cache til fetchConnections) ===
   {
-    const sseN=g(m,'sse_clients_active')||0;
-    const telOn=g(m,'telnet_connected')===1;
-    const httpT=g(m,'http_requests_total');
-    $('tcpSseCount').textContent=sseN;
-    $('tcpHttpTotal').textContent=fmtN(httpT);
-
-    // Telnet info from extended metrics
+    _tcpTelOn=g(m,'telnet_connected')===1;
     const telIp=gAll(m,'telnet_client_ip');
-    const telUp=g(m,'telnet_client_uptime_seconds');
-    if(telOn&&telIp.length>0){
-      const ip=telIp[0].labels.ip||'?';
-      const usr=telIp[0].labels.user||'';
-      $('tcpTelnet').textContent=ip+(usr?' ('+usr+')':'')+' — '+fmtUp(telUp);
-    }else{
-      $('tcpTelnet').textContent=telOn?'Forbundet':'Ingen';
-    }
-
-    const total=sseN+(telOn?1:0);
-    badge($('badgeTcp'),total>0,String(total));
+    _tcpTelIp=(telIp.length>0)?telIp[0].labels.ip||'':'';
+    _tcpTelUser=(telIp.length>0)?telIp[0].labels.user||'':'';
+    _tcpTelUp=g(m,'telnet_client_uptime_seconds')||0;
+    _tcpHttpTotal=g(m,'http_requests_total')||0;
+    _tcpHttpOk=g(m,'http_requests_success_total')||0;
+    _tcpHttp4xx=g(m,'http_requests_client_errors_total')||0;
+    _tcpHttp5xx=g(m,'http_requests_server_errors_total')||0;
+    _tcpNtpOn=g(m,'ntp_enabled')===1;
+    _tcpNtpSync=g(m,'ntp_synced')===1;
+    _tcpNtpSyncs=g(m,'ntp_sync_count')||0;
   }
 
   // === FEAT-085: Alarm Historik ===
@@ -1164,26 +1159,59 @@ async function fetchNetworkInfo(){
     }).catch(()=>{});
   }catch(e){}
 }
-// FEAT-075: Hent SSE klient-detaljer til TCP forbindelsesmonitor
+// FEAT-075: Samlet TCP forbindelsestabel (SSE + Telnet + NTP)
 async function fetchConnections(){
   try{
     var auth=sessionStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
-    const r=await fetch('/api/events/clients',opts);
-    if(!r.ok)return;
-    const d=await r.json();
+    let rows=[];
+
+    // SSE klienter (indgående)
+    try{
+      const r=await fetch('/api/events/clients',opts);
+      if(r.ok){
+        const d=await r.json();
+        if(d.clients){for(const c of d.clients){
+          rows.push({proto:'SSE',dir:'&#8592;ind',ip:c.ip,user:c.username||'-',up:fmtUp(c.uptime_s),info:'slot '+c.slot+', '+c.topics});
+        }}
+      }
+    }catch(e){}
+
+    // Telnet (indgående)
+    if(_tcpTelOn){
+      rows.push({proto:'Telnet',dir:'&#8592;ind',ip:_tcpTelIp||'?',user:_tcpTelUser||'-',up:fmtUp(_tcpTelUp),info:'port 23'});
+    }
+
+    // HTTP API (indgående, service)
+    if(_tcpHttpTotal>0){
+      const errN=_tcpHttp4xx+_tcpHttp5xx;
+      const rate=_tcpHttpTotal>0?(_tcpHttpOk/_tcpHttpTotal*100).toFixed(0)+'%':'–';
+      rows.push({proto:'HTTP',dir:'&#8592;ind',ip:'*',user:'-',up:_tcpHttpTotal+' req',info:rate+' ok'+(errN>0?', '+errN+' fejl':''),dot:'dot-g'});
+    }
+
+    // NTP (udgående)
+    if(_tcpNtpOn){
+      const st=_tcpNtpSync?'synced':'venter';
+      rows.push({proto:'NTP',dir:'&#8594;ud',ip:_tcpNtpServer||'-',user:'-',up:_tcpNtpSyncs+' syncs',info:st});
+    }
+
     const el=$('tcpConnBody');
-    if(!d.clients||d.clients.length===0){
+    const total=rows.length;
+    badge($('badgeTcp'),total>0,String(total));
+
+    if(total===0){
       el.innerHTML='<span class="empty-msg">Ingen aktive forbindelser</span>';
       return;
     }
-    let h='<table class="tbl"><tr><th>Proto</th><th>IP</th><th>Bruger</th><th>Uptime</th><th>Info</th></tr>';
-    for(const c of d.clients){
-      h+='<tr><td><span class="dot dot-g"></span> SSE</td>';
-      h+='<td>'+c.ip+'</td>';
-      h+='<td>'+(c.username||'-')+'</td>';
-      h+='<td>'+fmtUp(c.uptime_s)+'</td>';
-      h+='<td style="font-size:10px;color:#6c7086">slot '+c.slot+', '+c.topics+'</td></tr>';
+    let h='<table class="tbl"><tr><th>Proto</th><th>Retn.</th><th>IP / Host</th><th>Bruger</th><th>Uptime</th><th>Info</th></tr>';
+    for(const r of rows){
+      const dot=r.dot||(r.proto==='NTP'?'dot-y':'dot-g');
+      h+='<tr><td><span class="dot '+dot+'"></span> '+r.proto+'</td>';
+      h+='<td>'+r.dir+'</td>';
+      h+='<td>'+r.ip+'</td>';
+      h+='<td>'+r.user+'</td>';
+      h+='<td>'+r.up+'</td>';
+      h+='<td style="font-size:10px;color:#6c7086">'+r.info+'</td></tr>';
     }
     h+='</table>';
     el.innerHTML=h;
