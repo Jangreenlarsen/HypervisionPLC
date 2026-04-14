@@ -2412,6 +2412,70 @@ esp_err_t api_handler_modbus_post(httpd_req_t *req)
     return api_send_json(req, "{\"status\":\"ok\",\"message\":\"Master statistics reset\"}");
   }
 
+  // POST /api/modbus/master/rw — async read/write via cache+queue (v7.9.6.6)
+  if (strstr(uri, "/master/rw") != NULL) {
+    char body[256];
+    int blen = httpd_req_recv(req, body, sizeof(body) - 1);
+    if (blen <= 0) return api_send_error(req, 400, "Empty body");
+    body[blen] = '\0';
+
+    JsonDocument jdoc;
+    if (deserializeJson(jdoc, body)) return api_send_error(req, 400, "Invalid JSON");
+
+    const char *op = jdoc["op"] | "";
+    const char *type = jdoc["type"] | "holding";
+    uint8_t slave_id = jdoc["slave"] | 0;
+    uint16_t addr = jdoc["addr"] | 0;
+
+    if (slave_id < 1 || slave_id > 247) return api_send_error(req, 400, "slave must be 1-247");
+
+    // Determine request type
+    mb_request_type_t rtype = MB_REQ_READ_HOLDING;
+    if (strcasecmp(type, "coil") == 0) rtype = (strcasecmp(op, "write") == 0) ? MB_REQ_WRITE_COIL : MB_REQ_READ_COIL;
+    else if (strcasecmp(type, "input") == 0) rtype = MB_REQ_READ_INPUT;
+    else if (strcasecmp(type, "input-reg") == 0 || strcasecmp(type, "ireg") == 0) rtype = MB_REQ_READ_INPUT_REG;
+    else if (strcasecmp(type, "holding") == 0) rtype = (strcasecmp(op, "write") == 0) ? MB_REQ_WRITE_HOLDING : MB_REQ_READ_HOLDING;
+
+    char resp[256];
+
+    if (strcasecmp(op, "read") == 0) {
+      // Check cache first
+      uint8_t cache_type = (uint8_t)rtype;
+      mb_cache_entry_t *entry = mb_cache_find(slave_id, addr, cache_type);
+
+      if (entry && entry->status == MB_CACHE_VALID) {
+        uint32_t age_ms = (uint32_t)(millis() - entry->last_update_ms);
+        snprintf(resp, sizeof(resp),
+          "{\"status\":\"ok\",\"value\":%d,\"hex\":\"0x%04X\",\"signed\":%d,\"age_ms\":%u,\"source\":\"cache\"}",
+          (uint16_t)entry->value.int_val, (uint16_t)entry->value.int_val,
+          (int16_t)entry->value.int_val, age_ms);
+      } else if (entry && entry->status == MB_CACHE_PENDING) {
+        snprintf(resp, sizeof(resp), "{\"status\":\"pending\",\"message\":\"Request queued\"}");
+      } else if (entry && entry->status == MB_CACHE_ERROR) {
+        // Stale error — enqueue fresh read
+        mb_async_queue_read(rtype, slave_id, addr);
+        snprintf(resp, sizeof(resp), "{\"status\":\"pending\",\"message\":\"Re-queued (last: error)\"}");
+      } else {
+        // No cache entry — enqueue
+        bool ok = mb_async_queue_read(rtype, slave_id, addr);
+        snprintf(resp, sizeof(resp), "{\"status\":\"%s\",\"message\":\"%s\"}",
+          ok ? "pending" : "error", ok ? "Queued for read" : "Queue full");
+      }
+    } else if (strcasecmp(op, "write") == 0) {
+      int32_t val = jdoc["value"] | 0;
+      st_value_t sv;
+      memset(&sv, 0, sizeof(sv));
+      sv.int_val = (int16_t)val;
+      bool ok = mb_async_queue_write(rtype, slave_id, addr, sv);
+      snprintf(resp, sizeof(resp), "{\"status\":\"%s\",\"message\":\"%s\",\"value\":%d}",
+        ok ? "queued" : "error", ok ? "Write queued" : "Queue full", (int)val);
+    } else {
+      return api_send_error(req, 400, "op must be 'read' or 'write'");
+    }
+
+    return api_send_json(req, resp);
+  }
+
   if (!is_slave && !is_master) {
     return api_send_error(req, 400, "Use /api/modbus/slave or /api/modbus/master");
   }
@@ -5852,6 +5916,22 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
     PROM_APPEND("# HELP telnet_connected Telnet client connection status (1=connected, 0=disconnected)\n");
     PROM_APPEND("# TYPE telnet_connected gauge\n");
     PROM_APPEND("telnet_connected %d\n", net_state->telnet_client_connected ? 1 : 0);
+
+    // FEAT-075: Telnet client details for TCP connection monitor
+    {
+      uint32_t tel_ip = 0, tel_uptime = 0;
+      char tel_user[32] = {0};
+      if (network_manager_get_telnet_client_info(&tel_ip, &tel_uptime, tel_user)) {
+        uint8_t *ip = (uint8_t *)&tel_ip;
+        PROM_APPEND("# HELP telnet_client_ip Telnet client IP as label\n");
+        PROM_APPEND("# TYPE telnet_client_ip gauge\n");
+        PROM_APPEND("telnet_client_ip{ip=\"%d.%d.%d.%d\",user=\"%s\"} 1\n",
+                     ip[0], ip[1], ip[2], ip[3], tel_user[0] ? tel_user : "(auth)");
+        PROM_APPEND("# HELP telnet_client_uptime_seconds Telnet client connection uptime\n");
+        PROM_APPEND("# TYPE telnet_client_uptime_seconds gauge\n");
+        PROM_APPEND("telnet_client_uptime_seconds %lu\n", (unsigned long)tel_uptime);
+      }
+    }
 
     PROM_APPEND("# HELP wifi_reconnect_retries WiFi reconnect retry count\n");
     PROM_APPEND("# TYPE wifi_reconnect_retries counter\n");

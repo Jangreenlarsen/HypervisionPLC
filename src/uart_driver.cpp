@@ -137,6 +137,13 @@ void uart1_init(uint32_t baudrate) {
   modbus_slave_uart_active = true;
 }
 
+// BUG-315 FIX: Initialize UART1 with explicit serial config so Modbus Master
+// can honor parity/stop-bits on ES32D26 shared-transceiver boards.
+void uart1_init_ex(uint32_t baudrate, uint32_t config) {
+  ModbusSlaveSerial->begin(baudrate, config, active_rx_pin, active_tx_pin);
+  modbus_slave_uart_active = true;
+}
+
 void uart1_stop(void) {
   ModbusSlaveSerial->end();
   modbus_slave_uart_active = false;

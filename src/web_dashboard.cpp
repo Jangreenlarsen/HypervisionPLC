@@ -65,7 +65,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .hdr .info{font-size:11px;color:#6c7086;margin-left:auto}
 .alarm-bar{background:#f38ba8;color:#1e1e2e;padding:4px 16px;font-size:12px;font-weight:600;display:none;flex-shrink:0;animation:pulse 1.5s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
-.grid{flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;padding:16px;overflow-y:auto;align-content:start}
+.grid{flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));grid-auto-rows:8px;gap:12px;padding:16px;overflow-y:auto;align-content:start}
+.card-wide{grid-column:span 2}
+.card h2 .sz-btn{cursor:pointer;color:#45475a;margin-left:auto;font-size:11px;user-select:none;padding:0 4px;border:none;background:none}
+.card h2 .sz-btn:hover{color:#89b4fa}
+.card h2 .sz-btn.is-wide{color:#89b4fa}
 .card{background:#181825;border:1px solid #313244;border-radius:8px;padding:14px 16px}
 .card h2{font-size:13px;color:#89b4fa;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #313244;display:flex;align-items:center;gap:6px}
 .card h2 .badge{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:400}
@@ -122,7 +126,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .card.dragging{opacity:.4}
 .drag-handle{cursor:grab;color:#45475a;margin-right:4px;font-size:14px;user-select:none}
 .drag-handle:hover{color:#89b4fa}
-@media(max-width:768px){.grid{grid-template-columns:1fr;gap:8px;padding:8px}}
+@media(max-width:768px){.grid{grid-template-columns:1fr;gap:8px;padding:8px;grid-auto-rows:auto}.card-wide{grid-column:span 1}.grid .card{grid-row-end:auto!important}}
 </style>
 </head>
 <body>
@@ -246,6 +250,29 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
 <div id="mcBackoff" style="margin-top:6px"></div>
 <div style="border-top:1px solid #313244;margin-top:8px;padding-top:6px;text-align:center"><button id="btnResetMasterStats" onclick="resetMasterStats()" style="background:#45475a;color:#cdd6f4;border:1px solid #585b70;border-radius:4px;padding:4px 14px;cursor:pointer;font-size:12px">Nulstil statistik</button></div>
+<!-- FEAT-135: mb read/write mini-form -->
+<div style="border-top:1px solid #313244;margin-top:8px;padding-top:6px">
+<div style="font-size:11px;color:#89b4fa;margin-bottom:4px;font-weight:600">Read/Write</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:4px">
+<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px">FC Type</div>
+<select id="mbOp" onchange="updateMbForm()" style="padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="read holding">Read Holding (FC03)</option>
+<option value="read input-reg">Read Input Reg (FC04)</option>
+<option value="read coil">Read Coil (FC01)</option>
+<option value="read input">Read Discrete In (FC02)</option>
+<option value="write holding">Write Holding (FC06)</option>
+<option value="write coil">Write Coil (FC05)</option>
+</select></div>
+<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px">Slave ID</div>
+<input type="number" id="mbSlave" value="1" min="1" max="247" title="Slave ID" style="width:55px;padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px"></div>
+<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px">Adresse</div>
+<input type="number" id="mbAddr" value="0" min="0" max="65535" title="Addr" style="width:60px;padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px"></div>
+<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px" id="mbValLabel">Antal</div>
+<input type="number" id="mbVal" value="1" title="Count (read) / Value (write)" style="width:55px;padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px"></div>
+<button onclick="doMbCmd()" style="padding:2px 10px;background:#89b4fa;color:#1e1e2e;border:none;border-radius:3px;cursor:pointer;font-size:10px;font-weight:600;align-self:flex-end">Udfør</button>
+</div>
+<pre id="mbResult" style="font-size:10px;background:#11111b;color:#a6adc8;padding:4px 6px;border-radius:3px;max-height:100px;overflow-y:auto;margin:0;white-space:pre-wrap;font-family:'Cascadia Code',monospace;user-select:text;cursor:text">(klar)</pre>
+</div>
 </div>
 </div>
 
@@ -311,14 +338,38 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="spark-row"><span class="sl">Master req/3s</span><svg id="sparkRtMaster" width="200" height="24"></svg></div>
 </div>
 
-
+<!-- FEAT-075: TCP Forbindelsesmonitor -->
+<div class="card" data-card-id="tcpmonitor">
+<h2>TCP Forbindelser <span class="badge badge-off" id="badgeTcp">0</span></h2>
+<div class="row"><span class="lbl">SSE klienter</span><span class="val val-n" id="tcpSseCount">0</span></div>
+<div class="row"><span class="lbl">Telnet</span><span class="val val-n" id="tcpTelnet">Ingen</span></div>
+<div class="row"><span class="lbl">HTTP req total</span><span class="val val-n" id="tcpHttpTotal">-</span></div>
+<div id="tcpConnBody"><span class="empty-msg">Ingen aktive forbindelser</span></div>
+</div>
 
 <!-- FEAT-085: Alarm Historik (expanded v7.8.3.1) -->
-<div class="card" data-card-id="alarms" style="grid-column:span 2">
+<div class="card card-wide" data-card-id="alarms">
 <h2>Alarm Historik <span class="badge badge-off" id="badgeAlarm">0</span></h2>
-<div style="display:flex;justify-content:space-between;margin-bottom:6px">
+<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
 <span style="font-size:10px;color:#6c7086" id="alarmInfo">-</span>
 <button onclick="ackAlarms()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Kvittér alle</button>
+</div>
+<!-- FEAT-134: Alarm filter bar -->
+<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+<select id="alarmSev" onchange="renderAlarms()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="-1">Alle severity</option>
+<option value="2">Kritiske</option>
+<option value="1">Advarsler</option>
+<option value="0">Info</option>
+</select>
+<select id="alarmAck" onchange="renderAlarms()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">Alle</option>
+<option value="unack">Kun ukvitterede</option>
+<option value="ack">Kun kvitterede</option>
+</select>
+<input type="text" id="alarmSearch" placeholder="Søg i tekst..." oninput="renderAlarms()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;flex:1;min-width:120px">
+<input type="number" id="alarmLimit" value="25" min="5" max="500" onchange="renderAlarms()" title="Max antal" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
+<button onclick="clearAlarmFilter()" style="font-size:10px;padding:3px 8px;background:#45475a;color:#cdd6f4;border:none;border-radius:3px;cursor:pointer">Nulstil</button>
 </div>
 <div id="alarmBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen alarmer</span></div>
 </div>
@@ -814,6 +865,29 @@ function updateDashboard(m){
     }
   }
 
+  // === FEAT-075: TCP Forbindelsesmonitor ===
+  {
+    const sseN=g(m,'sse_clients_active')||0;
+    const telOn=g(m,'telnet_connected')===1;
+    const httpT=g(m,'http_requests_total');
+    $('tcpSseCount').textContent=sseN;
+    $('tcpHttpTotal').textContent=fmtN(httpT);
+
+    // Telnet info from extended metrics
+    const telIp=gAll(m,'telnet_client_ip');
+    const telUp=g(m,'telnet_client_uptime_seconds');
+    if(telOn&&telIp.length>0){
+      const ip=telIp[0].labels.ip||'?';
+      const usr=telIp[0].labels.user||'';
+      $('tcpTelnet').textContent=ip+(usr?' ('+usr+')':'')+' — '+fmtUp(telUp);
+    }else{
+      $('tcpTelnet').textContent=telOn?'Forbundet':'Ingen';
+    }
+
+    const total=sseN+(telOn?1:0);
+    badge($('badgeTcp'),total>0,String(total));
+  }
+
   // === FEAT-085: Alarm Historik ===
   {
     const cnt=g(m,'alarm_log_count')||0;
@@ -1090,6 +1164,31 @@ async function fetchNetworkInfo(){
     }).catch(()=>{});
   }catch(e){}
 }
+// FEAT-075: Hent SSE klient-detaljer til TCP forbindelsesmonitor
+async function fetchConnections(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    const r=await fetch('/api/events/clients',opts);
+    if(!r.ok)return;
+    const d=await r.json();
+    const el=$('tcpConnBody');
+    if(!d.clients||d.clients.length===0){
+      el.innerHTML='<span class="empty-msg">Ingen aktive forbindelser</span>';
+      return;
+    }
+    let h='<table class="tbl"><tr><th>Proto</th><th>IP</th><th>Bruger</th><th>Uptime</th><th>Info</th></tr>';
+    for(const c of d.clients){
+      h+='<tr><td><span class="dot dot-g"></span> SSE</td>';
+      h+='<td>'+c.ip+'</td>';
+      h+='<td>'+(c.username||'-')+'</td>';
+      h+='<td>'+fmtUp(c.uptime_s)+'</td>';
+      h+='<td style="font-size:10px;color:#6c7086">slot '+c.slot+', '+c.topics+'</td></tr>';
+    }
+    h+='</table>';
+    el.innerHTML=h;
+  }catch(e){}
+}
 async function fetchBindings(){
   try{
     var auth=sessionStorage.getItem('hfplc_auth');
@@ -1105,6 +1204,7 @@ async function fetchMetrics(){
     const text=await r.text();
     const m=parsePrometheus(text);
     updateDashboard(m);
+    autoSizeCards();
   }catch(e){
     $('footRefresh').textContent='Forbindelse tabt...';
   }
@@ -1117,38 +1217,68 @@ async function fetchAlarms(){
     const r=await fetch('/api/alarms',{});
     if(!r.ok)return;
     _alarmLog=await r.json();
-    const el=$('alarmBody');
-    if(_alarmLog.length===0){
-      el.innerHTML='<span class="empty-msg">Ingen alarmer</span>';
-      return;
-    }
-    // Show newest first, max 25
-    const recent=_alarmLog.slice(-25).reverse();
-    let h='<table class="tbl"><tr><th>Tid</th><th>Sev.</th><th>Alarm</th><th>Kilde / Detaljer</th><th>Kvit</th></tr>';
-    for(const a of recent){
-      const sevCls=a.severity===2?'val-err':a.severity===1?'val-warn':'val-ok';
-      const sevLbl=a.severity===2?'KRIT':a.severity===1?'ADV':'INFO';
-      const ack=a.acknowledged?'<span class="dot dot-off" title="Kvitteret"></span>':'<span class="dot dot-r" title="Aktiv"></span>';
-      const timeStr=a.time||a.uptime;
-      // Build rich source/detail column
-      let src='';
-      if(a.source_ip)src+='<span title="Klient IP" style="color:#89b4fa">'+a.source_ip+'</span>';
-      if(a.username)src+=(src?' / ':'')+'<span title="Bruger" style="color:#cba6f7">'+a.username+'</span>';
-      // Extract modbus context from message: "TX -> ID:X @Y" or "RX <- ID:X"
-      const txMatch=a.message.match(/TX\s*->\s*ID:(\d+)\s*@(\d+)/);
-      const rxMatch=a.message.match(/RX\s*<-\s*ID:(\d+)/);
-      if(txMatch)src+=(src?'<br>':'')+'<span title="Master TX til slave" style="color:#fab387">TX &rarr; Slave ID:'+txMatch[1]+' Reg:'+txMatch[2]+'</span>';
-      else if(rxMatch)src+=(src?'<br>':'')+'<span title="Slave RX" style="color:#fab387">RX &larr; Slave ID:'+rxMatch[1]+'</span>';
-      if(!src)src='<span style="color:#585b70">-</span>';
-      h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
-      h+='<td class="'+sevCls+'" style="font-weight:700;font-size:10px">'+sevLbl+'</td>';
-      h+='<td>'+a.message+'</td>';
-      h+='<td style="font-size:10px">'+src+'</td>';
-      h+='<td>'+ack+'</td></tr>';
-    }
-    h+='</table>';
-    el.innerHTML=h;
+    renderAlarms();
   }catch(e){}
+}
+// FEAT-134: Client-side alarm filtering
+function clearAlarmFilter(){
+  $('alarmSev').value='-1';
+  $('alarmAck').value='any';
+  $('alarmSearch').value='';
+  $('alarmLimit').value='25';
+  renderAlarms();
+}
+function renderAlarms(){
+  const el=$('alarmBody');
+  if(!_alarmLog||_alarmLog.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen alarmer</span>';
+    return;
+  }
+  const sevFilter=parseInt($('alarmSev').value);
+  const ackFilter=$('alarmAck').value;
+  const search=($('alarmSearch').value||'').toLowerCase();
+  const limit=Math.max(5,parseInt($('alarmLimit').value)||25);
+  // Filter
+  const filtered=_alarmLog.filter(a=>{
+    if(sevFilter>=0&&a.severity!==sevFilter)return false;
+    if(ackFilter==='unack'&&a.acknowledged)return false;
+    if(ackFilter==='ack'&&!a.acknowledged)return false;
+    if(search){
+      const hay=(a.message+' '+(a.source_ip||'')+' '+(a.username||'')+' '+(a.time||'')).toLowerCase();
+      if(hay.indexOf(search)<0)return false;
+    }
+    return true;
+  });
+  $('alarmInfo').textContent=_alarmLog.length+' total, '+filtered.length+' matcher filter';
+  if(filtered.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen alarmer matcher filter</span>';
+    return;
+  }
+  // Show newest first
+  const recent=filtered.slice(-limit).reverse();
+  let h='<table class="tbl"><tr><th>Tid</th><th>Sev.</th><th>Alarm</th><th>Kilde / Detaljer</th><th>Kvit</th></tr>';
+  for(const a of recent){
+    const sevCls=a.severity===2?'val-err':a.severity===1?'val-warn':'val-ok';
+    const sevLbl=a.severity===2?'KRIT':a.severity===1?'ADV':'INFO';
+    const ack=a.acknowledged?'<span class="dot dot-off" title="Kvitteret"></span>':'<span class="dot dot-r" title="Aktiv"></span>';
+    const timeStr=a.time||a.uptime;
+    let src='';
+    if(a.source_ip)src+='<span title="Klient IP" style="color:#89b4fa">'+a.source_ip+'</span>';
+    if(a.username)src+=(src?' / ':'')+'<span title="Bruger" style="color:#cba6f7">'+a.username+'</span>';
+    const txMatch=a.message.match(/TX\s*->\s*ID:(\d+)\s*@(\d+)/);
+    const rxMatch=a.message.match(/RX\s*<-\s*ID:(\d+)/);
+    if(txMatch)src+=(src?'<br>':'')+'<span title="Master TX til slave" style="color:#fab387">TX &rarr; Slave ID:'+txMatch[1]+' Reg:'+txMatch[2]+'</span>';
+    else if(rxMatch)src+=(src?'<br>':'')+'<span title="Slave RX" style="color:#fab387">RX &larr; Slave ID:'+rxMatch[1]+'</span>';
+    if(!src)src='<span style="color:#585b70">-</span>';
+    h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
+    h+='<td class="'+sevCls+'" style="font-weight:700;font-size:10px">'+sevLbl+'</td>';
+    h+='<td>'+a.message+'</td>';
+    h+='<td style="font-size:10px">'+src+'</td>';
+    h+='<td>'+ack+'</td></tr>';
+  }
+  h+='</table>';
+  el.innerHTML=h;
+  autoSizeCards();
 }
 async function ackAlarms(){
   try{
@@ -1165,15 +1295,78 @@ async function toggleDO(pin){
     // Read current state from last metrics, then toggle
     var opts1=auth?{headers:{'Authorization':auth}}:{};
     const r=await fetch('/api/gpio/'+pin,opts1);
-    if(!r.ok)return;
+    if(!r.ok){alert('GPIO læs fejl: HTTP '+r.status);return;}
     const d=await r.json();
-    const newVal=d.level?0:1;
+    const cur=(d.value===1||d.value===true)?1:0;
+    const newVal=cur?0:1;
     var opts2={method:'POST',headers:{'Content-Type':'application/json'}};
     if(auth)opts2.headers['Authorization']=auth;
-    opts2.body=JSON.stringify({level:newVal});
-    await fetch('/api/gpio/'+pin,opts2);
+    opts2.body=JSON.stringify({value:newVal});
+    const w=await fetch('/api/gpio/'+pin,opts2);
+    if(!w.ok){const t=await w.text();alert('GPIO skriv fejl: '+(t||w.status));return;}
+    // Instant visual feedback — SSE register event will confirm
+    fetchMetrics();
+  }catch(e){alert('GPIO toggle: '+e.message);}
+}
+
+// === Masonry Auto-Size & Card Width Toggle ===
+const _RH=8,_RG=12;
+function autoSizeCards(){
+  const g=$('grid');
+  if(!g||!g.offsetParent)return;
+  if(window.innerWidth<=768)return;
+  const scrollY=g.scrollTop;
+  const frozenH=g.scrollHeight;
+  g.style.minHeight=frozenH+'px';
+  g.querySelectorAll('.card').forEach(c=>{c.style.gridRowEnd='';});
+  void g.offsetHeight;
+  g.querySelectorAll('.card').forEach(c=>{
+    const span=Math.ceil((c.scrollHeight+_RG)/(_RH+_RG));
+    c.style.gridRowEnd='span '+span;
+  });
+  g.style.minHeight='';
+  g.scrollTop=scrollY;
+}
+function loadCardSizes(){
+  try{
+    const s=localStorage.getItem('hfplc_card_sizes');
+    if(!s)return;
+    const map=JSON.parse(s);
+    Object.keys(map).forEach(id=>{
+      const c=document.querySelector('.card[data-card-id="'+id+'"]');
+      if(c&&map[id]==='wide')c.classList.add('card-wide');
+    });
   }catch(e){}
 }
+function saveCardSizes(){
+  const map={};
+  document.querySelectorAll('.card[data-card-id]').forEach(c=>{
+    if(c.classList.contains('card-wide'))map[c.dataset.cardId]='wide';
+  });
+  try{localStorage.setItem('hfplc_card_sizes',JSON.stringify(map));}catch(e){}
+}
+function toggleCardWide(btn){
+  const card=btn.closest('.card');
+  if(!card)return;
+  card.classList.toggle('card-wide');
+  btn.classList.toggle('is-wide',card.classList.contains('card-wide'));
+  btn.title=card.classList.contains('card-wide')?'Normal bredde':'Bred (2 kolonner)';
+  saveCardSizes();
+  autoSizeCards();
+}
+function initSizeButtons(){
+  document.querySelectorAll('.card[data-card-id] h2').forEach(h2=>{
+    const btn=document.createElement('span');
+    btn.className='sz-btn';
+    btn.textContent='\u21d4';
+    btn.title='Bred (2 kolonner)';
+    btn.onclick=function(e){e.stopPropagation();toggleCardWide(this);};
+    const card=h2.closest('.card');
+    if(card&&card.classList.contains('card-wide')){btn.classList.add('is-wide');btn.title='Normal bredde';}
+    h2.appendChild(btn);
+  });
+}
+window.addEventListener('resize',function(){clearTimeout(window._szTmr);window._szTmr=setTimeout(autoSizeCards,150);});
 
 // === Drag & Drop Card Reorder ===
 function initDragDrop(){
@@ -1224,6 +1417,106 @@ function restoreCardOrder(){
   }).catch(()=>{});
 }
 
+// FEAT-135: Modbus Master mini-form handler
+// Matches CLI syntax in cli_commands_modbus_master.cpp:
+//   mb read coil     <slave> <addr>
+//   mb read input    <slave> <addr>
+//   mb read holding  <slave> <addr> [count=1..16]
+//   mb read input-reg <slave> <addr>
+//   mb write coil    <slave> <addr> <0|1>
+//   mb write holding <slave> <addr> <value 0..65535>
+function updateMbForm(){
+  const op=$('mbOp').value;
+  const valInp=$('mbVal');
+  const lbl=$('mbValLabel');
+  if(op.startsWith('write')){lbl.textContent='Værdi';}else if(op==='read holding'){lbl.textContent='Antal';}else{lbl.textContent='Antal';}
+  if(op==='read holding'){
+    valInp.title='Count (1-16)';
+    valInp.placeholder='count';
+    valInp.disabled=false;
+    if(parseInt(valInp.value)>16||parseInt(valInp.value)<1)valInp.value=1;
+  }else if(op==='write holding'){
+    valInp.title='Value (0-65535)';
+    valInp.placeholder='value';
+    valInp.disabled=false;
+  }else if(op==='write coil'){
+    valInp.title='Value (0 eller 1)';
+    valInp.placeholder='0/1';
+    valInp.disabled=false;
+    if(parseInt(valInp.value)!==0&&parseInt(valInp.value)!==1)valInp.value=1;
+  }else{
+    // read coil / read input / read input-reg — ingen værdi
+    valInp.title='(ikke brugt)';
+    valInp.placeholder='-';
+    valInp.disabled=true;
+  }
+}
+async function doMbCmd(){
+  const opFull=$('mbOp').value;
+  const slave=parseInt($('mbSlave').value)||1;
+  const addr=parseInt($('mbAddr').value)||0;
+  const valRaw=$('mbVal').value;
+  const result=$('mbResult');
+  // Parse "read holding" → op="read", type="holding"
+  const parts=opFull.split(' ');
+  const op=parts[0];
+  const type=parts.slice(1).join(' ')||'holding';
+
+  if(op==='write'){
+    const v=parseInt(valRaw);
+    if(type==='holding'&&(isNaN(v)||v<0||v>65535)){result.textContent='Fejl: value skal være 0-65535';return;}
+    if(type==='coil'&&v!==0&&v!==1){result.textContent='Fejl: coil value skal være 0 eller 1';return;}
+  }
+
+  const label=opFull+' slave='+slave+' addr='+addr;
+  result.textContent='> '+label+'\nSender via kø...';
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{'Content-Type':'application/json'}};
+    if(auth)opts.headers['Authorization']=auth;
+    var body={op:op,type:type,slave:slave,addr:addr};
+    if(op==='write')body.value=parseInt(valRaw)||0;
+    opts.body=JSON.stringify(body);
+    const r=await fetch('/api/modbus/master/rw',opts);
+    if(r.status===401){result.textContent='> '+label+'\nFejl: Login kræves';return;}
+    if(r.status===403){result.textContent='> '+label+'\nFejl: Skriv-rettigheder kræves';return;}
+    if(!r.ok){result.textContent='> '+label+'\nHTTP '+r.status;return;}
+    const d=await r.json();
+    if(d.status==='ok'){
+      result.textContent='> '+label+'\nVærdi: '+d.value+' ('+d.hex+') signed: '+d.signed+'\nCache alder: '+d.age_ms+'ms';
+    }else if(d.status==='pending'||d.status==='queued'){
+      result.textContent='> '+label+'\n'+d.message+'\nVenter på svar...';
+      // Poll for result after async queue processes
+      setTimeout(()=>doMbPoll(op,type,slave,addr,label),500);
+    }else{
+      result.textContent='> '+label+'\n'+(d.message||JSON.stringify(d));
+    }
+  }catch(e){
+    result.textContent='> '+label+'\nNetværksfejl: '+e.message;
+  }
+}
+async function doMbPoll(op,type,slave,addr,label,attempt){
+  attempt=attempt||1;
+  if(attempt>6)return; // max 3s
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{'Content-Type':'application/json'}};
+    if(auth)opts.headers['Authorization']=auth;
+    opts.body=JSON.stringify({op:'read',type:type,slave:slave,addr:addr});
+    const r=await fetch('/api/modbus/master/rw',opts);
+    if(!r.ok)return;
+    const d=await r.json();
+    const result=$('mbResult');
+    if(d.status==='ok'){
+      result.textContent='> '+label+'\nVærdi: '+d.value+' ('+d.hex+') signed: '+d.signed+'\nCache alder: '+d.age_ms+'ms';
+    }else if(d.status==='pending'){
+      setTimeout(()=>doMbPoll(op,type,slave,addr,label,attempt+1),500);
+    }else{
+      result.textContent='> '+label+'\n'+(d.message||d.status);
+    }
+  }catch(e){}
+}
+
 function resetMasterStats(){
   var auth=sessionStorage.getItem('hfplc_auth');
   var opts={method:'POST'};
@@ -1244,6 +1537,137 @@ function fmtUptime(ms){
   return d+'d '+h+'t';
 }
 
+// === FEAT-130: SSE-driven live updates ===
+// Subscribes to ESP32 SSE event stream for instant register/coil/counter/timer updates.
+// Falls back to polling if SSE unavailable.
+let sseConn=null;
+let sseReconnectTimer=null;
+let sseLastEventMs=0;
+function sseSetIndicator(connected){
+  const el=$('footRefresh');
+  if(!el)return;
+  if(connected){el.style.color='#a6e3a1';}
+  else{el.style.color='';}
+}
+function sseApplyRegisterEvent(d){
+  // d = {type:"hr"|"ir"|"coil"|"di", addr:N, value:N}
+  if(!d||d.addr==null)return;
+  const addr=d.addr|0;
+  const val=d.value|0;
+  if(d.type==='hr'){
+    // Update both regHR grid and regmapHR grid
+    ['regHR','regmapHR'].forEach(gid=>{
+      const g=$(gid);if(!g||!g.children[addr])return;
+      const cell=g.children[addr];
+      cell.textContent=val;
+      cell.title='HR['+addr+'] = '+val;
+      cell.className=val!==0?'rc used':'rc';
+    });
+  }else if(d.type==='ir'){
+    const g=$('regmapIR');if(g&&g.children[addr]){
+      const cell=g.children[addr];
+      cell.textContent=val;
+      cell.title='IR['+addr+'] = '+val;
+      cell.className=val!==0?'rc used':'rc';
+    }
+  }else if(d.type==='coil'){
+    ['regCoils','regmapCoils'].forEach(gid=>{
+      const g=$(gid);if(!g||!g.children[addr])return;
+      const cell=g.children[addr];
+      cell.textContent=val;
+      cell.title='Coil['+addr+'] = '+(val?'ON':'OFF');
+      cell.className='rc '+(val?'coil-on':'coil-off');
+    });
+    // Also update DIO output LEDs (pins 201-208 map to coils via gpio metric labels)
+    const ledParent=$('dioOutputs');
+    if(ledParent){
+      // Re-fetch metrics soon to pick up gpio_digital_output change
+      // (no direct coil->pin mapping on client side)
+    }
+  }else if(d.type==='di'){
+    const g=$('regmapDI');if(g&&g.children[addr]){
+      const cell=g.children[addr];
+      cell.textContent=val;
+      cell.title='DI['+addr+'] = '+val;
+      cell.className=val!==0?'rc used':'rc';
+    }
+  }
+  sseLastEventMs=Date.now();
+  // Coil/DI changes drive DIO LEDs which come from /api/metrics gpio labels
+  // — kick a debounced metrics refresh so LEDs flip instantly too.
+  if(d.type==='coil'||d.type==='di'){sseKickMetrics();}
+}
+// Debounced metrics refresh — max 1 fetch per 150ms regardless of event burst
+var sseMetricsPending=false;
+function sseKickMetrics(){
+  if(sseMetricsPending)return;
+  sseMetricsPending=true;
+  setTimeout(function(){sseMetricsPending=false;fetchMetrics();},150);
+}
+function sseApplyCounterEvent(d){
+  sseLastEventMs=Date.now();
+  // Full metrics refresh picks up counter widget values + master stats
+  sseKickMetrics();
+}
+function sseApplyTimerEvent(d){
+  sseLastEventMs=Date.now();
+  sseKickMetrics();
+}
+function sseConnect(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    fetch('/api/events/status',opts).then(r=>r.json()).then(s=>{
+      if(!s||!s.sse_enabled){
+        console.log('[SSE] disabled, using polling only');
+        return;
+      }
+      let port=s.sse_port;
+      if(!port||port===0){
+        // Auto port = main port + 1
+        const mainPort=parseInt(location.port||'80')||80;
+        port=mainPort+1;
+      }
+      // Query-string token workaround: EventSource cannot set Basic Auth
+      // header, and browsers do not share credentials across ports. Token is
+      // issued by /api/events/status (on main port, authenticated normally).
+      const tok=s.sse_token?('&token='+encodeURIComponent(s.sse_token)):'';
+      const url=location.protocol+'//'+location.hostname+':'+port+'/api/events?subscribe=all'+tok;
+      try{
+        sseConn=new EventSource(url);
+      }catch(e){
+        console.log('[SSE] EventSource construct failed:',e);
+        return;
+      }
+      sseConn.addEventListener('connected',()=>{
+        console.log('[SSE] connected');
+        sseSetIndicator(true);
+        // Slow polling since SSE handles instant updates
+        if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,5000);}
+      });
+      sseConn.addEventListener('register',e=>{
+        try{sseApplyRegisterEvent(JSON.parse(e.data));}catch(err){}
+      });
+      sseConn.addEventListener('counter',e=>{
+        try{sseApplyCounterEvent(JSON.parse(e.data));}catch(err){}
+      });
+      sseConn.addEventListener('timer',e=>{
+        try{sseApplyTimerEvent(JSON.parse(e.data));}catch(err){}
+      });
+      sseConn.addEventListener('heartbeat',()=>{sseLastEventMs=Date.now();});
+      sseConn.onerror=()=>{
+        console.log('[SSE] connection error, will retry');
+        sseSetIndicator(false);
+        if(sseConn){sseConn.close();sseConn=null;}
+        // Restore fast polling as fallback
+        if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,3000);}
+        if(sseReconnectTimer)clearTimeout(sseReconnectTimer);
+        sseReconnectTimer=setTimeout(sseConnect,5000);
+      };
+    }).catch(e=>console.log('[SSE] status check failed:',e));
+  }catch(e){console.log('[SSE] init failed:',e);}
+}
+
 function init(){
   // Initialize register grids
   let hrInit='',coilInit='';
@@ -1254,15 +1678,22 @@ function init(){
   $('regHR').innerHTML=hrInit;
   $('regCoils').innerHTML=coilInit;
 
+  loadCardSizes();
+  initSizeButtons();
   initDragDrop();
+  autoSizeCards();
+  updateMbForm();
   fetchBindings();
   fetchMetrics();
   fetchAlarms();
   fetchNetworkInfo();
+  fetchConnections();
   refreshTimer=setInterval(fetchMetrics,3000);
   setInterval(fetchBindings,15000);
   setInterval(fetchAlarms,5000);
   setInterval(fetchNetworkInfo,10000);
+  setInterval(fetchConnections,5000);
+  sseConnect();
 }
 init();
 

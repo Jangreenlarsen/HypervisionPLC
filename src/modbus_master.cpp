@@ -111,8 +111,18 @@ void modbus_master_reconfigure() {
 
 #if MODBUS_SINGLE_TRANSCEIVER
   // ES32D26: reuse shared UART via uart_driver
+  // BUG-315 FIX: Build full serial config from master parity/stop bits.
+  // Previously uart1_init() hardcoded SERIAL_8N1, silently dropping parity/stop.
+  uint32_t uart_config = SERIAL_8N1;
+  if (g_modbus_master_config.parity == 1) { // Even
+    uart_config = (g_modbus_master_config.stop_bits == 2) ? SERIAL_8E2 : SERIAL_8E1;
+  } else if (g_modbus_master_config.parity == 2) { // Odd
+    uart_config = (g_modbus_master_config.stop_bits == 2) ? SERIAL_8O2 : SERIAL_8O1;
+  } else { // None
+    uart_config = (g_modbus_master_config.stop_bits == 2) ? SERIAL_8N2 : SERIAL_8N1;
+  }
   uart1_stop();
-  uart1_init(g_modbus_master_config.baudrate);
+  uart1_init_ex(g_modbus_master_config.baudrate, uart_config);
   // DIR pin setup
   pinMode(uart_get_master_dir_pin(), OUTPUT);
   digitalWrite(uart_get_master_dir_pin(), LOW); // Receive mode
@@ -220,8 +230,14 @@ mb_error_code_t modbus_master_send_request(
   ModbusSerial.flush(); // Wait for TX complete
 #endif
 
-  // Set DE/RE to receive mode
-  delayMicroseconds(50);
+  // BUG-316 FIX: Wait long enough for last byte to fully exit the TX shift
+  // register BEFORE releasing DE. HardwareSerial::flush() semantics vary
+  // across Arduino ESP32 core versions — older versions only wait for FIFO
+  // empty, not shift register complete. A fixed 50µs was far too short at
+  // 9600 baud (1 byte = ~1040µs). Calculate one full char-time (11 bits
+  // worst-case with parity/2-stop-bits) plus 100µs margin.
+  uint32_t byte_us = (11UL * 1000000UL) / g_modbus_master_config.baudrate;
+  delayMicroseconds(byte_us + 100);
   digitalWrite(uart_get_master_dir_pin(), LOW);
 
   // Wait for response with timeout

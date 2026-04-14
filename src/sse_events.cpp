@@ -354,6 +354,109 @@ static int sse_check_auth(const char *auth_header)
 }
 
 /* ============================================================================
+ * AUTH: Query-string token (workaround for EventSource cross-port Basic Auth)
+ *
+ * Problem: EventSource API cannot set Authorization header, and browsers do
+ * not share Basic Auth credentials across different ports (main HTTP vs SSE).
+ * Solution: Main HTTP port issues a short-lived token tied to the authenticated
+ * user. Dashboard passes it as ?token=XXX in the EventSource URL. SSE server
+ * validates token and maps to user_idx without needing Authorization header.
+ * ============================================================================ */
+
+#define SSE_TOKEN_SLOTS     8       // Max concurrent pending tokens
+#define SSE_TOKEN_LEN       24      // Token string length (hex chars + null)
+#define SSE_TOKEN_TTL_MS    300000  // 5 minutes
+
+typedef struct {
+  char     token[SSE_TOKEN_LEN];
+  int      user_idx;
+  uint32_t expires_ms;
+  bool     active;
+} SseToken;
+
+static SseToken sse_tokens[SSE_TOKEN_SLOTS];
+static portMUX_TYPE sse_token_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static void sse_token_gc_locked(uint32_t now)
+{
+  for (int i = 0; i < SSE_TOKEN_SLOTS; i++) {
+    if (sse_tokens[i].active && (int32_t)(now - sse_tokens[i].expires_ms) >= 0) {
+      sse_tokens[i].active = false;
+    }
+  }
+}
+
+/**
+ * Issue a new token for the given RBAC user index. Caller must have
+ * authenticated the user first via normal HTTP Basic Auth / RBAC.
+ * Returns pointer to token string (static storage, valid until next issue)
+ * or NULL on failure. Token is reusable within TTL.
+ */
+const char *sse_token_issue(int user_idx)
+{
+  if (user_idx < -1) return NULL; // allow 99 (virtual admin) and valid RBAC idx
+  static char out_buf[SSE_TOKEN_LEN];
+  uint32_t now = millis();
+
+  taskENTER_CRITICAL(&sse_token_mux);
+  sse_token_gc_locked(now);
+
+  // Find free slot
+  int slot = -1;
+  for (int i = 0; i < SSE_TOKEN_SLOTS; i++) {
+    if (!sse_tokens[i].active) { slot = i; break; }
+  }
+  if (slot < 0) {
+    // Evict oldest (lowest expires_ms)
+    uint32_t oldest_exp = 0xFFFFFFFF;
+    for (int i = 0; i < SSE_TOKEN_SLOTS; i++) {
+      if (sse_tokens[i].expires_ms < oldest_exp) {
+        oldest_exp = sse_tokens[i].expires_ms;
+        slot = i;
+      }
+    }
+  }
+
+  // Generate 22 hex chars from esp_random (88 bits entropy)
+  uint32_t r1 = esp_random();
+  uint32_t r2 = esp_random();
+  uint32_t r3 = esp_random();
+  snprintf(sse_tokens[slot].token, SSE_TOKEN_LEN, "%08lx%08lx%06lx",
+           (unsigned long)r1, (unsigned long)r2, (unsigned long)(r3 & 0x00FFFFFF));
+  sse_tokens[slot].user_idx = user_idx;
+  sse_tokens[slot].expires_ms = now + SSE_TOKEN_TTL_MS;
+  sse_tokens[slot].active = true;
+
+  strncpy(out_buf, sse_tokens[slot].token, sizeof(out_buf));
+  out_buf[sizeof(out_buf) - 1] = '\0';
+  taskEXIT_CRITICAL(&sse_token_mux);
+  return out_buf;
+}
+
+/**
+ * Validate a token from the SSE ?token= query parameter.
+ * Returns user_idx on success, -1 on invalid/expired.
+ * Token remains valid within TTL (supports reconnect).
+ */
+static int sse_token_check(const char *token)
+{
+  if (!token || !*token) return -1;
+  uint32_t now = millis();
+  int user_idx = -1;
+
+  taskENTER_CRITICAL(&sse_token_mux);
+  sse_token_gc_locked(now);
+  for (int i = 0; i < SSE_TOKEN_SLOTS; i++) {
+    if (sse_tokens[i].active && strcmp(sse_tokens[i].token, token) == 0) {
+      user_idx = sse_tokens[i].user_idx;
+      break;
+    }
+  }
+  taskEXIT_CRITICAL(&sse_token_mux);
+  return user_idx;
+}
+
+/* ============================================================================
  * PER-CLIENT TASK: SSE event loop on raw socket
  * ============================================================================ */
 
@@ -689,13 +792,35 @@ static void sse_accept_task(void *arg)
       }
     }
 
-    int sse_user_idx = sse_check_auth(auth_value);
+    // Extract query string early — needed for token= parameter before auth
+    char *early_qmark = strchr(req_buf + 4, '?');
+    char *early_space = strchr(req_buf + 4, ' ');
+    char early_query_buf[256] = {0};
+    const char *early_query = NULL;
+    if (early_qmark && early_space && early_qmark < early_space) {
+      size_t qlen = early_space - early_qmark - 1;
+      if (qlen < sizeof(early_query_buf)) {
+        memcpy(early_query_buf, early_qmark + 1, qlen);
+        early_query_buf[qlen] = '\0';
+        early_query = early_query_buf;
+      }
+    }
+
+    // Prefer query-string token (for EventSource cross-port auth), else Basic
+    int sse_user_idx = -1;
+    char token_buf[SSE_TOKEN_LEN] = {0};
+    if (early_query && sse_get_query_param(early_query, "token", token_buf, sizeof(token_buf))) {
+      sse_user_idx = sse_token_check(token_buf);
+    }
+    if (sse_user_idx < 0) {
+      sse_user_idx = sse_check_auth(auth_value);
+    }
     if (sse_user_idx < 0) {
       const char *resp = "HTTP/1.1 401 Unauthorized\r\n"
         "Content-Type: application/json\r\n"
         "WWW-Authenticate: Basic realm=\"Modbus ESP32\"\r\n"
         "Connection: close\r\n\r\n"
-        "{\"error\":\"Authentication required\",\"status\":401}";
+        "{\"error\":\"Authentication required (use ?token= or Basic Auth)\",\"status\":401}";
       send(client_fd, resp, strlen(resp), 0);
       close(client_fd);
       continue;
@@ -813,8 +938,9 @@ esp_err_t api_handler_sse_status(httpd_req_t *req)
     return ESP_OK;
   }
 
-  extern bool http_server_check_auth(httpd_req_t *req);
-  if (!http_server_check_auth(req)) {
+  extern int http_server_auth_user(httpd_req_t *req);
+  int caller_uid = http_server_auth_user(req);
+  if (caller_uid < 0) {
     httpd_resp_set_status(req, "401 Unauthorized");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Modbus ESP32\"");
@@ -822,17 +948,25 @@ esp_err_t api_handler_sse_status(httpd_req_t *req)
     return ESP_OK;
   }
 
+  // Issue short-lived token so EventSource can auth cross-port
+  const char *token = sse_token_issue(caller_uid);
+  char token_field[80] = {0};
+  if (token) {
+    snprintf(token_field, sizeof(token_field), ",\"sse_token\":\"%s\",\"sse_token_ttl_ms\":%d",
+             token, (int)SSE_TOKEN_TTL_MS);
+  }
+
   extern esp_err_t api_send_json(httpd_req_t *req, const char *json_str);
 
-  char buf[320];
+  char buf[480];
   snprintf(buf, sizeof(buf),
     "{\"sse_enabled\":%s,\"sse_port\":%d,\"max_clients\":%d,\"active_clients\":%d,"
     "\"check_interval_ms\":%d,\"heartbeat_ms\":%d,"
     "\"topics\":[\"counters\",\"timers\",\"registers\",\"system\"],"
-    "\"endpoint\":\"http://<ip>:%d/api/events?subscribe=<topics>\"}",
+    "\"endpoint\":\"http://<ip>:%d/api/events?subscribe=<topics>&token=<token>\"%s}",
     sse_cfg_enabled() ? "true" : "false",
     sse_port, (int)sse_cfg_max_clients(), (int)sse_active_clients,
-    (int)sse_cfg_check_interval(), (int)sse_cfg_heartbeat(), sse_port);
+    (int)sse_cfg_check_interval(), (int)sse_cfg_heartbeat(), sse_port, token_field);
 
   return api_send_json(req, buf);
 }

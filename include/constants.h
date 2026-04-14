@@ -499,10 +499,25 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.6.4"
+#define PROJECT_VERSION     "7.9.6.7"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.9.6.7 (2026-04-14): FEAT-075: TCP forbindelsesmonitor dashboard kort
+ *                    - Nyt "TCP Forbindelser" kort på dashboard med live SSE/Telnet/HTTP status
+ *                    - Telnet klient IP, bruger og forbindelsestid i Prometheus metrics
+ *                    - SSE klient-detaljetabel (IP, bruger, topics, uptime) via /api/events/clients
+ *                    - TcpClient struct udvidet med connected_ms for præcis forbindelsestid
+ * v7.9.6.6 (2026-04-13): FEAT: Masonry dashboard layout — dynamisk kort-stacking
+ *                    - Kort pakkes tæt (små kort stakkes ved siden af store)
+ *                    - Bred/normal toggle per kort (⇔ knap) med localStorage persistence
+ *                    - Mobile fallback til enkelt-kolonne layout
+ * v7.9.6.5 (2026-04-13): FIX: Login modal flash ved sideskift i web GUI
+ *                    - BUG-323: Editor/CLI/System sider startede med login modal synlig
+ *                    - FEAT-140: Modbus Master mini-form labels (FC Type, Slave ID, Adresse, Antal/Værdi)
+ *                               (class="show"), så brugeren blev promptet for login ved
+ *                               hvert sideskift selvom sessionStorage havde gyldigt auth.
+ *                               Nu starter modal skjult og vises kun hvis auth mangler/fejler.
  * v7.9.5.1 (2026-04-10): FIX: Modbus Master wire-level kommunikation
  *                    - BUG-315: uart1_init() hardcoded SERIAL_8N1 → master parity/stop-bits
  *                               ignoreret på ES32D26 (shared transceiver). Ny uart1_init_ex().

@@ -257,7 +257,8 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "REINIT") || str_eq_i(s, "COLDSTART") || str_eq_i(s, "COLD-START")) return "REINIT";
 
   // RBAC user management
-  if (str_eq_i(s, "USER") || str_eq_i(s, "USR") || str_eq_i(s, "RBAC")) return "USER";
+  if (str_eq_i(s, "USER") || str_eq_i(s, "USR")) return "USER";
+  if (str_eq_i(s, "RBAC")) return "RBAC";
   if (str_eq_i(s, "USERS")) return "USERS";
   if (str_eq_i(s, "PASSWORD") || str_eq_i(s, "PASS") || str_eq_i(s, "PW")) return "PASSWORD";
   if (str_eq_i(s, "ROLES") || str_eq_i(s, "ROLE")) return "ROLES";
@@ -1899,6 +1900,42 @@ bool cli_parser_execute(char* line) {
         debug_println("SET MODBUS-SLAVE: unknown parameter");
         return false;
       }
+    } else if (!strcmp(what, "RBAC")) {
+      // set rbac enable|disable|on|off|1|0
+      if (argc < 3) {
+        debug_println("Usage: set rbac <enable|disable>");
+        debug_println("  enable   - Activate Role-Based Access Control");
+        debug_println("  disable  - Deactivate RBAC (fallback to legacy http auth)");
+        debug_println("");
+        debug_printf("Current: rbac %s, %d user(s) configured\n",
+          g_persist_config.rbac.enabled ? "enabled" : "disabled",
+          rbac_get_user_count());
+        debug_println("NOTE: Use 'save' to persist, 'reboot' to fully apply");
+        return true;
+      }
+      const char *rv = argv[2];
+      if (!strcasecmp(rv, "enable") || !strcasecmp(rv, "enabled") ||
+          !strcasecmp(rv, "on") || !strcmp(rv, "1") || !strcasecmp(rv, "true")) {
+        if (rbac_get_user_count() == 0) {
+          debug_println("WARNING: No RBAC users configured — enabling now will lock you out on reboot!");
+          debug_println("         Create at least one admin user first:");
+          debug_println("         set user admin password <pw> roles all privilege read/write");
+          debug_println("         (RBAC flag set anyway, but DO NOT save/reboot until a user exists)");
+        }
+        g_persist_config.rbac.enabled = 1;
+        debug_println("RBAC enabled");
+        debug_println("NOTE: Use 'save' to persist");
+      } else if (!strcasecmp(rv, "disable") || !strcasecmp(rv, "disabled") ||
+                 !strcasecmp(rv, "off") || !strcmp(rv, "0") || !strcasecmp(rv, "false")) {
+        g_persist_config.rbac.enabled = 0;
+        debug_println("RBAC disabled (falling back to legacy http auth)");
+        debug_println("NOTE: Use 'save' to persist");
+      } else {
+        debug_printf("SET RBAC: unknown value '%s' (use enable or disable)\n", rv);
+        return false;
+      }
+      return true;
+
     } else if (!strcmp(what, "USER")) {
       // set user <name> password <pass> roles <roles> privilege <priv>
       if (argc < 3) {

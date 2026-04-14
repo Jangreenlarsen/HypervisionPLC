@@ -111,7 +111,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- Login Modal -->
-<div class="confirm-overlay show" id="loginModal">
+<div class="confirm-overlay" id="loginModal">
 <div class="confirm-box" style="text-align:left">
 <h3 style="color:#89b4fa">Login</h3>
 <p>System-siden kræver autentificering.</p>
@@ -320,8 +320,9 @@ function doLogin(){
   });
 }
 $('authPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
-// Auto-login if session auth exists
-if(AUTH){fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){$('loginModal').classList.remove('show');refreshInfo();loadPersistGroups();fetchOtaStatus();refreshSseClients();updateUserBadge();}else{AUTH='';sessionStorage.removeItem('hfplc_auth');}}).catch(()=>{});}
+// Auto-login if session auth exists, otherwise show login modal
+if(AUTH){fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){refreshInfo();loadPersistGroups();fetchOtaStatus();refreshSseClients();updateUserBadge();}else{AUTH='';sessionStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}}).catch(()=>{$('loginModal').classList.add('show');});}
+else{$('loginModal').classList.add('show');}
 
 // --- Confirm Dialog ---
 function askConfirm(title,msg,fn){

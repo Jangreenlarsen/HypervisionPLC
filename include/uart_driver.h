@@ -37,8 +37,22 @@ void uart0_init(uint32_t baudrate);
  * @brief Initialize UART1 (Modbus RTU) on configured pins
  * @param baudrate Baud rate (e.g., 115200)
  * NOTE: On ES32D26, not called at boot (shares GPIO1/3 with USB)
+ * NOTE: Uses SERIAL_8N1 (no parity, 1 stop bit). For non-default
+ *       framing (parity/stop bits), use uart1_init_ex() instead.
  */
 void uart1_init(uint32_t baudrate);
+
+/**
+ * @brief Initialize UART1 with explicit serial config (parity/stop bits)
+ * @param baudrate Baud rate (e.g., 9600)
+ * @param config   Arduino HardwareSerial config (SERIAL_8N1, SERIAL_8E1, SERIAL_8N2, ...)
+ *
+ * BUG-315 FIX: On ES32D26 shared-transceiver boards, modbus_master_reconfigure()
+ * previously called uart1_init(baudrate) which hardcoded SERIAL_8N1, silently
+ * dropping the master parity/stop-bits configuration. Use this extended init
+ * function so the master can honor non-default framing.
+ */
+void uart1_init_ex(uint32_t baudrate, uint32_t config);
 
 /**
  * @brief Stop Modbus Slave UART and release pins

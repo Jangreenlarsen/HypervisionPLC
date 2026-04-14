@@ -93,6 +93,15 @@ uint32_t network_manager_get_local_ip(void);
  */
 const NetworkState* network_manager_get_state(void);
 
+/**
+ * Get Telnet client connection info (FEAT-075: TCP connection monitor)
+ * @param ip_out      Client IP (network byte order), 0 if not connected
+ * @param uptime_s    Connection uptime in seconds
+ * @param username    Username buffer (min 32 bytes), empty if not authenticated
+ * @return 1 if client connected, 0 otherwise
+ */
+uint8_t network_manager_get_telnet_client_info(uint32_t *ip_out, uint32_t *uptime_s, char *username);
+
 /* ============================================================================
  * TELNET I/O (Line-oriented)
  * ============================================================================ */

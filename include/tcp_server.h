@@ -25,6 +25,7 @@ typedef struct {
   int socket;                           // Socket descriptor (-1 if unused)
   uint32_t client_ip;                   // Client IP address
   uint16_t client_port;                 // Client port
+  uint32_t connected_ms;                // millis() when client connected (FEAT-075)
   uint32_t last_activity_ms;            // Timestamp of last activity
   uint8_t connected;                    // 1 if actively connected
 } TcpClient;

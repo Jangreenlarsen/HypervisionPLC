@@ -176,6 +176,7 @@ int tcp_server_accept(TcpServer *server)
       server->clients[0].socket = client_sock;
       server->clients[0].client_ip = client_addr.sin_addr.s_addr;
       server->clients[0].client_port = ntohs(client_addr.sin_port);
+      server->clients[0].connected_ms = millis();
       server->clients[0].last_activity_ms = millis();
       server->clients[0].connected = 1;
       server->client_count = 1;

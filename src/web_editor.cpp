@@ -145,7 +145,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <body>
 
 <!-- Login Modal -->
-<div class="modal-bg show" id="loginModal">
+<div class="modal-bg" id="loginModal">
 <div class="modal">
 <h2>ST Logic Editor</h2>
 <p style="font-size:12px;color:#6c7086;margin-bottom:12px">Brug credentials fra CLI: <code>show config http</code></p>
@@ -846,8 +846,9 @@ document.getElementById('acPopup').addEventListener('click',(e)=>{
 });
 document.getElementById('authUser').addEventListener('keydown',(e)=>{if(e.key==='Enter')doLogin();});
 document.getElementById('authPass').addEventListener('keydown',(e)=>{if(e.key==='Enter')doLogin();});
-// Auto-login if session auth exists
-if(AUTH){fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){document.getElementById('loginModal').classList.remove('show');init();updateUserBadge();}else{AUTH='';sessionStorage.removeItem('hfplc_auth');}}).catch(()=>{});}
+// Auto-login if session auth exists, otherwise show login modal
+if(AUTH){fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){init();updateUserBadge();}else{AUTH='';sessionStorage.removeItem('hfplc_auth');document.getElementById('loginModal').classList.add('show');}}).catch(()=>{document.getElementById('loginModal').classList.add('show');});}
+else{document.getElementById('loginModal').classList.add('show');}
 document.addEventListener('keydown',(e)=>{
   if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();uploadCode();}
 });

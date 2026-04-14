@@ -287,6 +287,27 @@ const NetworkState* network_manager_get_state(void)
   return &network_mgr.state;
 }
 
+uint8_t network_manager_get_telnet_client_info(uint32_t *ip_out, uint32_t *uptime_s, char *username)
+{
+  if (!network_mgr.telnet_server) return 0;
+  if (!telnet_server_client_connected(network_mgr.telnet_server)) return 0;
+
+  TcpClient *client = tcp_server_get_client(network_mgr.telnet_server->tcp_server, 0);
+  if (!client || !client->connected) return 0;
+
+  if (ip_out) *ip_out = client->client_ip;
+  if (uptime_s) *uptime_s = (millis() - client->connected_ms) / 1000;
+  if (username) {
+    if (network_mgr.telnet_server->auth_state == TELNET_AUTH_AUTHENTICATED) {
+      strncpy(username, network_mgr.telnet_server->auth_username, 31);
+      username[31] = '\0';
+    } else {
+      username[0] = '\0';
+    }
+  }
+  return 1;
+}
+
 /* ============================================================================
  * TELNET I/O
  * ============================================================================ */

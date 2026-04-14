@@ -70,7 +70,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <body>
 
 <!-- Login Modal -->
-<div class="modal-bg show" id="loginModal">
+<div class="modal-bg" id="loginModal">
 <div class="modal">
 <h2>Web CLI</h2>
 <p style="font-size:12px;color:#6c7086;margin-bottom:12px">Brug credentials fra CLI: <code>show config http</code></p>
@@ -202,12 +202,10 @@ function cliAppend(text,cls){
   out.scrollTop=out.scrollHeight;
 }
 
-// Auto-login if session exists
+// Auto-login if session exists, otherwise show login modal
 if(AUTH){
-  document.getElementById('loginModal').classList.remove('show');
-  init();
-  updateUserBadge();
-}
+  fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){init();updateUserBadge();}else{AUTH='';sessionStorage.removeItem('hfplc_auth');document.getElementById('loginModal').classList.add('show');}}).catch(()=>{document.getElementById('loginModal').classList.add('show');});
+}else{document.getElementById('loginModal').classList.add('show');}
 
 // === User Badge ===
 function toggleUserMenu(){var m=document.getElementById('userMenu');m.classList.toggle('show')}
