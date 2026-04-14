@@ -782,6 +782,22 @@ static const httpd_uri_t uri_persist_restore = {
   .user_ctx = NULL
 };
 
+// FEAT-108: Dashboard layout (GET + POST)
+extern esp_err_t api_handler_dashboard_layout_get(httpd_req_t *req);
+extern esp_err_t api_handler_dashboard_layout_post(httpd_req_t *req);
+static const httpd_uri_t uri_dashboard_layout_get = {
+  .uri      = "/api/dashboard/layout",
+  .method   = HTTP_GET,
+  .handler  = api_handler_dashboard_layout_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_dashboard_layout_post = {
+  .uri      = "/api/dashboard/layout",
+  .method   = HTTP_POST,
+  .handler  = api_handler_dashboard_layout_post,
+  .user_ctx = NULL
+};
+
 // FEAT-030: /api/v1/* dispatchers (forward to existing handlers)
 static const httpd_uri_t uri_v1_get = {
   .uri      = "/api/v1/*",
@@ -977,6 +993,9 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_persist_group_delete);
   httpd_register_uri_handler(http_state.server, &uri_persist_save);
   httpd_register_uri_handler(http_state.server, &uri_persist_restore);
+  // FEAT-108: Dashboard layout
+  httpd_register_uri_handler(http_state.server, &uri_dashboard_layout_get);
+  httpd_register_uri_handler(http_state.server, &uri_dashboard_layout_post);
   // v7.0.0: FEAT-030 /api/v1/* dispatchers
   httpd_register_uri_handler(http_state.server, &uri_v1_get);
   httpd_register_uri_handler(http_state.server, &uri_v1_post);
