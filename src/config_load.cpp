@@ -100,6 +100,10 @@ static void config_init_defaults(PersistConfig* cfg) {
   // Dashboard card order defaults (v7.8.4.2) - empty = default order
   memset(cfg->dashboard_card_order, 0, sizeof(cfg->dashboard_card_order));
 
+  // Dashboard tab assignments + hidden cards (v7.9.6.8) - empty = defaults
+  memset(cfg->dashboard_card_tabs, 0, sizeof(cfg->dashboard_card_tabs));
+  memset(cfg->dashboard_card_hidden, 0, sizeof(cfg->dashboard_card_hidden));
+
   // Initialize network config with defaults (v3.0+)
   network_config_init_defaults(&cfg->network);
 
@@ -389,6 +393,17 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->schema_version = 17;
 
       debug_println("CONFIG LOAD: Migration 16→17 complete");
+    }
+
+    if (out->schema_version == 17) {
+      debug_println("CONFIG LOAD: Migrating schema 17 → 18 (dashboard tabs)");
+
+      memset(out->dashboard_card_tabs, 0, sizeof(out->dashboard_card_tabs));
+      memset(out->dashboard_card_hidden, 0, sizeof(out->dashboard_card_hidden));
+
+      out->schema_version = 18;
+
+      debug_println("CONFIG LOAD: Migration 17→18 complete");
     } else if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);

@@ -63,6 +63,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .hdr .nav a:hover,.hdr .nav button:hover{background:#45475a;color:#cdd6f4}
 .hdr .nav button.active{background:#89b4fa;color:#1e1e2e}
 .hdr .info{font-size:11px;color:#6c7086;margin-left:auto}
+.sub-tabs{background:#181825;padding:4px 16px;display:none;gap:6px;border-bottom:1px solid #313244;flex-shrink:0;flex-wrap:wrap;align-items:center}
+.sub-tabs.show{display:flex}
+.sub-tabs button{padding:3px 12px;font-size:11px;font-weight:600;background:#313244;color:#a6adc8;border:1px solid transparent;border-radius:4px;cursor:pointer;transition:all .15s}
+.sub-tabs button:hover{background:#45475a;color:#cdd6f4}
+.sub-tabs button.active{background:#1e1e2e;color:#89b4fa;border-color:#89b4fa}
 .alarm-bar{background:#f38ba8;color:#1e1e2e;padding:4px 16px;font-size:12px;font-weight:600;display:none;flex-shrink:0;animation:pulse 1.5s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
 .grid{flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));grid-auto-rows:8px;gap:12px;padding:16px;overflow-y:auto;align-content:start}
@@ -165,6 +170,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <button class="active" onclick="showPage('metrics',this)">Metrics</button>
 <button onclick="showPage('registers',this)">Registre</button>
 <button onclick="showPage('regmap',this)">Register Map</button>
+<button onclick="showPage('settings',this)">Indstillinger</button>
 </div>
 <span class="info" id="hdrInfo"></span>
 </div>
@@ -172,12 +178,21 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <!-- Alarm Bar -->
 <div class="alarm-bar" id="alarmBar"></div>
 
+<!-- Sub-tabs for Metrics -->
+<div class="sub-tabs show" id="subTabs">
+<button class="active" onclick="showSubTab('all',this)">Alle</button>
+<button onclick="showSubTab('overview',this)">Overblik</button>
+<button onclick="showSubTab('modbus',this)">Modbus</button>
+<button onclick="showSubTab('connections',this)">Forbindelser</button>
+<button onclick="showSubTab('app',this)">Applikation</button>
+</div>
+
 <!-- Metrics Page -->
 <div class="page-view active" id="pageMetrics">
 <div class="grid" id="grid">
 
 <!-- System Overview (merged with FreeRTOS Tasks) -->
-<div class="card" data-card-id="system">
+<div class="card" data-card-id="system" data-tab="overview">
 <h2>System</h2>
 <div class="row"><span class="lbl">Firmware</span><span class="val val-n" id="mFirmware">-</span></div>
 <div class="row"><span class="lbl">Uptime</span><span class="val val-n" id="mUptime">-</span></div>
@@ -194,7 +209,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- Network Status -->
-<div class="card" data-card-id="network">
+<div class="card" data-card-id="network" data-tab="overview">
 <h2>Netværk</h2>
 <div class="row"><span class="lbl">Hostname</span><span class="val val-n" id="netHostname">-</span></div>
 <div style="border-top:1px solid #313244;margin-top:4px;padding-top:4px">
@@ -219,7 +234,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- Modbus Slave -->
-<div class="card" data-card-id="modbusslave">
+<div class="card" data-card-id="modbusslave" data-tab="modbus">
 <h2>Modbus Slave <span class="badge badge-off" id="badgeSlave">-</span></h2>
 <div class="row"><span class="lbl">Interface</span><span class="val val-n" id="msConfigInfo" style="font-size:11px">-</span></div>
 <div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="msTotal">-</span></div>
@@ -231,7 +246,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- Modbus Master (merged with Cache) -->
-<div class="card" data-card-id="modbusmaster">
+<div class="card" data-card-id="modbusmaster" data-tab="modbus">
 <h2>Modbus Master <span class="badge badge-off" id="badgeMaster">-</span></h2>
 <div class="row"><span class="lbl">Interface</span><span class="val val-n" id="mmConfigInfo" style="font-size:11px">-</span></div>
 <div class="row"><span class="lbl">Statistik siden</span><span class="val val-n" id="mmStatsSince" style="font-size:11px">-</span></div>
@@ -277,7 +292,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- HTTP API + SSE -->
-<div class="card" data-card-id="httpapi">
+<div class="card" data-card-id="httpapi" data-tab="connections">
 <h2>HTTP API</h2>
 <div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="htTotal">-</span></div>
 <div class="row"><span class="lbl">Success (2xx)</span><span class="val val-ok" id="htOk">-</span></div>
@@ -294,19 +309,19 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- Counters -->
-<div class="card" data-card-id="counters">
+<div class="card" data-card-id="counters" data-tab="app">
 <h2>Tællere</h2>
 <div id="cntBody"><span class="empty-msg">Ingen aktive tællere</span></div>
 </div>
 
 <!-- Timers -->
-<div class="card" data-card-id="timers">
+<div class="card" data-card-id="timers" data-tab="app">
 <h2>Timere</h2>
 <div id="tmrBody"><span class="empty-msg">Ingen aktive timere</span></div>
 </div>
 
 <!-- ST Logic -->
-<div class="card" data-card-id="stlogic">
+<div class="card" data-card-id="stlogic" data-tab="app">
 <h2>ST Logic <span class="badge badge-off" id="badgeLogic">-</span></h2>
 <div class="row"><span class="lbl">Interval</span><span class="val val-n" id="stInterval">-</span></div>
 <div class="row"><span class="lbl">Total cycles</span><span class="val val-n" id="stCycles">-</span></div>
@@ -315,7 +330,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- NTP Tidssynkronisering -->
-<div class="card" data-card-id="ntp">
+<div class="card" data-card-id="ntp" data-tab="connections">
 <h2>NTP Tid <span class="badge badge-off" id="badgeNtp">-</span></h2>
 <div class="row"><span class="lbl">Lokal tid</span><span class="val val-n" id="ntpTime" style="font-size:14px;color:#89b4fa">-</span></div>
 <div class="row"><span class="lbl">Server</span><span class="val val-n" id="ntpServer">-</span></div>
@@ -325,7 +340,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- FEAT-072: Modbus RTU Trafik -->
-<div class="card" data-card-id="rtutrafik">
+<div class="card" data-card-id="rtutrafik" data-tab="modbus">
 <h2>Modbus RTU Trafik</h2>
 <div class="row"><span class="lbl">Slave req/3s</span><span class="val val-n" id="rtSlaveRate">-</span></div>
 <div class="row"><span class="lbl">Master req/3s</span><span class="val val-n" id="rtMasterRate">-</span></div>
@@ -339,13 +354,13 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- FEAT-075: TCP Forbindelsesmonitor -->
-<div class="card" data-card-id="tcpmonitor">
+<div class="card" data-card-id="tcpmonitor" data-tab="connections">
 <h2>TCP Forbindelser <span class="badge badge-off" id="badgeTcp">0</span></h2>
 <div id="tcpConnBody"><span class="empty-msg">Ingen aktive forbindelser</span></div>
 </div>
 
 <!-- FEAT-085: Alarm Historik (expanded v7.8.3.1) -->
-<div class="card card-wide" data-card-id="alarms">
+<div class="card card-wide" data-card-id="alarms" data-tab="overview">
 <h2>Alarm Historik <span class="badge badge-off" id="badgeAlarm">0</span></h2>
 <div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
 <span style="font-size:10px;color:#6c7086" id="alarmInfo">-</span>
@@ -372,7 +387,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <!-- FEAT-095: Digital I/O Dashboard -->
-<div class="card" data-card-id="dio" id="cardDio"
+<div class="card" data-card-id="dio" data-tab="app" id="cardDio"
 <h2>Digital I/O</h2>
 <div style="margin-bottom:8px">
 <div style="font-size:10px;color:#89b4fa;margin-bottom:4px;font-weight:600">Inputs (IN1-IN8)</div>
@@ -443,6 +458,23 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 </div>
 
+<!-- Settings Page -->
+<div class="page-view" id="pageSettings" style="padding:16px;overflow-y:auto">
+<div class="card" style="max-width:700px">
+<h2>Dashboard Indstillinger</h2>
+<p style="font-size:11px;color:#6c7086;margin-bottom:12px">Vælg hvilke kort der vises og hvilken fane de tilhører. Ændringer gemmes på ESP32.</p>
+<table class="tbl" id="settingsTable">
+<thead><tr><th>Vis</th><th>Kort</th><th>Fane</th></tr></thead>
+<tbody id="settingsBody"></tbody>
+</table>
+<div style="margin-top:12px;display:flex;gap:8px">
+<button onclick="saveSettings()" class="btn-primary">Gem indstillinger</button>
+<button onclick="resetSettings()" style="padding:6px 16px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:4px;font-size:12px;cursor:pointer">Nulstil til standard</button>
+</div>
+<div id="settingsMsg" style="font-size:11px;margin-top:8px;color:#a6e3a1;display:none"></div>
+</div>
+</div>
+
 <!-- Footer -->
 <div class="foot">
 <span id="footRefresh">Opdaterer...</span>
@@ -463,12 +495,48 @@ let alarms=[];
 let _stBindings=null;
 let _alarmLog=[];
 
+let _activeSubTab='all';
+const _defaultTabs={system:'overview',network:'overview',alarms:'overview',modbusslave:'modbus',modbusmaster:'modbus',rtutrafik:'modbus',httpapi:'connections',tcpmonitor:'connections',ntp:'connections',counters:'app',timers:'app',stlogic:'app',dio:'app'};
+let _customTabs={};   // Overrides from API
+let _hiddenCards={};   // Set of hidden card IDs
+
 function showPage(page,btn){
   document.querySelectorAll('.page-view').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.hdr .nav button').forEach(b=>b.classList.remove('active'));
   const el=document.getElementById('page'+page.charAt(0).toUpperCase()+page.slice(1));
   if(el)el.classList.add('active');
   if(btn)btn.classList.add('active');
+  // Show/hide sub-tabs only on Metrics page
+  const st=$('subTabs');
+  if(st){st.classList.toggle('show',page==='metrics');}
+  if(page==='metrics')applySubTab();
+  if(page==='settings')buildSettingsTable();
+}
+
+function getCardTab(cardId){
+  return _customTabs[cardId]||_defaultTabs[cardId]||'overview';
+}
+
+function showSubTab(tab,btn){
+  _activeSubTab=tab;
+  document.querySelectorAll('#subTabs button').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  try{localStorage.setItem('hfplc_subtab',tab);}catch(e){}
+  applySubTab();
+}
+
+function applySubTab(){
+  const grid=$('grid');
+  if(!grid)return;
+  grid.querySelectorAll('.card[data-card-id]').forEach(c=>{
+    const id=c.dataset.cardId;
+    const tab=getCardTab(id);
+    const hidden=_hiddenCards[id];
+    if(hidden){c.style.display='none';return;}
+    if(_activeSubTab==='all'){c.style.display='';return;}
+    c.style.display=(tab===_activeSubTab)?'':'none';
+  });
+  autoSizeCards();
 }
 
 function parsePrometheus(text){
@@ -1435,14 +1503,115 @@ function saveCardOrder(){
 }
 function restoreCardOrder(){
   fetch('/api/dashboard/layout',{}).then(r=>r.json()).then(d=>{
-    if(!d.card_order||d.card_order.length<3)return;
-    const saved=d.card_order.split(',').filter(s=>s.length>0);
-    if(saved.length<2)return;
-    const grid=$('grid');
-    const map={};
-    grid.querySelectorAll('.card[data-card-id]').forEach(c=>{map[c.dataset.cardId]=c;});
-    saved.forEach(id=>{if(map[id])grid.appendChild(map[id]);});
+    // Restore card order
+    if(d.card_order&&d.card_order.length>2){
+      const saved=d.card_order.split(',').filter(s=>s.length>0);
+      if(saved.length>=2){
+        const grid=$('grid');
+        const map={};
+        grid.querySelectorAll('.card[data-card-id]').forEach(c=>{map[c.dataset.cardId]=c;});
+        saved.forEach(id=>{if(map[id])grid.appendChild(map[id]);});
+      }
+    }
+    // Restore tab assignments (schema 18)
+    if(d.card_tabs&&d.card_tabs.length>2){
+      _customTabs={};
+      d.card_tabs.split(',').forEach(p=>{
+        const kv=p.split(':');
+        if(kv.length===2)_customTabs[kv[0]]=kv[1];
+      });
+    }
+    // Restore hidden cards (schema 18)
+    if(d.card_hidden&&d.card_hidden.length>0){
+      _hiddenCards={};
+      d.card_hidden.split(',').forEach(id=>{if(id)_hiddenCards[id]=true;});
+    }
+    applySubTab();
   }).catch(()=>{});
+}
+
+// === Dashboard Settings Page ===
+const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O'};
+const _tabNames={overview:'Overblik',modbus:'Modbus',connections:'Forbindelser',app:'Applikation'};
+const _allCardIds=['system','network','alarms','modbusslave','modbusmaster','rtutrafik','httpapi','tcpmonitor','ntp','counters','timers','stlogic','dio'];
+
+function buildSettingsTable(){
+  const body=$('settingsBody');
+  if(!body)return;
+  let h='';
+  for(const id of _allCardIds){
+    const name=_cardNames[id]||id;
+    const tab=getCardTab(id);
+    const hidden=!!_hiddenCards[id];
+    h+='<tr><td><input type="checkbox" data-set-id="'+id+'"'+(hidden?'':' checked')+'></td>';
+    h+='<td>'+name+'</td>';
+    h+='<td><select data-tab-id="'+id+'" style="padding:2px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:11px">';
+    for(const t of ['overview','modbus','connections','app']){
+      h+='<option value="'+t+'"'+(tab===t?' selected':'')+'>'+_tabNames[t]+'</option>';
+    }
+    h+='</select></td></tr>';
+  }
+  body.innerHTML=h;
+}
+
+function saveSettings(){
+  // Collect hidden cards
+  const hidden=[];
+  document.querySelectorAll('[data-set-id]').forEach(cb=>{
+    if(!cb.checked)hidden.push(cb.dataset.setId);
+  });
+  // Collect tab assignments (only non-default)
+  const tabs=[];
+  document.querySelectorAll('[data-tab-id]').forEach(sel=>{
+    const id=sel.dataset.tabId;
+    const val=sel.value;
+    if(val!==_defaultTabs[id])tabs.push(id+':'+val);
+  });
+
+  _hiddenCards={};
+  hidden.forEach(id=>{_hiddenCards[id]=true;});
+  _customTabs={};
+  tabs.forEach(p=>{const kv=p.split(':');_customTabs[kv[0]]=kv[1];});
+
+  // Also update data-tab attributes on cards
+  document.querySelectorAll('.card[data-card-id]').forEach(c=>{
+    c.dataset.tab=getCardTab(c.dataset.cardId);
+  });
+
+  // Save to ESP32
+  var auth=sessionStorage.getItem('hfplc_auth');
+  var opts={method:'POST',headers:{'Content-Type':'application/json'}};
+  if(auth)opts.headers['Authorization']=auth;
+  opts.body=JSON.stringify({card_tabs:tabs.join(','),card_hidden:hidden.join(',')});
+  fetch('/api/dashboard/layout',opts).then(r=>{
+    const msg=$('settingsMsg');
+    if(r.ok){msg.textContent='Indstillinger gemt';msg.style.color='#a6e3a1';}
+    else{msg.textContent='Fejl ved gem';msg.style.color='#f38ba8';}
+    msg.style.display='block';
+    setTimeout(()=>{msg.style.display='none';},3000);
+  }).catch(()=>{});
+
+  applySubTab();
+}
+
+function resetSettings(){
+  _customTabs={};
+  _hiddenCards={};
+  // Reset data-tab attributes to defaults
+  document.querySelectorAll('.card[data-card-id]').forEach(c=>{
+    c.dataset.tab=_defaultTabs[c.dataset.cardId]||'overview';
+  });
+  // Save empty to ESP32
+  var auth=sessionStorage.getItem('hfplc_auth');
+  var opts={method:'POST',headers:{'Content-Type':'application/json'}};
+  if(auth)opts.headers['Authorization']=auth;
+  opts.body=JSON.stringify({card_tabs:'',card_hidden:''});
+  fetch('/api/dashboard/layout',opts).catch(()=>{});
+  buildSettingsTable();
+  applySubTab();
+  const msg=$('settingsMsg');
+  msg.textContent='Nulstillet til standard';msg.style.color='#fab387';msg.style.display='block';
+  setTimeout(()=>{msg.style.display='none';},3000);
 }
 
 // FEAT-135: Modbus Master mini-form handler
@@ -1706,9 +1875,21 @@ function init(){
   $('regHR').innerHTML=hrInit;
   $('regCoils').innerHTML=coilInit;
 
+  // Restore sub-tab selection
+  try{
+    const st=localStorage.getItem('hfplc_subtab');
+    if(st&&['all','overview','modbus','connections','app'].indexOf(st)>=0){
+      _activeSubTab=st;
+      document.querySelectorAll('#subTabs button').forEach(b=>{
+        b.classList.toggle('active',b.textContent==={all:'Alle',overview:'Overblik',modbus:'Modbus',connections:'Forbindelser',app:'Applikation'}[st]);
+      });
+    }
+  }catch(e){}
+
   loadCardSizes();
   initSizeButtons();
   initDragDrop();
+  applySubTab();
   autoSizeCards();
   updateMbForm();
   fetchBindings();

@@ -197,7 +197,7 @@ typedef enum {
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   17      // Current config schema version (v7.8.4.2: dashboard layout)
+#define CONFIG_SCHEMA_VERSION   18      // Current config schema version (v7.9.6.8: dashboard tabs)
 
 /* ============================================================================
  * RBAC CONSTANTS (v7.6.2)
@@ -499,10 +499,15 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.6.7"
+#define PROJECT_VERSION     "7.9.7.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.9.7.0 (2026-04-14): FEAT: Dashboard sub-tabs + indstillinger
+ *                    - Metrics-side opdelt i faner: Alle, Overblik, Modbus, Forbindelser, Applikation
+ *                    - Ny "Indstillinger" side: vis/skjul kort, flyt kort mellem faner
+ *                    - Backend: card_tabs + card_hidden i PersistConfig (schema 17→18)
+ *                    - Tab-valg gemmes i localStorage, kort-config gemmes på ESP32 via API
  * v7.9.6.7 (2026-04-14): FEAT-075: TCP forbindelsesmonitor dashboard kort
  *                    - Nyt "TCP Forbindelser" kort på dashboard med live SSE/Telnet/HTTP status
  *                    - Telnet klient IP, bruger og forbindelsestid i Prometheus metrics

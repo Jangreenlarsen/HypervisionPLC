@@ -557,6 +557,10 @@ typedef struct __attribute__((packed)) {
   // Dashboard card order (v7.8.4.2, schema 17)
   char dashboard_card_order[160];  // Comma-separated card IDs, e.g. "system,network,modbusslave,..."
 
+  // Dashboard tab assignments + hidden cards (v7.9.6.8, schema 18)
+  char dashboard_card_tabs[256];   // "id:tab,id:tab,..." e.g. "system:overview,counters:app"
+  char dashboard_card_hidden[80];  // "id,id,..." hidden card IDs
+
   // CRC checksum (last)
   uint16_t crc16;
 } PersistConfig;

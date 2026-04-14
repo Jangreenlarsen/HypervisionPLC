@@ -5096,8 +5096,12 @@ esp_err_t api_handler_dashboard_layout_get(httpd_req_t *req)
   // No auth required — layout is non-sensitive UI preference
   CHECK_API_ENABLED(req);
 
-  char buf[256];
-  snprintf(buf, sizeof(buf), "{\"card_order\":\"%s\"}", g_persist_config.dashboard_card_order);
+  char buf[600];
+  snprintf(buf, sizeof(buf),
+    "{\"card_order\":\"%s\",\"card_tabs\":\"%s\",\"card_hidden\":\"%s\"}",
+    g_persist_config.dashboard_card_order,
+    g_persist_config.dashboard_card_tabs,
+    g_persist_config.dashboard_card_hidden);
   return api_send_json(req, buf);
 }
 
@@ -5110,7 +5114,7 @@ esp_err_t api_handler_dashboard_layout_post(httpd_req_t *req)
   http_server_stat_request();
   CHECK_AUTH_WRITE(req);
 
-  char body[256];
+  char body[600];
   int len = httpd_req_recv(req, body, sizeof(body) - 1);
   if (len <= 0) {
     return api_send_error(req, 400, "Empty request body");
@@ -5123,20 +5127,39 @@ esp_err_t api_handler_dashboard_layout_post(httpd_req_t *req)
     return api_send_error(req, 400, "Invalid JSON");
   }
 
-  if (!doc.containsKey("card_order")) {
-    return api_send_error(req, 400, "Missing 'card_order' field");
+  // card_order (optional now — may send only tabs/hidden)
+  if (doc.containsKey("card_order")) {
+    const char *order = doc["card_order"].as<const char*>();
+    if (order && strlen(order) < sizeof(g_persist_config.dashboard_card_order)) {
+      strncpy(g_persist_config.dashboard_card_order, order, sizeof(g_persist_config.dashboard_card_order) - 1);
+      g_persist_config.dashboard_card_order[sizeof(g_persist_config.dashboard_card_order) - 1] = '\0';
+    }
   }
 
-  const char *order = doc["card_order"].as<const char*>();
-  if (!order || strlen(order) >= sizeof(g_persist_config.dashboard_card_order)) {
-    return api_send_error(req, 400, "Invalid card_order (max 159 chars)");
+  // card_tabs (schema 18)
+  if (doc.containsKey("card_tabs")) {
+    const char *tabs = doc["card_tabs"].as<const char*>();
+    if (tabs && strlen(tabs) < sizeof(g_persist_config.dashboard_card_tabs)) {
+      strncpy(g_persist_config.dashboard_card_tabs, tabs, sizeof(g_persist_config.dashboard_card_tabs) - 1);
+      g_persist_config.dashboard_card_tabs[sizeof(g_persist_config.dashboard_card_tabs) - 1] = '\0';
+    }
   }
 
-  strncpy(g_persist_config.dashboard_card_order, order, sizeof(g_persist_config.dashboard_card_order) - 1);
-  g_persist_config.dashboard_card_order[sizeof(g_persist_config.dashboard_card_order) - 1] = '\0';
+  // card_hidden (schema 18)
+  if (doc.containsKey("card_hidden")) {
+    const char *hidden = doc["card_hidden"].as<const char*>();
+    if (hidden && strlen(hidden) < sizeof(g_persist_config.dashboard_card_hidden)) {
+      strncpy(g_persist_config.dashboard_card_hidden, hidden, sizeof(g_persist_config.dashboard_card_hidden) - 1);
+      g_persist_config.dashboard_card_hidden[sizeof(g_persist_config.dashboard_card_hidden) - 1] = '\0';
+    }
+  }
 
-  char resp[256];
-  snprintf(resp, sizeof(resp), "{\"status\":200,\"card_order\":\"%s\"}", g_persist_config.dashboard_card_order);
+  char resp[600];
+  snprintf(resp, sizeof(resp),
+    "{\"status\":200,\"card_order\":\"%s\",\"card_tabs\":\"%s\",\"card_hidden\":\"%s\"}",
+    g_persist_config.dashboard_card_order,
+    g_persist_config.dashboard_card_tabs,
+    g_persist_config.dashboard_card_hidden);
   return api_send_json(req, resp);
 }
 
