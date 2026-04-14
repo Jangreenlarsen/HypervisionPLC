@@ -1586,10 +1586,16 @@ function saveSettings(){
   fetch('/api/dashboard/layout',opts).then(r=>{
     const msg=$('settingsMsg');
     if(r.ok){msg.textContent='Indstillinger gemt';msg.style.color='#a6e3a1';}
-    else{msg.textContent='Fejl ved gem';msg.style.color='#f38ba8';}
+    else if(r.status===401){msg.textContent='Log ind først (klik bruger-knap øverst)';msg.style.color='#fab387';}
+    else if(r.status===403){msg.textContent='Ingen skriveadgang — kræver write privilege';msg.style.color='#fab387';}
+    else{r.text().then(t=>{msg.textContent='Fejl: '+r.status+' '+t;msg.style.color='#f38ba8';});}
     msg.style.display='block';
-    setTimeout(()=>{msg.style.display='none';},3000);
-  }).catch(()=>{});
+    setTimeout(()=>{msg.style.display='none';},5000);
+  }).catch(e=>{
+    const msg=$('settingsMsg');
+    msg.textContent='Netværksfejl: '+e.message;msg.style.color='#f38ba8';msg.style.display='block';
+    setTimeout(()=>{msg.style.display='none';},5000);
+  });
 
   applySubTab();
 }

@@ -5112,7 +5112,8 @@ esp_err_t api_handler_dashboard_layout_get(httpd_req_t *req)
 esp_err_t api_handler_dashboard_layout_post(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH_WRITE(req);
+  CHECK_API_ENABLED(req);
+  // Auth optional — layout is non-sensitive UI preference (matches GET handler)
 
   char body[600];
   int len = httpd_req_recv(req, body, sizeof(body) - 1);
