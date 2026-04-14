@@ -5880,6 +5880,26 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
     PROM_APPEND("# HELP modbus_master_queue_full_count Queue full rejections\n");
     PROM_APPEND("# TYPE modbus_master_queue_full_count counter\n");
     PROM_APPEND("modbus_master_queue_full_count %lu\n", (unsigned long)mb_async->queue_full_count);
+    PROM_APPEND("# HELP modbus_master_queue_depth Current queue depth\n");
+    PROM_APPEND("# TYPE modbus_master_queue_depth gauge\n");
+    PROM_APPEND("modbus_master_queue_depth %u\n", (unsigned)mb_async->pq_count);
+    PROM_APPEND("# HELP modbus_master_queue_hwm Queue high watermark\n");
+    PROM_APPEND("# TYPE modbus_master_queue_hwm gauge\n");
+    PROM_APPEND("modbus_master_queue_hwm %u\n", (unsigned)mb_async->queue_high_watermark);
+    PROM_APPEND("# HELP modbus_master_priority_drops Requests dropped by priority eviction\n");
+    PROM_APPEND("# TYPE modbus_master_priority_drops counter\n");
+    PROM_APPEND("modbus_master_priority_drops %lu\n", (unsigned long)mb_async->priority_drops);
+    PROM_APPEND("# HELP modbus_master_cache_hit_rate Cache hit rate percent\n");
+    PROM_APPEND("# TYPE modbus_master_cache_hit_rate gauge\n");
+    {
+      uint32_t total_lookups = mb_async->cache_hits + mb_async->cache_misses;
+      uint8_t hit_pct = total_lookups > 0 ? (uint8_t)(mb_async->cache_hits * 100 / total_lookups) : 0;
+      PROM_APPEND("modbus_master_cache_hit_rate %u\n", hit_pct);
+    }
+    PROM_APPEND("# HELP modbus_master_cache_utilization Cache slot utilization percent\n");
+    PROM_APPEND("# TYPE modbus_master_cache_utilization gauge\n");
+    PROM_APPEND("modbus_master_cache_utilization %u\n",
+                (unsigned)(mb_async->entry_count * 100 / MB_CACHE_MAX_ENTRIES));
     PROM_APPEND("# HELP modbus_master_cache_ttl_ms Cache entry TTL in ms (0=never expire)\n");
     PROM_APPEND("# TYPE modbus_master_cache_ttl_ms gauge\n");
     PROM_APPEND("modbus_master_cache_ttl_ms %u\n", (unsigned)g_modbus_master_config.cache_ttl_ms);

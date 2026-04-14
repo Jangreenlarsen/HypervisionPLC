@@ -45,7 +45,7 @@ static bool check_request_limit() {
 
 static bool validate_slave_addr(int32_t slave_id, int32_t address) {
   // Check if async system is initialized
-  if (!mb_async_get_state()->request_queue) {
+  if (!mb_async_get_state()->pq_mutex) {
     g_mb_last_error = MB_NOT_ENABLED;
     g_mb_success = false;
     return false;

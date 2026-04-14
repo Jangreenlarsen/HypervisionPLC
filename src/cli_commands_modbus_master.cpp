@@ -522,12 +522,13 @@ void cli_cmd_show_modbus_master() {
   debug_printf("Async Cache (v7.7.0):\n");
   debug_printf("  Task: %s\n", async_state->task_running ? "RUNNING" : "STOPPED");
   debug_printf("  Cache entries: %u / %d\n", async_state->entry_count, MB_CACHE_MAX_ENTRIES);
-  debug_printf("  Queue pending: %u / %d\n",
-               async_state->request_queue ? (unsigned)uxQueueMessagesWaiting(async_state->request_queue) : 0,
-               MB_ASYNC_QUEUE_SIZE);
+  debug_printf("  Queue pending: %u / %d (hwm: %u)\n",
+               async_state->pq_count, MB_ASYNC_QUEUE_SIZE,
+               async_state->queue_high_watermark);
   debug_printf("  Cache hits: %u\n", async_state->cache_hits);
   debug_printf("  Cache misses: %u\n", async_state->cache_misses);
-  debug_printf("  Queue full: %u\n", async_state->queue_full_count);
+  debug_printf("  Queue full drops: %u\n", async_state->queue_full_count);
+  debug_printf("  Priority drops: %u\n", async_state->priority_drops);
   debug_printf("  Async requests: %u\n", async_state->total_requests);
   debug_printf("  Async errors: %u\n", async_state->total_errors);
   debug_printf("  Async timeouts: %u\n", async_state->total_timeouts);

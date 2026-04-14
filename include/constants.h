@@ -499,10 +499,16 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.7.0"
+#define PROJECT_VERSION     "7.9.7.1"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.9.7.1 (2026-04-14): FEAT: Modbus Master priority queue + forbedret cache statistik
+ *                    - Priority køsystem: Write > Read-fresh > Read-refresh
+ *                    - Eviction: nyeste lavprioritets-requests droppes først ved fuld kø
+ *                    - FreeRTOS FIFO queue erstattet med custom priority array + mutex/semaphore
+ *                    - Nye Prometheus metrics: queue_depth, queue_hwm, priority_drops, hit_rate, utilization
+ *                    - Dashboard Modbus Master kort: queue depth, HWM, priority drops, cache utilization
  * v7.9.7.0 (2026-04-14): FEAT: Dashboard sub-tabs + indstillinger
  *                    - Metrics-side opdelt i faner: Alle, Overblik, Modbus, Forbindelser, Applikation
  *                    - Ny "Indstillinger" side: vis/skjul kort, flyt kort mellem faner

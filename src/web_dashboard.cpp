@@ -260,7 +260,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="row"><span class="lbl">Cache entries</span><span class="val val-n" id="mcEntries">-</span></div>
 <div class="row"><span class="lbl">Cache hits/misses</span><span class="val val-n" id="mcHitMiss">-</span></div>
 <div class="row"><span class="lbl">Hit rate</span><span class="val val-n" id="mcHitRate">-</span></div>
-<div class="row"><span class="lbl">Queue full</span><span class="val val-err" id="mcQueueFull">-</span></div>
+<div class="row"><span class="lbl">Cache utilization</span><span class="val val-n" id="mcUtil">-</span></div>
+<div class="row"><span class="lbl">Queue depth</span><span class="val val-n" id="mcQueueDepth">-</span></div>
+<div class="row"><span class="lbl">Queue HWM</span><span class="val val-n" id="mcQueueHwm">-</span></div>
+<div class="row"><span class="lbl">Queue full drops</span><span class="val val-err" id="mcQueueFull">-</span></div>
+<div class="row"><span class="lbl">Priority drops</span><span class="val val-warn" id="mcPrioDrop">-</span></div>
 <div class="row"><span class="lbl">Cache TTL</span><span class="val val-n" id="mcTtl">-</span></div>
 <div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
 <div id="mcBackoff" style="margin-top:6px"></div>
@@ -861,12 +865,21 @@ function updateDashboard(m){
     const misses=g(m,'modbus_master_cache_misses');
     const entries=g(m,'modbus_master_cache_entries');
     const qfull=g(m,'modbus_master_queue_full_count');
+    const qdepth=g(m,'modbus_master_queue_depth');
+    const qhwm=g(m,'modbus_master_queue_hwm');
+    const pdrop=g(m,'modbus_master_priority_drops');
+    const hitRate=g(m,'modbus_master_cache_hit_rate');
+    const cUtil=g(m,'modbus_master_cache_utilization');
     if(hits!=null){
       $('mcEntries').textContent=fmtN(entries)+' / '+MB_CACHE_MAX;
       $('mcHitMiss').textContent=fmtN(hits)+' / '+fmtN(misses);
       const total=hits+misses;
-      $('mcHitRate').textContent=total>0?(hits/total*100).toFixed(1)+'%':'N/A';
+      $('mcHitRate').textContent=hitRate!=null?hitRate+'%':(total>0?(hits/total*100).toFixed(1)+'%':'N/A');
+      $('mcUtil').textContent=cUtil!=null?cUtil+'%':'-';
+      $('mcQueueDepth').textContent=(qdepth!=null?qdepth:'0')+' / '+MB_QUEUE_MAX;
+      $('mcQueueHwm').textContent=qhwm!=null?qhwm:'-';
       $('mcQueueFull').textContent=fmtN(qfull);
+      $('mcPrioDrop').textContent=pdrop!=null?fmtN(pdrop):'0';
       const ttl=g(m,'modbus_master_cache_ttl_ms');
       $('mcTtl').textContent=(ttl==null)?'-':(ttl==0?'0 (aldrig expire)':ttl+' ms');
       // Per-slave table
@@ -903,6 +916,10 @@ function updateDashboard(m){
       }else{$('mcBackoff').innerHTML='';}
     }else{
       $('mcEntries').textContent='Inaktiv';
+      $('mcUtil').textContent='-';
+      $('mcQueueDepth').textContent='-';
+      $('mcQueueHwm').textContent='-';
+      $('mcPrioDrop').textContent='-';
       $('mcSlaves').innerHTML='<span class="empty-msg">Master ikke startet</span>';
       $('mcBackoff').innerHTML='';
     }
@@ -1307,6 +1324,7 @@ async function fetchMetrics(){
 }
 
 const MB_CACHE_MAX=32;
+const MB_QUEUE_MAX=32;
 
 async function fetchAlarms(){
   try{

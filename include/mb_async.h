@@ -23,8 +23,10 @@
  * CONFIGURATION
  * ============================================================================ */
 
-#define MB_CACHE_MAX_ENTRIES    32   // Max unique (slave, addr, fc) combinations
-#define MB_ASYNC_QUEUE_SIZE    16   // Max pending requests in queue
+#define MB_CACHE_MAX_ENTRIES_DEFAULT  32   // Default max unique (slave, addr, fc) combinations
+#define MB_ASYNC_QUEUE_SIZE_DEFAULT  16   // Default max pending requests in queue
+#define MB_CACHE_MAX_ENTRIES    32   // Compile-time max (array size)
+#define MB_ASYNC_QUEUE_SIZE    32   // Compile-time max (array size for priority queue)
 #define MB_ASYNC_TASK_STACK  4096   // Background task stack (bytes)
 #define MB_ASYNC_TASK_PRIO      3   // Task priority (below WiFi, above idle)
 #define MB_ASYNC_TASK_CORE      0   // Run on Core 0 (main loop = Core 1)
@@ -48,6 +50,13 @@ typedef enum {
   MB_REQ_READ_HOLDINGS,       // FC03 multi-register (v7.9.2)
   MB_REQ_WRITE_HOLDINGS       // FC16 multi-register (v7.9.2)
 } mb_request_type_t;
+
+/* Priority levels for queue ordering (lower value = higher priority) */
+typedef enum {
+  MB_PRIO_WRITE        = 0,   // Writes always first (FC05/FC06/FC16)
+  MB_PRIO_READ_FRESH   = 1,   // First read — no cached value yet
+  MB_PRIO_READ_REFRESH = 2    // Cache refresh — client already has a value
+} mb_request_priority_t;
 
 typedef enum {
   MB_CACHE_EMPTY = 0,         // Never requested
@@ -78,17 +87,25 @@ typedef struct {
   st_value_t        write_value;      // 4 bytes (only for single writes)
   uint8_t           count;            // register count for multi-register ops (v7.9.2)
   uint8_t           multi_pool_slot;  // index into g_mb_multi_write_pool (v7.9.3: was multi_regs[16])
-} mb_async_request_t;                 // 10 bytes (was 41 — saves 31 bytes × 16 queue = 496 bytes)
+  uint8_t           priority;         // mb_request_priority_t (v7.9.7: priority queue)
+  uint16_t          insert_seq;       // insertion order for FIFO within same priority
+} mb_async_request_t;                 // 13 bytes
 
 typedef struct {
   // Cache
   mb_cache_entry_t entries[MB_CACHE_MAX_ENTRIES];
   uint8_t          entry_count;
 
-  // FreeRTOS
-  QueueHandle_t    request_queue;
-  TaskHandle_t     task_handle;
-  volatile bool    task_running;
+  // Priority queue (replaces FreeRTOS FIFO queue — v7.9.7)
+  mb_async_request_t pq_buf[MB_ASYNC_QUEUE_SIZE]; // Ring buffer for requests
+  volatile uint8_t   pq_count;                     // Current items in queue
+  uint16_t           pq_seq;                        // Monotonic insert counter
+
+  // FreeRTOS synchronization
+  SemaphoreHandle_t  pq_mutex;       // Mutex for queue access
+  SemaphoreHandle_t  pq_semaphore;   // Counting semaphore (signals new items)
+  TaskHandle_t       task_handle;
+  volatile bool      task_running;
 
   // Per-slave adaptive backoff (v7.9.5: non-blocking skip instead of vTaskDelay)
   struct {
@@ -103,6 +120,8 @@ typedef struct {
   uint32_t cache_hits;
   uint32_t cache_misses;
   uint32_t queue_full_count;
+  uint32_t priority_drops;        // Requests dropped by priority eviction (v7.9.7)
+  uint8_t  queue_high_watermark;  // Max queue depth seen (v7.9.7)
   uint32_t total_requests;
   uint32_t total_errors;
   uint32_t total_timeouts;
@@ -177,6 +196,11 @@ bool mb_async_queue_write_multi(uint8_t slave_id, uint16_t address, uint8_t coun
  * @return true if queue has pending items
  */
 bool mb_async_is_busy();
+
+/**
+ * @brief Get current queue depth
+ */
+uint8_t mb_async_queue_depth();
 
 /**
  * @brief Get async state for diagnostics (show modbus cache)
