@@ -1,11 +1,13 @@
 # Eletechsup ES32D26 — Board Guide & W5500 Tilslutning
 
 **Board:** Eletechsup ES32D26 (2AO-8AI-8DI-8DO)
-**ESP32 Chip:** ESP32-D0WD-V3 (revision v3.1, dual-core 240MHz)
-**Form factor:** 38-pin ESP32-WROOM-32 DevKit i IO board slot
+**ESP32 Modul:** ESP32-WROVER (ESP32-D0WD-V3, dual-core 240MHz, **4 MB PSRAM** onboard)
+**Form factor:** 38-pin ESP32-WROVER DevKit i IO board slot (pin-kompatibel med WROOM-32)
 **Forsyning:** DC 12V eller DC 24V
 **Mål:** 180 x 72 x 19 mm
 **Pin-verificering:** Shift register pins bekræftet med multimeter 2026-03-22
+**PSRAM:** Aktiveret via `-DBOARD_HAS_PSRAM` i `platformio.ini` (board = `esp-wrover-kit`).
+Verificér i runtime med `show version` eller `/api/metrics` (`esp32_psram_total_bytes`).
 
 ---
 

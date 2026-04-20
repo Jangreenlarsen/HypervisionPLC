@@ -5751,6 +5751,14 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   PROM_APPEND("# TYPE esp32_heap_min_free_bytes gauge\n");
   PROM_APPEND("esp32_heap_min_free_bytes %lu\n", (unsigned long)ESP.getMinFreeHeap());
 
+  // --- Flash chip metrics ---
+  PROM_APPEND("# HELP esp32_flash_total_bytes Total flash size (from eFuse) in bytes\n");
+  PROM_APPEND("# TYPE esp32_flash_total_bytes gauge\n");
+  PROM_APPEND("esp32_flash_total_bytes %lu\n", (unsigned long)ESP.getFlashChipSize());
+  PROM_APPEND("# HELP esp32_flash_speed_hz Flash access speed in Hz\n");
+  PROM_APPEND("# TYPE esp32_flash_speed_hz gauge\n");
+  PROM_APPEND("esp32_flash_speed_hz %lu\n", (unsigned long)ESP.getFlashChipSpeed());
+
   // --- PSRAM metrics (if available) ---
   uint32_t psram_total = ESP.getPsramSize();
   if (psram_total > 0) {

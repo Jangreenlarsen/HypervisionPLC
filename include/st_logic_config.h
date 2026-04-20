@@ -21,13 +21,23 @@
  * NOTE: Variable bindings are now handled by unified VariableMapping system
  * in gpio_mapping.cpp. No longer duplicated here.
  *
- * DYNAMIC POOL ALLOCATION (v4.7.1):
- * Source code is stored in a global 8KB pool shared between all 4 programs.
+ * DYNAMIC POOL ALLOCATION (v4.7.1, expanded v7.9.7.6):
+ * Source code is stored in a global pool shared between all 4 programs.
  * Each program stores offset + size instead of fixed array.
- * This allows flexible allocation (1×8KB, 2×4KB, 4×2KB, or any mix).
+ * This allows flexible allocation (1×pool, 2×half, 4×quarter, or any mix).
+ *
+ * Pool size:
+ *   - WROVER (BOARD_HAS_PSRAM): 64 KB allokeret i PSRAM ved boot
+ *   - WROOM: 8 KB statisk i DRAM (legacy/fallback)
+ * Pool pegepind (source_pool) er dynamisk allokeret i st_logic_init() —
+ * heap_caps_malloc(MALLOC_CAP_SPIRAM) hvis PSRAM tilgængelig, ellers heap.
  * ============================================================================ */
 
-#define ST_LOGIC_POOL_SIZE 8000  // Global pool size (8KB total, shared)
+#ifdef BOARD_HAS_PSRAM
+  #define ST_LOGIC_POOL_SIZE 65536  // 64 KB i PSRAM (WROVER) — 8× WROOM
+#else
+  #define ST_LOGIC_POOL_SIZE 8000   // 8 KB i DRAM (WROOM fallback)
+#endif
 
 typedef struct {
   // Program identification
@@ -72,8 +82,10 @@ typedef struct {
   // 4 independent logic programs
   st_logic_program_config_t programs[ST_LOGIC_MAX_PROGRAMS];
 
-  // Global source code pool (dynamic allocation, v4.7.1)
-  char source_pool[ST_LOGIC_POOL_SIZE];  // 8KB shared pool for all programs
+  // Global source code pool (v7.9.7.6: dynamisk PSRAM/heap allokering).
+  // Peger på buffer allokeret i st_logic_init() — PSRAM foretrækkes.
+  // NULL indtil init kører. Alle pool-operationer skal tjekke source_pool != NULL.
+  char *source_pool;
 
   // Global settings
   uint8_t enabled;            // Logic mode enabled/disabled globally

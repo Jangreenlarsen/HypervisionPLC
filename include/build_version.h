@@ -8,10 +8,10 @@
 #ifndef BUILD_VERSION_H
 #define BUILD_VERSION_H
 
-#define BUILD_NUMBER 1939
-#define BUILD_TIMESTAMP "2026-04-14 22:09:24"
-#define BUILD_DATE "20260414"
-#define GIT_HASH "ecada5d"
+#define BUILD_NUMBER 1970
+#define BUILD_TIMESTAMP "2026-04-20 17:43:17"
+#define BUILD_DATE "20260420"
+#define GIT_HASH "1a75931"
 #define GIT_BRANCH "main"
 
 #endif // BUILD_VERSION_H

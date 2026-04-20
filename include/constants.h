@@ -198,6 +198,7 @@ typedef enum {
  * ============================================================================ */
 
 #define CONFIG_SCHEMA_VERSION   19      // Current config schema version (v7.9.7.2: cache/queue size)
+// NOTE: v7.9.7.3 ændrer kun platformio.ini (PSRAM enable på ES32D26/WROVER) — ingen schema-ændring.
 
 /* ============================================================================
  * RBAC CONSTANTS (v7.6.2)
@@ -499,10 +500,32 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.7.2"
+#define PROJECT_VERSION     "7.9.7.6"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
+ * v7.9.7.6 (2026-04-20): FEAT-148: ST program pool 8× forstørret via PSRAM
+ *                    - ST_LOGIC_POOL_SIZE: 8 KB → 64 KB (#ifdef BOARD_HAS_PSRAM)
+ *                    - source_pool: static DRAM array → dynamisk heap_caps_malloc(SPIRAM)
+ *                      med fallback til regular heap hvis PSRAM fejler
+ *                    - DRAM sparet: 8 KB (pool flyttet helt ud af BSS)
+ *                    - Et enkelt ST program kan nu være op til 64 KB source code
+ *                    - Eller 4 programmer á 16 KB — 8× tidligere kapacitet
+ * v7.9.7.5 (2026-04-20): FEAT-147: Flash chip info synlig i CLI + metrics
+ *                    - `show version`/`show status` viser nu Flash MB @ MHz + mode (QIO/DIO)
+ *                    - `Target:` linje afspejler nu WROVER når BOARD_HAS_PSRAM er defineret
+ *                    - /api/metrics eksponerer esp32_flash_total_bytes + esp32_flash_speed_hz
+ * v7.9.7.4 (2026-04-20): FEAT-146: Flash-optimering — fra 101.3% til 89.5%
+ *                    - LTO aktiveret: -flto + -ffunction-sections + -fdata-sections +
+ *                      -Wl,--gc-sections (sparede 25 KB via cross-TU inlining + dead-code)
+ *                    - CORE_DEBUG_LEVEL: INFO (3) → WARNING (2), LOG_LOCAL_LEVEL: ESP_LOG_WARN
+ *                    - Partition repartition: OTA 1.625 → 1.812 MB, SPIFFS 640 → 256 KB
+ *                    - NB: Første flash kræver `pio run -t erase && pio run -t upload`
+ * v7.9.7.3 (2026-04-20): FEAT-145: ES32D26 → ESP32-WROVER (4 MB PSRAM)
+ *                    - platformio.ini env:es32d26: board = esp-wrover-kit
+ *                    - build_flags: -DBOARD_HAS_PSRAM -mfix-esp32-psram-cache-issue
+ *                    - board_build.arduino.memory_type = qio_qspi
+ *                    - Eksisterende ESP.getPsramSize() detection (BUG-250) viser nu ~4 MB
  * v7.9.7.2 (2026-04-14): FEAT: Konfigurerbar cache/kø-størrelse via CLI + NVS
  *                    - set modbus-master cache-size <1-32> og queue-size <4-32>
  *                    - Runtime limits med compile-time max som øvre grænse

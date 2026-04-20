@@ -2,16 +2,21 @@
 # Dual OTA app partitions + otadata for rollback support
 # NOTE: First flash after partition change requires serial upload + NVS erase:
 #   pio run -t erase && pio run -t upload
+#
+# v7.9.7.3 layout (FEAT-146): OTA vokset til 1.812 MB (fra 1.625 MB),
+# SPIFFS skåret til 256 KB. SPIFFS bruges kun til ST Logic source + bytecode
+# cache (max 4 × (16 KB src + 8 KB .bc) ≈ 96 KB) — 256 KB giver stadig 2.6× margin.
+#
 # Name,     Type, SubType, Offset,   Size,     Flags
 # PHY init data (REQUIRED for WiFi!)
 phy_init,   data, phy,     0x9000,   0x1000,
 # OTA data partition (tracks which app partition is active)
 otadata,    data, ota,     0xA000,   0x2000,
-# OTA app partition 0 (1.625MB)
-ota_0,      app,  ota_0,   0x10000,  0x1A0000,
-# OTA app partition 1 (1.625MB)
-ota_1,      app,  ota_1,   0x1B0000, 0x1A0000,
+# OTA app partition 0 (1.812MB = 0x1D0000)
+ota_0,      app,  ota_0,   0x10000,  0x1D0000,
+# OTA app partition 1 (1.812MB = 0x1D0000)
+ota_1,      app,  ota_1,   0x1E0000, 0x1D0000,
 # NVS partition (64KB for ST Logic programs + config)
-nvs,        data, nvs,     0x350000, 0x10000,
-# SPIFFS partition (640KB - reduced from 2MB to accommodate dual OTA)
-spiffs,     data, spiffs,  0x360000, 0xA0000,
+nvs,        data, nvs,     0x3B0000, 0x10000,
+# SPIFFS partition (256KB — til ST Logic bytecode cache + source)
+spiffs,     data, spiffs,  0x3C0000, 0x40000,

@@ -22,6 +22,7 @@
 #include <nvs.h>
 #include <FS.h>
 #include <SPIFFS.h>
+#include <esp_heap_caps.h>  // heap_caps_malloc for PSRAM allocation (v7.9.7.6)
 
 /* ============================================================================
  * GLOBAL STATE
@@ -51,6 +52,27 @@ void st_logic_init(st_logic_engine_state_t *state) {
   memset(state, 0, sizeof(*state));
   state->enabled = 1;
   state->execution_interval_ms = 10;  // Run every 10ms by default
+
+  // v7.9.7.6: Allokér source_pool dynamisk — PSRAM foretrækkes.
+  // Kun én gang pr. boot (idempotent via NULL-check + static guard ikke nødvendig
+  // da st_logic_init kaldes én gang fra main.cpp).
+  state->source_pool = (char *)heap_caps_malloc(ST_LOGIC_POOL_SIZE, MALLOC_CAP_SPIRAM);
+  if (!state->source_pool) {
+    // PSRAM utilgængelig eller fuld — fald tilbage til internal heap (DRAM).
+    state->source_pool = (char *)malloc(ST_LOGIC_POOL_SIZE);
+    if (!state->source_pool) {
+      // Total allokerings-fejl. Pool operationer vil alle fejle grace-fuldt
+      // pga. NULL-check i st_logic_pool_allocate(), st_logic_upload() osv.
+      debug_printf("ST_LOGIC INIT: pool alloc FAILED (%u bytes)\n",
+                   (unsigned)ST_LOGIC_POOL_SIZE);
+    } else {
+      debug_printf("ST_LOGIC INIT: pool %u bytes i DRAM (PSRAM ikke tilgængelig)\n",
+                   (unsigned)ST_LOGIC_POOL_SIZE);
+    }
+  } else {
+    debug_printf("ST_LOGIC INIT: pool %u bytes i PSRAM\n",
+                 (unsigned)ST_LOGIC_POOL_SIZE);
+  }
 
   // Initialize each program
   for (int i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
@@ -83,6 +105,7 @@ void st_logic_init(st_logic_engine_state_t *state) {
  */
 const char* st_logic_get_source_code(st_logic_engine_state_t *state, uint8_t program_id) {
   if (program_id >= ST_LOGIC_MAX_PROGRAMS) return NULL;
+  if (!state->source_pool) return NULL;  // v7.9.7.6: pool init fejlede
 
   st_logic_program_config_t *prog = &state->programs[program_id];
   if (prog->source_offset == 0xFFFFFFFF || prog->source_size == 0) {
@@ -117,6 +140,7 @@ void st_logic_get_pool_stats(st_logic_engine_state_t *state,
  */
 static void st_logic_pool_free(st_logic_engine_state_t *state, uint8_t program_id) {
   if (program_id >= ST_LOGIC_MAX_PROGRAMS) return;
+  if (!state->source_pool) return;  // v7.9.7.6: pool ikke allokeret
 
   st_logic_program_config_t *prog = &state->programs[program_id];
   if (prog->source_offset == 0xFFFFFFFF) return;  // Not allocated
@@ -148,6 +172,7 @@ static void st_logic_pool_free(st_logic_engine_state_t *state, uint8_t program_i
  */
 static bool st_logic_pool_allocate(st_logic_engine_state_t *state, uint8_t program_id, uint32_t size) {
   if (program_id >= ST_LOGIC_MAX_PROGRAMS) return false;
+  if (!state->source_pool) return false;  // v7.9.7.6: pool ikke allokeret
 
   // Free existing allocation if any
   st_logic_pool_free(state, program_id);

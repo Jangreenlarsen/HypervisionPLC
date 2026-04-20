@@ -2865,8 +2865,26 @@ void cli_cmd_show_version(void) {
   debug_print(GIT_BRANCH);
   debug_print("@");
   debug_println(GIT_HASH);
+#ifdef BOARD_HAS_PSRAM
+  debug_println("Target:  ESP32-WROVER (PSRAM)");
+#else
   debug_println("Target:  ESP32-WROOM-32");
+#endif
   debug_println("Project: Modbus RTU Server");
+
+  // Flash chip info (eFuse-reported size + mode/speed)
+  uint32_t flash_size = ESP.getFlashChipSize();
+  uint32_t flash_speed = ESP.getFlashChipSpeed();
+  FlashMode_t flash_mode = ESP.getFlashChipMode();
+  const char *mode_str = (flash_mode == FM_QIO)  ? "QIO"  :
+                         (flash_mode == FM_QOUT) ? "QOUT" :
+                         (flash_mode == FM_DIO)  ? "DIO"  :
+                         (flash_mode == FM_DOUT) ? "DOUT" : "?";
+  debug_printf("Flash:   %lu MB @ %lu MHz (%s)\n",
+               (unsigned long)(flash_size / (1024UL * 1024UL)),
+               (unsigned long)(flash_speed / 1000000UL),
+               mode_str);
+
   debug_printf("Heap:    %lu KB free / %lu KB min\n",
                (unsigned long)(ESP.getFreeHeap() / 1024),
                (unsigned long)(ESP.getMinFreeHeap() / 1024));
@@ -4729,6 +4747,9 @@ void cli_cmd_show_status(void) {
 
   debug_printf("  Heap free: %lu bytes\n", (unsigned long)ESP.getFreeHeap());
   debug_printf("  Heap min:  %lu bytes\n", (unsigned long)ESP.getMinFreeHeap());
+  debug_printf("  Flash:     %lu MB @ %lu MHz\n",
+               (unsigned long)(ESP.getFlashChipSize() / (1024UL * 1024UL)),
+               (unsigned long)(ESP.getFlashChipSpeed() / 1000000UL));
   uint32_t psram_size = ESP.getPsramSize();
   if (psram_size > 0) {
     debug_printf("  PSRAM:     %lu KB total, %lu KB free\n",
