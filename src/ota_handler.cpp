@@ -106,7 +106,7 @@ esp_err_t api_handler_ota_upload(httpd_req_t *req)
     return api_send_error(req, 400, "Empty request body");
   }
   if (content_len > OTA_MAX_FIRMWARE_SIZE) {
-    return api_send_error(req, 400, "Firmware too large (max 1.625MB)");
+    return api_send_error(req, 400, "Firmware too large (max 1.8125MB)");
   }
 
   // Set OTA state

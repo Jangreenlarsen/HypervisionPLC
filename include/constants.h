@@ -492,7 +492,7 @@ typedef enum {
  * ============================================================================ */
 
 #define OTA_CHUNK_SIZE          4096        // Flash write chunk size (one sector)
-#define OTA_MAX_FIRMWARE_SIZE   0x1A0000    // Must match OTA partition size (1.625MB)
+#define OTA_MAX_FIRMWARE_SIZE   0x1D0000    // Must match OTA partition size (1.8125MB) — BUG-330: was left at old 1.625MB after FEAT-146 grew the partition
 #define OTA_REBOOT_DELAY_MS     2000        // Delay before reboot after OTA
 
 /* ============================================================================
@@ -500,7 +500,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.7.7"
+#define PROJECT_VERSION     "7.9.7.8"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:

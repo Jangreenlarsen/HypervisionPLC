@@ -565,7 +565,7 @@ otaDrop.addEventListener('drop',e=>{e.preventDefault();otaDrop.classList.remove(
 function handleOtaFile(e){if(e.target.files.length)pickOtaFile(e.target.files[0])}
 function pickOtaFile(f){
   if(!f.name.endsWith('.bin')){showAlert('otaAlert','err','Kun .bin filer er tilladt');return}
-  if(f.size>0x1A0000){showAlert('otaAlert','err','Fil for stor (max 1.625MB)');return}
+  if(f.size>0x1D0000){showAlert('otaAlert','err','Fil for stor (max 1.8125MB)');return}
   if(f.size<256){showAlert('otaAlert','err','Fil for lille');return}
   otaSelectedFile=f;
   $('otaFileName').textContent=f.name+' ('+Math.round(f.size/1024)+' KB)';

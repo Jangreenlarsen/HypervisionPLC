@@ -160,7 +160,7 @@ document.getElementById('fileInput').addEventListener('change',e=>handleFile(e.t
 function handleFile(f){
   if(!f)return;
   if(!f.name.endsWith('.bin')){setStatus('err','Kun .bin filer er tilladt');return;}
-  if(f.size>0x1A0000){setStatus('err','Fil for stor (max 1.625MB)');return;}
+  if(f.size>0x1D0000){setStatus('err','Fil for stor (max 1.8125MB)');return;}
   if(f.size<256){setStatus('err','Fil for lille — ugyldig firmware');return;}
   selectedFile=f;
   document.getElementById('fileName').textContent=f.name+' ('+Math.round(f.size/1024)+'KB)';
