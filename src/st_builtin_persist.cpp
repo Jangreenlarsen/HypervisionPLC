@@ -101,12 +101,26 @@ st_value_t st_builtin_persist_load(st_value_t group_id_arg) {
   debug_print_uint(group_id);
   debug_println("): Reading from NVS...");
 
-  PersistConfig temp_config;
-  bool success = config_load_from_nvs(&temp_config);
+  // SECURITY FIX: PersistConfig is ~30KB — too large for the ESP32 main-
+  // loop stack (~8KB). This used to be a stack-local variable, so any ST
+  // program that simply called LOAD() would reliably stack-overflow and
+  // crash/reboot the device. Heap-allocate it instead, matching the
+  // pattern already used in config_save.cpp.
+  PersistConfig *temp_config = (PersistConfig*)malloc(sizeof(PersistConfig));
+  if (!temp_config) {
+    debug_print("LOAD(");
+    debug_print_uint(group_id);
+    debug_println(") failed: out of memory");
+    result.int_val = -1;
+    return result;
+  }
+
+  bool success = config_load_from_nvs(temp_config);
   if (!success) {
     debug_print("LOAD(");
     debug_print_uint(group_id);
     debug_println(") failed: NVS read error");
+    free(temp_config);
     result.int_val = -1;
     return result;
   }
@@ -114,7 +128,8 @@ st_value_t st_builtin_persist_load(st_value_t group_id_arg) {
   // Step 2: Copy loaded persist_regs to global config
   // Note: We only restore persist_regs, not the entire config
   // (to avoid overwriting runtime changes to counters, timers, etc.)
-  g_persist_config.persist_regs = temp_config.persist_regs;
+  g_persist_config.persist_regs = temp_config->persist_regs;
+  free(temp_config);
 
   // Step 3: Restore group(s) register values
   debug_print("LOAD(");

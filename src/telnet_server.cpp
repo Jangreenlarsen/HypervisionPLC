@@ -872,10 +872,14 @@ int telnet_server_loop(TelnetServer *server)
 
   if (was_connected && !is_connected) {
     // Connection just died - reset authentication state
+    // SECURITY FIX: do NOT reset auth_attempts/auth_lockout_time here —
+    // that let a brute-force attacker dodge the lockout by simply
+    // disconnecting and reconnecting after 1-2 failed guesses, getting a
+    // fresh set of attempts every time. The lockout must survive across
+    // connections; it's cleared only by natural expiry
+    // (telnet_handle_auth_input) or a successful login.
     if (server->auth_required) {
       server->auth_state = TELNET_AUTH_WAITING;
-      server->auth_attempts = 0;
-      server->auth_lockout_time = 0;
       server->rbac_user_index = -1;
       memset(server->auth_username, 0, sizeof(server->auth_username));
     }
@@ -914,9 +918,9 @@ int telnet_server_loop(TelnetServer *server)
     delay(100);
 
     if (server->auth_required) {
+      // SECURITY FIX: see disconnect-handler comment above — attempts/
+      // lockout must persist across reconnects, not reset here.
       server->auth_state = TELNET_AUTH_WAITING;
-      server->auth_attempts = 0;
-      server->auth_lockout_time = 0;
       server->rbac_user_index = -1;
       memset(server->auth_username, 0, sizeof(server->auth_username));
 

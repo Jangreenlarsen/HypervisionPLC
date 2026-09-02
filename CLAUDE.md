@@ -30,6 +30,9 @@
 ### Bug Tracking
 - **[`BUGS.md`](BUGS.md)** - Full detailed bug analysis (5000+ tokens, use sparingly)
 
+### Security Tracking
+- **[`SECURITY_INDEX.md`](SECURITY_INDEX.md)** - Known security findings (fixed + open), check before touching web/API/CLI/Modbus-protocol/ST-Logic code (~600 tokens)
+
 ---
 
 ## ⏱️ Reading Guide by Role

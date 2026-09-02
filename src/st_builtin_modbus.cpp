@@ -44,8 +44,18 @@ static bool check_request_limit() {
  * ============================================================================ */
 
 static bool validate_slave_addr(int32_t slave_id, int32_t address) {
-  // Check if async system is initialized
-  if (!mb_async_get_state()->pq_mutex) {
+  // BUGFIX: this used to only check whether the async subsystem was ever
+  // initialized (pq_mutex != NULL), NOT whether Modbus Master is currently
+  // enabled (g_modbus_master_config.enabled). On boards where mb_async_init()
+  // starts based on UART role (MODBUS_SINGLE_TRANSCEIVER: mb_mode==MASTER)
+  // rather than the enabled flag, the mutex exists regardless of the user
+  // toggling "modbus-master enabled off". That let ST Logic keep queuing
+  // MB_* requests into the async task even while the dashboard shows Master
+  // as disabled — the queue dequeued them, counted them in total_requests/
+  // total_errors, and only failed once modbus_master_send_request() hit its
+  // own (correct) enabled check deep inside — i.e. real-looking "activity"
+  // and error stats for a subsystem the user believes is off.
+  if (!g_modbus_master_config.enabled || !mb_async_get_state()->pq_mutex) {
     g_mb_last_error = MB_NOT_ENABLED;
     g_mb_success = false;
     return false;

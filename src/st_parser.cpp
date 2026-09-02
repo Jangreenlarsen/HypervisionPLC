@@ -817,7 +817,20 @@ static st_ast_node_t *parser_parse_logical_or(st_parser_t *parser) {
 
 /* Parse full expression (top level) */
 static st_ast_node_t *parser_parse_expression(st_parser_t *parser) {
-  return parser_parse_logical_or(parser);
+  // SECURITY FIX: Guard every re-entry into expression parsing (parens,
+  // array index, function args, statement conditions) against unbounded
+  // C-stack recursion. BUG-157's original fix only covered chained unary
+  // operators (parser_parse_unary) — deeply nested parentheses like
+  // "((((...))))" bypassed it entirely since parser_parse_primary's
+  // LPAREN branch called back into parser_parse_expression() unguarded.
+  if (parser->recursion_depth >= ST_MAX_RECURSION_DEPTH) {
+    parser_error(parser, "Expression nesting too deep (max 32 levels)");
+    return NULL;
+  }
+  parser->recursion_depth++;
+  st_ast_node_t *result = parser_parse_logical_or(parser);
+  parser->recursion_depth--;
+  return result;
 }
 
 /* ============================================================================
@@ -1648,6 +1661,15 @@ st_ast_node_t *st_parser_parse_statement(st_parser_t *parser) {
 
 /* Parse statement list for CASE branches (stops at next case label or END_CASE) */
 static st_ast_node_t *st_parser_parse_statements_for_case(st_parser_t *parser) {
+  // SECURITY FIX: Same recursion guard as st_parser_parse_statements() —
+  // CASE branch bodies can nest (e.g. CASE-inside-CASE) and were
+  // previously unguarded against unbounded C-stack recursion.
+  if (parser->recursion_depth >= ST_MAX_RECURSION_DEPTH) {
+    parser_error(parser, "Statement nesting too deep (max 32 levels)");
+    return NULL;
+  }
+  parser->recursion_depth++;
+
   st_ast_node_t *head = NULL;
   st_ast_node_t *tail = NULL;
 
@@ -1684,11 +1706,22 @@ static st_ast_node_t *st_parser_parse_statements_for_case(st_parser_t *parser) {
     }
   }
 
+  parser->recursion_depth--;
   return head;
 }
 
 /* Parse statement list */
 st_ast_node_t *st_parser_parse_statements(st_parser_t *parser) {
+  // SECURITY FIX: Guard nested statement blocks (nested IF/FOR/WHILE/
+  // REPEAT/CASE bodies) against unbounded C-stack recursion, using the
+  // same shared counter as parser_parse_expression() so combined
+  // statement+expression nesting is bounded to ST_MAX_RECURSION_DEPTH.
+  if (parser->recursion_depth >= ST_MAX_RECURSION_DEPTH) {
+    parser_error(parser, "Statement nesting too deep (max 32 levels)");
+    return NULL;
+  }
+  parser->recursion_depth++;
+
   st_ast_node_t *head = NULL;
   st_ast_node_t *tail = NULL;
 
@@ -1733,6 +1766,7 @@ st_ast_node_t *st_parser_parse_statements(st_parser_t *parser) {
     }
   }
 
+  parser->recursion_depth--;
   return head;
 }
 

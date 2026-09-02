@@ -1270,13 +1270,19 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
         addr_int.int_val = arg2.int_val;
       }
 
-      // Count: clamp to 1-16
+      // Count: clamp to 1-16 (all types, both bounds).
+      // SECURITY FIX: previously only DINT/DWORD were clamped, and only on
+      // the upper bound — a plain INT count (the default literal/variable
+      // type in ST) passed through unclamped entirely, and even the
+      // DINT/DWORD "clamp" let a negative count survive the cast to
+      // uint8_t below and wrap to up to 255. Both allowed the gather/
+      // scatter loop to walk past the 16-entry g_mb_multi_reg_buf global.
       if (arg3_type == ST_TYPE_DINT) {
-        count_int.int_val = (arg3.dint_val > 16) ? 16 : arg3.dint_val;
+        count_int.int_val = (arg3.dint_val > 16) ? 16 : (arg3.dint_val < 1) ? 1 : arg3.dint_val;
       } else if (arg3_type == ST_TYPE_DWORD) {
-        count_int.int_val = (arg3.dword_val > 16) ? 16 : arg3.dword_val;
+        count_int.int_val = (arg3.dword_val > 16) ? 16 : (arg3.dword_val < 1) ? 1 : arg3.dword_val;
       } else {
-        count_int.int_val = arg3.int_val;
+        count_int.int_val = (arg3.int_val > 16) ? 16 : (arg3.int_val < 1) ? 1 : arg3.int_val;
       }
 
       // arg4 = array base variable index (injected by compiler)

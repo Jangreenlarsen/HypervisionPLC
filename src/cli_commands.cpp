@@ -1403,15 +1403,24 @@ void cli_cmd_load_registers(uint8_t argc, char* argv[]) {
     }
 
     // Load config from NVS
-    PersistConfig temp_config;
-    bool success = config_load_from_nvs(&temp_config);
+    // SECURITY FIX: PersistConfig is ~30KB — too large for the ESP32 main-
+    // loop stack. Heap-allocate instead of a stack-local (matches
+    // config_save.cpp's pattern; see also st_builtin_persist.cpp LOAD()).
+    PersistConfig *temp_config = (PersistConfig*)malloc(sizeof(PersistConfig));
+    if (!temp_config) {
+      debug_println("ERROR: Out of memory");
+      return;
+    }
+    bool success = config_load_from_nvs(temp_config);
     if (!success) {
       debug_println("ERROR: Failed to load from NVS");
+      free(temp_config);
       return;
     }
 
     // Copy persist_regs to global config
-    g_persist_config.persist_regs = temp_config.persist_regs;
+    g_persist_config.persist_regs = temp_config->persist_regs;
+    free(temp_config);
 
     // Restore all groups
     success = registers_persist_restore_all_groups();
@@ -1433,16 +1442,23 @@ void cli_cmd_load_registers(uint8_t argc, char* argv[]) {
 
     const char* group_name = argv[1];
 
-    // Load config from NVS
-    PersistConfig temp_config;
-    bool success = config_load_from_nvs(&temp_config);
+    // Load config from NVS (heap-allocated — see comment above; PersistConfig
+    // is ~30KB, too large for the main-loop stack)
+    PersistConfig *temp_config = (PersistConfig*)malloc(sizeof(PersistConfig));
+    if (!temp_config) {
+      debug_println("ERROR: Out of memory");
+      return;
+    }
+    bool success = config_load_from_nvs(temp_config);
     if (!success) {
       debug_println("ERROR: Failed to load from NVS");
+      free(temp_config);
       return;
     }
 
     // Copy persist_regs to global config
-    g_persist_config.persist_regs = temp_config.persist_regs;
+    g_persist_config.persist_regs = temp_config->persist_regs;
+    free(temp_config);
 
     // Restore specific group
     if (!registers_persist_group_restore(group_name)) {

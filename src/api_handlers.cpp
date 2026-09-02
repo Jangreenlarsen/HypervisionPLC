@@ -4055,7 +4055,11 @@ esp_err_t api_handler_modules_post(httpd_req_t *req)
 esp_err_t api_handler_system_backup(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_AUTH(req);
+  // SECURITY FIX: backup includes WiFi/telnet/HTTP/RBAC passwords in
+  // cleartext — require write privilege (this RBAC system's admin-level
+  // tier; legacy/no-RBAC mode's virtual admin still passes), not just any
+  // authenticated (incl. read-only) user.
+  CHECK_AUTH_WRITE(req);
 
   JsonDocument doc;
 
