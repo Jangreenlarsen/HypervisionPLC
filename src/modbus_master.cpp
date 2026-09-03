@@ -19,6 +19,11 @@
  * GLOBAL CONFIGURATION
  * ============================================================================ */
 
+/* BUG-334: sat hvis RS485-aktivering blev afbrudt ved boot (ES32D26 deler
+ * GPIO1/3 mellem USB-konsol og RS485). Kun i RAM — den gemte config er
+ * uaendret, hvilket ellers gjorde tilstanden umulig at forstaa. */
+bool g_modbus_master_boot_aborted = false;
+
 modbus_master_config_t g_modbus_master_config = {
   .enabled = false,
   .baudrate = MODBUS_MASTER_DEFAULT_BAUDRATE,
@@ -100,6 +105,7 @@ void modbus_master_set_enabled(bool enabled) {
   g_modbus_master_config.enabled = enabled;
 
   if (enabled) {
+    g_modbus_master_boot_aborted = false;  // BUG-334: RS485 aktiveres nu
     modbus_master_reconfigure();
   } else {
 #if MODBUS_SINGLE_TRANSCEIVER

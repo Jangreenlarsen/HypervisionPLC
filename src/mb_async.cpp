@@ -90,7 +90,88 @@ mb_cache_entry_t *mb_cache_get_or_create(uint8_t slave_id, uint16_t address, uin
  * Evict on full: drop newest entry with lowest priority
  * ============================================================================ */
 
+/* ============================================================================
+ * BUG-333: PENDING cache-state lifecycle
+ *
+ * A cache entry is marked PENDING when its request is queued, and cleared
+ * when the background task completes it. If a queued request is ever LOST,
+ * the entry stays PENDING forever — and ST Logic reads gate on
+ * "status != MB_CACHE_PENDING" before re-queueing, so that address is dead
+ * until reboot (cache_ttl=0 disables the only other escape hatch).
+ * The helpers below make PENDING recoverable.
+ * ============================================================================ */
+
+/* Mark an entry PENDING and timestamp it. Caller must hold mb_cache_spinlock. */
+static inline void mb_cache_mark_pending_locked(mb_cache_entry_t *entry) {
+  entry->status = MB_CACHE_PENDING;
+  entry->pending_since_ms = millis();
+}
+
+/* Move an entry out of PENDING back to a re-queueable state.
+ * Keeps a previously read value usable; a never-read entry goes to EMPTY.
+ * Caller must NOT hold mb_cache_spinlock. */
+static void mb_cache_clear_pending(mb_cache_entry_t *entry) {
+  if (!entry) return;
+  portENTER_CRITICAL(&mb_cache_spinlock);
+  if (entry->status == MB_CACHE_PENDING) {
+    entry->status = (entry->last_update_ms > 0) ? MB_CACHE_VALID : MB_CACHE_EMPTY;
+  }
+  portEXIT_CRITICAL(&mb_cache_spinlock);
+}
+
+/* Undo the PENDING marks made for a request that is being dropped.
+ * Handles multi-register requests, which mark one entry per address. */
+static void mb_cache_clear_pending_for_request(const mb_async_request_t *req) {
+  if (!req) return;
+
+  uint8_t cache_type;
+  uint8_t count = 1;
+
+  switch (req->type) {
+    case MB_REQ_WRITE_COIL:     cache_type = (uint8_t)MB_REQ_READ_COIL;    break;
+    case MB_REQ_WRITE_HOLDING:  cache_type = (uint8_t)MB_REQ_READ_HOLDING; break;
+    case MB_REQ_READ_HOLDINGS:
+    case MB_REQ_WRITE_HOLDINGS:
+      cache_type = (uint8_t)MB_REQ_READ_HOLDING;
+      count = (req->count > 0) ? req->count : 1;
+      break;
+    default:
+      cache_type = (uint8_t)req->type;
+      break;
+  }
+
+  for (uint8_t i = 0; i < count; i++) {
+    mb_cache_clear_pending(mb_cache_find(req->slave_id, (uint16_t)(req->address + i), cache_type));
+  }
+}
+
+/* Periodic safety net: recover entries that have been PENDING far too long,
+ * whatever the cause. Independent of cache_ttl_ms, which only governs how
+ * long a VALID value stays fresh. */
+static void mb_cache_sweep_stale_pending(void) {
+  uint32_t limit = (uint32_t)g_modbus_master_config.timeout_ms * MB_PENDING_STALE_FACTOR;
+  if (limit < MB_PENDING_STALE_MIN_MS) limit = MB_PENDING_STALE_MIN_MS;
+
+  uint32_t now = millis();
+  for (uint8_t i = 0; i < g_mb_async.entry_count; i++) {
+    mb_cache_entry_t *e = &g_mb_async.entries[i];
+    if (e->status != MB_CACHE_PENDING) continue;
+    if ((now - e->pending_since_ms) < limit) continue;
+
+    portENTER_CRITICAL(&mb_cache_spinlock);
+    if (e->status == MB_CACHE_PENDING) {   // re-check under lock
+      e->status = (e->last_update_ms > 0) ? MB_CACHE_VALID : MB_CACHE_EMPTY;
+      e->last_error = MB_TIMEOUT;
+      g_mb_async.stale_pending_recovered++;
+    }
+    portEXIT_CRITICAL(&mb_cache_spinlock);
+  }
+}
+
 static bool mb_pq_insert(mb_async_request_t *req) {
+  mb_async_request_t evicted;      // BUG-333: victim of priority eviction
+  bool had_eviction = false;
+
   if (xSemaphoreTake(g_mb_async.pq_mutex, pdMS_TO_TICKS(10)) != pdTRUE) {
     return false;
   }
@@ -123,6 +204,14 @@ static bool mb_pq_insert(mb_async_request_t *req) {
 
     // Only evict if victim has lower priority (higher number) than new request
     if (victim >= 0 && worst_prio > req->priority) {
+      // BUG-333: the victim is discarded here — its cache entry was marked
+      // PENDING when it was queued and would otherwise stay PENDING forever,
+      // permanently blocking re-queueing of that address. Copy it out and
+      // clear the mark after the mutex is released (avoids holding the
+      // FreeRTOS mutex across a spinlock section).
+      evicted = g_mb_async.pq_buf[victim];
+      had_eviction = true;
+
       g_mb_async.pq_buf[victim] = *req;
       g_mb_async.priority_drops++;
     } else if (victim >= 0 && worst_prio == req->priority) {
@@ -144,6 +233,13 @@ static bool mb_pq_insert(mb_async_request_t *req) {
   }
 
   xSemaphoreGive(g_mb_async.pq_mutex);
+
+  // BUG-333: release the discarded victim's PENDING mark, now that the
+  // mutex is no longer held.
+  if (had_eviction) {
+    mb_cache_clear_pending_for_request(&evicted);
+  }
+
   xSemaphoreGive(g_mb_async.pq_semaphore);  // Signal consumer
   return true;
 }
@@ -204,7 +300,7 @@ bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t addr
   }
   if (entry) {
     portENTER_CRITICAL(&mb_cache_spinlock);
-    entry->status = MB_CACHE_PENDING;
+    mb_cache_mark_pending_locked(entry);
     portEXIT_CRITICAL(&mb_cache_spinlock);
   }
 
@@ -261,7 +357,7 @@ bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t add
   if (entry) {
     portENTER_CRITICAL(&mb_cache_spinlock);
     entry->value = value;
-    entry->status = MB_CACHE_PENDING;
+    mb_cache_mark_pending_locked(entry);
     portEXIT_CRITICAL(&mb_cache_spinlock);
   }
 
@@ -295,7 +391,7 @@ bool mb_async_queue_read_multi(uint8_t slave_id, uint16_t address, uint8_t count
     mb_cache_entry_t *entry = mb_cache_get_or_create(slave_id, address + i, (uint8_t)MB_REQ_READ_HOLDING);
     if (entry) {
       portENTER_CRITICAL(&mb_cache_spinlock);
-      entry->status = MB_CACHE_PENDING;
+      mb_cache_mark_pending_locked(entry);
       portEXIT_CRITICAL(&mb_cache_spinlock);
     }
   }
@@ -407,7 +503,18 @@ static void mb_backoff_on_success(uint8_t slave_id) {
 static void mb_async_task_func(void *pvParameters) {
   mb_async_request_t req;
 
+  uint32_t last_sweep_ms = 0;
+
   while (g_mb_async.task_running) {
+    // BUG-333: periodically rescue cache entries stuck in PENDING. Runs even
+    // when the queue is idle (the semaphore below times out), so a wedged
+    // entry recovers on its own instead of blocking that address until reboot.
+    uint32_t now_ms = millis();
+    if ((now_ms - last_sweep_ms) >= MB_PENDING_SWEEP_INTERVAL_MS) {
+      last_sweep_ms = now_ms;
+      mb_cache_sweep_stale_pending();
+    }
+
     // Block max 100ms waiting for semaphore signal (allows clean shutdown)
     if (xSemaphoreTake(g_mb_async.pq_semaphore, pdMS_TO_TICKS(100)) != pdTRUE) {
       continue;

@@ -218,19 +218,33 @@ void setup() {
   if (mb_mode == MODBUS_MODE_MASTER) {
     Serial.println();
     Serial.println(">> RS485 Master mode: USB console vil blive overtaget.");
-    Serial.println(">> Tryk MELLEMRUM inden 5 sek for at forblive i USB console...");
+    Serial.println(">> Tryk MELLEMRUM 3 gange inden 5 sek for at forblive i USB console...");
     Serial.flush();
 
+    // BUG-334: GPIO1/3 deles mellem USB-konsollen og RS485-transceiveren, så
+    // alt hvad andre enheder sender på bussen i dette vindue lander her som
+    // "konsol-input". Ét enkelt 0x20-byte inde i et Modbus-telegram (slave-ID
+    // 32, en adresse- eller data-byte) var nok til at afbryde RS485-aktivering
+    // for hele sessionen — hvorefter ST Logic kørte videre uden nogensinde at
+    // kunne nå bussen. Kræv nu en bevidst menneskelig handling: flere
+    // MELLEMRUM i træk. Enhver anden byte nulstiller tælleren, så binær
+    // bus-trafik ikke kan udløse afbrydelsen.
+    while (Serial.available()) Serial.read();   // smid trafik fra før boot væk
+
+    const uint8_t ABORT_SPACES_REQUIRED = 3;
+    uint8_t space_run = 0;
     bool aborted = false;
     uint32_t deadline = millis() + 5000;
     while (millis() < deadline) {
-      if (Serial.available()) {
+      while (Serial.available()) {
         int ch = Serial.read();
         if (ch == ' ') {
-          aborted = true;
-          break;
+          if (++space_run >= ABORT_SPACES_REQUIRED) { aborted = true; break; }
+        } else {
+          space_run = 0;   // ikke et menneske ved en terminal — bus-trafik
         }
       }
+      if (aborted) break;
       // Countdown feedback
       uint32_t remaining = (deadline - millis()) / 1000;
       static uint32_t last_sec = 99;
@@ -244,9 +258,15 @@ void setup() {
 
     if (aborted) {
       Serial.println("\r>> ABORTED — USB console aktiv, RS485 IKKE aktiveret.");
-      Serial.println(">> Modbus Master er DISABLED denne session.");
-      Serial.println(">> Brug 'reboot' for at aktivere RS485 igen.");
+      Serial.println(">> Modbus Master er DISABLED denne session (config uaendret).");
+      Serial.println(">> Aktiver igen UDEN reboot: 'set modbus-master enabled on'");
+      Serial.println(">> (eller 'reboot' og lad nedtaellingen loebe ud)");
       g_modbus_master_config.enabled = false;
+      // BUG-334: husk HVORFOR den er slaaet fra, saa 'show modbus-master' kan
+      // skelne mellem "slaaet fra i config" og "RS485 aldrig aktiveret ved boot"
+      // — sidstnaevnte saa ellers ud som en gaadefuld DISABLED mens den gemte
+      // config sagde 'on'.
+      g_modbus_master_boot_aborted = true;
     } else {
       Serial.println("\r>> Aktiverer RS485 master — USB console tabt.");
       Serial.println(">> Brug Telnet for console-adgang.");

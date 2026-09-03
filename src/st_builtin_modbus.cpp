@@ -254,6 +254,7 @@ st_value_t st_builtin_mb_write_coil(st_value_t slave_id, st_value_t address, st_
       portENTER_CRITICAL(&mb_cache_spinlock);
       entry->value = value;
       entry->status = MB_CACHE_PENDING;
+      entry->pending_since_ms = millis();  // BUG-333
       portEXIT_CRITICAL(&mb_cache_spinlock);
     }
   }
@@ -283,6 +284,7 @@ st_value_t st_builtin_mb_write_holding(st_value_t slave_id, st_value_t address, 
       portENTER_CRITICAL(&mb_cache_spinlock);
       entry->value = value;
       entry->status = MB_CACHE_PENDING;
+      entry->pending_since_ms = millis();  // BUG-333
       portEXIT_CRITICAL(&mb_cache_spinlock);
     }
   }

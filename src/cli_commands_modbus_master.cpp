@@ -500,6 +500,13 @@ void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id, uint32_t temp_baud) {
 void cli_cmd_show_modbus_master() {
   debug_printf("\n=== MODBUS MASTER CONFIGURATION ===\n");
   debug_printf("Status: %s\n", g_modbus_master_config.enabled ? "ENABLED" : "DISABLED");
+  // BUG-334: gør det tydeligt når DISABLED skyldes en afbrudt boot-aktivering
+  // og ikke konfigurationen — den gemte config siger stadig 'enabled on'.
+  if (g_modbus_master_boot_aborted) {
+    debug_println("  ^ RS485 blev IKKE aktiveret ved boot (afbrudt via USB-konsol).");
+    debug_println("    Gemt config siger stadig 'enabled on'.");
+    debug_println("    Aktiver uden reboot: set modbus-master enabled on");
+  }
   debug_printf("Hardware: UART1 (TX:GPIO%d, RX:GPIO%d, DE:GPIO%d)\n",
                 MODBUS_MASTER_TX_PIN, MODBUS_MASTER_RX_PIN, MODBUS_MASTER_DE_PIN);
   debug_printf("\n");

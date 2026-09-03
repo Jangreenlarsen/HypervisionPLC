@@ -35,6 +35,14 @@
 #define MB_BACKOFF_INITIAL_MS  50   // Initial extra delay after first timeout
 #define MB_BACKOFF_MAX_MS    2000   // Max backoff delay (2 seconds)
 #define MB_BACKOFF_DECAY_MS   100   // Reduce backoff by this much on each success
+/* BUG-333: A cache entry must never stay PENDING forever. If a queued request
+ * is lost (priority eviction, or any future path that drops a request), the
+ * entry would otherwise block re-queueing permanently — ST reads gate on
+ * "status != PENDING" and cache_ttl=0 disables the only other escape.
+ * Entries pending longer than this are swept back to a re-queueable state. */
+#define MB_PENDING_STALE_FACTOR   5     // × timeout_ms
+#define MB_PENDING_STALE_MIN_MS   3000  // ...but never less than this
+#define MB_PENDING_SWEEP_INTERVAL_MS 1000  // How often the sweeper runs
 
 /* ============================================================================
  * TYPES
@@ -78,7 +86,8 @@ typedef struct {
   int32_t             last_error;     // mb_error_code_t
   uint32_t            last_update_ms; // millis() at last update
   uint8_t             last_fc;        // Actual FC of last completed op (1-6)
-} mb_cache_entry_t;                   // ~21 bytes
+  uint32_t            pending_since_ms; // BUG-333: millis() when status became PENDING
+} mb_cache_entry_t;                   // ~25 bytes
 
 typedef struct {
   mb_request_type_t type;             // 1 byte
@@ -127,6 +136,7 @@ typedef struct {
   uint32_t total_errors;
   uint32_t total_timeouts;
   uint32_t stats_since_ms;        // millis() at last stats reset (v7.9.3.2)
+  uint32_t stale_pending_recovered; // BUG-333: entries rescued from stuck PENDING
 } mb_async_state_t;
 
 /* ============================================================================

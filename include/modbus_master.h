@@ -55,6 +55,13 @@ void modbus_master_reconfigure();
 void modbus_master_activate_uart();
 
 /**
+ * @brief BUG-334: true hvis RS485-aktivering blev afbrudt ved boot, saa
+ * masteren er slaaet fra i RAM mens den gemte config stadig siger 'on'.
+ * Ryddes af modbus_master_set_enabled(true).
+ */
+extern bool g_modbus_master_boot_aborted;
+
+/**
  * @brief Reset statistics counters
  */
 void modbus_master_reset_stats();
