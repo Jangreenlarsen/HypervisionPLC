@@ -59,6 +59,10 @@ Remote I/O Boards (Modbus Slaves)
 
 ---
 
+### 📖 Hypervision PLC Manual (Complete, Curated Reference)
+
+> **[docs/manual/00_INDEKS.md](docs/manual/00_INDEKS.md)** — the full end-user manual (Danish), 17 modular chapters from system overview through installation, CLI, REST API, ST Logic programming, security hardening and troubleshooting, plus a complete verified CLI/REST API reference (Appendix A/B). Start here if you're new to the system. The rest of this index links to focused, standalone guides on specific topics.
+
 ### 📋 Quick Navigation
 
 | I Need To... | Read This |

@@ -33,6 +33,9 @@
 ### Security Tracking
 - **[`SECURITY_INDEX.md`](SECURITY_INDEX.md)** - Known security findings (fixed + open), check before touching web/API/CLI/Modbus-protocol/ST-Logic code (~600 tokens)
 
+### End-User Manual
+- **[`docs/manual/00_INDEKS.md`](docs/manual/00_INDEKS.md)** - Complete "Hypervision PLC" user manual (Danish), 17 modular chapters + CLI/REST API reference appendices. Update the relevant chapter whenever user-facing behavior changes (new endpoint, new CLI command, changed default, etc.) — treat it like code: keep it in sync in the same commit.
+
 ---
 
 ## ⏱️ Reading Guide by Role
