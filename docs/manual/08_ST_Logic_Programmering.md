@@ -75,7 +75,18 @@ Der er en **sikkerhedsgrænse på 10.000 VM-instruktioner pr. scan-cyklus** — 
 | **Modbus Master** | `MB_READ_COIL MB_READ_INPUT MB_READ_HOLDING MB_READ_INPUT_REG MB_READ_HOLDINGS MB_WRITE_COIL MB_WRITE_HOLDING MB_WRITE_HOLDINGS MB_SUCCESS MB_ERROR MB_BUSY MB_CACHE` — se §8.7 |
 | **Persistens** | `SAVE LOAD` — gem/genindlæs registergrupper til/fra NVS på tværs af reboot |
 
-Timere/tællere som funktionsblokke bruges med en instans-syntaks, fx `TON(IN := start, PT := T#5s)`, og returnerer deres `Q`/`ET`-output på sædvanlig IEC 61131-3-vis. Se eksisterende [`../ST_USAGE_GUIDE.md`](../ST_USAGE_GUIDE.md) og [`../ST_IEC61131_COMPLIANCE.md`](../ST_IEC61131_COMPLIANCE.md) for fuld syntaksdetalje og afvigelser fra standarden.
+> **Vigtig afvigelse fra standard IEC 61131-3:** timere og tællere kaldes som **funktioner**, ikke som instansierede funktionsblokke. Der findes **ingen** `blink_timer: TON;`-deklaration i `VAR`-blokken, og **ingen** `.Q`/`.ET`-punktum-adgang — det er den mest almindelige begynderfejl, og parseren fejler på det med det samme (typisk "Expected data type (BOOL, INT, DINT, DWORD, REAL, TIME, ARRAY)" hvis man deklarerer `navn: TON;`).
+>
+> Kald i stedet timeren/tælleren direkte som en funktion, med IEC-navngivne parametre — inputs med `:=`, outputs med `=>` ind i almindelige variabler:
+> ```st
+> VAR start: BOOL; motor: BOOL; elapsed: TIME; END_VAR
+> TON(IN := start, PT := T#2s, Q => motor, ET => elapsed);
+> ```
+> Samme mønster gælder `TOF`, `TP`, `CTU`, `CTD`, `CTUD`, `R_TRIG`, `F_TRIG`. En simplere **positionel** syntaks understøttes også for TON/CTU/CTD (uden navngivne outputs, returværdien er `Q`): `res := TON(start, T#2s);`.
+>
+> Tilstanden (elapsed tid, om timeren løber, osv.) huskes internt af systemet pr. **kaldested** i koden — ikke i en navngivet variabel — så to forskellige `TON(...)`-kald i samme program er automatisk to uafhængige timere, uden at man selv skal navngive eller allokere dem.
+
+Se [`../ST_USAGE_GUIDE.md`](../ST_USAGE_GUIDE.md) og [`../ST_IEC61131_COMPLIANCE.md`](../ST_IEC61131_COMPLIANCE.md) for fuld syntaksdetalje og afvigelser fra standarden.
 
 ## 8.6 Kom i gang: et første program
 
@@ -83,18 +94,20 @@ Timere/tællere som funktionsblokke bruges med en instans-syntaks, fx `TON(IN :=
 PROGRAM Blink
 VAR
   led_state: BOOL := FALSE;
-  blink_timer: TON;
+  timer_in: BOOL;
+  timer_q: BOOL;
 END_VAR
 
 BEGIN
-  blink_timer(IN := NOT blink_timer.Q, PT := T#500ms);
-  IF blink_timer.Q THEN
+  timer_in := NOT timer_q;
+  TON(IN := timer_in, PT := T#500ms, Q => timer_q);
+  IF timer_q THEN
     led_state := NOT led_state;
   END_IF;
 END_PROGRAM
 ```
 
-Kompilér (**Kompilér**-knappen i editoren, eller `POST /api/logic/1/source` efterfulgt af kompilering), aktivér programmet (`set logic 1 enabled on`), og bekræft i Runtime Monitor at `led_state` og `blink_timer.Q` skifter hvert 500 ms.
+Kompilér (**Kompilér**-knappen i editoren, eller `POST /api/logic/1/source` efterfulgt af kompilering), aktivér programmet (`set logic 1 enabled on`), og bekræft i Runtime Monitor at `led_state` og `timer_q` skifter ca. hvert 500 ms. (`timer_q` er kun sand i det scan hvor tiden netop er udløbet — det er derfor selve toggle-flowet går via `led_state`, ikke `timer_q` direkte.)
 
 Bind `led_state` til en fysisk digital udgang via **Bindings**-fanen i editoren for at se det på hardware.
 
