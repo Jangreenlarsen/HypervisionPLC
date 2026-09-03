@@ -9,6 +9,9 @@
 #include "mb_activity_log.h"
 #include "config_struct.h"
 #include "debug.h"
+#include "console.h"
+#include "cli_shell.h"
+#include "watchdog_monitor.h"
 
 // Calculate Modbus RTU t3.5 inter-frame delay from baudrate
 // Per spec: t3.5 = 3.5 * 11 bits / baudrate * 1000 ms
@@ -472,13 +475,42 @@ void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id, uint32_t temp_baud) {
   }
 
   MbTempBaud baud_guard(temp_baud);
-  debug_printf("[MB SCAN] Scanning slave %d-%d (FC03, addr 0) ...\n", start_id, end_id);
+  uint8_t total = end_id - start_id + 1;
+  debug_printf("[MB SCAN] Scanning slave %d-%d (FC03, addr 0), %d adresser ...\n", start_id, end_id, total);
+  debug_println("[MB SCAN] Tryk en tast for at afbryde.");
   uint8_t found = 0;
+  uint8_t tested = 0;
+  bool aborted = false;
+
+  // BUG-335: reelt (ikke bare kosmetisk) fund — denne funktion blokerede
+  // hele main loop() synkront, uden nogensinde at fodre watchdoggen
+  // (kaldes normalt kun 1x pr. loop()-iteration, se main.cpp). Ved default
+  // timeout (1000ms) + 10ms pause udløser scanning af blot ~28 tomme
+  // adresser (28 * 1010ms > 30000ms) allerede den 30-sekunders watchdog og
+  // genstarter enheden midt i scanningen — uden nogen fejlbesked. En fuld
+  // 1-247-scanning ville tage over 4 minutter og altid ramme dette.
+  Console *con = cli_shell_get_debug_console();
 
   for (uint8_t id = start_id; id <= end_id; id++) {
+    watchdog_feed();  // Se kommentar ovenfor — kritisk ved brede scan-ranges
+
+    // Ikke-blokerende: findes der en ventende tast på samme forbindelse
+    // (seriel/telnet) scanningen blev startet fra? Web-CLI's read_char
+    // returnerer altid "intet input" (enkelt request/response-kald), så
+    // afbrydelse er kun muligt fra seriel/telnet — det er en kendt grænse,
+    // ikke en fejl.
+    if (con && console_available(con)) {
+      char ch;
+      console_getchar(con, &ch);  // forbrug tasten, uanset hvilken
+      aborted = true;
+      debug_printf("\n[MB SCAN] Afbrudt af bruger ved slave %d (%d/%d testet)\n", id, tested, total);
+      break;
+    }
+
     uint16_t val = 0;
     mb_error_code_t err = modbus_master_read_holding(id, 0, &val);
     g_modbus_master_config.total_requests++;
+    tested++;
     if (err == MB_OK) {
       debug_printf("  Slave %3d: FUNDET (holding[0] = %u)\n", id, val);
       found++;
@@ -486,11 +518,20 @@ void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id, uint32_t temp_baud) {
       debug_printf("  Slave %3d: EXCEPTION (svarer men afviser FC03 addr 0)\n", id);
       found++;
     }
+
+    // Fremdrift hvert 10. forsøg — ellers ser en lang, stille scanning
+    // (ingen enheder svarer) ud som om CLI'en hænger i op til minutter.
+    if ((tested % 10) == 0 && tested < total) {
+      debug_printf("  ... %d/%d testet, %d fundet indtil videre\n", tested, total, found);
+    }
+
     // Timeout = ingen slave — vis ikke
     delay(10); // Kort pause mellem scans
   }
 
-  debug_printf("[MB SCAN] Faerdigt: %d slave(s) fundet af %d testet\n", found, end_id - start_id + 1);
+  if (!aborted) {
+    debug_printf("[MB SCAN] Faerdigt: %d slave(s) fundet af %d testet\n", found, total);
+  }
 }
 
 /* ============================================================================

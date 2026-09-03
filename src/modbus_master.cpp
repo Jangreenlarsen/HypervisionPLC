@@ -11,6 +11,8 @@
 #include "uart_driver.h"
 #include "config_struct.h"
 #include <HardwareSerial.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>  // taskYIELD() — BUG-336
 #if MODBUS_SINGLE_TRANSCEIVER
 #include "gpio_driver.h"
 #endif
@@ -377,6 +379,19 @@ mb_error_code_t modbus_master_send_request(
           }
         }
       }
+    } else if (bytes_received == 0) {
+      // BUG-336: yield while still waiting for the FIRST byte of a
+      // response. Previously this was a hard, unyielding busy-loop
+      // (millis()+available() spin) for up to timeout_ms (default
+      // 1000ms) per unanswered slave — safe to yield ONLY here, before
+      // any byte has arrived: Modbus RTU's tight inter-character timing
+      // (interchar_ms, a few ms) only matters once a frame is already in
+      // progress (bytes_received > 0), a completely separate branch this
+      // does not touch. Repeated back-to-back over an `mb scan` range,
+      // the un-yielding wait starved other tasks on the same core long
+      // enough that the dashboard/HTTP server became unresponsive for
+      // the whole duration of the scan.
+      taskYIELD();
     }
   }
 
