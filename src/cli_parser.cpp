@@ -293,6 +293,7 @@ static void print_show_help(void) {
   debug_println("    show version           - Firmware version");
   debug_println("");
   debug_println("  Modbus:");
+  debug_println("    show modbus            - Modbus Slave + Master config (samlet)");
   debug_println("    show modbus-slave      - Modbus Slave config");
   debug_println("    show modbus-master     - Modbus Master config");
   debug_println("    show registers         - Holding registers");
@@ -311,6 +312,7 @@ static void print_show_help(void) {
   debug_println("");
   debug_println("  Network:");
   debug_println("    show wifi              - Wi-Fi status og IP");
+  debug_println("    show telnet            - Telnet server status");
   debug_println("    show ethernet          - Ethernet (W5500) status");
   debug_println("    show http              - HTTP API status");
   debug_println("    show sse               - SSE server status");
@@ -787,6 +789,14 @@ bool cli_parser_execute(char* line) {
       return true;
     } else if (!strcmp(what, "WIFI")) {
       cli_cmd_show_wifi();
+      return true;
+    } else if (!strcmp(what, "TELNET")) {
+      // show telnet — shortcut for "show config telnet"
+      cli_cmd_show_config("TELNET");
+      return true;
+    } else if (!strcmp(what, "MODBUS")) {
+      // show modbus — shortcut for "show config modbus" (slave + master combined)
+      cli_cmd_show_config("MODBUS");
       return true;
     } else if (!strcmp(what, "ETHERNET")) {
       cli_cmd_show_ethernet();

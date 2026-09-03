@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include "modbus_master.h"
 #include "mb_async.h"
+#include "mb_activity_log.h"
 #include "config_struct.h"
 #include "debug.h"
 
@@ -242,6 +243,10 @@ struct MbTempBaud {
 };
 
 void cli_cmd_mb_read(uint8_t argc, char **argv) {
+  // FEAT-149: this is a direct/synchronous call (no async queue involved),
+  // so mark the source right before any modbus_master_* call below.
+  g_mb_activity_current_source = MB_SRC_CLI;
+
   // mb read <type> <slave_id> <address> [count] [baudrate]
   if (argc < 3) {
     debug_println("Brug: mb read <type> <slave_id> <address> [count] [baudrate]");
@@ -365,6 +370,9 @@ void cli_cmd_mb_read(uint8_t argc, char **argv) {
 }
 
 void cli_cmd_mb_write(uint8_t argc, char **argv) {
+  // FEAT-149: direct/synchronous call — mark source before modbus_master_* calls.
+  g_mb_activity_current_source = MB_SRC_CLI;
+
   // mb write <type> <slave_id> <address> <value> [baudrate]
   if (argc < 4) {
     debug_println("Brug: mb write <type> <slave_id> <address> <value> [baudrate]");
@@ -448,6 +456,9 @@ void cli_cmd_mb_reset_backoff(uint8_t argc, char **argv) {
 }
 
 void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id, uint32_t temp_baud) {
+  // FEAT-149: direct/synchronous calls — mark source before modbus_master_* calls.
+  g_mb_activity_current_source = MB_SRC_CLI;
+
   if (start_id < 1) start_id = 1;
   if (end_id > 247) end_id = 247;
   if (start_id > end_id) {

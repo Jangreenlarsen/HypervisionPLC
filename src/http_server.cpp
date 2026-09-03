@@ -744,6 +744,12 @@ static const httpd_uri_t uri_alarms_ack = {
   .user_ctx = NULL
 };
 
+// FEAT-149: Modbus Activity Log (Master+Slave, RAM-only) — NOT registered as
+// separate httpd_uri_t entries: /api/modbus/* (uri_modbus_get/uri_modbus_post
+// above) is a wildcard registered earlier and would shadow these exact
+// routes. Instead api_handler_modbus_get()/_post() delegate to
+// api_handler_modbus_activity_get()/_clear() internally by URI suffix.
+
 // FEAT-022: Persistence group management API
 static const httpd_uri_t uri_persist_groups_list = {
   .uri      = "/api/persist/groups",

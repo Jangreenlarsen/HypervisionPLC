@@ -16,7 +16,7 @@
 
 ### Quick Navigation
 - **[`CLAUDE_INDEX.md`](CLAUDE_INDEX.md)** - Main entry point, quick links by task (~300 tokens)
-- **[`BUGS_INDEX.md`](BUGS_INDEX.md)** - Bug tracking index, all 26 bugs at a glance (~500 tokens)
+- **[`BUGS_INDEX.md`](BUGS_INDEX.md)** - Bug tracking index, alle bugs/FEATs at a glance (~500 tokens)
 
 ### Setup & Rules
 - **[`CLAUDE_SETUP.md`](CLAUDE_SETUP.md)** - Security rules, working directory, git safety (~200 tokens)
@@ -118,9 +118,12 @@ CLAUDE.md (THIS FILE)
 ├─ CLAUDE_ARCH.md (ARCHITECTURE)
 │  └─ Layer breakdown, file reference, data flows
 │
-└─ BUGS_* (BUG TRACKING)
-   ├─ BUGS_INDEX.md (ALWAYS READ FIRST)
-   └─ BUGS.md (detailed analysis, read as needed)
+├─ BUGS_* (BUG TRACKING)
+│  ├─ BUGS_INDEX.md (ALWAYS READ FIRST)
+│  └─ BUGS.md (detailed analysis, read as needed)
+│
+└─ SECURITY_INDEX.md (SECURITY FINDINGS)
+   └─ Fixede + åbne sikkerhedsfund, tjek ved web/API/CLI/Modbus/ST-ændringer
 ```
 
 ---
@@ -230,10 +233,10 @@ A: Read [`CLAUDE_ARCH.md`](CLAUDE_ARCH.md)
 
 | Aspect | Details |
 |--------|---------|
-| **Target** | ESP32-WROOM-32 (240MHz dual-core) |
+| **Target** | ESP32-WROOM-32 / ESP32-WROVER m. 4MB PSRAM (ES32D26) |
 | **Protocol** | Modbus RTU (RS-485) |
 | **Architecture** | 30+ modular .cpp/.h files |
-| **Version** | v7.8.1 |
+| **Version** | v7.9.8.4 |
 | **Components** | Counters, Timers, ST Logic, CLI, Ethernet (W5500) |
 | **Key Feature** | IEC 61131-3 Type System (INT/DINT/REAL) |
 
@@ -251,9 +254,9 @@ All checked? Ready to code! 🚀
 
 ---
 
-**Last Updated:** 2026-04-01
-**Version:** v7.8.1
-**Build:** #1771
+**Last Updated:** 2026-09-02
+**Version:** v7.9.8.4
+**Build:** #2003
 **Status:** ✅ Navigation Hub (Modular Documentation)
 
 **Remember:** The value of documentation is not in its size, but in its usability. Start with [`CLAUDE_INDEX.md`](CLAUDE_INDEX.md) →

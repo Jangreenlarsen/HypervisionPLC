@@ -12,6 +12,7 @@
 #include "modbus_frame.h"
 #include "constants.h"
 #include "debug.h"
+#include "mb_activity_log.h"
 #include <Arduino.h>
 
 /* ============================================================================
@@ -26,6 +27,56 @@ static ModbusFrame response_frame;
 /* ============================================================================
  * MODBUS SERVER FUNCTIONS
  * ============================================================================ */
+
+/**
+ * @brief FEAT-149: log an incoming Slave-role transaction to the wire-level
+ * activity log, right where the request has just been fully processed —
+ * the Slave-side equivalent of mb_log_master_activity() in modbus_master.cpp.
+ * Always MB_SRC_EXTERNAL: by definition a Slave-role request always
+ * originates from an external master on the bus.
+ */
+static void mb_log_slave_activity(const ModbusFrame *req, const ModbusFrame *resp, bool success) {
+  uint8_t fc = req->function_code;
+  uint16_t address = (req->length >= 4) ? (((uint16_t)req->data[0] << 8) | req->data[1]) : 0;
+  uint8_t count = 1;
+  int32_t value = 0;
+  int16_t error = 0;
+
+  if (!success) {
+    // resp was built by modbus_serialize_error_response(): data[0] = exception code
+    error = (resp->length >= 3) ? (int16_t)resp->data[0] : -1;
+  }
+
+  switch (fc) {
+    case FC_READ_COILS: case FC_READ_DISCRETE_INPUTS:
+    case FC_READ_HOLDING_REGS: case FC_READ_INPUT_REGS:
+      if (req->length >= 6) count = (uint8_t)(((uint16_t)req->data[2] << 8) | req->data[3]);
+      if (success && resp->length >= 4) {
+        if (fc == FC_READ_COILS || fc == FC_READ_DISCRETE_INPUTS) {
+          value = resp->data[1] & 0x01;  // First coil/discrete bit
+        } else if (resp->length >= 5) {
+          value = ((int32_t)resp->data[1] << 8) | resp->data[2];  // First register
+        }
+      }
+      break;
+    case FC_WRITE_SINGLE_COIL:
+      if (req->length >= 6) value = (((uint16_t)req->data[2] << 8) | req->data[3]) ? 1 : 0;
+      break;
+    case FC_WRITE_SINGLE_REG:
+      if (req->length >= 6) value = ((uint16_t)req->data[2] << 8) | req->data[3];
+      break;
+    case FC_WRITE_MULTIPLE_COILS: case FC_WRITE_MULTIPLE_REGS:
+      if (req->length >= 6) count = (uint8_t)(((uint16_t)req->data[2] << 8) | req->data[3]);
+      if (fc == FC_WRITE_MULTIPLE_REGS && req->length >= 9) {
+        value = ((int32_t)req->data[5] << 8) | req->data[6];  // First register written
+      }
+      break;
+    default:
+      break;
+  }
+
+  mb_activity_log_add(MB_ACTIVITY_ROLE_SLAVE, MB_SRC_EXTERNAL, req->slave_id, fc, address, count, value, error);
+}
 
 void modbus_server_init(uint8_t sid) {
   slave_id = sid;
@@ -81,6 +132,7 @@ void modbus_server_loop(void) {
       // Process request and generate response
       {
         bool success = modbus_dispatch_function_code(&request_frame, &response_frame);
+        mb_log_slave_activity(&request_frame, &response_frame, success);
 
         if (success) {
           // Broadcast requests (slave_id == 0) should NOT generate responses

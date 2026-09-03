@@ -39,6 +39,7 @@
 #include "sse_events.h"        // v7.0.0 - SSE real-time events
 #include "ntp_driver.h"        // v7.8.1 - NTP time synchronization
 #include "mb_async.h"          // v7.7.0 - Async Modbus Master background task
+#include "mb_activity_log.h"   // FEAT-149 - Wire-level Modbus activity log
 #include <esp_ota_ops.h>       // v7.5.0 - FEAT-031 OTA boot validation
 
 // ============================================================================
@@ -103,6 +104,9 @@ void setup() {
   timer_engine_init();      // Timer feature (4 modes)
   Serial.print("L"); Serial.flush();   // ST Logic
   st_logic_init(st_logic_get_state());  // ST Logic Mode (4 independent programs)
+
+  // FEAT-149: wire-level activity log (Master+Slave) — init before either mode
+  mb_activity_log_init();
 
   // Modbus mode-based initialization (v7.2.0+)
   uint8_t mb_mode = g_persist_config.modbus_mode;

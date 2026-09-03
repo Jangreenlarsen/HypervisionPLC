@@ -91,6 +91,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .tbl{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
 .tbl th{text-align:left;padding:4px 6px;color:#89b4fa;border-bottom:1px solid #313244;font-weight:600}
 .tbl td{padding:3px 6px;border-bottom:1px solid rgba(49,50,68,.5)}
+/* FEAT-152: fastlås header-rækken i scrollbare log-tabeller (Modbus
+   Aktivitetslog + Alarm Historik) så den ikke scroller ud af billedet.
+   box-shadow i stedet for border-bottom, da border-collapse:collapse ellers
+   lader kanten scrolle væk sammen med indholdet. */
+#mbActivityBody .tbl th,#alarmBody .tbl th{position:sticky;top:0;background:#181825;z-index:2;box-shadow:inset 0 -1px 0 #313244}
 .tbl tr:hover{background:rgba(49,50,68,.3)}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle}
 .dot-g{background:#a6e3a1}.dot-r{background:#f38ba8}.dot-y{background:#fab387}.dot-off{background:#45475a}
@@ -271,7 +276,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div style="border-top:1px solid #313244;margin-top:8px;padding-top:6px;text-align:center"><button id="btnResetMasterStats" onclick="resetMasterStats()" style="background:#45475a;color:#cdd6f4;border:1px solid #585b70;border-radius:4px;padding:4px 14px;cursor:pointer;font-size:12px">Nulstil statistik</button></div>
 <!-- FEAT-135: mb read/write mini-form -->
 <div style="border-top:1px solid #313244;margin-top:8px;padding-top:6px">
-<div style="font-size:11px;color:#89b4fa;margin-bottom:4px;font-weight:600">Read/Write</div>
+<div style="font-size:11px;color:#89b4fa;margin-bottom:4px;font-weight:600">Modbus manuel Read/Write</div>
 <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:4px">
 <div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px">FC Type</div>
 <select id="mbOp" onchange="updateMbForm()" style="padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
@@ -293,6 +298,31 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <pre id="mbResult" style="font-size:10px;background:#11111b;color:#a6adc8;padding:4px 6px;border-radius:3px;max-height:100px;overflow-y:auto;margin:0;white-space:pre-wrap;font-family:'Cascadia Code',monospace;user-select:text;cursor:text">(klar)</pre>
 </div>
 </div>
+</div>
+
+<!-- FEAT-149: Modbus Aktivitetslog (Master + Slave, RAM-only, wire-level) -->
+<div class="card card-wide" data-card-id="mbactivity" data-tab="modbus">
+<h2>Modbus Aktivitetslog <span class="badge badge-off" id="badgeMbActivity">0</span></h2>
+<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+<span style="font-size:10px;color:#6c7086" id="mbActivityInfo">-</span>
+<button onclick="clearMbActivity()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Ryd log</button>
+</div>
+<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+<select id="mbActRole" onchange="renderMbActivity()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">Master + Slave</option>
+<option value="master">Kun Master</option>
+<option value="slave">Kun Slave</option>
+</select>
+<select id="mbActSrc" onchange="renderMbActivity()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">Alle kilder</option>
+<option value="st_logic">ST Logic</option>
+<option value="cli">CLI</option>
+<option value="dashboard">Dashboard</option>
+<option value="external">Ekstern master</option>
+</select>
+<input type="number" id="mbActLimit" value="25" min="5" max="200" onchange="renderMbActivity()" title="Max antal" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
+</div>
+<div id="mbActivityBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen aktivitet endnu</span></div>
 </div>
 
 <!-- HTTP API + SSE -->
@@ -498,9 +528,10 @@ let _tcpNtpOn=false,_tcpNtpSync=false,_tcpNtpServer='',_tcpNtpSyncs=0;
 let alarms=[];
 let _stBindings=null;
 let _alarmLog=[];
+let _mbActivityLog=[];
 
 let _activeSubTab='all';
-const _defaultTabs={system:'overview',network:'overview',alarms:'overview',modbusslave:'modbus',modbusmaster:'modbus',rtutrafik:'modbus',httpapi:'connections',tcpmonitor:'connections',ntp:'connections',counters:'app',timers:'app',stlogic:'app',dio:'app'};
+const _defaultTabs={system:'overview',network:'overview',alarms:'overview',modbusslave:'modbus',modbusmaster:'modbus',mbactivity:'modbus',rtutrafik:'modbus',httpapi:'connections',tcpmonitor:'connections',ntp:'connections',counters:'app',timers:'app',stlogic:'app',dio:'app'};
 let _customTabs={};   // Overrides from API
 let _hiddenCards={};   // Set of hidden card IDs
 
@@ -1403,6 +1434,73 @@ async function ackAlarms(){
     fetchAlarms();
   }catch(e){}
 }
+// FEAT-149: Modbus Activity Log (Master+Slave, RAM-only, wire-level)
+const _mbFcNames={1:'Read Coil',2:'Read Discrete',3:'Read Holding',4:'Read Input Reg',5:'Write Coil',6:'Write Holding',15:'Write Coils',16:'Write Holdings'};
+const _mbSrcNames={st_logic:'ST Logic',cli:'CLI',dashboard:'Dashboard',external:'Ekstern master',unknown:'-'};
+async function fetchMbActivity(){
+  try{
+    const r=await fetch('/api/modbus/activity',{});
+    if(!r.ok)return;
+    _mbActivityLog=await r.json();
+    renderMbActivity();
+  }catch(e){}
+}
+function renderMbActivity(){
+  const badgeEl=$('badgeMbActivity');
+  if(badgeEl)badge(badgeEl,_mbActivityLog.length>0,String(_mbActivityLog.length));
+  const el=$('mbActivityBody');
+  if(!el)return;
+  if(!_mbActivityLog||_mbActivityLog.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen aktivitet endnu</span>';
+    if($('mbActivityInfo'))$('mbActivityInfo').textContent='0 transaktioner';
+    return;
+  }
+  const roleFilter=$('mbActRole')?$('mbActRole').value:'any';
+  const srcFilter=$('mbActSrc')?$('mbActSrc').value:'any';
+  const limit=Math.max(5,parseInt($('mbActLimit')?$('mbActLimit').value:25)||25);
+  const filtered=_mbActivityLog.filter(a=>{
+    if(roleFilter!=='any'&&a.role!==roleFilter)return false;
+    if(srcFilter!=='any'&&a.source!==srcFilter)return false;
+    return true;
+  });
+  if($('mbActivityInfo'))$('mbActivityInfo').textContent=_mbActivityLog.length+' total, '+filtered.length+' matcher filter';
+  if(filtered.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen transaktioner matcher filter</span>';
+    return;
+  }
+  const recent=filtered.slice(-limit).reverse();
+  let h='<table class="tbl"><tr><th>Tid</th><th>Rolle</th><th>Kilde</th><th>Slave</th><th>FC</th><th>Adresse</th><th>Antal</th><th>Værdi</th><th>Status</th></tr>';
+  for(const a of recent){
+    // timestamp_ms is device uptime (millis()), not wall-clock epoch time
+    const s=Math.floor(a.timestamp_ms/1000);
+    const timeStr=String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor((s%3600)/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+    const roleLbl=a.role==='master'?'<span style="color:#89b4fa">Master</span>':'<span style="color:#f9e2af">Slave</span>';
+    const srcLbl=_mbSrcNames[a.source]||a.source;
+    const fcLbl=_mbFcNames[a.fc]||('FC'+a.fc);
+    const statusLbl=a.success?'<span class="val-ok">OK</span>':'<span class="val-err" title="Fejlkode '+a.error+'">FEJL('+a.error+')</span>';
+    h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
+    h+='<td style="font-size:10px">'+roleLbl+'</td>';
+    h+='<td style="font-size:10px">'+srcLbl+'</td>';
+    h+='<td style="font-size:10px">'+a.slave_id+'</td>';
+    h+='<td style="font-size:10px" title="FC'+a.fc+'">'+fcLbl+'</td>';
+    h+='<td style="font-size:10px">'+a.address+'</td>';
+    h+='<td style="font-size:10px">'+a.count+'</td>';
+    h+='<td style="font-size:10px">'+(a.count>1?'-':a.value)+'</td>';
+    h+='<td style="font-size:10px">'+statusLbl+'</td></tr>';
+  }
+  h+='</table>';
+  el.innerHTML=h;
+  autoSizeCards();
+}
+async function clearMbActivity(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{}};
+    if(auth)opts.headers['Authorization']=auth;
+    await fetch('/api/modbus/activity/clear',opts);
+    fetchMbActivity();
+  }catch(e){}
+}
 async function toggleDO(pin){
   try{
     var auth=sessionStorage.getItem('hfplc_auth');
@@ -1549,9 +1647,9 @@ function restoreCardOrder(){
 }
 
 // === Dashboard Settings Page ===
-const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O'};
+const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',mbactivity:'Modbus Aktivitetslog',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O'};
 const _tabNames={overview:'Overblik',modbus:'Modbus',connections:'Forbindelser',app:'Applikation'};
-const _allCardIds=['system','network','alarms','modbusslave','modbusmaster','rtutrafik','httpapi','tcpmonitor','ntp','counters','timers','stlogic','dio'];
+const _allCardIds=['system','network','alarms','modbusslave','modbusmaster','mbactivity','rtutrafik','httpapi','tcpmonitor','ntp','counters','timers','stlogic','dio'];
 
 function buildSettingsTable(){
   const body=$('settingsBody');
@@ -1919,11 +2017,13 @@ function init(){
   fetchBindings();
   fetchMetrics();
   fetchAlarms();
+  fetchMbActivity();
   fetchNetworkInfo();
   fetchConnections();
   refreshTimer=setInterval(fetchMetrics,3000);
   setInterval(fetchBindings,15000);
   setInterval(fetchAlarms,5000);
+  setInterval(fetchMbActivity,3000);
   setInterval(fetchNetworkInfo,10000);
   setInterval(fetchConnections,5000);
   sseConnect();

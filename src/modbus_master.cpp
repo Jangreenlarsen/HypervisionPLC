@@ -7,6 +7,7 @@
 
 #include "modbus_master.h"
 #include "mb_async.h"
+#include "mb_activity_log.h"
 #include "uart_driver.h"
 #include "config_struct.h"
 #include <HardwareSerial.h>
@@ -202,6 +203,56 @@ uint16_t modbus_master_calc_crc(const uint8_t *buffer, uint8_t len) {
  * REQUEST/RESPONSE HANDLING
  * ============================================================================ */
 
+/**
+ * @brief FEAT-149: log this Master transaction to the wire-level activity
+ * log — the single chokepoint every Master read/write funnels through
+ * (async queue AND direct CLI calls), so it's the truest possible "sniff
+ * point" short of tapping the UART pins themselves.
+ *
+ * Value/count are read from the REQUEST (always available) plus the
+ * RESPONSE when the transaction succeeded (the only case the response
+ * bytes are known-complete and trustworthy).
+ */
+static void mb_log_master_activity(const uint8_t *request, uint8_t request_len,
+                                    const uint8_t *response, uint8_t response_len,
+                                    mb_error_code_t err) {
+  if (request_len < 4) return;  // malformed request — nothing sane to log
+
+  uint8_t slave_id = request[0];
+  uint8_t fc = request[1];
+  uint16_t address = ((uint16_t)request[2] << 8) | request[3];
+  uint8_t count = 1;
+  int32_t value = 0;
+
+  switch (fc) {
+    case 0x01: case 0x02: case 0x03: case 0x04:  // Reads
+      if (request_len >= 6) count = (uint8_t)(((uint16_t)request[4] << 8) | request[5]);
+      if (err == MB_OK && response_len >= 4) {
+        if (fc == 0x01 || fc == 0x02) {
+          value = response[3] & 0x01;  // First coil/discrete bit
+        } else if (response_len >= 5) {
+          value = ((int32_t)response[3] << 8) | response[4];  // First register
+        }
+      }
+      break;
+    case 0x05:  // Write Single Coil
+      if (request_len >= 6) value = (((uint16_t)request[4] << 8) | request[5]) ? 1 : 0;
+      break;
+    case 0x06:  // Write Single Holding Register
+      if (request_len >= 6) value = ((uint16_t)request[4] << 8) | request[5];
+      break;
+    case 0x10:  // Write Multiple Registers (FC16)
+      if (request_len >= 6) count = (uint8_t)(((uint16_t)request[4] << 8) | request[5]);
+      if (request_len >= 9) value = ((int32_t)request[7] << 8) | request[8];  // First register written
+      break;
+    default:
+      break;
+  }
+
+  mb_activity_log_add(MB_ACTIVITY_ROLE_MASTER, g_mb_activity_current_source,
+                       slave_id, fc, address, count, value, (int16_t)err);
+}
+
 mb_error_code_t modbus_master_send_request(
   const uint8_t *request,
   uint8_t request_len,
@@ -210,6 +261,7 @@ mb_error_code_t modbus_master_send_request(
   uint8_t max_response_len
 ) {
   if (!g_modbus_master_config.enabled) {
+    mb_log_master_activity(request, request_len, NULL, 0, MB_NOT_ENABLED);
     return MB_NOT_ENABLED;
   }
 
@@ -334,6 +386,7 @@ mb_error_code_t modbus_master_send_request(
     g_modbus_master_config.last_error_slave_id = req_slave_id;
     g_modbus_master_config.last_error_address = req_address;
     g_modbus_master_config.last_error_type = MB_TIMEOUT;
+    mb_log_master_activity(request, request_len, response, bytes_received, MB_TIMEOUT);
     return MB_TIMEOUT;
   }
 
@@ -347,12 +400,14 @@ mb_error_code_t modbus_master_send_request(
       g_modbus_master_config.last_error_slave_id = req_slave_id;
       g_modbus_master_config.last_error_address = req_address;
       g_modbus_master_config.last_error_type = MB_CRC_ERROR;
+      mb_log_master_activity(request, request_len, response, bytes_received, MB_CRC_ERROR);
       return MB_CRC_ERROR;
     }
   } else {
     g_modbus_master_config.last_error_slave_id = req_slave_id;
     g_modbus_master_config.last_error_address = req_address;
     g_modbus_master_config.last_error_type = MB_CRC_ERROR;
+    mb_log_master_activity(request, request_len, response, bytes_received, MB_CRC_ERROR);
     return MB_CRC_ERROR;
   }
 
@@ -362,10 +417,12 @@ mb_error_code_t modbus_master_send_request(
     g_modbus_master_config.last_error_slave_id = req_slave_id;
     g_modbus_master_config.last_error_address = req_address;
     g_modbus_master_config.last_error_type = MB_EXCEPTION;
+    mb_log_master_activity(request, request_len, response, bytes_received, MB_EXCEPTION);
     return MB_EXCEPTION;
   }
 
   g_modbus_master_config.successful_requests++;
+  mb_log_master_activity(request, request_len, response, bytes_received, MB_OK);
   return MB_OK;
 }
 

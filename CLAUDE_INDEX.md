@@ -11,6 +11,7 @@
 | **Architecture deep dive** | [`CLAUDE_ARCH.md`](CLAUDE_ARCH.md) | 30 min | ~1000 |
 | **Project overview** | See below | 2 min | ~100 |
 | **Bug tracking** | [`BUGS_INDEX.md`](BUGS_INDEX.md) | 10 sec | ~500 |
+| **Sikkerhedsfund** | [`SECURITY_INDEX.md`](SECURITY_INDEX.md) | 30 sec | ~600 |
 
 ---
 
@@ -52,6 +53,9 @@ CLAUDE.md-related documentation (THIS SECTION):
 Bug tracking:
 ├─ BUGS_INDEX.md - Quick bug reference (~500 tokens)
 └─ BUGS.md - Full detailed bugs (5000+ tokens)
+
+Security tracking:
+└─ SECURITY_INDEX.md - Sikkerhedsfund, fixede + åbne (~600 tokens)
 
 Test documentation:
 └─ tests/ - Strukturerede testplaner
@@ -108,7 +112,7 @@ Project files:
 ## 📚 Reference Cards
 
 ### Version Numbers
-- **Current:** v7.1.0
+- **Current:** v7.9.8.4
 - **Format:** vMAJOR.MINOR.PATCH
 - **File:** See `include/constants.h`
 - **Changelog:** See `CHANGELOG.md`
@@ -210,7 +214,7 @@ EXCEPTION:
 
 ---
 
-**Last Updated:** 2026-03-18
-**Version:** v7.1.0
-**Build:** #1432
+**Last Updated:** 2026-09-02
+**Version:** v7.9.8.4
+**Build:** #2003
 **Status:** ✅ Active & Maintained

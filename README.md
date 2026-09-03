@@ -1,6 +1,6 @@
 # Modbus RTU Server (ESP32)
 
-**Version:** v7.9.6.4 | **Build:** Auto | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32
+**Version:** v7.9.8.4 | **Build:** Auto | **Status:** Production-Ready | **Platform:** ESP32-WROOM-32 / ESP32-WROVER (ES32D26)
 
 En komplet, modulær **Modbus RTU Server** implementation til ESP32-WROOM-32 mikrocontroller med **Modbus interfaces** (Slave + Master), ST Structured Text Logic programmering med IEC 61131-3 type system, Wi-Fi netværk, **HTTP REST API** for Node-RED integration, telnet CLI interface, og komplet Modbus register dokumentation. Understøtter flere board-varianter inkl. **ES32D26** med shared RS485 transceiver, 8DI/8DO (shift registers), 8AI og 2AO (DAC).
 
@@ -3761,6 +3761,44 @@ empty := CTD(dispense, reload, 50);              (* Count down from 50 *)
 
 ## 📝 Version History
 
+- **v7.9.8.4** (2026-09-02) - 📌 Fastlåst tabel-header
+  - **FEAT-152:** Sticky header i Modbus Aktivitetslog og Alarm Historik — kolonnenavne bliver stående ved scroll
+- **v7.9.8.3** (2026-09-02) - ⌨️ CLI-genveje
+  - **FEAT-150:** `show telnet` og `show modbus` (virker også som `sh`/`s`) — genveje til `show config <sektion>`
+- **v7.9.8.2** (2026-09-02) - 🩹 Aktivitetslog stabilitet
+  - **FIX: BUG-332:** JSON-output blev afkortet når loggen var fuld (for lille buffer-estimat) → ugyldig JSON → dashboardet frøs. Bufferen sizes nu eksakt via `measureJson()`
+- **v7.9.8.1** (2026-09-02) - 🔀 Routing-fix
+  - **FIX: BUG-331:** `/api/modbus/activity` blev shadowet af wildcard-routen `/api/modbus/*` og svarede 400. Routing sker nu via URI-suffix i wildcard-handleren (samme mønster som `/master/rw`)
+- **v7.9.8.0** (2026-09-02) - 🔍 Modbus Aktivitetslog
+  - **FEAT-149:** Wire-level monitor af **både** Master- og Slave-trafik, RAM-only ringbuffer (40 entries)
+  - Hooket i `modbus_master_send_request()` (fanger async-kø, CLI og dashboard) og `modbus_server_loop()` (ekstern master)
+  - **Source-attribution:** hver transaktion viser om den kom fra ST Logic, CLI, dashboard eller ekstern master
+  - Nyt dashboard-kort med badge + rolle/kilde-filter, API: `GET /api/modbus/activity`, `POST /api/modbus/activity/clear`
+- **v7.9.7.8** (2026-09-02) - 📦 OTA størrelsesgrænse
+  - **FIX: BUG-330:** OTA afviste gyldig firmware med "max 1.625MB" — grænsen blev aldrig opdateret da partitionen voksede til 1.8125MB i v7.9.7.3 (4 steder rettet)
+- **v7.9.7.7** (2026-09-02) - 🔐 Sikkerhedsfixes (fuld kodebase-audit)
+  - **FIX: BUG-328:** `/api/system/backup` lækkede WiFi/telnet/HTTP/RBAC-passwords til read-only brugere → kræver nu skriverettighed. HTTP-auth er nu slået **til** som fabriksdefault
+  - **FIX: BUG-324:** Buffer overflow i `MB_WRITE_HOLDINGS`/`MB_READ_HOLDINGS` — count blev ikke clampet for plain INT-type
+  - **FIX: BUG-325:** ST-parserens rekursionsgrænse dækkede kun unær-kæder — nu også parenteser, array-index, funktionsargumenter og nested IF/FOR/WHILE/CASE
+  - **FIX: BUG-326:** `LOAD()` og `load registers` stack-allokerede ~30KB `PersistConfig` → deterministisk crash. Nu heap-allokeret
+  - **FIX: BUG-327:** Telnet brute-force lockout kunne omgås ved disconnect/reconnect
+  - **FIX: BUG-329:** ST Logic ignorerede "Modbus Master enabled"-flaget → phantom aktivitet i monitor når Master var slået fra
+  - **Ny:** [SECURITY_INDEX.md](SECURITY_INDEX.md) — tracking af alle 17 sikkerhedsfund (fixede + åbne), tjekkes ved kodeændringer
+- **v7.9.7.6** (2026-08) - 🧠 PSRAM ST-pool
+  - **FEAT-148:** ST source pool 8× større (8 KB → 64 KB) via PSRAM, frigør 8 KB DRAM
+- **v7.9.7.5** (2026-08) - ℹ️ Flash chip info
+  - **FEAT-147:** `show version`/`show status` viser flash størrelse/frekvens/mode, nye Prometheus-gauges
+- **v7.9.7.4** (2026-08) - 🗜️ Flash-optimering
+  - **FEAT-146:** LTO + dead code elimination + OTA-partitioner 1.625 MB → 1.8125 MB (SPIFFS skåret til 256 KB)
+  - ⚠️ Kræver `pio run -t erase && pio run -t upload` ved første flash efter opgradering
+- **v7.9.7.3** (2026-08) - 🔧 ESP32-WROVER
+  - **FEAT-145:** ES32D26 opgraderet til ESP32-WROVER med 4 MB PSRAM
+- **v7.9.7.2** (2026-08) - ⚙️ Konfigurerbar cache/kø
+  - **FEAT-144:** `set modbus-master cache-size <1-32>` og `queue-size <4-32>` med NVS-persistens (schema 18→19)
+- **v7.9.7.1** (2026-08) - 🚦 Modbus Master priority queue
+  - **FEAT-143:** 3-niveau prioritetskø (Write > Read-fresh > Read-refresh) med eviction, nye queue/cache-metrics
+- **v7.9.7.0** (2026-08) - 🗂️ Dashboard sub-tabs
+  - Sub-tabs (Alle/Overblik/Modbus/Forbindelser/Applikation) + indstillinger-side med kort-layout
 - **v7.9.6.4** (2026-04-12) - 📈 ST Editor Monitor Trend Forbedringer
   - **FEAT-137:** Oscilloskop-gitter i trend-kurver (4H+8V linjer, mørk baggrund)
   - **FEAT-138:** Hastigheds-/historik-kontrol virker korrekt, valgbar kurvefarve (8 farver)

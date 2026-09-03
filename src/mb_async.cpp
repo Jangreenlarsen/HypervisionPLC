@@ -11,6 +11,7 @@
 #include "mb_async.h"
 #include "modbus_master.h"
 #include "st_builtin_modbus.h"
+#include "mb_activity_log.h"
 
 /* ============================================================================
  * GLOBALS
@@ -214,6 +215,7 @@ bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t addr
   req.slave_id = slave_id;
   req.address = address;
   req.priority = prio;
+  req.source = g_mb_activity_next_source;
 
   if (!mb_pq_insert(&req)) {
     // Revert status on queue-full
@@ -247,6 +249,7 @@ bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t add
   req.address = address;
   req.write_value = value;
   req.priority = MB_PRIO_WRITE;
+  req.source = g_mb_activity_next_source;
 
   if (!mb_pq_insert(&req)) {
     return false;
@@ -285,6 +288,7 @@ bool mb_async_queue_read_multi(uint8_t slave_id, uint16_t address, uint8_t count
   req.address = address;
   req.count = count;
   req.priority = prio;
+  req.source = g_mb_activity_next_source;
 
   // Mark all individual cache entries as pending
   for (uint8_t i = 0; i < count; i++) {
@@ -319,6 +323,7 @@ bool mb_async_queue_write_multi(uint8_t slave_id, uint16_t address, uint8_t coun
   req.count = count;
   req.multi_pool_slot = slot;
   req.priority = MB_PRIO_WRITE;
+  req.source = g_mb_activity_next_source;
 
   if (!mb_pq_insert(&req)) {
     g_mb_async.queue_full_count++;
@@ -410,6 +415,10 @@ static void mb_async_task_func(void *pvParameters) {
     if (!mb_pq_dequeue(&req)) {
       continue;
     }
+
+    // FEAT-149: attribute this transaction's activity-log entry to whoever
+    // queued it (ST Logic vs Dashboard), snapshotted at enqueue time.
+    g_mb_activity_current_source = req.source;
 
     g_mb_async.total_requests++;
 

@@ -12,6 +12,7 @@
 #include "st_builtin_modbus.h"
 #include "modbus_master.h"
 #include "mb_async.h"
+#include "mb_activity_log.h"
 
 /* ============================================================================
  * GLOBAL STATUS VARIABLES
@@ -60,6 +61,11 @@ static bool validate_slave_addr(int32_t slave_id, int32_t address) {
     g_mb_success = false;
     return false;
   }
+
+  // FEAT-149: any request that gets queued from here on originated from an
+  // ST Logic program — snapshotted into the queued request so the activity
+  // log can attribute it correctly once actually sent (possibly later).
+  g_mb_activity_next_source = MB_SRC_ST_LOGIC;
   // BUG-084: Validate slave ID (Modbus valid range: 1-247)
   if (slave_id < 1 || slave_id > 247) {
     g_mb_last_error = MB_INVALID_SLAVE;

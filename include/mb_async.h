@@ -89,7 +89,8 @@ typedef struct {
   uint8_t           multi_pool_slot;  // index into g_mb_multi_write_pool (v7.9.3: was multi_regs[16])
   uint8_t           priority;         // mb_request_priority_t (v7.9.7: priority queue)
   uint16_t          insert_seq;       // insertion order for FIFO within same priority
-} mb_async_request_t;                 // 13 bytes
+  uint8_t           source;           // mb_activity_source_t, snapshotted at enqueue time (FEAT-149)
+} mb_async_request_t;                 // 14 bytes
 
 typedef struct {
   // Cache

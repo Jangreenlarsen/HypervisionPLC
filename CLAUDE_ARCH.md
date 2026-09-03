@@ -109,10 +109,19 @@ Each layer has **ONE responsibility**. No circular dependencies.
 | `modbus_tx.cpp/h` | RS-485 DIR control, serial TX (Slave UART0) |
 | `modbus_server.cpp/h` | Main Modbus Slave state machine (UART0) |
 | `modbus_master.cpp/h` | Modbus Master implementation (UART1) |
+| `mb_async.cpp/h` | Async Master: priority queue + cache + FreeRTOS task on Core 0 (v7.7.0) |
+| `mb_activity_log.cpp/h` | Wire-level activity log, Master + Slave, RAM-only ring buffer (FEAT-149) |
 
 **Slave Flow (UART0):** idle → RX (receive frame) → process (call FC handler) → TX (send response) → idle
 
 **Master Flow (UART1):** ST Logic request → TX (send request) → RX (wait response) → parse → return to ST Logic
+
+**Activity log hook points (FEAT-149):** every Master transaction funnels through
+`modbus_master_send_request()` and every Slave request through
+`modbus_server_loop()`'s PROCESS state — these are the two single chokepoints,
+so the log captures *all* traffic regardless of origin (ST Logic, CLI,
+dashboard, external master). Source attribution survives the async queue by
+being snapshotted into `mb_async_request_t.source` at enqueue time.
 
 ---
 

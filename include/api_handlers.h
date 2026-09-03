@@ -282,6 +282,10 @@ esp_err_t api_handler_ntp_post(httpd_req_t *req);
 esp_err_t api_handler_alarms_get(httpd_req_t *req);
 esp_err_t api_handler_alarms_ack(httpd_req_t *req);
 
+/* FEAT-149: Modbus Activity Log (Master+Slave, RAM-only) */
+esp_err_t api_handler_modbus_activity_get(httpd_req_t *req);
+esp_err_t api_handler_modbus_activity_clear(httpd_req_t *req);
+
 /** FEAT-022: Persistence Group Management API */
 esp_err_t api_handler_persist_groups_list(httpd_req_t *req);
 esp_err_t api_handler_persist_group_single(httpd_req_t *req);

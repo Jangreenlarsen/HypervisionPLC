@@ -49,6 +49,7 @@
 #include "cli_shell.h"
 #include "rbac.h"
 #include "mb_async.h"
+#include "mb_activity_log.h"
 #include "ntp_driver.h"
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
@@ -2333,6 +2334,17 @@ esp_err_t api_handler_debug_set(httpd_req_t *req)
 
 esp_err_t api_handler_modbus_get(httpd_req_t *req)
 {
+  // FEAT-149: /api/modbus/activity has its own dedicated handler (own
+  // stat-tracking/auth requirements). This wildcard handler (/api/modbus/*)
+  // is registered before it, so ESP-IDF's httpd would otherwise route
+  // /api/modbus/activity here first — where it matches neither "/slave" nor
+  // "/master" below and gets rejected with 400 before ever reaching the
+  // dedicated handler. Delegate immediately, before this handler's own
+  // stat/auth housekeeping runs, to avoid double-counting.
+  if (strstr(req->uri, "/activity") != NULL) {
+    return api_handler_modbus_activity_get(req);
+  }
+
   http_server_stat_request();
   CHECK_AUTH(req);
 
@@ -2399,6 +2411,13 @@ esp_err_t api_handler_modbus_get(httpd_req_t *req)
 
 esp_err_t api_handler_modbus_post(httpd_req_t *req)
 {
+  // FEAT-149: same wildcard-shadowing issue as api_handler_modbus_get() —
+  // delegate /api/modbus/activity/clear before this handler's own
+  // stat/auth housekeeping runs.
+  if (strstr(req->uri, "/activity") != NULL) {
+    return api_handler_modbus_activity_clear(req);
+  }
+
   http_server_stat_request();
   CHECK_AUTH_WRITE(req);
 
@@ -2414,6 +2433,10 @@ esp_err_t api_handler_modbus_post(httpd_req_t *req)
 
   // POST /api/modbus/master/rw — async read/write via cache+queue (v7.9.6.6)
   if (strstr(uri, "/master/rw") != NULL) {
+    // FEAT-149: attribute any request queued from here to the dashboard's
+    // manual Read/Write mini-form in the activity log.
+    g_mb_activity_next_source = MB_SRC_DASHBOARD;
+
     char body[256];
     int blen = httpd_req_recv(req, body, sizeof(body) - 1);
     if (blen <= 0) return api_send_error(req, 400, "Empty body");
@@ -6313,6 +6336,94 @@ esp_err_t api_handler_alarms_ack(httpd_req_t *req)
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_sendstr(req, "{\"status\":\"ok\",\"message\":\"All alarms acknowledged\"}");
+
+  http_server_stat_success();
+  return ESP_OK;
+}
+
+/* ============================================================================
+ * FEAT-149: Modbus Activity Log API
+ * GET  /api/modbus/activity        — Return wire-level Master+Slave log (RAM-only)
+ * POST /api/modbus/activity/clear  — Clear the log
+ * ============================================================================ */
+
+esp_err_t api_handler_modbus_activity_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_API_ENABLED(req);
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+
+  uint8_t n = mb_activity_log_count();
+  // BUG-332: was sized at 256 + n*128 — a real entry serializes to ~145
+  // bytes, so once the log filled up (40 entries) serializeJson() silently
+  // truncated mid-object into invalid JSON. The browser's r.json() then
+  // threw, fetchMbActivity()'s catch(e){} swallowed it, and the dashboard
+  // simply stopped updating — looked like "the log freezes once full".
+  // Fixed size comfortably covers MB_ACTIVITY_LOG_MAX (40) small entries;
+  // measureJson() below sizes the actual output buffer exactly, so this
+  // only needs to be "big enough for ArduinoJson's DynamicJsonDocument
+  // bookkeeping", not pixel-perfect.
+  DynamicJsonDocument doc(10240);
+  JsonArray arr = doc.to<JsonArray>();
+
+  // Output oldest first (matches alarm log convention)
+  for (uint8_t i = 0; i < n; i++) {
+    mb_activity_entry_t e;
+    if (!mb_activity_log_get(i, &e)) break;
+
+    JsonObject obj = arr.createNestedObject();
+    obj["timestamp_ms"] = e.timestamp_ms;
+    obj["role"] = (e.role == MB_ACTIVITY_ROLE_MASTER) ? "master" : "slave";
+    switch (e.source) {
+      case MB_SRC_ST_LOGIC:  obj["source"] = "st_logic"; break;
+      case MB_SRC_CLI:       obj["source"] = "cli"; break;
+      case MB_SRC_DASHBOARD: obj["source"] = "dashboard"; break;
+      case MB_SRC_EXTERNAL:  obj["source"] = "external"; break;
+      default:                obj["source"] = "unknown"; break;
+    }
+    obj["slave_id"] = e.slave_id;
+    obj["fc"] = e.function_code;
+    obj["address"] = e.address;
+    obj["count"] = e.count;
+    obj["value"] = e.value;
+    obj["error"] = e.error;
+    obj["success"] = (e.error == 0);
+  }
+
+  // BUG-332: size the output buffer EXACTLY (measureJson), instead of
+  // guessing a per-entry byte budget that turned out too small and caused
+  // serializeJson() to silently truncate into invalid JSON once the log
+  // filled up.
+  size_t out_size = measureJson(doc) + 1;
+  char *buf = (char *)malloc(out_size);
+  if (!buf) return api_send_error(req, 500, "Out of memory");
+  serializeJson(doc, buf, out_size);
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_sendstr(req, buf);
+  free(buf);
+
+  http_server_stat_success();
+  return ESP_OK;
+}
+
+esp_err_t api_handler_modbus_activity_clear(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+
+  mb_activity_log_clear();
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_sendstr(req, "{\"status\":\"ok\",\"message\":\"Activity log cleared\"}");
 
   http_server_stat_success();
   return ESP_OK;
