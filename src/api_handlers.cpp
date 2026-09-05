@@ -20,6 +20,10 @@
 #include "api_handlers.h"
 #include "http_server.h"
 #include "constants.h"
+#include <math.h>  // FEAT-034/035/036: lroundf() for analog setpoint
+#include <SPIFFS.h>  // FEAT-082: SPIFFS.usedBytes()/totalBytes()
+#include <nvs.h>     // FEAT-081: nvs_get_stats()
+#include "system_log.h"  // FEAT-086/089
 #include "types.h"
 #include "config_struct.h"
 #include "registers.h"
@@ -99,9 +103,42 @@ typedef struct {
   char     username[32];  // Username attempted (if applicable)
 } alarm_entry_t;
 
-static alarm_entry_t alarm_log[ALARM_LOG_MAX];
+/* FEAT-154: alarmloggen flyttet fra intern DRAM til PSRAM (~4,4 KB frigjort).
+ *
+ * Baggrund: Arduino-frameworket har CONFIG_SPIRAM_USE_MALLOC=y med
+ * ALWAYSINTERNAL=4096, saa alt der malloc'es over 4 KB havner AUTOMATISK i
+ * PSRAM. Statiske/globale arrays som dette gaar derimod altid i intern DRAM
+ * uanset den indstilling, og EXT_RAM_BSS_ATTR er ikke tilgaengelig her
+ * (CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY er slaaet fra). Derfor
+ * eksplicit heap_caps_malloc.
+ *
+ * Sikkert netop for DENNE buffer: den skrives kun ved alarmhaendelser og
+ * laeses af dashboardets polling hvert 5. sekund — ingen ISR-adgang, ingen
+ * DMA, ingen kritisk timing. (Til sammenligning blev g_logic_state og
+ * g_persist_config bevidst IKKE flyttet: de laeses i hver loop()-iteration,
+ * og PSRAM er SPI-tilgaaet og dermed langsommere.)
+ *
+ * Adgangssyntaksen alarm_log[i] er uaendret — kun typen skifter fra array
+ * til peger. Alle brugssteder tjekker via alarm_log_ready(). */
+static alarm_entry_t *alarm_log = NULL;
 static uint8_t alarm_log_head = 0;   // Next write position
 static uint8_t alarm_log_count = 0;  // Total entries (max ALARM_LOG_MAX)
+
+/* Allokerer ved foerste brug. Returnerer false hvis der ikke kunne skaffes
+ * hukommelse — saa springes logningen over i stedet for at dereferere NULL. */
+static bool alarm_log_ready(void) {
+  if (alarm_log) return true;
+  size_t bytes = (size_t)ALARM_LOG_MAX * sizeof(alarm_entry_t);
+  alarm_log = (alarm_entry_t *)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
+  if (!alarm_log) {
+    alarm_log = (alarm_entry_t *)malloc(bytes);  // fallback: intern heap
+  }
+  if (alarm_log) {
+    memset(alarm_log, 0, bytes);
+    return true;
+  }
+  return false;
+}
 static uint32_t alarm_check_prev_ms = 0;
 static uint32_t alarm_prev_slave_crc = 0;
 static uint32_t alarm_prev_master_timeout = 0;
@@ -110,6 +147,7 @@ static uint32_t alarm_prev_write_denied = 0;
 static bool alarm_sse_full_active = false;
 
 static void alarm_log_add(uint8_t severity, const char *msg) {
+  if (!alarm_log_ready()) return;  // FEAT-154
   alarm_entry_t *e = &alarm_log[alarm_log_head];
   e->timestamp_ms = millis();
   strncpy(e->message, msg, ALARM_MSG_MAX - 1);
@@ -126,6 +164,7 @@ static void alarm_log_add(uint8_t severity, const char *msg) {
 // Extended version with source IP and username (for auth failures etc.)
 static void alarm_log_add_detail(uint8_t severity, const char *msg,
                                   const char *ip, const char *user) {
+  if (!alarm_log_ready()) return;  // FEAT-154
   alarm_entry_t *e = &alarm_log[alarm_log_head];
   e->timestamp_ms = millis();
   strncpy(e->message, msg, ALARM_MSG_MAX - 1);
@@ -147,6 +186,44 @@ static void alarm_log_add_detail(uint8_t severity, const char *msg,
   }
   alarm_log_head = (alarm_log_head + 1) % ALARM_LOG_MAX;
   if (alarm_log_count < ALARM_LOG_MAX) alarm_log_count++;
+}
+
+/* FEAT-086/089: faelles hjaelper til at hente klient-IP + RBAC-brugernavn for
+ * en ALLEREDE AUTENTIFICERET request (til forskel fra
+ * alarm_record_auth_failure_info's manuelle header-dekodning nedenfor, som
+ * specifikt daekker 401/403-fejl-stien hvor der IKKE er en gyldig session).
+ * Bruges ved alle nye system_log-kaldesteder der logger en vellykket
+ * bruger-handling (reboot, registerskrivning, o.lign.). */
+static void http_get_client_info(httpd_req_t *req, char *ip_out, size_t ip_len,
+                                  char *user_out, size_t user_len) {
+  if (ip_out && ip_len) ip_out[0] = '\0';
+  if (user_out && user_len) user_out[0] = '\0';
+
+  if (ip_out && ip_len) {
+    int sockfd = httpd_req_to_sockfd(req);
+    struct sockaddr_in6 addr6;
+    socklen_t addr_len = sizeof(addr6);
+    if (sockfd >= 0 && getpeername(sockfd, (struct sockaddr *)&addr6, &addr_len) == 0) {
+      if (addr6.sin6_family == AF_INET) {
+        struct sockaddr_in *addr4 = (struct sockaddr_in *)&addr6;
+        inet_ntoa_r(addr4->sin_addr, ip_out, ip_len);
+      } else if (addr6.sin6_family == AF_INET6) {
+        struct in_addr mapped;
+        memcpy(&mapped, &addr6.sin6_addr.un.u32_addr[3], 4);
+        inet_ntoa_r(mapped, ip_out, ip_len);
+      }
+    }
+  }
+
+  if (user_out && user_len) {
+    extern int http_server_auth_user(httpd_req_t *req);
+    int uid = http_server_auth_user(req);
+    const RbacUser *u = rbac_get_user(uid);
+    if (u) {
+      strncpy(user_out, u->username, user_len - 1);
+      user_out[user_len - 1] = '\0';
+    }
+  }
 }
 
 // Track last auth failure details for alarm context
@@ -376,9 +453,16 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
   if (status == 401) {
     http_server_stat_auth_failure();
     alarm_record_auth_failure_info(fail_ip, fail_user);
+    // FEAT-086: login-FEJL er et meningsfuldt haendelse (sikkerhedsrelevant,
+    // sjaelden). Login-SUCCESS logges bevidst IKKE — API'et er stateless
+    // Basic Auth, saa "success" ville betyde HVER ENESTE autentificerede
+    // request (dashboard-polling m.m.), hvilket ville oversvoemme loggen
+    // uden reel vaerdi.
+    system_log_add_event((uint8_t)SYSLOG_SRC_REST, fail_user, fail_ip, "Login fejlede (401)");
   } else if (status == 403) {
     http_server_stat_client_error();
     alarm_record_write_denied_info(fail_ip, fail_user);
+    system_log_add_event((uint8_t)SYSLOG_SRC_REST, fail_user, fail_ip, "Skriveadgang naegtet (403)");
   } else if (status >= 500) {
     http_server_stat_server_error();
   } else {
@@ -416,20 +500,29 @@ esp_err_t api_send_json(httpd_req_t *req, const char *json_str)
     } \
   } while(0)
 
+// SECURITY_INDEX #7: rate-limit is now checked BEFORE the auth decision in
+// all four CHECK_AUTH* macros (this one + WRITE/ROLE below + CHECK_AUTH_OTA
+// in ota_handler.cpp). It used to run AFTER — a client that fails auth
+// always hit 401 before ever reaching the rate-limiter, so Basic Auth
+// guessing was effectively unthrottled. No behavior change for a client
+// within its normal rate budget.
 #define CHECK_AUTH(req) \
   do { \
     CHECK_API_ENABLED(req); \
-    if (!http_server_check_auth(req)) { \
-      return api_send_error(req, 401, "Authentication required"); \
-    } \
     if (!http_rate_limit_check(req)) { \
       return api_send_error(req, 429, "Too many requests"); \
+    } \
+    if (!http_server_check_auth(req)) { \
+      return api_send_error(req, 401, "Authentication required"); \
     } \
   } while(0)
 
 #define CHECK_AUTH_WRITE(req) \
   do { \
     CHECK_API_ENABLED(req); \
+    if (!http_rate_limit_check(req)) { \
+      return api_send_error(req, 429, "Too many requests"); \
+    } \
     int _uid = http_server_auth_user(req); \
     if (_uid < 0) { \
       return api_send_error(req, 401, "Authentication required"); \
@@ -437,23 +530,20 @@ esp_err_t api_send_json(httpd_req_t *req, const char *json_str)
     if (!rbac_has_write(_uid)) { \
       return api_send_error(req, 403, "Write privilege required"); \
     } \
-    if (!http_rate_limit_check(req)) { \
-      return api_send_error(req, 429, "Too many requests"); \
-    } \
   } while(0)
 
 #define CHECK_AUTH_ROLE(req, role) \
   do { \
     CHECK_API_ENABLED(req); \
+    if (!http_rate_limit_check(req)) { \
+      return api_send_error(req, 429, "Too many requests"); \
+    } \
     int _uid = http_server_auth_user(req); \
     if (_uid < 0) { \
       return api_send_error(req, 401, "Authentication required"); \
     } \
     if (!rbac_has_role(_uid, role)) { \
       return api_send_error(req, 403, "Insufficient role"); \
-    } \
-    if (!http_rate_limit_check(req)) { \
-      return api_send_error(req, 429, "Too many requests"); \
     } \
   } while(0)
 
@@ -889,6 +979,13 @@ esp_err_t api_handler_hr_write(httpd_req_t *req)
     return api_send_error(req, 400, "Invalid register address");
   }
 
+  // FEAT-089: gammel vaerdi FOER skrivningen. Bemaerk: for dint/dword/real
+  // (2 registre) fanger dette kun det FOERSTE register (addr) — pragmatisk
+  // forenkling, da alle typer altid skriver til addr, saa en aendring der
+  // registret fanges uanset type, blot uden det fulde 32-bit billede for
+  // to-register-typer.
+  uint16_t syslog_old_val = registers_get_holding_register(addr);
+
   // Read request body
   char content[256];
   int ret = httpd_req_recv(req, content, sizeof(content) - 1);
@@ -975,6 +1072,17 @@ esp_err_t api_handler_hr_write(httpd_req_t *req)
   }
   else {
     return api_send_error(req, 400, "Invalid type (use: uint, int, dint, dword, real)");
+  }
+
+  // FEAT-089: log kun hvis vaerdien REELT aendrede sig (ikke et "skriv samme
+  // vaerdi"-no-op) — se system_log.h's kommentar om at kalderen selv skal
+  // dedupliere.
+  uint16_t syslog_new_val = registers_get_holding_register(addr);
+  if (syslog_new_val != syslog_old_val) {
+    char ip[16], user[24];
+    http_get_client_info(req, ip, sizeof(ip), user, sizeof(user));
+    system_log_add_reg_change((uint8_t)SYSLOG_SRC_REST, user, ip,
+                               (uint16_t)addr, false, syslog_old_val, syslog_new_val);
   }
 
   char buf[256];
@@ -1076,8 +1184,18 @@ esp_err_t api_handler_coil_write(httpd_req_t *req)
     value = doc["value"].as<int>() ? 1 : 0;
   }
 
+  // FEAT-089: gammel vaerdi FOER skrivningen
+  uint8_t syslog_old_val = registers_get_coil(addr);
+
   // Write coil
   registers_set_coil(addr, value);
+
+  if (value != syslog_old_val) {
+    char ip[16], user[24];
+    http_get_client_info(req, ip, sizeof(ip), user, sizeof(user));
+    system_log_add_reg_change((uint8_t)SYSLOG_SRC_REST, user, ip,
+                               (uint16_t)addr, true, syslog_old_val, value);
+  }
 
   // Response
   JsonDocument resp;
@@ -1220,6 +1338,18 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
     // GAP-13: Variable binding
     if (uri_len >= 5 && strcmp(uri + uri_len - 5, "/bind") == 0) {
       return api_handler_logic_bind_post(req);
+    }
+    // GAP-26/FEAT-164: /api/logic/settings er en EXACT route registreret i
+    // http_server.cpp, men registreret EFTER dette wildcard-handler
+    // (/api/logic/*) — ESP-IDF's httpd matcher tester registrerede URI'er i
+    // registrerings-raekkefoelge, saa wildcarden fanger "/settings" FoeR den
+    // mere specifikke, senere-registrerede exacte rute naar naaes. Samme
+    // klasse shadowing-bug som /api/modbus/activity (se
+    // api_handler_modbus_get/post ovenfor) — samme fix: delegér paa suffiks
+    // FoeR ID-parsingen nedenfor, som ellers fejlagtigt afviste "settings"
+    // som et ugyldigt program-ID.
+    if (uri_len >= 9 && strcmp(uri + uri_len - 9, "/settings") == 0) {
+      return api_handler_logic_settings_post(req);
     }
   }
 
@@ -1490,6 +1620,13 @@ esp_err_t api_handler_system_reboot(httpd_req_t *req)
   serializeJson(doc, buf, sizeof(buf));
 
   esp_err_t ret = api_send_json(req, buf);
+
+  // FEAT-086: log FOER selve genstarten (ellers naar loggen aldrig at blive skrevet)
+  {
+    char ip[16], user[24];
+    http_get_client_info(req, ip, sizeof(ip), user, sizeof(user));
+    system_log_add_event((uint8_t)SYSLOG_SRC_REST, user, ip, "Reboot udloest via REST API");
+  }
 
   // Schedule reboot after response is sent
   delay(1000);
@@ -2108,8 +2245,10 @@ esp_err_t api_handler_config_get(httpd_req_t *req)
   http["enabled"] = g_persist_config.network.http.enabled ? true : false;
   http["port"] = g_persist_config.network.http.port;
   http["tls_enabled"] = g_persist_config.network.http.tls_enabled ? true : false;
+  http["https_port"] = g_persist_config.https_port;  // BUG-350: dedikeret, ikke samme som "port"
   http["api_enabled"] = g_persist_config.network.http.api_enabled ? true : false;
   http["auth_enabled"] = g_persist_config.network.http.auth_enabled ? true : false;
+  http["username"] = g_persist_config.network.http.username;  // FEAT-166: username isn't a secret (unlike password) — needed so the system.html settings form can show the CURRENT legacy admin username instead of leaving it blank
   const char *prio_str = "NORMAL";
   if (g_persist_config.network.http.priority == 0) prio_str = "LOW";
   else if (g_persist_config.network.http.priority == 2) prio_str = "HIGH";
@@ -2397,6 +2536,7 @@ esp_err_t api_handler_modbus_get(httpd_req_t *req)
     stats["timeout_errors"] = g_modbus_master_config.timeout_errors;
     stats["crc_errors"] = g_modbus_master_config.crc_errors;
     stats["exception_errors"] = g_modbus_master_config.exception_errors;
+    stats["bus_busy_errors"] = g_modbus_bus_busy_errors;
   }
 
   char buf[HTTP_JSON_DOC_SIZE];
@@ -2412,9 +2552,17 @@ esp_err_t api_handler_modbus_get(httpd_req_t *req)
 esp_err_t api_handler_modbus_post(httpd_req_t *req)
 {
   // FEAT-149: same wildcard-shadowing issue as api_handler_modbus_get() —
-  // delegate /api/modbus/activity/clear before this handler's own
+  // delegate /api/modbus/activity/* before this handler's own
   // stat/auth housekeeping runs.
   if (strstr(req->uri, "/activity") != NULL) {
+    // FEAT-153: start/stop af logningen. Tjekkes FOER /clear, saa de tre
+    // suffikser ikke kan forveksles.
+    if (strstr(req->uri, "/activity/start") != NULL) {
+      return api_handler_modbus_activity_toggle(req, true);
+    }
+    if (strstr(req->uri, "/activity/stop") != NULL) {
+      return api_handler_modbus_activity_toggle(req, false);
+    }
     return api_handler_modbus_activity_clear(req);
   }
 
@@ -2961,6 +3109,11 @@ esp_err_t api_handler_http_config_post(httpd_req_t *req)
   if (doc.containsKey("tls_enabled")) {
     g_persist_config.network.http.tls_enabled = doc["tls_enabled"].as<bool>() ? 1 : 0;
   }
+  if (doc.containsKey("https_port")) {
+    // BUG-350: dedikeret HTTPS-port — deler ikke "port" med almindelig HTTP
+    uint16_t p = doc["https_port"].as<uint16_t>();
+    if (p >= 1) g_persist_config.https_port = p;
+  }
   if (doc.containsKey("username")) {
     const char *u = doc["username"].as<const char*>();
     if (u) {
@@ -2971,8 +3124,7 @@ esp_err_t api_handler_http_config_post(httpd_req_t *req)
   if (doc.containsKey("password")) {
     const char *p = doc["password"].as<const char*>();
     if (p) {
-      strncpy(g_persist_config.network.http.password, p, HTTP_AUTH_PASSWORD_MAX_LEN - 1);
-      g_persist_config.network.http.password[HTTP_AUTH_PASSWORD_MAX_LEN - 1] = '\0';
+      rbac_hash_and_store_legacy_password(&g_persist_config, p);  // BUG-352
     }
   }
   if (doc.containsKey("priority")) {
@@ -3717,7 +3869,46 @@ static int cli_buf_read_char(void *ctx, char *out) { return 0; }
 
 /* ============================================================================
  * GET /api/user/me - Current authenticated user info (RBAC)
+ * POST /api/login, /api/logout (BUG-353, session tokens) - see below
  * ============================================================================ */
+
+// BUG-353: shared by api_handler_user_me and api_handler_login so the two
+// don't duplicate the uid-to-JSON branching. `token`, when non-NULL, adds a
+// "token" field (only api_handler_login passes one).
+static void build_user_info_json(int uid, const char *token, char *buf, size_t buf_len)
+{
+  char token_field[40] = "";
+  if (token) {
+    snprintf(token_field, sizeof(token_field), ",\"token\":\"%s\"", token);
+  }
+
+  if (uid < 0) {
+    // Not authenticated
+    snprintf(buf, buf_len,
+      "{\"authenticated\":false,\"username\":null,\"roles\":null,\"privilege\":null}");
+  } else if (uid == 99) {
+    // Virtual admin (legacy or no-auth)
+    snprintf(buf, buf_len,
+      "{\"authenticated\":true,\"username\":\"admin\",\"roles\":\"all\",\"privilege\":\"read/write\",\"mode\":\"legacy\"%s}",
+      token_field);
+  } else {
+    // RBAC user
+    const RbacUser *u = rbac_get_user(uid);
+    if (u) {
+      char role_str[40];
+      rbac_roles_to_str(u->roles, role_str, sizeof(role_str));
+      const char *priv_str = (u->privilege == PRIV_RW) ? "read/write" :
+                             (u->privilege == PRIV_WRITE) ? "write" : "read";
+      snprintf(buf, buf_len,
+        "{\"authenticated\":true,\"username\":\"%s\",\"roles\":\"%s\",\"privilege\":\"%s\",\"mode\":\"rbac\",\"index\":%d%s}",
+        u->username, role_str, priv_str, uid, token_field);
+    } else {
+      snprintf(buf, buf_len,
+        "{\"authenticated\":true,\"username\":\"unknown\",\"roles\":\"all\",\"privilege\":\"read/write\",\"mode\":\"rbac\"%s}",
+        token_field);
+    }
+  }
+}
 
 esp_err_t api_handler_user_me(httpd_req_t *req)
 {
@@ -3728,34 +3919,77 @@ esp_err_t api_handler_user_me(httpd_req_t *req)
   }
 
   int uid = http_server_auth_user(req);
-
   char buf[256];
-  if (uid < 0) {
-    // Not authenticated
-    snprintf(buf, sizeof(buf),
-      "{\"authenticated\":false,\"username\":null,\"roles\":null,\"privilege\":null}");
-  } else if (uid == 99) {
-    // Virtual admin (legacy or no-auth)
-    snprintf(buf, sizeof(buf),
-      "{\"authenticated\":true,\"username\":\"admin\",\"roles\":\"all\",\"privilege\":\"read/write\",\"mode\":\"legacy\"}");
-  } else {
-    // RBAC user
-    const RbacUser *u = rbac_get_user(uid);
-    if (u) {
-      char role_str[40];
-      rbac_roles_to_str(u->roles, role_str, sizeof(role_str));
-      const char *priv_str = (u->privilege == PRIV_RW) ? "read/write" :
-                             (u->privilege == PRIV_WRITE) ? "write" : "read";
-      snprintf(buf, sizeof(buf),
-        "{\"authenticated\":true,\"username\":\"%s\",\"roles\":\"%s\",\"privilege\":\"%s\",\"mode\":\"rbac\",\"index\":%d}",
-        u->username, role_str, priv_str, uid);
-    } else {
-      snprintf(buf, sizeof(buf),
-        "{\"authenticated\":true,\"username\":\"unknown\",\"roles\":\"all\",\"privilege\":\"read/write\",\"mode\":\"rbac\"}");
-    }
+  build_user_info_json(uid, NULL, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+/**
+ * POST /api/login — verify credentials via the SAME Basic Auth header
+ * parsing already used everywhere else (http_server_auth_user() ->
+ * rbac_check_http()), then issue a session token so the client can stop
+ * resending username:password on every subsequent request. Basic Auth
+ * itself keeps working unchanged for anything that doesn't call this.
+ */
+esp_err_t api_handler_login(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_API_ENABLED(req);
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
   }
 
+  int uid = http_server_auth_user(req);
+  if (uid < 0) {
+    // api_send_error(401) already does everything a failed login needs:
+    // decodes the ATTEMPTED username straight from the Authorization header
+    // (http_get_client_info() below only works POST-success, so duplicating
+    // that here would just log an empty username), records it for the
+    // alarm system, and adds a "Login fejlede (401)" system_log event.
+    // See api_send_error()'s status==401 branch (api_handlers.cpp).
+    return api_send_error(req, 401, "Authentication required");
+  }
+
+  const char *token = rbac_session_token_issue(uid);
+  if (!token) {
+    return api_send_error(req, 500, "Could not issue session token");
+  }
+
+  // BUG-353: login er nu en diskret, sjaelden handling (ikke et per-request
+  // Basic-Auth-tjek laengere) — FEAT-086s oprindelige begrundelse for IKKE
+  // at logge login-succes ("stateless Basic Auth ville flode loggen")
+  // gaelder ikke laengere for selve login-KALDET. Log det (kun succes-stien
+  // — api_send_error() daekker allerede fejl-stien, se ovenfor).
+  {
+    char ip[16], user[24];
+    http_get_client_info(req, ip, sizeof(ip), user, sizeof(user));
+    system_log_add_event((uint8_t)SYSLOG_SRC_REST, user, ip, "Login lykkedes");
+  }
+
+  char buf[300];
+  build_user_info_json(uid, token, buf, sizeof(buf));
+
+  http_server_stat_success();
   return api_send_json(req, buf);
+}
+
+/**
+ * POST /api/logout — revoke the session token from this request's Bearer
+ * header, if any. Always reports success: logging out should never
+ * visibly fail, regardless of whether the token was valid.
+ */
+esp_err_t api_handler_logout(httpd_req_t *req)
+{
+  http_server_stat_request();
+
+  char auth_buf[256] = {0};
+  if (httpd_req_get_hdr_value_str(req, "Authorization", auth_buf, sizeof(auth_buf)) == ESP_OK &&
+      strncmp(auth_buf, "Bearer ", 7) == 0) {
+    rbac_session_token_revoke(auth_buf + 7);
+  }
+
+  http_server_stat_success();
+  return api_send_json(req, "{\"status\":\"ok\"}");
 }
 
 esp_err_t api_handler_cli_exec(httpd_req_t *req)
@@ -3795,6 +4029,41 @@ esp_err_t api_handler_cli_exec(httpd_req_t *req)
   // Block dangerous commands from web
   if (strncmp(cmd_str, "reboot", 6) == 0 || strncmp(cmd_str, "defaults", 8) == 0) {
     return api_send_error(req, 403, "Command not allowed via web CLI (use dedicated API)");
+  }
+
+  /* BUG-347: langvarige kommandoer maa IKKE koere via web-CLI.
+   *
+   * Denne handler eksekverer kommandoen SYNKRONT nedenfor
+   * (cli_shell_execute_command) — altsaa paa httpd's EGEN task. ESP-IDF's
+   * httpd behandler requests én ad gangen, saa saa laenge kommandoen koerer,
+   * kan webserveren ikke svare paa NOGET: ikke dashboardets polling, ikke SSE,
+   * ikke engang en frisk sideindlaesning. En `mb scan 1 247` blokerer dermed
+   * hele web-UI'et i flere minutter.
+   *
+   * Det var den faktiske aarsag til "dashboard/GUI dødt under mb scan", som
+   * BUG-336/336b/336c/341/342 alle forsoegte at loese det forkerte sted
+   * (yield-granularitet, core-pinning, Wi-Fi-genopkobling). Bekraeftet af
+   * brugeren: koert fra telnet er der intet problem overhovedet — dashboardet
+   * opdaterer og kan betjenes imens — mens praecis samme kommando fra
+   * GUI'ens CLI fryser alt.
+   *
+   * Scanningen afvises derfor her, med besked om hvor den skal koeres. */
+  {
+    // Case-insensitiv "starter med mb ... scan"-test (tillader flere mellemrum)
+    char probe[24];
+    size_t n = 0;
+    for (const char *p = cmd_str; *p && n < sizeof(probe) - 1; p++) {
+      probe[n++] = (char)tolower((unsigned char)*p);
+    }
+    probe[n] = '\0';
+
+    if (strncmp(probe, "mb", 2) == 0 && strstr(probe, "scan") != NULL) {
+      return api_send_error(req, 409,
+        "'mb scan' kan ikke koeres fra web-CLI: den ville blokere hele "
+        "webserveren indtil scanningen var faerdig (httpd behandler én "
+        "request ad gangen). Koer den fra telnet eller seriel konsol "
+        "i stedet — dashboardet forbliver tilgaengeligt imens. Se BUG-347.");
+    }
   }
 
   // Allocate output buffer (12KB max — show config can be 6-8KB)
@@ -4058,6 +4327,19 @@ esp_err_t api_handler_modules_post(httpd_req_t *req)
 
   g_persist_config.module_flags = flags;
 
+  // BUG-362: module_flags alene styrer INTET ved kortsigtet — den faktiske
+  // eksekverings-loekke (st_logic_engine_loop()) tjekker den separate,
+  // RUNTIME st_logic_get_state()->enabled, som ellers kun blev sat ved boot
+  // (config_apply.cpp). Uden denne synkronisering havde et POST her ingen
+  // maalelig effekt foer en reboot — brugeren saa "deaktiveret" i UI'et,
+  // mens motoren fortsatte uaendret.
+  if (doc.containsKey("st_logic")) {
+    st_logic_engine_state_t *st_state = st_logic_get_state();
+    if (st_state) {
+      st_state->enabled = (flags & MODULE_FLAG_ST_LOGIC_DISABLED) ? 0 : 1;
+    }
+  }
+
   JsonDocument resp;
   resp["status"] = 200;
   resp["counters"] = (flags & MODULE_FLAG_COUNTERS_DISABLED) ? false : true;
@@ -4072,16 +4354,208 @@ esp_err_t api_handler_modules_post(httpd_req_t *req)
 }
 
 /* ============================================================================
+ * RBAC USER MANAGEMENT ENDPOINTS — web GUI parity with the CLI-only
+ * "set user" / "set rbac" / "delete user" / "show users" commands
+ * (src/cli_parser.cpp). Reuses the SAME rbac_set_user()/rbac_delete_user()/
+ * rbac_parse_roles()/rbac_parse_privilege()/rbac_roles_to_str() functions
+ * the CLI already calls (include/rbac.h) — no new parsing/validation logic.
+ *
+ * SECURITY: gated behind CHECK_AUTH_WRITE (write privilege), deliberately
+ * matching the CLI's OWN existing authorization model — rbac_cli_allowed()
+ * already lets any user with CLI role + write privilege run
+ * "set user X roles all privilege read/write" (i.e. escalate/create an
+ * admin account) today. Requiring anything stricter here (e.g. an "all"
+ * role check) would be a NEW, inconsistent restriction not present in the
+ * CLI path, so this mirrors CLI parity rather than inventing a second model.
+ * Documented in SECURITY_INDEX.md.
+ * ============================================================================ */
+
+esp_err_t api_handler_rbac_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);  // write privilege required just to enumerate users — see file-header note
+
+  JsonDocument doc;
+  doc["enabled"] = g_persist_config.rbac.enabled ? true : false;
+  doc["user_count"] = rbac_get_user_count();
+  doc["max_users"] = RBAC_MAX_USERS;
+
+  JsonArray users = doc["users"].to<JsonArray>();
+  for (int i = 0; i < RBAC_MAX_USERS; i++) {
+    const RbacUser *u = rbac_get_user(i);
+    if (!u) continue;
+    JsonObject uo = users.add<JsonObject>();
+    uo["index"] = i;
+    uo["username"] = u->username;
+    char role_str[40];
+    rbac_roles_to_str(u->roles, role_str, sizeof(role_str));
+    uo["roles"] = role_str;
+    uo["privilege"] = (u->privilege == PRIV_RW) ? "read/write" :
+                       (u->privilege == PRIV_WRITE) ? "write" :
+                       (u->privilege == PRIV_READ) ? "read" : "none";
+    // Deliberately NO password/hash/salt field — see BUG-352, backup JSON
+    // is the only place those are ever serialized, and only hex-encoded.
+  }
+
+  char buf[HTTP_JSON_DOC_SIZE];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+esp_err_t api_handler_rbac_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[128];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    return api_send_error(req, 400, "Failed to read request body");
+  }
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, content);
+  if (error) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  bool warn_no_users = false;
+  if (doc.containsKey("enabled")) {
+    bool want_enabled = doc["enabled"].as<bool>();
+    // Mirror CLI's "set rbac enable" warning (cli_parser.cpp): still allows
+    // it (matches CLI behavior exactly), just surfaces the same lockout
+    // risk back to the caller instead of only printing it to a console.
+    if (want_enabled && rbac_get_user_count() == 0) {
+      warn_no_users = true;
+    }
+    g_persist_config.rbac.enabled = want_enabled ? 1 : 0;
+  }
+
+  char resp[256];
+  if (warn_no_users) {
+    snprintf(resp, sizeof(resp),
+      "{\"status\":200,\"enabled\":true,\"warning\":\"Ingen brugere konfigureret endnu — opret mindst én admin-bruger foer du gemmer og genstarter, ellers laases adgangen ude\"}");
+  } else {
+    snprintf(resp, sizeof(resp), "{\"status\":200,\"enabled\":%s,\"message\":\"RBAC-status opdateret. Brug 'Gem Config' for at overleve reboot.\"}",
+      g_persist_config.rbac.enabled ? "true" : "false");
+  }
+  return api_send_json(req, resp);
+}
+
+esp_err_t api_handler_rbac_users_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[256];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    return api_send_error(req, 400, "Failed to read request body");
+  }
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, content);
+  if (error) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  const char *username = doc["username"] | "";
+  const char *password = doc["password"] | "";
+  const char *roles_str = doc["roles"] | "monitor";
+  const char *priv_str = doc["privilege"] | "read";
+
+  if (!username[0] || !password[0]) {
+    return api_send_error(req, 400, "username and password are required");
+  }
+
+  uint8_t roles = rbac_parse_roles(roles_str);
+  uint8_t priv = rbac_parse_privilege(priv_str);
+
+  int idx = rbac_set_user(username, password, roles, priv);
+  if (idx < 0) {
+    return api_send_error(req, 400, "Could not save user (max users reached, or username/password too long)");
+  }
+
+  char role_str[40];
+  rbac_roles_to_str(roles, role_str, sizeof(role_str));
+  char resp[256];
+  snprintf(resp, sizeof(resp),
+    "{\"status\":200,\"index\":%d,\"roles\":\"%s\",\"message\":\"User saved. Use 'Gem Config' to persist.\"}",
+    idx, role_str);
+  return api_send_json(req, resp);
+}
+
+esp_err_t api_handler_rbac_user_delete(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  const char *prefix = "/api/rbac/users/";
+  const char *uri = req->uri;
+  if (strncmp(uri, prefix, strlen(prefix)) != 0) {
+    return api_send_error(req, 400, "Invalid URI");
+  }
+  const char *username = uri + strlen(prefix);
+  if (!username[0]) {
+    return api_send_error(req, 400, "Missing username");
+  }
+
+  if (!rbac_delete_user(username)) {
+    return api_send_error(req, 404, "User not found");
+  }
+
+  char buf[256];
+  snprintf(buf, sizeof(buf), "{\"status\":200,\"message\":\"User '%s' deleted. Use 'Gem Config' to persist.\"}", username);
+  return api_send_json(req, buf);
+}
+
+/* ============================================================================
  * BACKUP / RESTORE ENDPOINTS
  * ============================================================================ */
+
+// BUG-352: HTTP/RBAC password fields in backup JSON are hash+salt pairs
+// (raw bytes, not printable/UTF-8-safe as-is) — hex-encode for JSON transport.
+static void bytes_to_hex(const uint8_t *bytes, size_t len, char *out_hex) {
+  static const char hexchars[] = "0123456789abcdef";
+  for (size_t i = 0; i < len; i++) {
+    out_hex[i * 2]     = hexchars[(bytes[i] >> 4) & 0x0F];
+    out_hex[i * 2 + 1] = hexchars[bytes[i] & 0x0F];
+  }
+  out_hex[len * 2] = '\0';
+}
+
+// Returns true and fills out_bytes[expected_len] iff hex is exactly
+// 2*expected_len valid hex chars.
+static bool hex_to_bytes(const char *hex, uint8_t *out_bytes, size_t expected_len) {
+  if (!hex || strlen(hex) != expected_len * 2) return false;
+  for (size_t i = 0; i < expected_len; i++) {
+    char c1 = hex[i * 2], c2 = hex[i * 2 + 1];
+    int v1, v2;
+    if (c1 >= '0' && c1 <= '9') v1 = c1 - '0';
+    else if (c1 >= 'a' && c1 <= 'f') v1 = c1 - 'a' + 10;
+    else if (c1 >= 'A' && c1 <= 'F') v1 = c1 - 'A' + 10;
+    else return false;
+    if (c2 >= '0' && c2 <= '9') v2 = c2 - '0';
+    else if (c2 >= 'a' && c2 <= 'f') v2 = c2 - 'a' + 10;
+    else if (c2 >= 'A' && c2 <= 'F') v2 = c2 - 'A' + 10;
+    else return false;
+    out_bytes[i] = (uint8_t)((v1 << 4) | v2);
+  }
+  return true;
+}
 
 esp_err_t api_handler_system_backup(httpd_req_t *req)
 {
   http_server_stat_request();
-  // SECURITY FIX: backup includes WiFi/telnet/HTTP/RBAC passwords in
-  // cleartext — require write privilege (this RBAC system's admin-level
-  // tier; legacy/no-RBAC mode's virtual admin still passes), not just any
-  // authenticated (incl. read-only) user.
+  // SECURITY: backup includes WiFi/telnet passwords in cleartext (WiFi must
+  // stay plaintext for the WPA2 handshake; Telnet is a separate, unhashed
+  // credential system — see BUG-352). HTTP/RBAC passwords are, since
+  // BUG-352, hex-encoded hash+salt pairs (password_hash/password_salt), not
+  // reversible plaintext. Regardless, require write privilege (this RBAC
+  // system's admin-level tier; legacy/no-RBAC mode's virtual admin still
+  // passes), not just any authenticated (incl. read-only) user.
   CHECK_AUTH_WRITE(req);
 
   JsonDocument doc;
@@ -4173,10 +4647,20 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   http["enabled"] = g_persist_config.network.http.enabled ? true : false;
   http["port"] = g_persist_config.network.http.port;
   http["tls_enabled"] = g_persist_config.network.http.tls_enabled ? true : false;
+  http["https_port"] = g_persist_config.https_port;  // BUG-350: dedikeret, ikke samme som "port"
   http["api_enabled"] = g_persist_config.network.http.api_enabled ? true : false;
   http["auth_enabled"] = g_persist_config.network.http.auth_enabled ? true : false;
   http["username"] = g_persist_config.network.http.username;
-  http["password"] = g_persist_config.network.http.password;
+  {
+    // BUG-352: password[] holder en raw 32-byte SHA-256-hash, ikke en
+    // null-termineret streng — hex-encode i stedet for at tildele den
+    // direkte (som ville fejle paa manglende/forkert null-terminering).
+    char hash_hex[65], salt_hex[33];
+    bytes_to_hex((const uint8_t *)g_persist_config.network.http.password, 32, hash_hex);
+    bytes_to_hex(g_persist_config.http_legacy_salt, 16, salt_hex);
+    http["password_hash"] = hash_hex;
+    http["password_salt"] = salt_hex;
+  }
   http["priority"] = g_persist_config.network.http.priority;
 
   // ── SSE ──
@@ -4382,7 +4866,15 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
       if (!u->active) continue;
       JsonObject uo = users.add<JsonObject>();
       uo["username"] = u->username;
-      uo["password"] = u->password;
+      {
+        // BUG-352: u->password er en raw 32-byte SHA-256-hash — hex-encode
+        // (se tilsvarende kommentar ved http["password_hash"] ovenfor).
+        char hash_hex[65], salt_hex[33];
+        bytes_to_hex((const uint8_t *)u->password, 32, hash_hex);
+        bytes_to_hex(g_persist_config.rbac_salt[i], 16, salt_hex);
+        uo["password_hash"] = hash_hex;
+        uo["password_salt"] = salt_hex;
+      }
       uo["roles"] = u->roles;
       uo["privilege"] = u->privilege;
     }
@@ -4570,15 +5062,27 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
     if (h.containsKey("enabled")) g_persist_config.network.http.enabled = h["enabled"].as<bool>() ? 1 : 0;
     if (h.containsKey("port")) g_persist_config.network.http.port = h["port"];
     if (h.containsKey("tls_enabled")) g_persist_config.network.http.tls_enabled = h["tls_enabled"].as<bool>() ? 1 : 0;
+    if (h.containsKey("https_port")) g_persist_config.https_port = h["https_port"];  // BUG-350
     if (h.containsKey("api_enabled")) g_persist_config.network.http.api_enabled = h["api_enabled"].as<bool>() ? 1 : 0;
     if (h.containsKey("auth_enabled")) g_persist_config.network.http.auth_enabled = h["auth_enabled"].as<bool>() ? 1 : 0;
     if (h.containsKey("username")) {
       strncpy(g_persist_config.network.http.username, h["username"] | "", sizeof(g_persist_config.network.http.username) - 1);
       g_persist_config.network.http.username[sizeof(g_persist_config.network.http.username) - 1] = '\0';
     }
-    if (h.containsKey("password")) {
-      strncpy(g_persist_config.network.http.password, h["password"] | "", sizeof(g_persist_config.network.http.password) - 1);
-      g_persist_config.network.http.password[sizeof(g_persist_config.network.http.password) - 1] = '\0';
+    // BUG-352: nyt format (hash+salt fra en backup taget EFTER hashing blev
+    // indfoert) skrives raw, ingen re-hashing. Gammelt format (klartekst
+    // "password" fra en aeldre backup) hashes friskt her, for bagudkompatibilitet.
+    if (h.containsKey("password_hash") && h.containsKey("password_salt")) {
+      uint8_t hash[32], salt[16];
+      if (hex_to_bytes(h["password_hash"] | "", hash, 32) &&
+          hex_to_bytes(h["password_salt"] | "", salt, 16)) {
+        memcpy(g_persist_config.http_legacy_salt, salt, 16);
+        memcpy(g_persist_config.network.http.password, hash, 32);
+        memset(g_persist_config.network.http.password + 32, 0,
+               sizeof(g_persist_config.network.http.password) - 32);
+      }
+    } else if (h.containsKey("password")) {
+      rbac_hash_and_store_legacy_password(&g_persist_config, h["password"] | "");
     }
     if (h.containsKey("priority")) g_persist_config.network.http.priority = h["priority"];
   }
@@ -4855,8 +5359,20 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
           u->active = 1;
           strncpy(u->username, uo["username"] | "", RBAC_USERNAME_MAX - 1);
           u->username[RBAC_USERNAME_MAX - 1] = '\0';
-          strncpy(u->password, uo["password"] | "", RBAC_PASSWORD_MAX - 1);
-          u->password[RBAC_PASSWORD_MAX - 1] = '\0';
+          // BUG-352: nyt format (hash+salt) skrives raw; gammelt format
+          // (klartekst "password" fra en aeldre backup) hashes friskt her —
+          // se tilsvarende kommentar ved RESTORE HTTP ovenfor.
+          if (uo.containsKey("password_hash") && uo.containsKey("password_salt")) {
+            uint8_t hash[32], salt[16];
+            if (hex_to_bytes(uo["password_hash"] | "", hash, 32) &&
+                hex_to_bytes(uo["password_salt"] | "", salt, 16)) {
+              memcpy(g_persist_config.rbac_salt[idx], salt, 16);
+              memcpy(u->password, hash, 32);
+            }
+          } else if (uo.containsKey("password")) {
+            rbac_generate_salt(g_persist_config.rbac_salt[idx]);
+            rbac_hash_password(uo["password"] | "", g_persist_config.rbac_salt[idx], (uint8_t *)u->password);
+          }
           u->roles = uo["roles"] | ROLE_ALL;
           u->privilege = uo["privilege"] | PRIV_RW;
           g_persist_config.rbac.user_count++;
@@ -5123,12 +5639,13 @@ esp_err_t api_handler_dashboard_layout_get(httpd_req_t *req)
   // No auth required — layout is non-sensitive UI preference
   CHECK_API_ENABLED(req);
 
-  char buf[600];
+  char buf[700];
   snprintf(buf, sizeof(buf),
-    "{\"card_order\":\"%s\",\"card_tabs\":\"%s\",\"card_hidden\":\"%s\"}",
+    "{\"card_order\":\"%s\",\"card_tabs\":\"%s\",\"card_hidden\":\"%s\",\"card_custom\":\"%s\"}",
     g_persist_config.dashboard_card_order,
     g_persist_config.dashboard_card_tabs,
-    g_persist_config.dashboard_card_hidden);
+    g_persist_config.dashboard_card_hidden,
+    g_persist_config.dashboard_card_custom);
   return api_send_json(req, buf);
 }
 
@@ -5142,7 +5659,7 @@ esp_err_t api_handler_dashboard_layout_post(httpd_req_t *req)
   CHECK_API_ENABLED(req);
   // Auth optional — layout is non-sensitive UI preference (matches GET handler)
 
-  char body[600];
+  char body[700];
   int len = httpd_req_recv(req, body, sizeof(body) - 1);
   if (len <= 0) {
     return api_send_error(req, 400, "Empty request body");
@@ -5182,12 +5699,22 @@ esp_err_t api_handler_dashboard_layout_post(httpd_req_t *req)
     }
   }
 
-  char resp[600];
+  // card_custom (schema 23) — "Custom"-fane medlemsskab, uafhaengigt af card_tabs
+  if (doc.containsKey("card_custom")) {
+    const char *custom = doc["card_custom"].as<const char*>();
+    if (custom && strlen(custom) < sizeof(g_persist_config.dashboard_card_custom)) {
+      strncpy(g_persist_config.dashboard_card_custom, custom, sizeof(g_persist_config.dashboard_card_custom) - 1);
+      g_persist_config.dashboard_card_custom[sizeof(g_persist_config.dashboard_card_custom) - 1] = '\0';
+    }
+  }
+
+  char resp[700];
   snprintf(resp, sizeof(resp),
-    "{\"status\":200,\"card_order\":\"%s\",\"card_tabs\":\"%s\",\"card_hidden\":\"%s\"}",
+    "{\"status\":200,\"card_order\":\"%s\",\"card_tabs\":\"%s\",\"card_hidden\":\"%s\",\"card_custom\":\"%s\"}",
     g_persist_config.dashboard_card_order,
     g_persist_config.dashboard_card_tabs,
-    g_persist_config.dashboard_card_hidden);
+    g_persist_config.dashboard_card_hidden,
+    g_persist_config.dashboard_card_custom);
   return api_send_json(req, resp);
 }
 
@@ -5309,6 +5836,15 @@ esp_err_t api_handler_hr_bulk_write(httpd_req_t *req)
     uint16_t val = w["value"] | 0;
     registers_set_holding_register(addr, val);
     written++;
+  }
+
+  // FEAT-089: ét batch-event, ikke ét pr. register (undgaar at oversvoemme
+  // loggen ved en bulk-skrivning paa fx 50 registre)
+  if (written > 0) {
+    char ip[16], user[24], msg[48];
+    http_get_client_info(req, ip, sizeof(ip), user, sizeof(user));
+    snprintf(msg, sizeof(msg), "Bulk HR-skriv (%d registre)", written);
+    system_log_add_event((uint8_t)SYSLOG_SRC_REST, user, ip, msg);
   }
 
   char resp[128];
@@ -5438,6 +5974,14 @@ esp_err_t api_handler_coils_bulk_write(httpd_req_t *req)
     bool val = w["value"].as<bool>();
     registers_set_coil(addr, val ? 1 : 0);
     written++;
+  }
+
+  // FEAT-089: ét batch-event, ikke ét pr. coil
+  if (written > 0) {
+    char ip[16], user[24], msg[48];
+    http_get_client_info(req, ip, sizeof(ip), user, sizeof(user));
+    snprintf(msg, sizeof(msg), "Bulk coil-skriv (%d coils)", written);
+    system_log_add_event((uint8_t)SYSLOG_SRC_REST, user, ip, msg);
   }
 
   char resp[128];
@@ -5752,13 +6296,26 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
     return api_send_error(req, 429, "Too many requests");
   }
 
-  // Buffer for Prometheus text format (12KB for expanded metrics incl. tasks/cache)
-  char *buf = (char *)malloc(12288);
+  // Buffer for Prometheus text format. BUG-358: var 12KB, men de to
+  // register-dump-loekker laengere nede (modbus_holding_register/
+  // modbus_input_register, HOLDING_REGS_SIZE+INPUT_REGS_SIZE=512 registre)
+  // kan alene fylde op mod ~21KB hvis alle registre er non-zero (plausibelt
+  // paa et aktivt system med mange taellere/registre i brug) — PROM_APPEND
+  // dropper stille enhver linje der ikke er plads til, uden fejl/advarsel,
+  // saa alt skrevet EFTER at bufferen blev fuld forsvandt usynligt (fx NTP-,
+  // alarm- og syslog-status, som viste forkert i dashboardet selvom CLI var
+  // korrekt). Samme bug-klasse som BUG-336c/BUG-354 (fast graense uden
+  // margin, overskredet uden synlig fejl). Sat til 32KB med reel margin;
+  // register-dumpet er desuden flyttet til SIDST i funktionen, saa smaa,
+  // faste status-metrics altid skrives foerst og er sikre uanset register-
+  // antal. Tjek denne kommentar igen hvis flere ubegraensede loekker
+  // tilfoejes.
+  char *buf = (char *)malloc(32768);
   if (!buf) {
     return api_send_error(req, 500, "Out of memory");
   }
   int pos = 0;
-  int remaining = 12288;
+  int remaining = 32768;
 
   #define PROM_APPEND(...) do { \
     int n = snprintf(buf + pos, remaining, __VA_ARGS__); \
@@ -5795,6 +6352,46 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
     PROM_APPEND("# HELP esp32_psram_free_bytes Free PSRAM in bytes\n");
     PROM_APPEND("# TYPE esp32_psram_free_bytes gauge\n");
     PROM_APPEND("esp32_psram_free_bytes %lu\n", (unsigned long)ESP.getFreePsram());
+  }
+
+  // --- NVS usage metrics (FEAT-081) ---
+  // nvs_get_stats(NULL, ...) summerer paa TVAERS af alle partitioner/namespaces
+  // — samme granularitet "show config"-lignende diagnostik i dette projekt
+  // allerede bruger. Enheder er 32-bytes ENTRIES, ikke raa bytes (NVS'
+  // interne allokeringsgranularitet) — vist som saadan for at undgaa et
+  // falsk praecist byte-tal.
+  {
+    nvs_stats_t nvs_stats;
+    if (nvs_get_stats(NULL, &nvs_stats) == ESP_OK) {
+      PROM_APPEND("# HELP nvs_used_entries NVS brugte entries (32 bytes/entry)\n");
+      PROM_APPEND("# TYPE nvs_used_entries gauge\n");
+      PROM_APPEND("nvs_used_entries %u\n", (unsigned)nvs_stats.used_entries);
+      PROM_APPEND("# HELP nvs_free_entries NVS ledige entries\n");
+      PROM_APPEND("# TYPE nvs_free_entries gauge\n");
+      PROM_APPEND("nvs_free_entries %u\n", (unsigned)nvs_stats.free_entries);
+      PROM_APPEND("# HELP nvs_total_entries NVS entries totalt\n");
+      PROM_APPEND("# TYPE nvs_total_entries gauge\n");
+      PROM_APPEND("nvs_total_entries %u\n", (unsigned)nvs_stats.total_entries);
+      PROM_APPEND("# HELP nvs_namespace_count Antal NVS-namespaces i brug\n");
+      PROM_APPEND("# TYPE nvs_namespace_count gauge\n");
+      PROM_APPEND("nvs_namespace_count %u\n", (unsigned)nvs_stats.namespace_count);
+    }
+  }
+
+  // --- SPIFFS usage metrics (FEAT-082) ---
+  // SPIFFS bruges allerede i projektet til ST Logic bytecode/kildekode
+  // (st_bytecode_persist.cpp, st_logic_config.cpp) og er dermed allerede
+  // monteret paa dette tidspunkt i boot.
+  {
+    size_t spiffs_total = SPIFFS.totalBytes();
+    if (spiffs_total > 0) {
+      PROM_APPEND("# HELP spiffs_used_bytes SPIFFS brugt plads i bytes\n");
+      PROM_APPEND("# TYPE spiffs_used_bytes gauge\n");
+      PROM_APPEND("spiffs_used_bytes %lu\n", (unsigned long)SPIFFS.usedBytes());
+      PROM_APPEND("# HELP spiffs_total_bytes SPIFFS total plads i bytes\n");
+      PROM_APPEND("# TYPE spiffs_total_bytes gauge\n");
+      PROM_APPEND("spiffs_total_bytes %lu\n", (unsigned long)spiffs_total);
+    }
   }
 
   // --- HTTP API metrics ---
@@ -5899,6 +6496,10 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   PROM_APPEND("# HELP modbus_master_exception_errors_total Modbus master exception errors\n");
   PROM_APPEND("# TYPE modbus_master_exception_errors_total counter\n");
   PROM_APPEND("modbus_master_exception_errors_total %lu\n", g_modbus_master_config.exception_errors);
+
+  PROM_APPEND("# HELP modbus_master_bus_busy_errors_total Modbus master UART-mutex ikke opnaaet (bus optaget)\n");
+  PROM_APPEND("# TYPE modbus_master_bus_busy_errors_total counter\n");
+  PROM_APPEND("modbus_master_bus_busy_errors_total %lu\n", g_modbus_bus_busy_errors);
 
   // --- Modbus Master Async Cache metrics ---
   const mb_async_state_t *mb_async = mb_async_get_state();
@@ -6116,24 +6717,35 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   }
 #endif
 
-  // --- Modbus Register metrics (non-zero holding & input registers) ---
-  PROM_APPEND("# HELP modbus_holding_register Modbus holding register value\n");
-  PROM_APPEND("# TYPE modbus_holding_register gauge\n");
-  for (int addr = 0; addr < HOLDING_REGS_SIZE; addr++) {
-    uint16_t val = registers_get_holding_register(addr);
-    if (val != 0) {
-      PROM_APPEND("modbus_holding_register{addr=\"%d\"} %u\n", addr, (unsigned)val);
-    }
-  }
+#if defined(ANALOG_IO_ENABLED)
+  // --- Analog I/O metrics (FEAT-034/035/036/037) — vaerdi som ×100 fixed-point ---
+  {
+    static const char *V_NAMES[4] = { "vi1", "vi2", "vi3", "vi4" };
+    static const char *I_NAMES[4] = { "ii1", "ii2", "ii3", "ii4" };
+    static const char *AO_NAMES[2] = { "ao1", "ao2" };
 
-  PROM_APPEND("# HELP modbus_input_register Modbus input register value\n");
-  PROM_APPEND("# TYPE modbus_input_register gauge\n");
-  for (int addr = 0; addr < INPUT_REGS_SIZE; addr++) {
-    uint16_t val = registers_get_input_register(addr);
-    if (val != 0) {
-      PROM_APPEND("modbus_input_register{addr=\"%d\"} %u\n", addr, (unsigned)val);
+    PROM_APPEND("# HELP analog_input_value Kalibreret analog indgangsvaerdi (×100, fx 500=5.00V/mA)\n");
+    PROM_APPEND("# TYPE analog_input_value gauge\n");
+    for (int i = 0; i < 4; i++) {
+      if (!g_persist_config.analog_ai_v[i].enabled) continue;
+      PROM_APPEND("analog_input_value{channel=\"%s\",type=\"voltage\"} %d\n",
+                   V_NAMES[i], (int)registers_get_holding_register(g_persist_config.analog_ai_v[i].value_reg));
+    }
+    for (int i = 0; i < 4; i++) {
+      if (!g_persist_config.analog_ai_i[i].enabled) continue;
+      PROM_APPEND("analog_input_value{channel=\"%s\",type=\"current\"} %d\n",
+                   I_NAMES[i], (int)registers_get_holding_register(g_persist_config.analog_ai_i[i].value_reg));
+    }
+
+    PROM_APPEND("# HELP analog_output_setpoint Analog udgangs-setpoint (×100)\n");
+    PROM_APPEND("# TYPE analog_output_setpoint gauge\n");
+    for (int i = 0; i < 2; i++) {
+      if (!g_persist_config.analog_ao[i].enabled) continue;
+      PROM_APPEND("analog_output_setpoint{channel=\"%s\"} %d\n",
+                   AO_NAMES[i], (int)registers_get_holding_register(g_persist_config.analog_ao[i].value_reg));
     }
   }
+#endif
 
   // --- Persistence Group metrics ---
   PersistentRegisterData *pr = &g_persist_config.persist_regs;
@@ -6241,6 +6853,42 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   PROM_APPEND("# TYPE alarm_unacknowledged_count gauge\n");
   PROM_APPEND("alarm_unacknowledged_count %d\n", unack);
 
+  // --- FEAT-086/089: System event / register change log metrics ---
+  PROM_APPEND("# HELP syslog_count Total entries in haendelses-/registerandringslog\n");
+  PROM_APPEND("# TYPE syslog_count gauge\n");
+  PROM_APPEND("syslog_count %u\n", (unsigned)system_log_count());
+  PROM_APPEND("# HELP syslog_enabled Om haendelseslog aktivt logger (1) eller er stoppet (0)\n");
+  PROM_APPEND("# TYPE syslog_enabled gauge\n");
+  PROM_APPEND("syslog_enabled %d\n", system_log_is_enabled() ? 1 : 0);
+
+  // --- Modbus Register metrics (non-zero holding & input registers) ---
+  // BUG-358: flyttet hertil (var foer analog/gpio-metrics, langt tidligere i
+  // funktionen) — denne dump er UBEGRAeNSET i stoerrelse (op til 256+256
+  // linjer, ~21KB i vaerste fald hvis alle registre er non-zero), og
+  // PROM_APPEND dropper stille alt der ikke er plads til i bufferen naar
+  // `remaining` er brugt op (se advarslen ved malloc() ovenfor). Alt der
+  // staar FOeR dette punkt i funktionen (NTP/alarm/syslog/firmware-status
+  // osv., som dashboardets badges laeser) er nu ALTID skrevet foerst og
+  // dermed sikret uanset hvor mange registre der er non-zero. Tilfoej ALDRIG
+  // nye bulk/ubegraensede loekker foer dette punkt — kun faste, faa metrics.
+  PROM_APPEND("# HELP modbus_holding_register Modbus holding register value\n");
+  PROM_APPEND("# TYPE modbus_holding_register gauge\n");
+  for (int addr = 0; addr < HOLDING_REGS_SIZE; addr++) {
+    uint16_t val = registers_get_holding_register(addr);
+    if (val != 0) {
+      PROM_APPEND("modbus_holding_register{addr=\"%d\"} %u\n", addr, (unsigned)val);
+    }
+  }
+
+  PROM_APPEND("# HELP modbus_input_register Modbus input register value\n");
+  PROM_APPEND("# TYPE modbus_input_register gauge\n");
+  for (int addr = 0; addr < INPUT_REGS_SIZE; addr++) {
+    uint16_t val = registers_get_input_register(addr);
+    if (val != 0) {
+      PROM_APPEND("modbus_input_register{addr=\"%d\"} %u\n", addr, (unsigned)val);
+    }
+  }
+
   #undef PROM_APPEND
 
   // Send as text/plain (Prometheus format)
@@ -6263,10 +6911,11 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
 esp_err_t api_handler_alarms_get(httpd_req_t *req)
 {
   http_server_stat_request();
-  CHECK_API_ENABLED(req);
-  if (!http_rate_limit_check(req)) {
-    return api_send_error(req, 429, "Too many requests");
-  }
+  // SECURITY_INDEX #12: this used to be CHECK_API_ENABLED-only (no auth at
+  // all) — leaked source-IP/username of failed login attempts to anyone
+  // unauthenticated. Matches api_handler_alarms_ack's existing auth level
+  // in spirit (that one already correctly required CHECK_AUTH_WRITE).
+  CHECK_AUTH(req);
 
   DynamicJsonDocument doc(6144);
   JsonArray arr = doc.to<JsonArray>();
@@ -6329,8 +6978,12 @@ esp_err_t api_handler_alarms_ack(httpd_req_t *req)
     return api_send_error(req, 429, "Too many requests");
   }
 
-  for (int i = 0; i < ALARM_LOG_MAX; i++) {
-    alarm_log[i].acknowledged = true;
+  // FEAT-154: i modsaetning til de oevrige loekker er denne IKKE afgraenset
+  // af alarm_log_count, saa den skal selv tjekke at bufferen findes.
+  if (alarm_log) {
+    for (int i = 0; i < ALARM_LOG_MAX; i++) {
+      alarm_log[i].acknowledged = true;
+    }
   }
 
   httpd_resp_set_type(req, "application/json");
@@ -6355,57 +7008,115 @@ esp_err_t api_handler_modbus_activity_get(httpd_req_t *req)
     return api_send_error(req, 429, "Too many requests");
   }
 
-  uint8_t n = mb_activity_log_count();
-  // BUG-332: was sized at 256 + n*128 — a real entry serializes to ~145
-  // bytes, so once the log filled up (40 entries) serializeJson() silently
-  // truncated mid-object into invalid JSON. The browser's r.json() then
-  // threw, fetchMbActivity()'s catch(e){} swallowed it, and the dashboard
-  // simply stopped updating — looked like "the log freezes once full".
-  // Fixed size comfortably covers MB_ACTIVITY_LOG_MAX (40) small entries;
-  // measureJson() below sizes the actual output buffer exactly, so this
-  // only needs to be "big enough for ArduinoJson's DynamicJsonDocument
-  // bookkeeping", not pixel-perfect.
-  DynamicJsonDocument doc(10240);
-  JsonArray arr = doc.to<JsonArray>();
+  uint16_t n = mb_activity_log_count();
 
-  // Output oldest first (matches alarm log convention)
-  for (uint8_t i = 0; i < n; i++) {
-    mb_activity_entry_t e;
-    if (!mb_activity_log_get(i, &e)) break;
-
-    JsonObject obj = arr.createNestedObject();
-    obj["timestamp_ms"] = e.timestamp_ms;
-    obj["role"] = (e.role == MB_ACTIVITY_ROLE_MASTER) ? "master" : "slave";
-    switch (e.source) {
-      case MB_SRC_ST_LOGIC:  obj["source"] = "st_logic"; break;
-      case MB_SRC_CLI:       obj["source"] = "cli"; break;
-      case MB_SRC_DASHBOARD: obj["source"] = "dashboard"; break;
-      case MB_SRC_EXTERNAL:  obj["source"] = "external"; break;
-      default:                obj["source"] = "unknown"; break;
+  /* FEAT-153: ?limit=N — returnér kun de NYESTE N poster.
+   * Dashboardet poller hvert 3. sekund og viser som standard 100 linjer;
+   * uden dette ville hver polling traekke hele loggen (op til 500 poster,
+   * ~70 KB) over WiFi 20 gange i minuttet. Eksport-knappen henter derimod
+   * det hele ved at udelade limit. */
+  uint16_t first = 0;
+  {
+    char q[64];
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+      char val[12];
+      if (httpd_query_key_value(q, "limit", val, sizeof(val)) == ESP_OK) {
+        long lim = strtol(val, NULL, 10);
+        if (lim > 0 && lim < (long)n) {
+          first = (uint16_t)(n - lim);  // spring de aeldste over
+        }
+      }
     }
-    obj["slave_id"] = e.slave_id;
-    obj["fc"] = e.function_code;
-    obj["address"] = e.address;
-    obj["count"] = e.count;
-    obj["value"] = e.value;
-    obj["error"] = e.error;
-    obj["success"] = (e.error == 0);
   }
 
-  // BUG-332: size the output buffer EXACTLY (measureJson), instead of
-  // guessing a per-entry byte budget that turned out too small and caused
-  // serializeJson() to silently truncate into invalid JSON once the log
-  // filled up.
-  size_t out_size = measureJson(doc) + 1;
-  char *buf = (char *)malloc(out_size);
-  if (!buf) return api_send_error(req, 500, "Out of memory");
-  serializeJson(doc, buf, out_size);
-
+  /* FEAT-153: svaret bygges og sendes nu i CHUNKS i stedet for at blive
+   * samlet i én stor buffer foerst.
+   *
+   * Baggrund: BUG-332 opstod fordi outputtet blev skrevet i en fast, for
+   * lille buffer og blev afkortet midt i et JSON-objekt — dashboardet
+   * stoppede saa bare med at opdatere. Det blev loest med measureJson(),
+   * men det kraevede stadig TO store samtidige allokeringer (ArduinoJson-
+   * dokumentet + output-bufferen). Da loggen nu rummer 100 poster i stedet
+   * for 40 (~14 KB output) ville det blive ~40 KB heap i spidsbelastning paa
+   * en enhed med ~108 KB fri — unoedigt skroebeligt, saerligt ved
+   * fragmentering. Chunked afsendelse bruger kun én lille stak-buffer pr.
+   * post og skalerer derfor uanset logstoerrelse.
+   *
+   * Svarformatet er samtidig udvidet med logningens til/fra-tilstand. For
+   * ikke at braekke eksisterende forbrugere sendes posterne fortsat under
+   * "entries", og dashboardet haandterer baade det gamle (bar array) og det
+   * nye format. */
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-  httpd_resp_sendstr(req, buf);
-  free(buf);
+
+  char head[128];
+  snprintf(head, sizeof(head),
+           "{\"logging\":%s,\"capacity\":%d,\"total\":%u,\"entries\":[",
+           mb_activity_log_is_enabled() ? "true" : "false",
+           (int)MB_ACTIVITY_LOG_MAX, (unsigned)n);
+  httpd_resp_send_chunk(req, head, HTTPD_RESP_USE_STRLEN);
+
+  // Output oldest first (matches alarm log convention)
+  char item[256];
+  for (uint16_t i = first; i < n; i++) {
+    mb_activity_entry_t e;
+    if (!mb_activity_log_get(i, &e)) break;
+
+    const char *src = "unknown";
+    switch (e.source) {
+      case MB_SRC_ST_LOGIC:  src = "st_logic"; break;
+      case MB_SRC_CLI:       src = "cli"; break;
+      case MB_SRC_DASHBOARD: src = "dashboard"; break;
+      case MB_SRC_EXTERNAL:  src = "external"; break;
+      default:               break;
+    }
+
+    snprintf(item, sizeof(item),
+      "%s{\"timestamp_ms\":%lu,\"epoch_s\":%lu,\"role\":\"%s\",\"source\":\"%s\",\"slave_id\":%u,"
+      "\"fc\":%u,\"address\":%u,\"count\":%u,\"value\":%ld,\"error\":%d,\"success\":%s}",
+      (i == first) ? "" : ",",
+      (unsigned long)e.timestamp_ms,
+      (unsigned long)e.epoch_s,
+      (e.role == MB_ACTIVITY_ROLE_MASTER) ? "master" : "slave",
+      src,
+      (unsigned)e.slave_id,
+      (unsigned)e.function_code,
+      (unsigned)e.address,
+      (unsigned)e.count,
+      (long)e.value,
+      (int)e.error,
+      (e.error == 0) ? "true" : "false");
+
+    httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
+  }
+
+  httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN);
+  httpd_resp_send_chunk(req, NULL, 0);  // afslut chunked svar
+
+  http_server_stat_success();
+  return ESP_OK;
+}
+
+/* FEAT-153: POST /api/modbus/activity/start | /stop — start/stop logning
+ * uden at rydde det allerede opsamlede. */
+esp_err_t api_handler_modbus_activity_toggle(httpd_req_t *req, bool enable)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+
+  mb_activity_log_set_enabled(enable);
+
+  char resp[96];
+  snprintf(resp, sizeof(resp), "{\"status\":\"ok\",\"logging\":%s}",
+           enable ? "true" : "false");
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_sendstr(req, resp);
 
   http_server_stat_success();
   return ESP_OK;
@@ -6427,6 +7138,266 @@ esp_err_t api_handler_modbus_activity_clear(httpd_req_t *req)
 
   http_server_stat_success();
   return ESP_OK;
+}
+
+/* ============================================================================
+ * FEAT-034/035/036/037: Analog I/O API (ES32D26 only)
+ *
+ *   GET  /api/analog        — alle 10 kanaler (config + live vaerdi)
+ *   POST /api/analog        — opdatér én kanal (body: channel + felter)
+ * ============================================================================ */
+
+#if defined(ANALOG_IO_ENABLED)
+static void analog_add_ai(JsonArray &arr, const char *ch, const AnalogInputConfig *cfg, bool adc2) {
+  JsonObject o = arr.add<JsonObject>();
+  o["channel"] = ch;
+  o["enabled"] = cfg->enabled ? true : false;
+  o["adc2"] = adc2;
+  bool blocked = adc2 && cfg->enabled && wifi_driver_is_connected();
+  o["wifi_blocked"] = blocked;
+  o["raw_mv"] = blocked ? -1 : (int)registers_get_holding_register(cfg->raw_reg);
+  o["value"] = blocked ? -1 : (int)registers_get_holding_register(cfg->value_reg);  // ×100 fixed-point
+  o["scale"] = cfg->scale;
+  o["offset"] = cfg->offset;
+  o["raw_reg"] = cfg->raw_reg;
+  o["value_reg"] = cfg->value_reg;
+}
+#endif
+
+esp_err_t api_handler_analog_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+#if !defined(ANALOG_IO_ENABLED)
+  return api_send_error(req, 404, "Analog I/O not supported on this board");
+#else
+  JsonDocument doc;
+  JsonArray ai_v = doc["ai_voltage"].to<JsonArray>();
+  static const char *V_NAMES[4] = { "vi1", "vi2", "vi3", "vi4" };
+  static const bool  V_ADC2[4]  = { true, false, true, false };
+  for (int i = 0; i < 4; i++) {
+    analog_add_ai(ai_v, V_NAMES[i], &g_persist_config.analog_ai_v[i], V_ADC2[i]);
+  }
+
+  JsonArray ai_i = doc["ai_current"].to<JsonArray>();
+  static const char *I_NAMES[4] = { "ii1", "ii2", "ii3", "ii4" };
+  for (int i = 0; i < 4; i++) {
+    analog_add_ai(ai_i, I_NAMES[i], &g_persist_config.analog_ai_i[i], false);
+  }
+
+  JsonArray ao = doc["ao"].to<JsonArray>();
+  static const char *AO_NAMES[2] = { "ao1", "ao2" };
+  for (int i = 0; i < 2; i++) {
+    const AnalogOutputConfig *cfg = &g_persist_config.analog_ao[i];
+    uint8_t mode = (i == 0) ? g_persist_config.ao1_mode : g_persist_config.ao2_mode;
+    JsonObject o = ao.add<JsonObject>();
+    o["channel"] = AO_NAMES[i];
+    o["enabled"] = cfg->enabled ? true : false;
+    o["mode"] = (mode == AO_MODE_CURRENT) ? "current" : "voltage";
+    o["setpoint"] = (int)registers_get_holding_register(cfg->value_reg);  // ×100 fixed-point
+    o["scale"] = cfg->scale;
+    o["offset"] = cfg->offset;
+    o["value_reg"] = cfg->value_reg;
+  }
+
+  char buf[2048];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+#endif
+}
+
+esp_err_t api_handler_analog_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+#if !defined(ANALOG_IO_ENABLED)
+  return api_send_error(req, 404, "Analog I/O not supported on this board");
+#else
+  char body[256];
+  int blen = httpd_req_recv(req, body, sizeof(body) - 1);
+  if (blen <= 0) return api_send_error(req, 400, "Empty body");
+  body[blen] = '\0';
+
+  JsonDocument jdoc;
+  if (deserializeJson(jdoc, body)) return api_send_error(req, 400, "Invalid JSON");
+
+  const char *ch = jdoc["channel"] | "";
+  bool *p_enabled = NULL;
+  float *p_scale = NULL;
+  float *p_offset = NULL;
+
+  for (int i = 0; i < 4; i++) {
+    char name[5];
+    snprintf(name, sizeof(name), "vi%d", i + 1);
+    if (strcasecmp(ch, name) == 0) {
+      p_enabled = &g_persist_config.analog_ai_v[i].enabled;
+      p_scale = &g_persist_config.analog_ai_v[i].scale;
+      p_offset = &g_persist_config.analog_ai_v[i].offset;
+    }
+    snprintf(name, sizeof(name), "ii%d", i + 1);
+    if (strcasecmp(ch, name) == 0) {
+      p_enabled = &g_persist_config.analog_ai_i[i].enabled;
+      p_scale = &g_persist_config.analog_ai_i[i].scale;
+      p_offset = &g_persist_config.analog_ai_i[i].offset;
+    }
+  }
+  for (int i = 0; i < 2; i++) {
+    char name[5];
+    snprintf(name, sizeof(name), "ao%d", i + 1);
+    if (strcasecmp(ch, name) == 0) {
+      p_enabled = &g_persist_config.analog_ao[i].enabled;
+      p_scale = &g_persist_config.analog_ao[i].scale;
+      p_offset = &g_persist_config.analog_ao[i].offset;
+    }
+  }
+
+  if (!p_enabled) {
+    return api_send_error(req, 400, "Unknown channel (use vi1-4, ii1-4, ao1-2)");
+  }
+
+  if (jdoc.containsKey("enabled")) *p_enabled = jdoc["enabled"].as<bool>();
+  if (jdoc.containsKey("scale"))   *p_scale   = jdoc["scale"].as<float>();
+  if (jdoc.containsKey("offset"))  *p_offset  = jdoc["offset"].as<float>();
+
+  // Setpoint er RUNTIME data (som en counters vaerdi), ikke persisteret config
+  // — skriv direkte til holding-registret, virker med det samme paa naeste
+  // analog_driver_flush_outputs() (loop()). Kun relevant for AO-kanaler.
+  if (jdoc.containsKey("setpoint")) {
+    bool is_ao = false;
+    uint16_t reg = 0;
+    for (int i = 0; i < 2; i++) {
+      char name[5];
+      snprintf(name, sizeof(name), "ao%d", i + 1);
+      if (strcasecmp(ch, name) == 0) { is_ao = true; reg = g_persist_config.analog_ao[i].value_reg; }
+    }
+    if (!is_ao) {
+      return api_send_error(req, 400, "'setpoint' gaelder kun AO-kanaler (ao1/ao2)");
+    }
+    float sp = jdoc["setpoint"].as<float>();
+    if (sp < -327.0f || sp > 327.0f) {
+      return api_send_error(req, 400, "setpoint uden for gyldigt omraade");
+    }
+    registers_set_holding_register(reg, (uint16_t)lroundf(sp * 100.0f));
+  }
+
+  return api_send_json(req, "{\"status\":\"ok\",\"note\":\"enabled kraever save+reboot; scale/offset/setpoint virker straks\"}");
+#endif
+}
+
+/* ============================================================================
+ * FEAT-086/089: Haendelses- og registerandringslog (system_log.h)
+ *
+ *   GET  /api/syslog        — alle entries (?limit=N, ?category=event|regchange)
+ *   POST /api/syslog/clear  — ryd loggen
+ *   POST /api/syslog/start  — genoptag logning
+ *   POST /api/syslog/stop   — stop logning (bevar indhold)
+ * ============================================================================ */
+
+esp_err_t api_handler_syslog_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  uint16_t n = system_log_count();
+
+  // ?category= filter (samme moenster som ?limit=)
+  int category_filter = -1;  // -1 = alle
+  char q[64];
+  if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+    char val[16];
+    if (httpd_query_key_value(q, "category", val, sizeof(val)) == ESP_OK) {
+      if (!strcasecmp(val, "event")) category_filter = SYSLOG_CAT_EVENT;
+      else if (!strcasecmp(val, "regchange")) category_filter = SYSLOG_CAT_REG_CHANGE;
+    }
+  }
+
+  // ?limit=N — kun de NYESTE N (matcher FEAT-153's moenster for /api/modbus/activity)
+  uint16_t first = 0;
+  if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+    char val[12];
+    if (httpd_query_key_value(q, "limit", val, sizeof(val)) == ESP_OK) {
+      long lim = strtol(val, NULL, 10);
+      if (lim > 0 && lim < (long)n) {
+        first = (uint16_t)(n - lim);
+      }
+    }
+  }
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+  char head[96];
+  snprintf(head, sizeof(head), "{\"logging\":%s,\"capacity\":%d,\"total\":%u,\"entries\":[",
+           system_log_is_enabled() ? "true" : "false", (int)SYSTEM_LOG_MAX, (unsigned)n);
+  httpd_resp_send_chunk(req, head, HTTPD_RESP_USE_STRLEN);
+
+  char item[256];
+  bool first_written = true;
+  for (uint16_t i = first; i < n; i++) {
+    syslog_entry_t e;
+    if (!system_log_get(i, &e)) break;
+    if (category_filter >= 0 && e.category != (uint8_t)category_filter) continue;
+
+    static const char *SRC_NAMES[3] = { "rest", "modbus_slave", "system" };
+    const char *src = (e.source < 3) ? SRC_NAMES[e.source] : "unknown";
+
+    snprintf(item, sizeof(item),
+      "%s{\"timestamp_ms\":%lu,\"epoch_s\":%lu,\"category\":\"%s\",\"source\":\"%s\","
+      "\"username\":\"%s\",\"ip\":\"%s\",\"reg_addr\":%u,\"is_coil\":%s,"
+      "\"old_value\":%ld,\"new_value\":%ld,\"message\":\"%s\"}",
+      first_written ? "" : ",",
+      (unsigned long)e.timestamp_ms, (unsigned long)e.epoch_s,
+      (e.category == SYSLOG_CAT_EVENT) ? "event" : "regchange",
+      src, e.username, e.ip, (unsigned)e.reg_addr, e.is_coil ? "true" : "false",
+      (long)e.old_value, (long)e.new_value, e.message);
+    httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
+    first_written = false;
+  }
+
+  httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN);
+  httpd_resp_send_chunk(req, NULL, 0);
+
+  http_server_stat_success();
+  return ESP_OK;
+}
+
+esp_err_t api_handler_syslog_clear(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+  system_log_clear();
+  return api_send_json(req, "{\"status\":\"ok\",\"message\":\"Log ryddet\"}");
+}
+
+esp_err_t api_handler_syslog_toggle(httpd_req_t *req, bool enable)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+  system_log_set_enabled(enable);
+  char resp[64];
+  snprintf(resp, sizeof(resp), "{\"status\":\"ok\",\"logging\":%s}", enable ? "true" : "false");
+  return api_send_json(req, resp);
+}
+
+// POST /api/syslog/{clear|start|stop} — ESP-IDF wildcard matcher matcher kun
+// paa slutningen af en URI, saa /api/syslog/* registreres én gang og
+// suffiksen dispatches manuelt her (samme moenster som /api/modbus/activity/*)
+esp_err_t api_handler_syslog_post_dispatch(httpd_req_t *req)
+{
+  const char *uri = req->uri;
+  if (strstr(uri, "/clear") != NULL) return api_handler_syslog_clear(req);
+  if (strstr(uri, "/start") != NULL) return api_handler_syslog_toggle(req, true);
+  if (strstr(uri, "/stop") != NULL)  return api_handler_syslog_toggle(req, false);
+  return api_send_error(req, 404, "Ukendt /api/syslog-underrute (brug /clear, /start eller /stop)");
 }
 
 /* ============================================================================

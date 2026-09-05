@@ -42,7 +42,8 @@ typedef enum {
   REG_OWNER_TIMER,         // Timer subsystem (Timer 1-4)
   REG_OWNER_ST_FIXED,      // ST Logic fixed registers (200-293, reserved)
   REG_OWNER_ST_VAR,        // ST Logic variable binding
-  REG_OWNER_USER           // User manual allocation (future use)
+  REG_OWNER_USER,          // User manual allocation (future use)
+  REG_OWNER_ANALOG         // FEAT-034/035/036: analog I/O (Vi1-4, Ii1-4, AO1-2)
 } RegisterOwnerType;
 
 /**

@@ -14,6 +14,7 @@
  */
 
 #include "cli_commands.h"
+#include "system_log.h"  // FEAT-086
 #include "counter_engine.h"
 #include "counter_config.h"
 #include "timer_engine.h"
@@ -22,6 +23,7 @@
 #include "registers_persist.h"
 #include "cli_shell.h"
 #include "config_struct.h"
+#include "rbac.h"  // BUG-352: rbac_hash_and_store_legacy_password()
 #include "config_save.h"
 #include "config_load.h"
 #include "st_logic_config.h"
@@ -1248,9 +1250,12 @@ void cli_cmd_set_persist_group(uint8_t argc, char* argv[]) {
     }
 
     // Concatenate all arguments from argv[2] onwards (allows both old and new syntax)
+    // SECURITY_INDEX #16: the "," separator used to go through unbounded
+    // strcat() — a range_spec already filled to the brim by the (correctly
+    // bounded) strncat() below could overflow by 1-2 bytes. Bounded now too.
     char range_spec[256] = "";
     for (uint8_t i = 2; i < argc; i++) {
-      if (i > 2) strcat(range_spec, ",");
+      if (i > 2) strncat(range_spec, ",", sizeof(range_spec) - strlen(range_spec) - 1);
       strncat(range_spec, argv[i], sizeof(range_spec) - strlen(range_spec) - 1);
     }
 
@@ -1577,6 +1582,10 @@ void cli_cmd_defaults(void) {
 }
 
 void cli_cmd_reboot(void) {
+  // FEAT-086: CLI (seriel/telnet) har intet bruger-koncept — logges som SYSTEM
+  // med "via CLI" i teksten, til forskel fra REST-varianten der har rigtig
+  // bruger+IP.
+  system_log_add_event((uint8_t)SYSLOG_SRC_SYSTEM, NULL, NULL, "Reboot udloest via CLI");
   debug_println("Rebooting in 2 seconds...");
   delay(2000);
   esp_restart();
@@ -2387,6 +2396,18 @@ void cli_cmd_set_http(uint8_t argc, char* argv[]) {
     debug_print_uint(port);
     debug_println("");
 
+  } else if (!strcmp(option, "https-port")) {
+    // BUG-350: dedikeret HTTPS-port — deler IKKE port med almindelig HTTP
+    uint16_t port = atoi(value);
+    if (port < 1 || port > 65535) {
+      debug_println("SET HTTP HTTPS-PORT: invalid port (1-65535)");
+      return;
+    }
+    g_persist_config.https_port = port;
+    debug_print("HTTPS port set to: ");
+    debug_print_uint(port);
+    debug_println(" (requires reboot)");
+
   } else if (!strcmp(option, "auth")) {
     if (!strcmp(value, "on") || !strcmp(value, "ON") || !strcmp(value, "1")) {
       g_persist_config.network.http.auth_enabled = 1;
@@ -2421,8 +2442,7 @@ void cli_cmd_set_http(uint8_t argc, char* argv[]) {
       debug_println("SET HTTP PASSWORD: password too long (max 63 chars)");
       return;
     }
-    strncpy(g_persist_config.network.http.password, value, HTTP_AUTH_PASSWORD_MAX_LEN - 1);
-    g_persist_config.network.http.password[HTTP_AUTH_PASSWORD_MAX_LEN - 1] = '\0';
+    rbac_hash_and_store_legacy_password(&g_persist_config, value);  // BUG-352
     debug_println("HTTP password set (hidden for security)");
 
   } else if (!strcmp(option, "api")) {
@@ -2450,7 +2470,7 @@ void cli_cmd_set_http(uint8_t argc, char* argv[]) {
   } else {
     debug_print("SET HTTP: unknown option '");
     debug_print(option);
-    debug_println("' (use: enabled, port, auth, username, password, api, tls)");
+    debug_println("' (use: enabled, port, https-port, auth, username, password, api, tls)");
   }
 
   debug_println("Hint: Use 'save' to persist configuration to NVS");

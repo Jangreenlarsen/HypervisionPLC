@@ -45,6 +45,40 @@ int rbac_check_http(httpd_req_t *req);
 int rbac_check_sse(const char *auth_header);
 
 /* ============================================================================
+ * SESSION TOKENS (BUG-353, REST API auth-modernisering fase 2)
+ *
+ * In-RAM bearer tokens issued via POST /api/login after a normal Basic Auth
+ * check, so the browser can stop resending username:password on every
+ * request. Mirrors sse_events.cpp's sse_token_issue()/sse_token_check()
+ * pattern (fixed slot array, spinlock, esp_random() hex token, TTL+GC) —
+ * but with its own table: session tokens use a SLIDING 30-min idle timeout
+ * (extended on each valid use) rather than SSE's fixed 5-min bridge TTL.
+ * Basic Auth keeps working unchanged and forever — this is additive, not a
+ * replacement (scripts/Node-RED/curl integrations are unaffected).
+ * ============================================================================ */
+
+/**
+ * Issue a new session token for the given RBAC user index (or 99 for
+ * virtual admin). Caller must have authenticated the user first via normal
+ * HTTP Basic Auth. Returns pointer to token string (static storage, valid
+ * until next issue) or NULL on failure.
+ */
+const char *rbac_session_token_issue(int user_idx);
+
+/**
+ * Validate a session token. On success, extends its expiry by another
+ * RBAC_SESSION_TOKEN_TTL_MS (sliding idle timeout).
+ * @return User index on success, -1 on invalid/expired/unknown token.
+ */
+int rbac_session_token_check(const char *token);
+
+/**
+ * Immediately invalidate a session token (logout). No-op if the token is
+ * already invalid/unknown — logout should never visibly fail.
+ */
+void rbac_session_token_revoke(const char *token);
+
+/* ============================================================================
  * AUTHORIZATION CHECKS
  * ============================================================================ */
 
@@ -97,6 +131,36 @@ const RbacUser* rbac_get_user(int index);
  * Get number of active users.
  */
 int rbac_get_user_count(void);
+
+/* ============================================================================
+ * PASSWORD HASHING (schema 22+, BUG-352)
+ * ============================================================================ */
+
+/**
+ * Generate a fresh 16-byte random salt via esp_fill_random().
+ */
+void rbac_generate_salt(uint8_t out_salt[16]);
+
+/**
+ * Compute SHA-256(salt || password) into out_hash[32].
+ * Used for both storing (hash a new password) and verifying (hash the
+ * submitted password with the stored salt, then compare to the stored hash).
+ */
+void rbac_hash_password(const char *password, const uint8_t salt[16], uint8_t out_hash[32]);
+
+/**
+ * Constant-time comparison of two 32-byte hashes.
+ */
+bool rbac_hash_equal(const uint8_t a[32], const uint8_t b[32]);
+
+/**
+ * Hash `password` with a fresh salt and store both into the legacy
+ * single-user HTTP config (cfg->network.http.password + cfg->http_legacy_salt).
+ * Takes an explicit PersistConfig* (like rbac_migrate_legacy) so it can be
+ * used both live (&g_persist_config) and on a scratch struct during
+ * config_init_defaults()/migration.
+ */
+void rbac_hash_and_store_legacy_password(PersistConfig *cfg, const char *password);
 
 /* ============================================================================
  * MIGRATION & INIT

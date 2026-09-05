@@ -12,6 +12,9 @@
 #include "console.h"
 #include "cli_shell.h"
 #include "watchdog_monitor.h"
+#include "network_manager.h"
+#include "cli_remote.h"
+#include "cli_show.h"   // BUG-343: cli_cmd_show_tasks() dumpes midt i scan
 
 // Calculate Modbus RTU t3.5 inter-frame delay from baudrate
 // Per spec: t3.5 = 3.5 * 11 bits / baudrate * 1000 ms
@@ -203,6 +206,7 @@ static const char* mb_error_str(mb_error_code_t err) {
     case MB_NOT_ENABLED:     return "NOT ENABLED (set modbus-master enabled on)";
     case MB_INVALID_SLAVE:   return "INVALID SLAVE ID (1-247)";
     case MB_INVALID_ADDRESS: return "INVALID ADDRESS";
+    case MB_BUS_BUSY:        return "BUS BUSY (UART optaget af anden transaktion)";
     default:                 return "UNKNOWN ERROR";
   }
 }
@@ -242,6 +246,27 @@ struct MbTempBaud {
       modbus_master_reconfigure();
       debug_printf("  [BAUD] Gendannet baudrate: %u\n", saved_baud);
     }
+  }
+};
+
+// BUG-338: RAII-guard der giver `mb scan` eksklusiv, ukontesteret adgang til
+// RS485-bussen. Uden denne konkurrerer scanningens 247 synkrone forsoeg
+// (loopTask/Core 1) med den asynkrone Modbus Master-task (ST Logic/
+// dashboard-trafik, Core 0) om g_modbus_uart_mutex i modbus_master.cpp —
+// og taber scanningen konsekvent den koeb (fordi den asynkrone task under
+// normal drift genoptager sin naeste transaktion langt hyppigere end
+// scanningens enkeltstaaende forsoeg), returnerer HVERT eneste opkald
+// MB_BUS_BUSY foer overhovedet at naa at sende noget paa bussen — sete som
+// falsk "0 slaver fundet" paa en bus med kendte, svarende enheder.
+// mb_async_pause() er sikker at bruge her (til forskel fra
+// mb_async_suspend()): den stopper kun koeen mellem transaktioner, aldrig
+// midt i en, saa der er ingen risiko for at laase mutex'en permanent.
+struct MbAsyncPauseGuard {
+  MbAsyncPauseGuard() {
+    mb_async_pause();
+  }
+  ~MbAsyncPauseGuard() {
+    mb_async_unpause();
   }
 };
 
@@ -311,6 +336,10 @@ void cli_cmd_mb_read(uint8_t argc, char **argv) {
   }
 
   MbTempBaud baud_guard(temp_baud);
+  // BUG-338: samme kapløb som `mb scan` mod den asynkrone Modbus Master-task
+  // kan i sjældne tilfælde ramme et enkeltstående mb read/write som et
+  // uventet MB_BUS_BUSY — pause køen kort om det ene forsøg her også.
+  MbAsyncPauseGuard async_pause_guard;
   debug_printf("[MB READ] slave=%d addr=%d type=%s count=%d ...\n", slave_id, address, type, count);
 
   if (strcasecmp(type, "coil") == 0) {
@@ -408,6 +437,7 @@ void cli_cmd_mb_write(uint8_t argc, char **argv) {
   }
 
   MbTempBaud baud_guard(temp_baud);
+  MbAsyncPauseGuard async_pause_guard;  // BUG-338: se cli_cmd_mb_read
 
   if (strcasecmp(type, "coil") == 0) {
     bool val = (strcasecmp(value_str, "on") == 0 || strcasecmp(value_str, "1") == 0 ||
@@ -475,11 +505,20 @@ void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id, uint32_t temp_baud) {
   }
 
   MbTempBaud baud_guard(temp_baud);
+
+  // BUG-338: pause den asynkrone Modbus Master-task (ST Logic/dashboard-
+  // trafik) for hele scanningens varighed — se MbAsyncPauseGuard ovenfor.
+  // ST Logic-koerslen selv fortsaetter uaendret; kun dens Modbus-forespoergsler
+  // venter i koeen til scanningen er faerdig (eller afbrudt).
+  MbAsyncPauseGuard async_pause_guard;
+
   uint8_t total = end_id - start_id + 1;
   debug_printf("[MB SCAN] Scanning slave %d-%d (FC03, addr 0), %d adresser ...\n", start_id, end_id, total);
+  debug_println("[MB SCAN] ST Logic/dashboard Modbus-trafik sat paa pause imens (BUG-338).");
   debug_println("[MB SCAN] Tryk en tast for at afbryde.");
   uint8_t found = 0;
   uint8_t tested = 0;
+  uint8_t bus_busy = 0;
   bool aborted = false;
 
   // BUG-335: reelt (ikke bare kosmetisk) fund — denne funktion blokerede
@@ -491,8 +530,53 @@ void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id, uint32_t temp_baud) {
   // 1-247-scanning ville tage over 4 minutter og altid ramme dette.
   Console *con = cli_shell_get_debug_console();
 
+  /* BUG-345: toem ventende input FOER afbryd-overvaagningen starter.
+   * Kommandolinjen selv efterlader tegn i bufferen — "mb scan" afsluttes med
+   * CR+LF, og telnet-laget forbruger kun det der skulle til for at danne
+   * linjen; resten (typisk '\n') ligger stadig i socket-bufferen naar
+   * scanningen begynder. Foerste gennemloeb saa det som "brugeren trykkede en
+   * tast" og afbroed oejeblikkeligt ved slave 1, 0/247 testet, uden at nogen
+   * havde roert tastaturet. Praecis samme fejlklasse som BUG-334 (en enkelt
+   * efterladt byte i RX-bufferen afbroed RS485-aktiveringen ved boot), og
+   * samme loesning. Bugget var indtil nu maskeret af BUG-342's kald, som
+   * tilfaeldigvis naaede at forbruge tegnet foerst.
+   * Begraenset til 64 tegn saa en snakkende forbindelse ikke kan holde os
+   * fast her. */
+  if (con) {
+    char discard;
+    uint8_t drained = 0;
+    while (console_available(con) && drained < 64) {
+      console_getchar(con, &discard);
+      drained++;
+    }
+  }
+
   for (uint8_t id = start_id; id <= end_id; id++) {
     watchdog_feed();  // Se kommentar ovenfor — kritisk ved brede scan-ranges
+
+    // BUG-344: HER LAA BUG-342's `network_manager_loop() + cli_remote_loop()`.
+    // Begge dele er FJERNET igen, af to grunde:
+    //
+    // 1. Praemissen var forkert. BUG-342 antog at et Wi-Fi-drop under
+    //    scanningen aldrig blev genoprettet (fordi esp_wifi_connect() kun
+    //    kaldes fra wifi_driver_loop() i den blokerede loop()). Brugerens
+    //    ping-test afkraeftede det definitivt: ping svarer uafbrudt HELE
+    //    scanningen igennem — netvaerkslaget er oppe hele tiden.
+    //
+    // 2. Kaldet var direkte FARLIGT. network_manager_loop() ->
+    //    telnet_server_loop(), og telnet_server_loop() EKSEKVERER selv
+    //    CLI-kommandoer (telnet_server.cpp:984, cli_shell_execute_command()).
+    //    Flaget `input_ready` nulstilles foerst EFTER kommandoen er faerdig
+    //    (telnet_server.cpp:1008) — men `mb scan` ER den kommando, og den
+    //    koerer i minutter. Det indlejrede kald saa derfor den samme
+    //    kommando som stadig "klar" og startede EN NY scanning inden i den
+    //    igangvaerende. Hver runde gentog det: rekursion, voksende stak, og
+    //    til sidst en doed telnet-session. Symptomet var scan-headeren
+    //    printet 5 gange i traek uden en eneste testet adresse imellem.
+    //
+    // Generelt: kald ALDRIG loop()-housekeeping inde fra en CLI-kommando —
+    // kommando-dispatch ligger nede i den kaede, saa det bliver reentrant.
+    // Se ogsaa vaernet i cli_shell_execute_command() (BUG-344).
 
     // Ikke-blokerende: findes der en ventende tast på samme forbindelse
     // (seriel/telnet) scanningen blev startet fra? Web-CLI's read_char
@@ -517,6 +601,12 @@ void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id, uint32_t temp_baud) {
     } else if (err == MB_EXCEPTION) {
       debug_printf("  Slave %3d: EXCEPTION (svarer men afviser FC03 addr 0)\n", id);
       found++;
+    } else if (err == MB_BUS_BUSY) {
+      // BUG-338: skal vaere ekstremt sjaeldent nu hvor koeen er paused —
+      // hvis den alligevel sker, vis den tydeligt i stedet for at lade den
+      // drukne som et almindeligt (forventet) timeout paa en tom adresse.
+      debug_printf("  Slave %3d: BUS BUSY (uventet — se BUG-338)\n", id);
+      bus_busy++;
     }
 
     // Fremdrift hvert 10. forsøg — ellers ser en lang, stille scanning
@@ -525,12 +615,26 @@ void cli_cmd_mb_scan(uint8_t start_id, uint8_t end_id, uint32_t temp_baud) {
       debug_printf("  ... %d/%d testet, %d fundet indtil videre\n", tested, total, found);
     }
 
+    // BUG-343: dump task-tilstande MENS scanningen koerer. Kan ikke goeres
+    // manuelt udefra: scanningen blokerer selv konsollen den blev startet
+    // fra, saa `show tasks` kan ikke naa at blive skrevet imens. Dumpes
+    // efter 3. adresse — tidligt nok til at scanningen stadig er i gang,
+    // sent nok til at frysningen allerede er indtruffet.
+    if (tested == 3) {
+      debug_println("\n--- BUG-343 diagnostik: task-tilstande MENS scan koerer ---");
+      cli_cmd_show_tasks();
+    }
+
     // Timeout = ingen slave — vis ikke
     delay(10); // Kort pause mellem scans
   }
 
   if (!aborted) {
-    debug_printf("[MB SCAN] Faerdigt: %d slave(s) fundet af %d testet\n", found, total);
+    debug_printf("[MB SCAN] Faerdigt: %d slave(s) fundet af %d testet", found, total);
+    if (bus_busy > 0) {
+      debug_printf(" (%d bus busy — se BUG-338)", bus_busy);
+    }
+    debug_printf("\n");
   }
 }
 
@@ -596,6 +700,7 @@ void cli_cmd_show_modbus_master() {
                   : 0.0);
   debug_printf("  CRC errors: %u\n", g_modbus_master_config.crc_errors);
   debug_printf("  Exceptions: %u\n", g_modbus_master_config.exception_errors);
+  debug_printf("  Bus busy (BUG-338): %u\n", g_modbus_bus_busy_errors);
   debug_printf("\n");
 
   // Async cache statistics (v7.7.0)

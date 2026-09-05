@@ -33,9 +33,9 @@ show logic <id> bytecode      (antal kompilerede instruktioner — 0 betyder ikk
 
 ## 13.3 "ST-program ser ud til at køre, men intet opdateres"
 
-**Symptom:** `Udførelser` i Runtime Monitor stiger jævnt, `Fejl` forbliver 0, men ingen variabler ændrer værdi — programmet virker "levende", men gør ingenting. `Stop`+`Start` eller `Reinit` hjælper ikke.
+**Symptom:** `Udførelser` i Runtime Monitor stiger jævnt, `Fejl` forbliver 0, men ingen variabler ændrer værdi — programmet virker "levende", men gør ingenting.
 
-Dette er *ikke* en fejl i selve ST-programmet. Det betyder programmet kører præcis som skrevet — og typisk **venter på noget der aldrig sker**. To kendte, bekræftede årsager:
+Dette er *ikke* en fejl i selve ST-programmet i sig selv — det betyder programmet kører præcis som skrevet, og typisk **venter på noget der aldrig sker**. Tre kendte, bekræftede årsager — brug om `Reinit` hjælper til at skelne C fra A/B:
 
 **A) Modbus Master er ikke faktisk aktiv, selvom konfigurationen siger "on"**
 
@@ -50,7 +50,11 @@ set modbus-master enabled on
 
 Hvis Master-kommunikation generelt virker, men ét bestemt program/én bestemt adresse konsekvent ikke opdateres, mens andre gør: se [§13.4](#13-4-modbus-master-holder-op-med-at-opdatere-en-bestemt-adresse).
 
-**Generel fremgangsmåde til at skelne A fra B og alt andet:**
+**C) Programmets egen tilstandsmaskine venter ubegrænset på `MB_SUCCESS()` efter et write — og køb tabte lige netop dét write (`reinit` HJÆLPER her, i modsætning til A og B)**
+
+Den afgørende forskel fra A/B: her hjælper `Reinit` faktisk (nulstiller den fastlåste tilstandsvariabel til dens startværdi), mens `Stop`+`Start` ikke gør (rører ikke variabelværdier). Se [§8.9](08_ST_Logic_Programmering.md#89-fejlhåndtering-og-grænser) for den fulde forklaring og et korrigeret kodeeksempel med timeout. Kort fortalt: `MB_SUCCESS()` efter `MB_WRITE_*` afspejler kun om skrivningen blev lagt i kø, ikke om den reelt blev udført — er køen fuld i netop det øjeblik, forbliver den falsk for evigt, og en tilstandsmaskine der venter ubegrænset på den låser sig fast permanent. Symptomet opstår typisk først efter lang tids drift (timer til dage), fordi det kræver at køen tilfældigvis er fuld i netop det ene øjeblik et write forsøges.
+
+**Generel fremgangsmåde til at skelne A/B/C fra hinanden:**
 1. `show modbus-master` — er Status reelt `ENABLED`, og stiger `Total requests`/`Async requests`?
 2. Åbn Modbus Aktivitetsloggen — kommer der *overhovedet* transaktioner igennem for den pågældende adresse, med kilde `st_logic`?
 3. Prøv samme læsning manuelt: `mb read holding <slave> <adresse>` — virker det isoleret fra CLI, men ikke fra ST-programmet, er fejlen i selve ST-kaldet (forkert slave-ID/adresse i koden), ikke i Modbus-laget.

@@ -28,6 +28,8 @@ Begge roller læser og skriver til det **samme interne register-/coil-lager**, s
 
 Protokol: **Modbus RTU** over RS-485 (framing, CRC16). Der er **ikke** en implementering af Modbus TCP/MBAP i dette system pr. denne skrivnings tidspunkt — kun RTU over seriel.
 
+**Adgangskontrol på RTU-bussen (bevidst fravalg, ikke en overset mangel):** Modbus RTU har pr. protokol-design ingen adgangskontrol på function-code- eller register-niveau — enhver enhed der fysisk er koblet på RS-485-bussen og kender (eller gætter) et slave-ID kan sende læse-/skrive-forespørgsler, inklusive til systemets egne kontrol-registre (fx `ST_LOGIC_CONTROL_REG_BASE`). Dette er en egenskab ved selve RTU som fysisk lag — samme begrænsning gælder ethvert Modbus RTU-slave-udstyr, ikke kun dette system — og løses i praksis ved **fysisk adgangskontrol til bussen** (hvem har adgang til RS-485-kablingen), ikke i software. Samme ræsonnement gælder ST Logic-programmers Modbus Master-kald (`MB_READ_*`/`MB_WRITE_*`): de kan i dag adressere enhver slave 1-247 på bussen uden en indbygget allowlist — men et ST-program kræver i sig selv allerede skriverettighed til at blive uploadet, og en bruger med den rettighed har allerede tilsvarende bus-adgang via `mb write` i CLI'en, så en allowlist ville ikke reelt begrænse en angriber med den adgang.
+
 ## 6.3 Register-kapacitet
 
 | Type | Antal | Adresser |
@@ -41,6 +43,7 @@ For den **komplette, adresse-for-adresse** oversigt over hvad hvert register bet
 
 Kort orienteringsguide til de vigtigste blokke (se register-map-filen for præcise grænser og eventuelle ændringer):
 - **IR 220-251** — ST Logic EXPORT-variabler, synlige som Input Registers for eksterne SCADA-systemer
+- **HR 0-17** (ES32D26) — Analog I/O: Vi1-4/Ii1-4 raw+kalibreret værdi, AO1-2 setpoint (se [kapitel 4](04_Web_Dashboard_og_Monitor.md) og `show analog`)
 - Dynamisk allokerede registre til tællere, timere og ST Logic-bindings, styret af en intern register-allokator der forhindrer utilsigtet overlap mellem subsystemer
 
 ## 6.4 Modbus Slave — konfiguration
@@ -76,6 +79,8 @@ show modbus-master                        (status + kø-/cache-statistik)
 **Manuelt afprøve Master:** se [`mb read`/`mb write`](05_CLI_Konsol.md#54-mb--modbus-master-fra-kommandolinjen) i CLI-kapitlet, eller den manuelle Read/Write-formular i dashboardets Modbus Master-kort ([§4.2](04_Web_Dashboard_og_Monitor.md)).
 
 **Fra ST Logic:** se [kapitel 8](08_ST_Logic_Programmering.md#modbus-master-fra-st-logic) for `MB_READ_HOLDING`/`MB_WRITE_HOLDING` m.fl.
+
+**Via web-GUI (FEAT-166):** slave-id/baudrate/paritet/stopbits/inter-frame-delay (Slave) og enabled/baudrate/paritet/stopbits/timeout/inter-frame-delay/max-requests/cache-ttl (Master) kan nu også sættes fra `/system`-siden — samme felter som ovenfor, blot uden CLI. `cache-size`/`queue-size` er ikke inkluderet dér, da de er faste compile-time-kapaciteter (`MB_CACHE_MAX`/`MB_QUEUE_MAX`), ikke runtime-konfigurerbare via REST i dag.
 
 ## 6.6 Overvågning af faktisk bustrafik
 

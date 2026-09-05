@@ -376,6 +376,32 @@ typedef enum {
 } AnalogOutputMode;
 
 /* ============================================================================
+ * ANALOG INPUT/OUTPUT CONFIGURATION (FEAT-034/035/036, ES32D26 only, schema 20+)
+ *
+ * Kalibrering foelger samme princip som CounterConfig.scale_factor: firmware
+ * kan ikke kende boardets praecise deler-/shunt-modstandsvaerdier, saa scale+
+ * offset er brugerjusterbare med et fornuftigt startgaet (fuld ADC-skala =
+ * fuldt maaleomraade). Modbus-registrene rummer altid ×100 fixed-point
+ * (0-1000 = 0,00-10,00V), samme konvention som ellers bruges for decimaltal
+ * i 16-bit registre i dette projekt.
+ * ============================================================================ */
+
+typedef struct {
+  bool     enabled;      // Kanal aktiv (false = ikke tilsluttet, spring over)
+  float    scale;        // engineering_x100 = offset + scale * raw_mv
+  float    offset;
+  uint16_t raw_reg;      // HR: seneste raa millivolt-laesning
+  uint16_t value_reg;    // HR: kalibreret vaerdi ×100 (fx 1000 = 10,00V eller 20,00mA)
+} AnalogInputConfig;      // 13 bytes
+
+typedef struct {
+  bool     enabled;
+  float    scale;        // dac_count (0-255) = round((engineering_x100 - offset) / scale)
+  float    offset;
+  uint16_t value_reg;    // HR: setpoint ×100, skrevet af bruger/ST Logic
+} AnalogOutputConfig;     // 11 bytes
+
+/* ============================================================================
  * MODBUS MASTER CONFIGURATION
  * ============================================================================ */
 
@@ -387,7 +413,8 @@ typedef enum {
   MB_MAX_REQUESTS_EXCEEDED = 4,
   MB_NOT_ENABLED = 5,
   MB_INVALID_SLAVE = 6,       // BUG-084: Invalid slave ID (not 1-247)
-  MB_INVALID_ADDRESS = 7      // BUG-085: Invalid address (not 0-65535)
+  MB_INVALID_ADDRESS = 7,     // BUG-085: Invalid address (not 0-65535)
+  MB_BUS_BUSY = 8             // BUG-338: kunne ikke faa UART-mutex (optaget af anden transaktion i >2s)
 } mb_error_code_t;
 
 typedef struct {
@@ -408,6 +435,14 @@ typedef struct {
   uint32_t timeout_errors;      // Timeout count
   uint32_t crc_errors;          // CRC error count
   uint32_t exception_errors;    // Modbus exception count
+  // BUG-339: bus_busy_errors flyttet UD af denne struct — se g_modbus_bus_busy_errors
+  // i modbus_master.h/.cpp. Denne struct er indlejret i PersistConfig (raw NVS-blob
+  // m. CRC16 + schema_version), saa et nyt felt her AENDRER PersistConfig's
+  // stoerrelse/layout uden en tilsvarende schema-migration — resultat: CRC-mismatch
+  // ved naeste load -> hele configen (inkl. WiFi/netvaerk) nulstilles til fabriksdefault.
+  // Runtime-taellere som denne hoerer aldrig hjemme her (de blev i forvejen ALDRIG
+  // laest tilbage fra persisteret config ved boot — kun de reelle config-felter
+  // foer "Runtime statistics" bliver det, se modbus_master_init()).
 
   // Last error context (for alarm detail)
   uint8_t last_error_slave_id;  // Slave ID of last failed request
@@ -562,6 +597,49 @@ typedef struct __attribute__((packed)) {
   // Dashboard tab assignments + hidden cards (v7.9.6.8, schema 18)
   char dashboard_card_tabs[256];   // "id:tab,id:tab,..." e.g. "system:overview,counters:app"
   char dashboard_card_hidden[80];  // "id,id,..." hidden card IDs
+
+  // Analog I/O (FEAT-034/035/036, ES32D26 only, schema 20+)
+  // BEVIDST placeret HELT SIDST, lige foer crc16 — ikke ved siden af det
+  // beslaegtede ao1_mode/ao2_mode laengere oppe. En indsaettelse midt i
+  // PersistConfig forskyder byte-positionen for ALT der kommer efter
+  // (rbac, ntp, dashboard-felter, crc16), og selvom schema-tjekket denne
+  // gang faktisk trigger en migration (modsat BUG-339), er der ingen
+  // garanti for at nvs_get_blob's delvise-fyld-adfaerd (gammel, mindre
+  // blob ind i ny, stoerre struct) haandterer den forskydning korrekt for
+  // felter der IKKE selv bliver eksplicit gensat. At tilfoeje helt til
+  // sidst er den eneste maade at vaere 100% sikker paa at INTET
+  // eksisterende felts offset aendrer sig.
+  AnalogInputConfig  analog_ai_v[4];  // Vi1-Vi4: 0-10V spaendingsindgange
+  AnalogInputConfig  analog_ai_i[4];  // Ii1-Ii4: 4-20mA stroemindgange
+  AnalogOutputConfig analog_ao[2];    // AO1-AO2: DAC-udgange (mode: ao1_mode/ao2_mode)
+
+  // Dedikeret HTTPS-port (BUG-350, schema 21+) — foer delte HTTP og HTTPS
+  // samme portnummer (network.http.port), saa aktivering af TLS uden videre
+  // gjorde port 80 om til en TLS-only-lytter: enhver klient der stadig sendte
+  // almindelig http:// mod port 80 (browser-bogmaerker, Node-RED, aabne faner)
+  // floedede loggen med "bad ClientHello", og https:// uden eksplicit :80
+  // ramte slet ikke serveren (browsere antager port 443 for https-skemaet).
+  // Samme placerings-begrundelse som analog-felterne ovenfor: helt til sidst,
+  // foer crc16, for ikke at forskyde noget eksisterende felts byte-offset.
+  uint16_t https_port;  // Default 443 — separat fra network.http.port (80)
+
+  // Password-hashing salte (schema 22+) — RBAC-brugerpasswords (rbac.users[i].password)
+  // og legacy single-user HTTP-password (network.http.password) er fra schema 22 SHA-256
+  // hashes (32 raw bytes, genbruger den eksisterende password[]-byteplads — feltet skifter
+  // betydning fra "klartekst-streng" til "raw digest"), IKKE laengere klartekst. Saltene
+  // kan ikke ligge inde i RbacUser/HttpConfig selv uden at forskyde alt der kommer efter
+  // dem i PersistConfig — samme begrundelse som analog-felterne og https_port ovenfor,
+  // derfor separate arrays helt til sidst, indekseret parallelt med rbac.users[].
+  uint8_t rbac_salt[RBAC_MAX_USERS][16];  // Ét 16-byte salt pr. RBAC-brugerslot
+  uint8_t http_legacy_salt[16];           // Salt til network.http.password
+
+  // Dashboard "Custom"-fane medlemsskab (schema 23+) — SEPARAT fra
+  // dashboard_card_tabs (som styrer et korts ENE normale fane): et kort kan
+  // vaere medlem af Custom UAFHAENGIGT af sin normale fane-tilhoerighed,
+  // saa det stadig vises begge steder. Samme "id,id,..."-format og
+  // begrundelse for placering (helt til sidst, foer crc16) som resten af
+  // dashboard-/analog-/salt-felterne ovenfor.
+  char dashboard_card_custom[80];  // "id,id,..." kort-id'er der er tilfoejet til Custom-fanen
 
   // CRC checksum (last)
   uint16_t crc16;

@@ -61,7 +61,8 @@ Fuld liste med metode, auth-krav og beskrivelse: [**Appendiks B: REST API-refere
 | Sikkerhed | `/api/users`, `/api/rbac` | Brugere og roller |
 | Backup/Restore | `/api/system/backup`, `/api/system/restore` | Fuld konfigurationseksport/-import |
 | OTA | `/api/system/ota`, `/api/system/ota/status` | Firmwareopdatering |
-| Alarmer | `/api/alarms`, `/api/alarms/ack` | Systemhændelseslog |
+| Alarmer | `/api/alarms`, `/api/alarms/ack` | Systemhændelseslog (auto-genereret ved fx lav heap, høj fejlrate) |
+| Hændelses-/registerlog | `/api/syslog` | Config/reboot/login-events + hvem ændrede hvilket register/coil (se [§4.2](04_Web_Dashboard_og_Monitor.md)) |
 | Overvågning | `/api/metrics`, `/api/events` (SSE) | Prometheus-metrics, real-time push |
 
 ## 7.5 Eksempel: læs og skriv et holding-register

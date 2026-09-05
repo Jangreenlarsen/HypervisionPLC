@@ -195,6 +195,20 @@ Dette mønster — ST Logic som lokal, altid-kørende beslutningslogik + REST AP
 - **Runtime-fejl** (fx division med nul) stopper *ikke* hele systemet — kun det pågældende program markeres fejlet, og dets variabler holdes bevidst tilbage fra at blive skrevet (så en enkelt fejlberegning ikke overskriver gode data med skrald). Se `Fejl`-tælleren i Runtime Monitor.
 - **`Reinit`** nulstiller variabler, timere/tællere og statistik til udgangspunktet — brug det til en ren "kold genstart" af ét program uden at genstarte hele enheden.
 - Se [kapitel 13](13_Fejlfinding.md#st-program-ser-ud-til-at-koere-men-intet-opdateres) hvis et program viser stigende `Udførelser` men ingen variabel-ændringer og nul fejl — det er typisk *ikke* et VM-problem, men en ekstern afhængighed (fx Modbus Master) der venter på noget der ikke sker.
+- **`MB_SUCCESS()` betyder noget forskelligt efter et READ vs. et WRITE-kald** — en almindelig kilde til netop den fastlåsning ovenfor: efter `MB_READ_*` afspejler den om cachen reelt har en gyldig, ikke-udløbet værdi (ægte succes/fejl). Efter `MB_WRITE_*` afspejler den derimod kun om skrivningen blev **lagt i kø** — IKKE om den faktisk blev udført på Modbus-bussen — og den sættes én gang, i selve write-kaldet, uden nogensinde at blive opdateret igen. Er køen fuld i netop det øjeblik (kan ske ved bustravlhed, eller mens `mb scan` har køen på pause), forbliver `MB_SUCCESS()` falsk for evigt. **Byg derfor aldrig en tilstandsmaskine der venter ubegrænset på `MB_SUCCESS()` efter et write** — læg altid en tæller-baseret timeout ind (samme mønster som en scan-baseret delay, §8.6), så tilstanden garanteret kommer videre uanset hvad:
+  ```st
+  4: (* Vent på write, MED timeout — aldrig ubegraenset ventetid *)
+    IF MB_SUCCESS() THEN
+      writeWaitCounter := 0;
+      step := 0;                    (* gaa videre normalt *)
+    ELSE
+      writeWaitCounter := writeWaitCounter + 1;
+      IF writeWaitCounter >= 20 THEN  (* ~200ms ved 10ms scan-interval — giv op og forts�t alligevel *)
+        writeWaitCounter := 0;
+        step := 0;
+      END_IF;
+    END_IF;
+  ```
 
 ---
 

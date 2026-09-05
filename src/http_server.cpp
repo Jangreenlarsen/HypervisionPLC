@@ -27,6 +27,7 @@
 #include "ota_handler.h"
 #include "constants.h"
 #include "debug.h"
+#include "config_struct.h"  // BUG-350: g_persist_config.https_port
 
 static const char *TAG = "HTTP_SRV";
 
@@ -41,13 +42,16 @@ static struct {
   uint8_t initialized;
   uint8_t running;
   uint8_t tls_active;
+  uint16_t active_port;  // BUG-350: faktisk lyttende port — config.port (HTTP) eller
+                          // g_persist_config.https_port (HTTPS, dedikeret, ikke samme som HTTP)
 } http_state = {
   .server = NULL,
   .config = {0},
   .stats = {0},
   .initialized = 0,
   .running = 0,
-  .tls_active = 0
+  .tls_active = 0,
+  .active_port = 0
 };
 
 /* ============================================================================
@@ -161,6 +165,37 @@ static const httpd_uri_t uri_counters = {
   .uri      = "/api/counters",
   .method   = HTTP_GET,
   .handler  = api_handler_counters,
+  .user_ctx = NULL
+};
+
+// FEAT-034/035/036/037: Analog I/O (ES32D26). Single endpoint, ingen suffix-
+// routing noedvendig — POST-body angiver selv hvilken kanal der opdateres.
+static const httpd_uri_t uri_analog_get = {
+  .uri      = "/api/analog",
+  .method   = HTTP_GET,
+  .handler  = api_handler_analog_get,
+  .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_analog_post = {
+  .uri      = "/api/analog",
+  .method   = HTTP_POST,
+  .handler  = api_handler_analog_post,
+  .user_ctx = NULL
+};
+
+// FEAT-086/089: Haendelses- og registerandringslog
+static const httpd_uri_t uri_syslog_get = {
+  .uri      = "/api/syslog",
+  .method   = HTTP_GET,
+  .handler  = api_handler_syslog_get,
+  .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_syslog_post = {
+  .uri      = "/api/syslog/*",
+  .method   = HTTP_POST,
+  .handler  = api_handler_syslog_post_dispatch,
   .user_ctx = NULL
 };
 
@@ -460,6 +495,36 @@ static const httpd_uri_t uri_modules_post = {
   .user_ctx = NULL
 };
 
+// RBAC user management (web GUI parity with CLI "set user"/"set rbac"/"delete user")
+extern esp_err_t api_handler_rbac_get(httpd_req_t *req);
+extern esp_err_t api_handler_rbac_post(httpd_req_t *req);
+extern esp_err_t api_handler_rbac_users_post(httpd_req_t *req);
+extern esp_err_t api_handler_rbac_user_delete(httpd_req_t *req);
+static const httpd_uri_t uri_rbac_get = {
+  .uri      = "/api/rbac",
+  .method   = HTTP_GET,
+  .handler  = api_handler_rbac_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_rbac_post = {
+  .uri      = "/api/rbac",
+  .method   = HTTP_POST,
+  .handler  = api_handler_rbac_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_rbac_users_post = {
+  .uri      = "/api/rbac/users",
+  .method   = HTTP_POST,
+  .handler  = api_handler_rbac_users_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_rbac_user_delete = {
+  .uri      = "/api/rbac/users/*",
+  .method   = HTTP_DELETE,
+  .handler  = api_handler_rbac_user_delete,
+  .user_ctx = NULL
+};
+
 // System Backup GET
 static const httpd_uri_t uri_system_backup = {
   .uri      = "/api/system/backup",
@@ -607,6 +672,22 @@ static const httpd_uri_t uri_user_me = {
   .user_ctx = NULL
 };
 
+// BUG-353: REST API auth-modernisering fase 2 — session-tokens
+extern esp_err_t api_handler_login(httpd_req_t *req);
+extern esp_err_t api_handler_logout(httpd_req_t *req);
+static const httpd_uri_t uri_login = {
+  .uri      = "/api/login",
+  .method   = HTTP_POST,
+  .handler  = api_handler_login,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_logout = {
+  .uri      = "/api/logout",
+  .method   = HTTP_POST,
+  .handler  = api_handler_logout,
+  .user_ctx = NULL
+};
+
 // v7.3.1: Web CLI + Bindings + Monitor
 extern esp_err_t api_handler_cli_exec(httpd_req_t *req);
 extern esp_err_t api_handler_bindings_list(httpd_req_t *req);
@@ -671,6 +752,20 @@ static const httpd_uri_t uri_ota_rollback = {
   .uri      = "/api/system/ota/rollback",
   .method   = HTTP_POST,
   .handler  = api_handler_ota_rollback,
+  .user_ctx = NULL
+};
+// FEAT-169: GitHub Releases-baseret OTA — begge exact routes, ingen wildcard
+// i denne gruppe i forvejen, saa ingen shadowing-risiko (jf. BUG-354/BUG-362a).
+static const httpd_uri_t uri_ota_github_check = {
+  .uri      = "/api/system/ota/github-check",
+  .method   = HTTP_GET,
+  .handler  = api_handler_ota_github_check,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_ota_github_install = {
+  .uri      = "/api/system/ota/github-install",
+  .method   = HTTP_POST,
+  .handler  = api_handler_ota_github_install,
   .user_ctx = NULL
 };
 static const httpd_uri_t uri_ota_page = {
@@ -868,26 +963,54 @@ int http_server_start(const HttpConfig *config)
   // Start server (HTTPS or HTTP depending on tls_enabled)
   if (config->tls_enabled) {
     // HTTPS mode: use custom TLS wrapper with heap-limited connections
+    // BUG-350: dedikeret HTTPS-port (g_persist_config.https_port, default 443) —
+    // deler IKKE port med HTTP (config->port, default 80) laengere. Foer delte de
+    // samme portnummer, saa aktivering af TLS gjorde port 80 om til en TLS-only
+    // lytter uden varsel: enhver klient der stadig sendte almindelig http:// mod
+    // port 80 (browser-bogmaerker, Node-RED, aabne dashboard-faner) floedede
+    // loggen med "mbedtls_ssl_handshake returned -0x7900" (bad ClientHello), og
+    // https:// uden eksplicit :80 ramte slet ikke serveren (browsere antager
+    // port 443 for https-skemaet). Se BUGS_INDEX.md BUG-350.
+    uint16_t https_port = g_persist_config.https_port ? g_persist_config.https_port : HTTPS_SERVER_PORT;
     uint8_t prio = (config->priority == 0) ? 3 : (config->priority == 2) ? 6 : 5;
     int ret = https_wrapper_start(&http_state.server,
-                                   config->port,
-                                   64,       // max URI handlers
+                                   https_port,
+                                   128,      // BUG-354: was 96 — 98 handlers now registered (BUG-336c's
+                                             // 96 already only just covered the then-92; /api/login+
+                                             // /api/logout (BUG-353) pushed the total past it, silently
+                                             // dropping the LAST 2 registrations (uri_ota_page, uri_cli_page)
+                                             // since httpd_register_uri_handler()'s return value here isn't
+                                             // checked. Bumped with real headroom this time, not just to
+                                             // match the current count exactly.
                                    10240,    // stack (TLS handshake needs ~8-10KB)
                                    prio,
-                                   1);       // core 1
+                                   0);       // BUG-336c: Core 0 (was 1) — loopTask (CLI/mb scan) and
+                                             // the async Modbus Master task's own per-request wait
+                                             // both live on/touch Core 1; keeping HTTP(S) off that
+                                             // core stops them from ever sharing a core with `mb
+                                             // scan` regardless of scheduling/priority nuances that
+                                             // taskYIELD()/vTaskDelay(1) alone didn't fully resolve
     if (ret != 0) {
-      ESP_LOGE(TAG, "Failed to start HTTPS server on port %d", config->port);
+      ESP_LOGE(TAG, "Failed to start HTTPS server on port %d", https_port);
       return -1;
     }
     http_state.tls_active = 1;
+    http_state.active_port = https_port;
   } else {
     // Plain HTTP mode
     httpd_config_t httpd_config = HTTPD_DEFAULT_CONFIG();
     httpd_config.server_port = config->port;
-    httpd_config.max_uri_handlers = 96;
+    http_state.active_port = config->port;
+    httpd_config.max_uri_handlers = 128;  // BUG-354: see https_wrapper_start() call above for why
     httpd_config.stack_size = 8192;
     httpd_config.uri_match_fn = httpd_uri_match_wildcard;
     httpd_config.lru_purge_enable = true;  // BUG-241: Auto-close idle keep-alive connections to reduce heap fragmentation
+    // BUG-336c: HTTPD_DEFAULT_CONFIG() leaves core_id at tskNO_AFFINITY,
+    // so the scheduler was free to place this task on Core 1 — the same
+    // core as loopTask (CLI, incl. `mb scan`). Pin to Core 0 so the two
+    // can never contend for the same core, same reasoning as the HTTPS
+    // path above.
+    httpd_config.core_id = 0;
 
     esp_err_t err = httpd_start(&http_state.server, &httpd_config);
     if (err != ESP_OK) {
@@ -902,6 +1025,17 @@ int http_server_start(const HttpConfig *config)
   // Middle-wildcards like /api/logic/*/source NEVER match.
   // Instead, wildcard handlers do internal suffix-based routing.
   //
+  // BUG-354: httpd_register_uri_handler()'s return value is NOT checked
+  // below (98 call sites) — if the actual count ever exceeds max_uri_handlers
+  // (set for both HTTP and HTTPS a bit further up in this function), the
+  // LAST registrations in this list silently fail with no boot-time error,
+  // surfacing later as "This URI does not exist" for whichever page/route
+  // happened to be registered last (bit us twice now: BUG-336c, then
+  // BUG-354 when /api/login+/api/logout pushed the count from 96 to 98).
+  // After adding a new route here, run:
+  //   grep -c "httpd_register_uri_handler(http_state.server" src/http_server.cpp
+  // and keep max_uri_handlers comfortably above that number, not just equal to it.
+  //
   // Discovery + status
   httpd_register_uri_handler(http_state.server, &uri_endpoints);
   httpd_register_uri_handler(http_state.server, &uri_endpoints_slash);
@@ -911,6 +1045,12 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_counters);
   httpd_register_uri_handler(http_state.server, &uri_counter_single_get);
   httpd_register_uri_handler(http_state.server, &uri_counter_single_post);
+  // FEAT-034/035/036/037: Analog I/O
+  httpd_register_uri_handler(http_state.server, &uri_analog_get);
+  httpd_register_uri_handler(http_state.server, &uri_analog_post);
+  // FEAT-086/089: Haendelses- og registerandringslog
+  httpd_register_uri_handler(http_state.server, &uri_syslog_get);
+  httpd_register_uri_handler(http_state.server, &uri_syslog_post);
   // Timers
   httpd_register_uri_handler(http_state.server, &uri_timers);
   httpd_register_uri_handler(http_state.server, &uri_timer_single);
@@ -964,6 +1104,11 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_logic_settings_post);
   httpd_register_uri_handler(http_state.server, &uri_modules_get);
   httpd_register_uri_handler(http_state.server, &uri_modules_post);
+  // RBAC user management
+  httpd_register_uri_handler(http_state.server, &uri_rbac_get);
+  httpd_register_uri_handler(http_state.server, &uri_rbac_post);
+  httpd_register_uri_handler(http_state.server, &uri_rbac_users_post);
+  httpd_register_uri_handler(http_state.server, &uri_rbac_user_delete);
   // Backup/restore
   httpd_register_uri_handler(http_state.server, &uri_system_backup);
   httpd_register_uri_handler(http_state.server, &uri_system_restore);
@@ -1009,6 +1154,9 @@ int http_server_start(const HttpConfig *config)
   // v7.2.3: Web-based ST Logic editor (served outside /api/ namespace)
   // v7.3.1: Web CLI + Bindings
   httpd_register_uri_handler(http_state.server, &uri_user_me);
+  // BUG-353: REST API auth-modernisering fase 2 — session-tokens
+  httpd_register_uri_handler(http_state.server, &uri_login);
+  httpd_register_uri_handler(http_state.server, &uri_logout);
   httpd_register_uri_handler(http_state.server, &uri_cli_exec);
   httpd_register_uri_handler(http_state.server, &uri_bindings_list);
   httpd_register_uri_handler(http_state.server, &uri_bindings_delete);
@@ -1020,11 +1168,13 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_ota_status);
   httpd_register_uri_handler(http_state.server, &uri_ota_rollback);
   httpd_register_uri_handler(http_state.server, &uri_ota_upload);
+  httpd_register_uri_handler(http_state.server, &uri_ota_github_check);
+  httpd_register_uri_handler(http_state.server, &uri_ota_github_install);
   httpd_register_uri_handler(http_state.server, &uri_ota_page);
   httpd_register_uri_handler(http_state.server, &uri_cli_page);
 
   http_state.running = 1;
-  ESP_LOGI(TAG, "HTTP server started on port %d", config->port);
+  ESP_LOGI(TAG, "%s server started on port %d", config->tls_enabled ? "HTTPS" : "HTTP", http_state.active_port);
 
   return 0;
 }
@@ -1149,7 +1299,7 @@ void http_server_print_status(void)
 
   if (http_state.running) {
     debug_printf("Protocol:         %s\n", http_state.tls_active ? "HTTPS (TLS)" : "HTTP");
-    debug_printf("Port:             %d\n", http_state.config.port);
+    debug_printf("Port:             %d\n", http_state.active_port);
     debug_printf("API Endpoints:    %s\n", http_state.config.api_enabled ? "Enabled" : "Disabled");
     debug_printf("Auth Enabled:     %s\n", http_state.config.auth_enabled ? "Yes" : "No");
     if (http_state.config.auth_enabled) {

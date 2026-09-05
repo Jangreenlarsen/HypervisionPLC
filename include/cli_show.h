@@ -169,6 +169,16 @@ void cli_cmd_show_metrics(void);
 void cli_cmd_show_status(void);
 
 /**
+ * @brief Handle "show tasks" command — FreeRTOS task-tilstande (BUG-343 diagnostik)
+ *
+ * Viser hver task's navn, tilstand (RUNNING/READY/BLOCKED/SUSPENDED), core-
+ * tilknytning, prioritet og resterende stak. Formaalet er at kunne koere
+ * kommandoen MENS noget haenger (fx `mb scan`) og se praecis hvilken task der
+ * er blokeret eller sultet — i stedet for at gaette ud fra symptomer.
+ */
+void cli_cmd_show_tasks(void);
+
+/**
  * @brief Handle "read reg <id> <antal>" command
  * @param argc Argument count (must be 2)
  * @param argv Argument array (argv[0] = start addr, argv[1] = count)

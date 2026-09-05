@@ -268,7 +268,7 @@ Max 8 grupper × 16 registre. ST Logic: `SAVE(0)`/`LOAD(0)` = alle grupper, `SAV
 
 **`set ethernet <option> [værdi]`:** `enable`, `disable`, `dhcp on|off`, `ip/gateway/netmask/dns <adr>`.
 
-**`set http <option> <værdi>`:** `enabled on|off`, `port <1-65535>` (default 80, 443 for HTTPS), `auth on|off`, `username <navn>`, `password <pw>`, `api on|off` (aktiverer/deaktiverer REST API-endpoints), `tls on|off` (kræver reboot).
+**`set http <option> <værdi>`:** `enabled on|off`, `port <1-65535>` (default 80, bruges KUN til almindelig HTTP), `https-port <1-65535>` (default 443, dedikeret HTTPS-port — se BUG-350, kræver reboot), `auth on|off`, `username <navn>`, `password <pw>`, `api on|off` (aktiverer/deaktiverer REST API-endpoints), `tls on|off` (kræver reboot; lytter på `https-port`, ikke `port`).
 
 **`set sse <option> [værdi]`:** `enable`/`disable` (kræver reboot), `port <0-65535>` (0=auto=HTTP-port+1), `max-clients <1-5>`, `interval <50-5000>` (check-interval ms), `heartbeat <1000-60000>` (ms), `disconnect all` / `disconnect <slot>`.
 

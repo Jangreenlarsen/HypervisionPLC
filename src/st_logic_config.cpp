@@ -50,7 +50,7 @@ st_logic_engine_state_t *st_logic_get_state(void) {
 
 void st_logic_init(st_logic_engine_state_t *state) {
   memset(state, 0, sizeof(*state));
-  state->enabled = 1;
+  state->enabled = 1;  // Persisteret "st_logic"-modul-flag anvendes senere af config_apply() (BUG-362)
   state->execution_interval_ms = 10;  // Run every 10ms by default
 
   // v7.9.7.6: Allokér source_pool dynamisk — PSRAM foretrækkes.

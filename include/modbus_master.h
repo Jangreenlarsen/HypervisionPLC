@@ -62,6 +62,15 @@ void modbus_master_activate_uart();
 extern bool g_modbus_master_boot_aborted;
 
 /**
+ * @brief BUG-338/339: taeller for MB_BUS_BUSY (UART-mutex ikke opnaaet i tide).
+ * Bevidst IKKE et felt i modbus_master_config_t — den struct er indlejret i
+ * PersistConfig (raw NVS-blob), og et rent runtime-taelle-felt hoerer ikke
+ * hjemme i noget der aendrer NVS-layoutet. Nulstilles af modbus_master_reset_stats()
+ * og mb_async_reset_stats() ligesom de oevrige stats-taellere.
+ */
+extern uint32_t g_modbus_bus_busy_errors;
+
+/**
  * @brief Reset statistics counters
  */
 void modbus_master_reset_stats();

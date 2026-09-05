@@ -116,6 +116,7 @@ typedef struct {
   SemaphoreHandle_t  pq_semaphore;   // Counting semaphore (signals new items)
   TaskHandle_t       task_handle;
   volatile bool      task_running;
+  volatile bool      paused;         // BUG-338: se mb_async_pause()
 
   // Per-slave adaptive backoff (v7.9.5: non-blocking skip instead of vTaskDelay)
   struct {
@@ -155,6 +156,14 @@ void mb_async_deinit();
 
 /**
  * @brief Suspend background task (for UART reconfiguration)
+ *
+ * NB: vTaskSuspend() er UBETINGET og kan ramme tasken midt i en
+ * transaktion, mens den holder g_modbus_uart_mutex — det ville laase
+ * mutex'en permanent (ingen anden kan nogensinde tage den igen, foer
+ * mb_async_resume() kaldes). Brug kun til UART-rekonfiguration, hvor
+ * hele Modbus Master-subsystemet alligevel er ved at blive genstartet.
+ * Til et kortvarigt, sikkert "giv bussen fri"-behov (fx `mb scan`), brug
+ * i stedet mb_async_pause()/mb_async_unpause() nedenfor.
  */
 void mb_async_suspend();
 
@@ -162,6 +171,32 @@ void mb_async_suspend();
  * @brief Resume background task after reconfiguration
  */
 void mb_async_resume();
+
+/**
+ * @brief BUG-338: kooperativ, sikker pause af koe-behandlingen.
+ *
+ * I modsaetning til mb_async_suspend() stopper denne IKKE tasken med det
+ * samme — flaget tjekkes kun oeverst i loopet, ALDRIG midt i en
+ * transaktion, saa tasken garanteret aldrig fanges mens den holder
+ * g_modbus_uart_mutex. Bruges af `mb scan` til at give scanningen
+ * eksklusiv, ukontesteret adgang til RS485-bussen, saa den ikke
+ * konkurrerer med ST Logic/dashboard-trafik om UART-mutex'en (som ellers
+ * kunne faa scanningen til systematisk at "sulte" og aldrig faa sendt
+ * en eneste forespoergsel — sete som falsk "0 slaver fundet").
+ * Koen bliver IKKE tømt eller stoppet fra at modtage nye elementer —
+ * de venter blot til mb_async_unpause() kaldes.
+ */
+void mb_async_pause();
+
+/**
+ * @brief Genoptag koe-behandling efter mb_async_pause()
+ */
+void mb_async_unpause();
+
+/**
+ * @brief Er koe-behandlingen sat paa pause? (til diagnostik/UI)
+ */
+bool mb_async_is_paused();
 
 /**
  * @brief Find cache entry by key

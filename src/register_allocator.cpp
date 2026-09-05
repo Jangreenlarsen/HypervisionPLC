@@ -112,6 +112,30 @@ void register_allocator_init(void) {
     }
   }
 
+#if defined(ANALOG_IO_ENABLED)
+  // 6. Pre-allocate analog I/O registers (FEAT-034/035/036, ES32D26 only).
+  // Kun for enabled kanaler — samme princip som counters ovenfor, saa en
+  // deaktiveret AI/AO-kanals registre er fri til andet brug.
+  {
+    extern PersistConfig g_persist_config;
+    for (uint8_t i = 0; i < 4; i++) {
+      if (g_persist_config.analog_ai_v[i].enabled) {
+        register_allocator_allocate(g_persist_config.analog_ai_v[i].raw_reg, REG_OWNER_ANALOG, i + 1, "Vr");
+        register_allocator_allocate(g_persist_config.analog_ai_v[i].value_reg, REG_OWNER_ANALOG, i + 1, "Vv");
+      }
+      if (g_persist_config.analog_ai_i[i].enabled) {
+        register_allocator_allocate(g_persist_config.analog_ai_i[i].raw_reg, REG_OWNER_ANALOG, i + 5, "Ir");
+        register_allocator_allocate(g_persist_config.analog_ai_i[i].value_reg, REG_OWNER_ANALOG, i + 5, "Iv");
+      }
+    }
+    for (uint8_t i = 0; i < 2; i++) {
+      if (g_persist_config.analog_ao[i].enabled) {
+        register_allocator_allocate(g_persist_config.analog_ao[i].value_reg, REG_OWNER_ANALOG, i + 9, "AO");
+      }
+    }
+  }
+#endif
+
   allocator_initialized = true;
 
   debug_println("[ALLOCATOR] Register allocator initialized");

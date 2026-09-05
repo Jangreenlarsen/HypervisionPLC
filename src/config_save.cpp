@@ -8,6 +8,7 @@
 #include "config_save.h"
 #include "debug.h"
 #include "debug_flags.h"
+#include "system_log.h"  // FEAT-086
 #include <string.h>
 #include <Arduino.h>
 
@@ -178,6 +179,12 @@ bool config_save_to_nvs(const PersistConfig* cfg) {
     debug_print_uint(saved_crc);  // BUG-146 FIX: Use saved CRC instead of freed pointer
     debug_println("");
   }
+
+  // FEAT-086: config_save_to_nvs() har 12 kaldesteder paa tvaers af REST/CLI/
+  // ST Logic — logges her generisk (SYSTEM, ingen bruger-attribution) i
+  // stedet for ved hvert enkelt kaldested, som ville vaere en langt stoerre
+  // aendring end denne feature retfaerdiggoer.
+  system_log_add_event((uint8_t)SYSLOG_SRC_SYSTEM, NULL, NULL, "Config gemt til NVS");
 
   return true;
 }

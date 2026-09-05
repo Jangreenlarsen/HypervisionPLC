@@ -506,6 +506,17 @@ static void mb_async_task_func(void *pvParameters) {
   uint32_t last_sweep_ms = 0;
 
   while (g_mb_async.task_running) {
+    // BUG-338: kooperativ pause (fx under `mb scan`). Tjekkes KUN her, oeverst
+    // i loopet — aldrig midt i en transaktion — saa denne task garanteret
+    // aldrig fanges mens den holder g_modbus_uart_mutex (til forskel fra
+    // mb_async_suspend()'s vTaskSuspend, som rammer vilkaarligt og ville
+    // kunne laase mutex'en permanent). Koeen blivet ikke toemt — nye
+    // elementer venter blot til pausen ophaeves.
+    if (g_mb_async.paused) {
+      vTaskDelay(pdMS_TO_TICKS(50));
+      continue;
+    }
+
     // BUG-333: periodically rescue cache entries stuck in PENDING. Runs even
     // when the queue is idle (the semaphore below times out), so a wedged
     // entry recovers on its own instead of blocking that address until reboot.
@@ -787,6 +798,18 @@ void mb_async_resume() {
   }
 }
 
+void mb_async_pause() {
+  g_mb_async.paused = true;
+}
+
+void mb_async_unpause() {
+  g_mb_async.paused = false;
+}
+
+bool mb_async_is_paused() {
+  return g_mb_async.paused;
+}
+
 const mb_async_state_t *mb_async_get_state() {
   return &g_mb_async;
 }
@@ -818,5 +841,6 @@ void mb_async_reset_stats() {
   g_modbus_master_config.timeout_errors = 0;
   g_modbus_master_config.crc_errors = 0;
   g_modbus_master_config.exception_errors = 0;
+  g_modbus_bus_busy_errors = 0;
   g_modbus_master_config.stats_since_ms = millis();
 }

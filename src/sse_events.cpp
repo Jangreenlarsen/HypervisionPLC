@@ -909,7 +909,10 @@ static void sse_accept_task(void *arg)
 
     char task_name[16];
     snprintf(task_name, sizeof(task_name), "sse_%d", client_fd);
-    BaseType_t ret = xTaskCreate(sse_client_task, task_name, 6144, params, 3, NULL);
+    // BUG-336c: pin to Core 0, same reasoning as the HTTP(S) server —
+    // keep it off Core 1 (loopTask/CLI, incl. `mb scan`) so the
+    // dashboard's live updates cannot be starved by a running scan.
+    BaseType_t ret = xTaskCreatePinnedToCore(sse_client_task, task_name, 6144, params, 3, NULL, 0);
     if (ret != pdPASS) {
       ESP_LOGE(TAG, "Failed to create SSE client task");
       free(params);
@@ -1148,7 +1151,8 @@ int sse_start(uint16_t port)
   }
 
   // Start acceptor task
-  BaseType_t ret = xTaskCreate(sse_accept_task, "sse_accept", 4096, NULL, 4, &sse_accept_task_handle);
+  // BUG-336c: pin to Core 0 — see sse_client_task above.
+  BaseType_t ret = xTaskCreatePinnedToCore(sse_accept_task, "sse_accept", 4096, NULL, 4, &sse_accept_task_handle, 0);
   if (ret != pdPASS) {
     ESP_LOGE(TAG, "Failed to create SSE acceptor task");
     close(sse_listen_fd);

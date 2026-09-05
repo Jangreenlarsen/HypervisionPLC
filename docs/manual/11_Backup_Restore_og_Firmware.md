@@ -39,7 +39,18 @@ Firmware kan opdateres over netværket uden at skulle koble USB til igen:
 
 **Størrelsesgrænse:** maks. ca. **1,8 MB** (1.900.544 bytes, svarende til én OTA-partition). Upload afvises med en tydelig fejlbesked hvis filen er for stor.
 
-> **Adgangskontrol-forbehold:** OTA-upload kræver pr. skrivende stund kun et gyldigt login — *ikke* eksplicit skriverettighed, i modsætning til stort set alle andre ændrende endpoints. En bruger med kun læse-adgang kan altså i praksis flashe firmware. Se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) for status på dette punkt, og begræns hvem der har login-adgang overhovedet, indtil det er lukket.
+> **Adgangskontrol:** OTA-upload/rollback kræver eksplicit skriverettighed (rettet i BUG-355) — en bruger med kun læse-adgang kan ikke flashe firmware. **Stadig ingen kryptografisk firmware-signaturverifikation** — se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #2.
+
+### 11.3a Opdatering direkte fra GitHub (FEAT-169)
+
+Som alternativ til manuel `.bin`-upload kan `/system`-sidens OTA-kort hente og installere den nyeste offentliggjorte version direkte fra projektets GitHub Releases:
+
+1. Klik **"Tjek for opdatering"** — enheden slår op mod `api.github.com` og viser nuværende vs. seneste udgivne version.
+2. Er der en nyere version, vises en **"Installér"**-knap med filstørrelsen. Klik for at bekræfte, hente og flashe — samme automatiske rollback-beskyttelse som ved manuel upload gælder uændret.
+
+**Bevidst kun manuelt** — enheden slår aldrig selv op i baggrunden uopfordret; det er en aktiv handling hver gang, samme filosofi som resten af sikkerhedsmodellen i dette kapitel. Kræver at enheden reelt har internetadgang (`api.github.com` + `objects.githubusercontent.com`) — irrelevant/virker ikke på en fuldstændig LAN-isoleret installation, hvor manuel upload forbliver vejen frem.
+
+TLS-forbindelsen bruger bundlede, ægte rod-CA-certifikater (ikke en usikker/uverificeret forbindelse) — se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #19 for den fulde afvejning omkring cert-pinning. Se [`../RELEASE_PROCEDURE.md`](../RELEASE_PROCEDURE.md) for hvordan nye versioner bliver gjort tilgængelige som en GitHub Release i første omgang.
 
 **Status og fremgang under upload:**
 ```bash

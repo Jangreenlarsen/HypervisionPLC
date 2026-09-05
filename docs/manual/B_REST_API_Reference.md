@@ -4,11 +4,11 @@
 
 ---
 
-> Denne reference er udtrukket direkte fra kildekoden (`src/http_server.cpp`, `src/api_handlers.cpp`, `src/ota_handler.cpp`) — alle **92** registrerede `httpd_uri_t`-handlers er talt og dokumenteret nedenfor (verificeret via `grep -c "httpd_register_uri_handler" src/http_server.cpp`), plus SSE-serveren som kører uden for hoved-httpd'en. Se [kapitel 7](07_REST_API.md) for grundlæggende brug (auth, rate limiting, eksempler).
+> Denne reference er udtrukket direkte fra kildekoden (`src/http_server.cpp`, `src/api_handlers.cpp`, `src/ota_handler.cpp`) — alle **94** registrerede `httpd_uri_t`-handlers er talt og dokumenteret nedenfor (verificeret via `grep -c "httpd_register_uri_handler" src/http_server.cpp`), plus SSE-serveren som kører uden for hoved-httpd'en. Se [kapitel 7](07_REST_API.md) for grundlæggende brug (auth, rate limiting, eksempler).
 
 ## B.1 Generelt
 
-**Base-URL:** `http://<ip>:<port>/api/...` (default port 80, eller 443 hvis `set http tls on`). SSE-strømmen (`/api/events`) kører på en **separat** raw-socket-server på en dedikeret port (default: HTTP-port + 1, konfigurerbar via `set sse port`) — den er ikke registreret via ESP-IDF's `httpd` og har derfor ingen `httpd_uri_t`.
+**Base-URL:** `http://<ip>:<port>/api/...` (default port 80) — eller `https://<ip>:<https-port>/api/...` (default 443) hvis `set http tls on`. **HTTPS har sin egen dedikerede port (BUG-350)**, uafhængig af `port` — de to porte deler ikke nummer, så aktivering af TLS ikke gør HTTP-porten om til en TLS-only-lytter. SSE-strømmen (`/api/events`) kører på en **separat** raw-socket-server på en dedikeret port (default: HTTP-port + 1, konfigurerbar via `set sse port`) — den er ikke registreret via ESP-IDF's `httpd` og har derfor ingen `httpd_uri_t`.
 
 **Auth-niveauer brugt i tabellerne** (defineret som makroer i `api_handlers.cpp`):
 - **Ingen** — kun `CHECK_API_ENABLED` (kræver `set http api on`), ingen brugerauth
@@ -48,7 +48,7 @@ Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
 | GET | `/api/config` | CHECK_AUTH | Stort read-only snapshot: system, modbus_mode, modbus_slave, modbus_master, analog_outputs, network, telnet, http, counters[], timers[], gpio[], st_logic (m. programs[]), modules, persistence |
-| POST | `/api/http` | CHECK_AUTH_WRITE | Body-felter: `enabled`, `port`, `auth_enabled`, `api_enabled`, `tls_enabled`, `username`, `password`, `priority`(`LOW`/`NORMAL`/`HIGH`). Port/TLS kræver reboot. |
+| POST | `/api/http` | CHECK_AUTH_WRITE | Body-felter: `enabled`, `port`, `https_port`(BUG-350, dedikeret HTTPS-port, default 443, IKKE samme som `port`), `auth_enabled`, `api_enabled`, `tls_enabled`, `username`, `password`, `priority`(`LOW`/`NORMAL`/`HIGH`). Port/https_port/TLS kræver reboot. |
 | GET | `/api/modules` | CHECK_AUTH | `{"counters":bool,"timers":bool,"st_logic":bool}` (modul-flag) |
 | POST | `/api/modules` | CHECK_AUTH_WRITE | Samme felter — slå moduler til/fra |
 | GET | `/api/dashboard/layout` | *Ingen* | `card_order`, `card_tabs`, `card_hidden` (dashboard UI-præference) |
@@ -74,12 +74,14 @@ Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 
 ## B.6 Modbus Aktivitetslog (FEAT-149, RAM-only)
 
-*Bemærk: disse to routes er ikke selvstændige `httpd_uri_t` — de matches af `/api/modbus/*`-wildcarden, men delegeres helt i toppen af `api_handler_modbus_get`/`_post` (før disse handlers egen auth-logik), fordi wildcarden ellers ville "skygge" dem. Se [kapitel 13](13_Fejlfinding.md) for baggrundshistorien.*
+*Bemærk: disse routes er ikke selvstændige `httpd_uri_t` — de matches af `/api/modbus/*`-wildcarden, men delegeres helt i toppen af `api_handler_modbus_get`/`_post` (før disse handlers egen auth-logik), fordi wildcarden ellers ville "skygge" dem. Se [kapitel 13](13_Fejlfinding.md) for baggrundshistorien.*
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
-| GET | `/api/modbus/activity` | *Ingen* (kun `CHECK_API_ENABLED` + rate limit) | Array af de seneste (op til 40) wire-level Master+Slave-transaktioner: `timestamp_ms`, `role`(`master`/`slave`), `source`(`st_logic`/`cli`/`dashboard`/`external`), `slave_id`, `fc`, `address`, `count`, `value`, `error`, `success` |
-| POST | `/api/modbus/activity/clear` | CHECK_AUTH_WRITE | Tømmer aktivitetsloggen |
+| GET | `/api/modbus/activity` | *Ingen* (kun `CHECK_API_ENABLED` + rate limit) | Wire-level Master+Slave-transaktioner. Svar: `{"logging":bool,"capacity":500,"total":N,"entries":[...]}`. Hver post: `timestamp_ms` (uptime), `epoch_s` (Unix-tid, `0` hvis NTP ikke synkroniseret), `role`(`master`/`slave`), `source`(`st_logic`/`cli`/`dashboard`/`external`), `slave_id`, `fc`, `address`, `count`, `value`, `error`, `success`. Understøtter `?limit=N` — returnerer kun de **nyeste** N poster (udelad for hele loggen). Svaret sendes chunked, så størrelsen ikke er begrænset af en fast buffer |
+| POST | `/api/modbus/activity/clear` | CHECK_AUTH_WRITE | Tømmer aktivitetsloggen (ændrer ikke start/stop-tilstanden) |
+| POST | `/api/modbus/activity/start` | CHECK_AUTH_WRITE | Genoptager logning. Svar: `{"status":"ok","logging":true}` |
+| POST | `/api/modbus/activity/stop` | CHECK_AUTH_WRITE | Stopper logning uden at rydde indholdet. Svar: `{"status":"ok","logging":false}` |
 
 ## B.7 Registre / Coils / Discrete Inputs
 
@@ -110,6 +112,15 @@ Adresseområder: HR/IR 0–255, coils/DI 0–255.
 | POST | `/api/gpio/{pin}/config` *(suffix)* | CHECK_AUTH_WRITE | Opret/opdater mapping. Body: `{"direction":"input\|output","register":N}` (input) eller `{"direction":"output","coil":N}` |
 | DELETE | `/api/gpio/{pin}` | CHECK_AUTH_WRITE | Fjern GPIO-mapping |
 | GET / POST | `/api/gpio/2/heartbeat` *(egen eksakt registrering, registreret FØR `/api/gpio/*`)* | GET: CHECK_AUTH · POST: CHECK_AUTH (+ write-check) | GET: `{"enabled":bool,"gpio2_user_mode":bool}`. POST body: `{"enabled":bool}` — styr heartbeat-LED vs. brugerkode på GPIO2 |
+
+## B.8a Analog I/O (FEAT-034/035/036/037, ES32D26 only)
+
+| Metode | URI | Auth | Beskrivelse |
+|---|---|---|---|
+| GET | `/api/analog` | CHECK_AUTH | Alle 10 kanaler: `ai_voltage[]` (vi1-4), `ai_current[]` (ii1-4), `ao[]` (ao1-2). Hver AI-post: `channel`, `enabled`, `adc2` (bool), `wifi_blocked` (bool — sand hvis ADC2-kanal og WiFi tilsluttet), `raw_mv`, `value` (×100 fixed-point, -1 hvis wifi_blocked), `scale`, `offset`, `raw_reg`, `value_reg`. Hver AO-post: `channel`, `enabled`, `mode` (`voltage`/`current`), `setpoint` (×100), `scale`, `offset`, `value_reg` |
+| POST | `/api/analog` | CHECK_AUTH_WRITE | Body: `{"channel":"vi1\|...\|ao2", ...}`. Valgfrie felter: `enabled` (bool, kræver `save`+reboot for at slå register-allokering til), `scale`/`offset` (float, virker straks), `setpoint` (float, **kun AO-kanaler**, skriver direkte til runtime-registret — virker med det samme, ingen `save` nødvendig) |
+
+Register-adresser er faste i denne version (ikke bruger-omkonfigurerbare) — se [§6](06_Modbus_Interface.md) og `MODBUS_REGISTER_MAP.md` for den fulde adresseliste (HR 0-17).
 
 ## B.9 Counters
 
@@ -172,26 +183,36 @@ Adresseområder: HR/IR 0–255, coils/DI 0–255.
 
 ## B.13 Sikkerhed / RBAC / Brugere
 
-Der findes **intet** dedikeret `/api/users`-CRUD-endpoint. Brugerhåndtering sker udelukkende via CLI (`set user`/`delete user`, se [Appendiks A](A_CLI_Kommando_Reference.md#a4-set-x--konfigurationskommandoer)) eller indirekte via `/api/system/backup`+`/api/system/restore` (som inkluderer RBAC-brugere i klartekst — se §B.14).
+**Siden FEAT-166** findes et dedikeret RBAC-bruger-CRUD (tidligere kun CLI, se `set user`/`delete user`, [Appendiks A](A_CLI_Kommando_Reference.md#a4-set-x--konfigurationskommandoer)) — begge veje virker fortsat side om side. Indirekte kan brugere også ses/gendannes via `/api/system/backup`+`/api/system/restore` (hash+salt siden BUG-352 — se §B.14).
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
 | GET | `/api/user/me` | *Ingen* | Se §B.2 — viser roller/privilegie for den kaldende bruger |
+| POST | `/api/login` | *Ingen* (kræver Basic Auth-header i requestet for at lykkes) | **BUG-353.** Verificerer den medsendte `Authorization: Basic ...`-header (samme kode som alle andre endpoints) og udsteder ved succes et session-token. Svar mirror'er `/api/user/me` plus et `"token"`-felt: `{"authenticated":true,"username":...,"roles":...,"privilege":...,"mode":...,"token":"<24-tegns hex>"}`. Brug derefter `Authorization: Bearer <token>` i stedet for Basic Auth. Token har et **glidende 30-minutters inaktivitets-timeout** (forlænges ved hvert gyldigt kald). 401 ved forkerte credentials, 429 ved for mange forsøg (samme rate-limiter som resten af API'et). |
+| POST | `/api/logout` | *Ingen* (virker med eller uden gyldig token) | Invaliderer straks det Bearer-token requestet blev sendt med, hvis noget. Svarer altid `{"status":"ok"}` — logout fejler aldrig synligt. |
+| GET | `/api/rbac` | CHECK_AUTH_WRITE | **FEAT-166.** `{"enabled":bool,"user_count":N,"max_users":8,"users":[{"index":0,"username":"...","roles":"api,monitor","privilege":"read/write"},...]}` — **aldrig** password/hash/salt med. Kræver skriverettighed selv for GET (ikke bare `CHECK_AUTH`) — kun en bruger der må ÆNDRE brugere bør kunne enumerere brugerlisten. |
+| POST | `/api/rbac` | CHECK_AUTH_WRITE | **FEAT-166.** Body: `{"enabled":bool}` — til/fra for hele RBAC (mirror af `set rbac enable/disable`). Svarer med `"warning"` i stedet for `"message"` hvis der slås til uden nogen brugere konfigureret (samme lockout-advarsel som CLI'en giver). |
+| POST | `/api/rbac/users` | CHECK_AUTH_WRITE | **FEAT-166.** Opret ELLER opdatér (samme brugernavn = opdatér). Body: `{"username":"...","password":"...","roles":"api,cli,editor,monitor","privilege":"read"\|"write"\|"read/write"}`. Password er PÅKRÆVET ved både opret og redigering — der er ingen "kun ret roller"-variant, samme begrænsning som CLI'ens `set user`. Svar: `{"status":200,"index":N,"roles":"...","message":"..."}`. |
+| DELETE | `/api/rbac/users/{username}` | CHECK_AUTH_WRITE | **FEAT-166.** Sletter brugeren. 404 hvis brugernavnet ikke findes. |
 
-Auth-model: HTTP Basic Auth-header, matchet mod enten RBAC-brugerdatabasen (op til 8 brugere, roller `api`/`cli`/`editor`/`monitor`, privilegie `read`/`write`/`read/write`) eller — hvis RBAC er deaktiveret — det gamle single-user `network.http.username`/`password`-par (svarer til en "virtual admin", uid=99, fuld adgang).
+**Sikkerhedsmodel for RBAC-CRUD-endpoints:** `CHECK_AUTH_WRITE` (skriverettighed) er en BEVIDST parity-beslutning med CLI'ens egen eksisterende model — `rbac_cli_allowed()` lader allerede enhver CLI-rolle+skriverettigheds-bruger oprette/eskalere en admin-konto via `set user`. Se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #18.
+
+Auth-model: HTTP Basic Auth-header, matchet mod enten RBAC-brugerdatabasen (op til 8 brugere, roller `api`/`cli`/`editor`/`monitor`, privilegie `read`/`write`/`read/write`) eller — hvis RBAC er deaktiveret — det gamle single-user `network.http.username`/`password`-par (svarer til en "virtual admin", uid=99, fuld adgang). **Siden BUG-353** accepteres desuden `Authorization: Bearer <token>` fra `/api/login` som et ligeværdigt alternativ til Basic Auth på **alle** endpoints — Basic Auth virker uændret og for evigt ved siden af, det er en tilføjelse, ikke en erstatning.
 
 ## B.14 Backup / Restore
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
-| GET | `/api/system/backup` | **CHECK_AUTH_WRITE** (bevidst skærpet fra CHECK_AUTH — indeholder WiFi/Telnet/HTTP/RBAC-adgangskoder i klartekst) | Komplet JSON-dump af hele konfigurationen: metadata, modbus, network/telnet/http/sse/ntp (inkl. passwords!), counters[], timers[], static/dynamic regs+coils, var_maps[], persist_regs (m. gruppeindhold), logic_programs[] (m. source code), rbac.users[] (m. passwords). Sender `Content-Disposition: attachment; filename="backup.json"`. |
+| GET | `/api/system/backup` | **CHECK_AUTH_WRITE** (bevidst skærpet fra CHECK_AUTH — indeholder WiFi/Telnet-adgangskoder i klartekst) | Komplet JSON-dump af hele konfigurationen: metadata, modbus, network/telnet/http/sse/ntp, counters[], timers[], static/dynamic regs+coils, var_maps[], persist_regs (m. gruppeindhold), logic_programs[] (m. source code), rbac.users[]. Sender `Content-Disposition: attachment; filename="backup.json"`. |
 | POST | `/api/system/restore` | CHECK_AUTH_WRITE | Body: samme JSON-struktur som backup-outputtet. Erstatter hele konfigurationen, gemmer til NVS og anvender den. Kræver reboot for fuld effekt (advarsel i svaret). |
+
+**Password-felter i backup-JSON (BUG-352, fra v7.9.10.9):** `http.password_hash`/`http.password_salt` og hvert `rbac.users[].password_hash`/`password_salt` — hex-encoded SHA-256-hash (32 byte) + salt (16 byte), IKKE reversibelt klartekst. Restore skriver disse raw tilbage (ingen gen-hashing). Ældre backup-filer (fra før BUG-352, med et almindeligt `password`-felt i klartekst) accepteres stadig af restore — hashes friskt ved import, for bagudkompatibilitet. `network.password` (WiFi) og `telnet.password` er fortsat almindelig klartekst i backup-JSON (se [§10.3](10_Sikkerhed_og_Adgangsstyring.md#103-standard-credentials--skal-aendres)).
 
 Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevaringsanbefalinger.
 
 ## B.15 OTA Firmware Update (FEAT-031)
 
-*Bruger sin egen `CHECK_AUTH_OTA`-makro, som **svarer til `CHECK_AUTH`** (kræver blot en autentificeret bruger — ikke specifikt write-privilegie, på trods af at operationen er destruktiv). Se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) og [kapitel 11](11_Backup_Restore_og_Firmware.md#113-ota-firmwareopdatering) for status.*
+*Bruger sin egen `CHECK_AUTH_OTA`-makro. Krævede tidligere kun en autentificeret bruger, ikke specifikt skriverettighed, på trods af at operationen er destruktiv (SECURITY_INDEX #2) — **rettet i BUG-355**: mirror'er nu `CHECK_AUTH_WRITE` præcist (kræver `rbac_has_write()`). Stadig ingen kryptografisk firmware-signaturverifikation — se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) og [kapitel 11](11_Backup_Restore_og_Firmware.md#113-ota-firmwareopdatering) for status.*
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
@@ -203,8 +224,23 @@ Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevari
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
-| GET | `/api/alarms` | *Ingen* (kun `CHECK_API_ENABLED` + rate limit) | Ringbuffer med op til 32 alarmer: `timestamp_ms`,`message`,`severity`(0=info,1=warning,2=critical),`acknowledged`,`uptime`,(hvis NTP synced) `epoch`,`time`, evt. `source_ip`/`username` (for auth-fejl). Genereres automatisk hvert 3. sek. ved: lav heap, stigende CRC-fejl (slave), stigende timeouts (master), stigende auth-failures, write-privilegie nægtet, SSE-kø fuld, ST Logic overrun-rate >5%. |
+| GET | `/api/alarms` | CHECK_AUTH (siden SECURITY_INDEX #12 — indeholdt tidligere source-IP/brugernavne fra fejlede loginforsøg uden nogen auth-krav) | Ringbuffer med op til 32 alarmer: `timestamp_ms`,`message`,`severity`(0=info,1=warning,2=critical),`acknowledged`,`uptime`,(hvis NTP synced) `epoch`,`time`, evt. `source_ip`/`username` (for auth-fejl). Genereres automatisk hvert 3. sek. ved: lav heap, stigende CRC-fejl (slave), stigende timeouts (master), stigende auth-failures, write-privilegie nægtet, SSE-kø fuld, ST Logic overrun-rate >5%. |
 | POST | `/api/alarms/ack` | CHECK_AUTH_WRITE | Kvitterer (acknowledged=true) alle alarmer |
+
+## B.16a Hændelses-/registerændringslog (FEAT-086/089)
+
+*Delt modul (`system_log.h/.cpp`) for to beslægtede punkter — ét kategori-felt (`event`/`regchange`) i stedet for to separate ringbuffere, for at spare flash. Se [§4.2](04_Web_Dashboard_og_Monitor.md) og [kapitel 13](13_Fejlfinding.md).*
+
+| Metode | URI | Auth | Beskrivelse |
+|---|---|---|---|
+| GET | `/api/syslog` | CHECK_AUTH | 200-entry ringbuffer (PSRAM). Svar: `{"logging":bool,"capacity":200,"total":N,"entries":[...]}`. Hver post: `timestamp_ms` (uptime), `epoch_s` (Unix-tid, `0` hvis NTP ikke synkroniseret), `category`(`event`/`regchange`), `source`(`rest`/`modbus_slave`/`system`), `username`, `ip` (begge `"-"` uden for REST), `reg_addr` (kun `regchange`, `65535`=n/a), `is_coil`, `old_value`, `new_value`, `message` (kun `event`). Understøtter `?category=event\|regchange` og `?limit=N` (nyeste N poster). Svaret sendes chunked |
+| POST | `/api/syslog/clear` | CHECK_AUTH_WRITE | Tømmer loggen (ændrer ikke start/stop-tilstanden) |
+| POST | `/api/syslog/start` | CHECK_AUTH_WRITE | Genoptager logning. Svar: `{"status":"ok","logging":true}` |
+| POST | `/api/syslog/stop` | CHECK_AUTH_WRITE | Stopper logning uden at rydde indholdet. Svar: `{"status":"ok","logging":false}` |
+
+**Hændelser (`event`) logges ved:** config gemt til NVS, reboot (REST/CLI/OTA), login-fejl (401/403), boot. Login-**succes** logges bevidst ikke (stateless Basic Auth ville flode loggen).
+
+**Registerændringer (`regchange`) logges kun for:** REST API-skrivninger (`hr`/`coils`, enkelt + bulk) og Modbus Slave-skrivninger fra en ekstern master (FC05/06/0F/10). CLI-skrivninger og ST Logics periodiske output-binding logges **ikke** i v1 (se BUGS_INDEX.md FEAT-089 for begrundelse).
 
 ## B.17 Persistence Groups (FEAT-022)
 
@@ -248,9 +284,9 @@ Disse serverer statisk HTML/JS **uden nogen server-side auth-kontrol** — sider
 
 ## B.21 Opsummering / verifikation
 
-- `grep -c "httpd_register_uri_handler" src/http_server.cpp` → **92** — alle 92 er dokumenteret ovenfor (enten som selvstændig række, eller som *suffix*-delegeret under-endpoint med reference til deres fælles wildcard-registrering).
+- `grep -c "httpd_register_uri_handler(http_state.server" src/http_server.cpp` → **103** (FEAT-166 tilføjede 4: `/api/rbac` GET+POST, `/api/rbac/users` POST, `/api/rbac/users/*` DELETE) — alle er dokumenteret ovenfor (enten som selvstændig række, eller som *suffix*-delegeret under-endpoint med reference til deres fælles wildcard-registrering).
 - Dertil kommer **1** endpoint der bevidst ikke er en del af hoved-`httpd`'en: `GET /api/events` (dedikeret SSE-portserver).
-- `ota_handler.cpp` bidrager 3 af de 92 (registreres fra `http_server.cpp`, men implementeres i egen fil).
+- `ota_handler.cpp` bidrager 3 (registreres fra `http_server.cpp`, men implementeres i egen fil).
 
 ---
 

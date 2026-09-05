@@ -608,6 +608,35 @@ void cli_shell_execute_command(Console *console, const char *cmd) {
 
   // Execute only if not empty
   if (cmd_len > 0) {
+    /* BUG-344: vaern mod reentrant kommando-eksekvering.
+     *
+     * Opdaget da en `mb scan` startede sig selv igen og igen (scan-headeren
+     * printet 5 gange i traek) og til sidst tog telnet-sessionen med sig:
+     * telnet_server_loop() eksekverer selv CLI-kommandoer (telnet_server.cpp
+     * :984) og nulstiller foerst `input_ready` EFTER kommandoen returnerer.
+     * Kaldte en langvarig kommando saa noget der endte i telnet_server_loop()
+     * igen, saa den samme kommando stadig som "klar" og startede den forfra —
+     * inden i sig selv. Hver runde aad stak, indtil tasken doede.
+     *
+     * Det samme gaelder paa tvaers af tasks: web-CLI'ens handler kalder denne
+     * funktion fra httpd-taskens kontekst, mens seriel/telnet kan koere en
+     * kommando i loopTask. To samtidige eksekveringer deler den GLOBALE
+     * g_debug_console — den ene ville kapre den andens output midtvejs.
+     *
+     * Derfor: kun én kommando ad gangen. Naegtes hoefligt i stedet for at
+     * fejle uforudsigeligt. `volatile` + tjek-og-saet er tilstraekkeligt her:
+     * begge veje ind koerer i task-kontekst (ikke ISR), og det vaerste et
+     * teoretisk kapløb kan koste er én afvist kommando. */
+    static volatile bool cmd_in_progress = false;
+    if (cmd_in_progress) {
+      if (console && console->write_line) {
+        console->write_line(console->context,
+          "OPTAGET: en anden CLI-kommando koerer allerede (se BUG-344)");
+      }
+      return;
+    }
+    cmd_in_progress = true;
+
     // Temporarily set debug console to this console
     Console *prev_debug_console = g_debug_console;
     g_debug_console = console;
@@ -618,5 +647,6 @@ void cli_shell_execute_command(Console *console, const char *cmd) {
 
     // Restore previous debug console
     g_debug_console = prev_debug_console;
+    cmd_in_progress = false;
   }
 }

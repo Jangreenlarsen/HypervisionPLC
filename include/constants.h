@@ -197,8 +197,14 @@ typedef enum {
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   19      // Current config schema version (v7.9.7.2: cache/queue size)
+#define CONFIG_SCHEMA_VERSION   23      // Current config schema version (v7.9.10.23: dashboard "Custom" tab membership)
 // NOTE: v7.9.7.3 ændrer kun platformio.ini (PSRAM enable på ES32D26/WROVER) — ingen schema-ændring.
+// NOTE: schema 19->20 tilfoejer analog_ai_v[4]/analog_ai_i[4]/analog_ao[2] til PersistConfig
+// (FEAT-034/035/036) — se config_load.cpp's migrationsblok. Se BUG-339 for hvorfor denne bump
+// er ufravigelig naar felter tilfoejes til noget der er indlejret i PersistConfig.
+// NOTE: schema 20->21 tilfoejer https_port til PersistConfig (BUG-350) — se config_load.cpp.
+// NOTE: schema 21->22 tilfoejer rbac_salt[]/http_legacy_salt til PersistConfig og haser
+// RBAC-/legacy-HTTP-passwords (SHA-256+salt i stedet for klartekst) — se config_load.cpp.
 
 /* ============================================================================
  * RBAC CONSTANTS (v7.6.2)
@@ -354,6 +360,9 @@ typedef enum {
   // Shift register feature flag
   #define SHIFT_REGISTER_ENABLED
 
+  // FEAT-034/035/036: analog I/O feature flag (ADC/DAC driver)
+  #define ANALOG_IO_ENABLED
+
 #elif defined(BOARD_ESP32_30PIN)
   // ESP32-WROOM-32 30-pin DevKit (DEFAULT)
   #define PIN_LED             2
@@ -418,7 +427,12 @@ typedef enum {
 #define TELNET_PORT                     23          // Telnet standard port
 #define TELNET_MAX_CLIENTS              1           // Single client for simplicity
 #define TELNET_BUFFER_SIZE              256         // Per-client input buffer
-#define TELNET_READ_TIMEOUT_MS          0           // Disabled - no idle timeout (use "exit" to disconnect)
+// SECURITY_INDEX #9: was 0 (disabled) — with only 1 client slot (TELNET_MAX_CLIENTS),
+// an open, never-authenticated, never-idle-detected TCP connection blocked
+// all legitimate admin access permanently. 30 min matches the sliding
+// session-token idle timeout (BUG-353) — an active session resets this on
+// every keypress, only a truly abandoned/stuck connection ever hits it.
+#define TELNET_READ_TIMEOUT_MS          1800000     // 30 min idle timeout (use "exit" to disconnect sooner)
 #define TELNET_NEWLINE_CHAR             '\n'        // Telnet uses LF for line ending
 
 /* Telnet IAC (Interpret As Command) protocol bytes */
@@ -478,6 +492,7 @@ typedef enum {
  * ============================================================================ */
 
 #define HTTP_SERVER_PORT                80          // Default HTTP port
+#define HTTPS_SERVER_PORT                443         // Default HTTPS port (BUG-350, dedikeret — deler ikke port med HTTP)
 #define HTTP_SERVER_MAX_URI_LEN         128         // Max URI length for API endpoints
 #define HTTP_SERVER_MAX_RESP_SIZE       2048        // Max JSON response size
 #define HTTP_JSON_DOC_SIZE              1024        // ArduinoJson document size
@@ -500,7 +515,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.8.6"
+#define PROJECT_VERSION     "7.9.10.28"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:

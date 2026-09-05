@@ -11,6 +11,7 @@
 #include "constants.h"
 #include "mb_async.h"
 #include "rbac.h"
+#include "analog_driver.h"  // FEAT-034/035/036: analog_io_set_defaults()
 #include "debug.h"
 #include "debug_flags.h"
 #include "network_config.h"
@@ -74,6 +75,14 @@ static void config_init_defaults(PersistConfig* cfg) {
   cfg->ao1_mode = AO_MODE_VOLTAGE;        // Default: 0-10V
   cfg->ao2_mode = AO_MODE_VOLTAGE;        // Default: 0-10V
 
+  // Analog I/O defaults (FEAT-034/035/036, schema 20+)
+  // Register-adresser: Vi1-4 = HR 0-7, Ii1-4 = HR 8-15, AO1-2 = HR 16-17
+  // (fri i dag — counters bruger 100-179, timere 180-199, ST Logic 200-235/IR200-251)
+  analog_io_set_defaults(cfg);
+
+  // Dedikeret HTTPS-port (BUG-350, schema 21+) — se PersistConfig i types.h
+  cfg->https_port = HTTPS_SERVER_PORT;
+
   // UART selection defaults (board-dependent)
 #if defined(BOARD_ES32D26)
   cfg->modbus_slave_uart = 2;             // ES32D26: UART2 (Serial2) on GPIO1/3
@@ -109,6 +118,12 @@ static void config_init_defaults(PersistConfig* cfg) {
 
   // Initialize network config with defaults (v3.0+)
   network_config_init_defaults(&cfg->network);
+
+  // BUG-352: network_config_init_defaults() satte network.http.password til
+  // klartekst "modbus123" (den kender kun NetworkConfig, ikke det omkringliggende
+  // PersistConfig hvor saltet bor) — hash den straks her, saa et fabriksnyt
+  // install ALDRIG har et klartekst-password liggende, heller ikke midlertidigt.
+  rbac_hash_and_store_legacy_password(cfg, "modbus123");
 
   // Initialize all GPIO mappings as unused (reduced to 32 slots for NVS space)
   for (uint8_t i = 0; i < 32; i++) {
@@ -201,8 +216,23 @@ bool config_load_from_nvs(PersistConfig* out) {
     debug_println("");
   }
 
+  // BUG-351: satt naar en migration reelt koerer nedenfor. En migration
+  // AENDRER data (nye standardvaerdier, evt. forskudte bytes for felter
+  // tilfoejet i halen af PersistConfig) — den gamle `stored_crc` (laest
+  // direkte fra NVS-blob'en, beregnet foer migrationen) matcher derfor
+  // ALDRIG en frisk genberegning af CRC paa den migrerede struct. Kommentaren
+  // "CRC will be invalid, but we'll recalculate on next save" har staaet her
+  // siden schema 7→8 uden at det rent faktisk blev implementeret som en
+  // undtagelse i CRC-tjekket nedenfor — konsekvensen var at ENHVER
+  // struct-aendrende migration ramte "CRC mismatch, CORRUPTED, REJECTING" og
+  // nulstillede HELE configen (WiFi, RBAC, alt) til fabriksdefault paa
+  // foerste boot efter en schema-bump. Fundet ved gennemgang af BUG-350
+  // (dedikeret HTTPS-port, schema 20→21) FOER det ramte produktion.
+  bool migrated = false;
+
   // Validate schema version (MUST be checked before CRC to prevent struct misalignment)
   if (out->schema_version != CONFIG_SCHEMA_VERSION) {
+    migrated = true;
     // Schema migration support (v7 → v8 → v9)
     if (out->schema_version == 7) {
       debug_println("CONFIG LOAD: Migrating schema 7 → 8 (adding persist_regs)");
@@ -418,6 +448,76 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->schema_version = 19;
 
       debug_println("CONFIG LOAD: Migration 18→19 complete");
+    }
+
+    if (out->schema_version == 19) {
+      debug_println("CONFIG LOAD: Migrating schema 19 → 20 (analog I/O, FEAT-034/035/036)");
+
+      // BUG-339: nye felter i PersistConfig KRAEVER en migrationsblok her —
+      // uden den forbliver schema_version uaendret, ingen migration triggres,
+      // og CRC-tjekket fejler paa den forskudte struct -> hele configen
+      // (inkl. WiFi) nulstilles til fabriksdefault ved naeste boot.
+      analog_io_set_defaults(out);
+
+      out->schema_version = 20;
+
+      debug_println("CONFIG LOAD: Migration 19→20 complete");
+    }
+
+    if (out->schema_version == 20) {
+      debug_println("CONFIG LOAD: Migrating schema 20 → 21 (dedikeret HTTPS-port, BUG-350)");
+
+      // BUG-339/BUG-350: se analog I/O-migrationen ovenfor for hvorfor denne
+      // blok er ufravigelig. https_port var 0 i den raa NVS-blob (felt
+      // fandtes ikke foer schema 21) — 0 er ikke en gyldig lytte-port, saa
+      // sæt den eksplicit til default her i stedet for at lade den staa nul.
+      out->https_port = HTTPS_SERVER_PORT;
+
+      out->schema_version = 21;
+
+      debug_println("CONFIG LOAD: Migration 20→21 complete");
+    }
+
+    if (out->schema_version == 21) {
+      debug_println("CONFIG LOAD: Migrating schema 21 → 22 (password-hashing, BUG-352)");
+
+      // BUG-339/BUG-350/BUG-352: se migrationerne ovenfor. network.http.password
+      // og hvert AKTIVE rbac.users[i].password staar her stadig i klartekst
+      // (saadan har det vaeret siden schema 9/15) — hash dem NU, med et frisk
+      // salt hver, og overskriv feltet med den 32-byte hash. Tomt password
+      // (auth_enabled=0 / ingen reel adgangskode sat) hashes stadig — harmloest,
+      // da rbac_legacy_auth()/rbac_authenticate() aldrig naar frem til
+      // hash-sammenligningen naar auth slet ikke er aktiveret.
+      if (out->network.http.password[0] != '\0') {
+        rbac_hash_and_store_legacy_password(out, out->network.http.password);
+      }
+      for (int i = 0; i < RBAC_MAX_USERS; i++) {
+        if (!out->rbac.users[i].active) continue;
+        char old_plain[RBAC_PASSWORD_MAX + 1];
+        strncpy(old_plain, out->rbac.users[i].password, RBAC_PASSWORD_MAX);
+        old_plain[RBAC_PASSWORD_MAX] = '\0';
+        rbac_generate_salt(out->rbac_salt[i]);
+        rbac_hash_password(old_plain, out->rbac_salt[i], (uint8_t *)out->rbac.users[i].password);
+      }
+
+      out->schema_version = 22;
+
+      debug_println("CONFIG LOAD: Migration 21→22 complete");
+    }
+
+    if (out->schema_version == 22) {
+      debug_println("CONFIG LOAD: Migrating schema 22 → 23 (dashboard Custom-fane medlemsskab)");
+
+      // Nyt felt, fandtes ikke foer schema 23 — staar som nul-bytes i den
+      // raa NVS-blob (partial-fill ind i en stoerre struct), hvilket for et
+      // char[] allerede ER en tom streng. Ingen reel transformation
+      // noedvendig, men saet den eksplicit for tydelighedens skyld/for at
+      // vaere konsistent med de oevrige migrationsblokke.
+      out->dashboard_card_custom[0] = '\0';
+
+      out->schema_version = 23;
+
+      debug_println("CONFIG LOAD: Migration 22→23 complete");
     } else if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);
@@ -429,25 +529,44 @@ bool config_load_from_nvs(PersistConfig* out) {
     }
   }
 
-  if (dbg->config_load) {
-    debug_println("[LOAD_DEBUG] Schema version OK, checking CRC...");
-  }
+  if (migrated) {
+    // BUG-351: en migration har AENDRET dataen (nye defaultvaerdier, evt.
+    // forskudte felter) — den gamle stored_crc (fra FOER migrationen) kan
+    // aldrig matche en frisk beregning paa den NU migrerede struct, saa det
+    // sammenligner vi bevidst ikke imod her (se kommentaren ved `migrated`
+    // ovenfor for hvorfor det tidligere gjorde det og nulstillede hele
+    // configen). I stedet: stol paa den migrerede data og gem den STRAKS med
+    // en frisk, korrekt CRC, saa naeste boot igen kan validere normalt.
+    out->crc16 = config_calculate_crc16(out);
+    if (dbg->config_load) {
+      debug_println("[LOAD_DEBUG] Migreret config - springer CRC-sammenligning over, gemmer frisk CRC");
+    }
+    if (!config_save_to_nvs(out)) {
+      debug_println("WARNING: Kunne ikke gemme migreret config til NVS — forbliver migreret kun i RAM indtil naeste 'save'");
+    } else {
+      debug_println("CONFIG LOAD: Migreret config gemt til NVS med frisk CRC");
+    }
+  } else {
+    if (dbg->config_load) {
+      debug_println("[LOAD_DEBUG] Schema version OK, checking CRC...");
+    }
 
-  // Validate CRC
-  uint16_t stored_crc = out->crc16;
-  uint16_t calculated_crc = config_calculate_crc16(out);
+    // Validate CRC
+    uint16_t stored_crc = out->crc16;
+    uint16_t calculated_crc = config_calculate_crc16(out);
 
-  if (stored_crc != calculated_crc) {
-    debug_print("ERROR: CRC mismatch (stored=");
-    debug_print_uint(stored_crc);
-    debug_print(", calculated=");
-    debug_print_uint(calculated_crc);
-    debug_print(") - CONFIG CORRUPTED, REJECTING");
-    debug_println("");
-    debug_println("SECURITY: Corrupt config detected and rejected");
-    debug_println("  Reinitializing with factory defaults");
-    config_init_defaults(out);
-    return false;  // CRITICAL FIX: Return false to indicate load failure
+    if (stored_crc != calculated_crc) {
+      debug_print("ERROR: CRC mismatch (stored=");
+      debug_print_uint(stored_crc);
+      debug_print(", calculated=");
+      debug_print_uint(calculated_crc);
+      debug_print(") - CONFIG CORRUPTED, REJECTING");
+      debug_println("");
+      debug_println("SECURITY: Corrupt config detected and rejected");
+      debug_println("  Reinitializing with factory defaults");
+      config_init_defaults(out);
+      return false;  // CRITICAL FIX: Return false to indicate load failure
+    }
   }
 
   // BUG-140: Sanitize count fields to prevent out-of-bounds access
@@ -499,7 +618,7 @@ bool config_load_from_nvs(PersistConfig* out) {
   debug_print(", static_coils=");
   debug_print_uint(out->static_coil_count);
   debug_print(", CRC=");
-  debug_print_uint(calculated_crc);
+  debug_print_uint(out->crc16);  // BUG-351: altid korrekt her, uanset migreret eller ej
   debug_println(" OK");
 
   if (sanitized) {

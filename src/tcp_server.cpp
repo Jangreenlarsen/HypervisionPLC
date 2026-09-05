@@ -409,13 +409,31 @@ uint16_t tcp_server_available(TcpServer *server, uint8_t client_index)
   }
 
   TcpClient *client = tcp_server_get_client(server, client_index);
-  if (!client) {
+  if (!client || !client->connected || client->socket < 0) {
     return 0;
   }
 
-  // For non-blocking sockets, we'd need to peek or use select
-  // For now, return simple estimate
-  return 256;  // Optimistic: assume data might be available
+  /* BUG-346: denne funktion var en stub der ALTID returnerede 256
+   * ("Optimistic: assume data might be available"). Alt der spurgte
+   * "ligger der input?" fik derfor ubetinget JA — ogsaa naar bufferen var
+   * tom. Konsekvens: `mb scan`s afbryd-tjek (console_available(), BUG-335)
+   * ramte paa allerfoerste gennemloeb og afbroed hver eneste scanning fra
+   * telnet med "Afbrudt af bruger ved slave 1 (0/N testet)", uden at nogen
+   * havde roert tastaturet. Det var ikke synligt tidligere, fordi scans blev
+   * koert fra web-CLI, hvis has_input pr. design altid svarer "ingen input".
+   *
+   * Nu spoerges socket'en rent faktisk. FIONREAD giver antal bytes der kan
+   * laeses uden at blokere, og forbruger dem ikke. Kan opslaget ikke lade
+   * sig goere, svares 0 ("ingen data") — at lyve den anden vej er praecis
+   * det der skabte fejlen. */
+  int bytes = 0;
+  if (ioctl(client->socket, FIONREAD, &bytes) < 0) {
+    return 0;
+  }
+  if (bytes <= 0) {
+    return 0;
+  }
+  return (bytes > 65535) ? 65535 : (uint16_t)bytes;
 }
 
 /* ============================================================================

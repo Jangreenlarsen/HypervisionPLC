@@ -214,6 +214,23 @@ esp_err_t api_handler_modules_get(httpd_req_t *req);
 esp_err_t api_handler_modules_post(httpd_req_t *req);
 
 /* ============================================================================
+ * RBAC USER MANAGEMENT ENDPOINTS (v7.9.10.21+, web GUI parity with the
+ * existing CLI-only "set user" / "set rbac" / "delete user" commands)
+ * ============================================================================ */
+
+/** GET /api/rbac — RBAC enabled-status + user list (username/roles/privilege, NEVER password/hash/salt) */
+esp_err_t api_handler_rbac_get(httpd_req_t *req);
+
+/** POST /api/rbac — Enable/disable RBAC (body: {"enabled":bool}) */
+esp_err_t api_handler_rbac_post(httpd_req_t *req);
+
+/** POST /api/rbac/users — Create or update a user (body: {"username","password","roles","privilege"}) */
+esp_err_t api_handler_rbac_users_post(httpd_req_t *req);
+
+/** DELETE /api/rbac/users/{username} — Delete a user */
+esp_err_t api_handler_rbac_user_delete(httpd_req_t *req);
+
+/* ============================================================================
  * BACKUP / RESTORE ENDPOINTS
  * ============================================================================ */
 
@@ -285,6 +302,23 @@ esp_err_t api_handler_alarms_ack(httpd_req_t *req);
 /* FEAT-149: Modbus Activity Log (Master+Slave, RAM-only) */
 esp_err_t api_handler_modbus_activity_get(httpd_req_t *req);
 esp_err_t api_handler_modbus_activity_clear(httpd_req_t *req);
+/* FEAT-153: POST /api/modbus/activity/start | /stop — start/stop logning
+ * uden at rydde det allerede opsamlede indhold. */
+esp_err_t api_handler_modbus_activity_toggle(httpd_req_t *req, bool enable);
+
+/* FEAT-034/035/036/037: Analog I/O (ES32D26 only) */
+esp_err_t api_handler_analog_get(httpd_req_t *req);
+esp_err_t api_handler_analog_post(httpd_req_t *req);
+
+/* FEAT-086/089: Haendelses- og registerandringslog */
+esp_err_t api_handler_syslog_get(httpd_req_t *req);
+esp_err_t api_handler_syslog_clear(httpd_req_t *req);
+esp_err_t api_handler_syslog_toggle(httpd_req_t *req, bool enable);
+esp_err_t api_handler_syslog_post_dispatch(httpd_req_t *req);
+
+/* BUG-353: REST API auth-modernisering fase 2 — session-tokens */
+esp_err_t api_handler_login(httpd_req_t *req);
+esp_err_t api_handler_logout(httpd_req_t *req);
 
 /** FEAT-022: Persistence Group Management API */
 esp_err_t api_handler_persist_groups_list(httpd_req_t *req);

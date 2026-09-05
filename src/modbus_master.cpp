@@ -12,7 +12,8 @@
 #include "config_struct.h"
 #include <HardwareSerial.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/task.h>  // taskYIELD() — BUG-336
+#include <freertos/task.h>    // vTaskDelay() — BUG-336
+#include <freertos/semphr.h>  // SemaphoreHandle_t — BUG-337
 #if MODBUS_SINGLE_TRANSCEIVER
 #include "gpio_driver.h"
 #endif
@@ -25,6 +26,51 @@
  * GPIO1/3 mellem USB-konsol og RS485). Kun i RAM — den gemte config er
  * uaendret, hvilket ellers gjorde tilstanden umulig at forstaa. */
 bool g_modbus_master_boot_aborted = false;
+
+/* BUG-338/339: se erklaering i modbus_master.h — bevidst UDENFOR
+ * modbus_master_config_t for ikke at aendre PersistConfig's NVS-layout. */
+uint32_t g_modbus_bus_busy_errors = 0;
+
+/* BUG-337: mutex om den fysiske UART/RS485-transaktion i
+ * modbus_master_send_request(). CLI's `mb read`/`mb write`/`mb scan`
+ * kalder denne funktion direkte og synkront fra loopTask (Core 1), mens
+ * den asynkrone Modbus Master-task (ST Logic/dashboard-trafik) kalder
+ * PRAECIS SAMME funktion fra sin egen task paa Core 0 — helt uden
+ * indbyrdes koordinering. Uden denne laas kan to transaktioner sende
+ * SAMTIDIGT paa den delte RS485-bus: begge transceivere trykker DE/RE
+ * hoejt paa samme tid (elektrisk kollision), og hver task kan laese
+ * BYTES DER TILHOERER DEN ANDENS SVAR ind i sin egen response-buffer —
+ * observeret som en `mb scan` der "finder" langt flere slaver end der
+ * fysisk findes, fordi den opsnappede den anden tasks svar og
+ * tilskrev det den forkerte adresse (CRC'en er kun 16-bit, saa et
+ * fejlplaceret men i sig selv gyldigt svar bestaar tjekket). */
+static SemaphoreHandle_t g_modbus_uart_mutex = NULL;
+
+/* RAII-laas — se MbTempBaud i cli_commands_modbus_master.cpp for samme
+ * moenster. Garanterer at mutex'en gives fri paa ALLE returnerings-veje
+ * i modbus_master_send_request(), ogsaa selvom funktionen faar flere
+ * exit-punkter i fremtiden — en glemt xSemaphoreGive() ville laase HELE
+ * Modbus Master-subsystemet permanent. */
+class ModbusUartLock {
+public:
+  ModbusUartLock() : held(false) {
+    if (g_modbus_uart_mutex) {
+      // Begraenset ventetid (ikke portMAX_DELAY): en fastlaast/mistet
+      // laas skal give en fejl til den ventende kalder, ikke haenge
+      // for evigt. 2s er rigeligt over selv en langsom, fuld timeout
+      // (default 500-1000ms) + inter-frame-margin.
+      held = (xSemaphoreTake(g_modbus_uart_mutex, pdMS_TO_TICKS(2000)) == pdTRUE);
+    }
+  }
+  ~ModbusUartLock() {
+    if (held) {
+      xSemaphoreGive(g_modbus_uart_mutex);
+    }
+  }
+  bool acquired() const { return held; }
+private:
+  bool held;
+};
 
 modbus_master_config_t g_modbus_master_config = {
   .enabled = false,
@@ -57,6 +103,13 @@ HardwareSerial ModbusSerial(1); // UART1 — dedicated master port (non-ES32D26)
  * ============================================================================ */
 
 void modbus_master_init() {
+  // BUG-337: opret UART-mutex'en foerste (og eneste) gang — modbus_master_init()
+  // kan kaldes flere gange over enhedens levetid (reconfigure ved UART-skift
+  // m.m.), men mutex'en skal kun oprettes en gang.
+  if (!g_modbus_uart_mutex) {
+    g_modbus_uart_mutex = xSemaphoreCreateMutex();
+  }
+
   // BUG-239 FIX: Sync runtime config from persistent config at boot
   // g_modbus_master_config is initialized with .enabled=false at compile time,
   // but g_persist_config.modbus_master contains the NVS-loaded values.
@@ -109,6 +162,25 @@ void modbus_master_set_enabled(bool enabled) {
   if (enabled) {
     g_modbus_master_boot_aborted = false;  // BUG-334: RS485 aktiveres nu
     modbus_master_reconfigure();
+
+    // BUG-340: denne funktion bruges ogsaa til at (gen)aktivere Master via
+    // `set modbus-master enabled on` EFTER et rent CLI-mode-skift (`set
+    // modbus mode master`) UDEN reboot, eller efter et boot der endte i
+    // SLAVE/OFF-mode (fx fabriksdefault efter BUG-339, eller et afbrudt
+    // RS485-boot-vindue, BUG-334). Paa alle de veje har hverken
+    // modbus_master_init() (opretter g_modbus_uart_mutex) eller
+    // mb_async_init() (starter baggrundstasken) noedvendigvis koert —
+    // resultat: mutex'en er NULL saa ModbusUartLock fejler ALTID
+    // (MB_BUS_BUSY paa selv en tom bus), og async-tasken staar for evigt
+    // "STOPPED" (ST Logic's MB_*-koeer aldrig behandlet). Sikr begge findes
+    // her, idempotent — rammer aldrig en allerede koerende opsaetning, saa
+    // det er sikkert at kalde uanset hvordan vi naaede hertil.
+    if (!g_modbus_uart_mutex) {
+      g_modbus_uart_mutex = xSemaphoreCreateMutex();
+    }
+    if (!mb_async_get_state()->task_handle) {
+      mb_async_init();
+    }
   } else {
 #if MODBUS_SINGLE_TRANSCEIVER
     uart1_stop();
@@ -184,6 +256,7 @@ void modbus_master_reset_stats() {
   g_modbus_master_config.timeout_errors = 0;
   g_modbus_master_config.crc_errors = 0;
   g_modbus_master_config.exception_errors = 0;
+  g_modbus_bus_busy_errors = 0;
 }
 
 /* ============================================================================
@@ -271,6 +344,25 @@ mb_error_code_t modbus_master_send_request(
   if (!g_modbus_master_config.enabled) {
     mb_log_master_activity(request, request_len, NULL, 0, MB_NOT_ENABLED);
     return MB_NOT_ENABLED;
+  }
+
+  // BUG-337: seriali sér adgang til den fysiske UART/RS485-bus. Holdes for
+  // hele funktionens levetid (RAII — frigives automatisk paa ethvert
+  // return-punkt nedenfor). Se deklarationen af ModbusUartLock foroven for
+  // hvorfor dette er noedvendigt: CLI's mb read/write/scan og den
+  // asynkrone Modbus Master-task kalder begge denne funktion, fra hver
+  // sin FreeRTOS-task, helt uden koordinering udenom denne laas.
+  ModbusUartLock uart_lock;
+  if (!uart_lock.acquired()) {
+    // BUG-338: egen fejlkode (ikke MB_TIMEOUT) — dette betyder vi ALDRIG
+    // fik sendt noget paa bussen (bussen var optaget), til forskel fra et
+    // reelt MB_TIMEOUT hvor forespoergslen blev sendt, men ingen svarede.
+    // Uden denne skelnen saa en `mb scan` der konsekvent tabte laase-koeb
+    // mod den asynkrone task identisk ud som en scanning af en tom bus —
+    // observeret som falsk "0 slaver fundet" paa en bus med 2 kendte enheder.
+    g_modbus_bus_busy_errors++;
+    mb_log_master_activity(request, request_len, NULL, 0, MB_BUS_BUSY);
+    return MB_BUS_BUSY;  // Bussen var optaget af en anden transaktion i >2s
   }
 
   // Flush RX buffer
@@ -380,18 +472,31 @@ mb_error_code_t modbus_master_send_request(
         }
       }
     } else if (bytes_received == 0) {
-      // BUG-336: yield while still waiting for the FIRST byte of a
-      // response. Previously this was a hard, unyielding busy-loop
-      // (millis()+available() spin) for up to timeout_ms (default
-      // 1000ms) per unanswered slave — safe to yield ONLY here, before
-      // any byte has arrived: Modbus RTU's tight inter-character timing
-      // (interchar_ms, a few ms) only matters once a frame is already in
-      // progress (bytes_received > 0), a completely separate branch this
-      // does not touch. Repeated back-to-back over an `mb scan` range,
-      // the un-yielding wait starved other tasks on the same core long
-      // enough that the dashboard/HTTP server became unresponsive for
-      // the whole duration of the scan.
-      taskYIELD();
+      // BUG-341: vTaskDelay(1) (BUG-336b) and Core-0-pinning httpd/SSE
+      // (BUG-336c) were BOTH empirically confirmed insufficient — dashboard
+      // stayed unreachable for the whole `mb scan`, even AFTER BUG-338/340
+      // removed all UART-mutex contention (async task fully paused during
+      // the scan, so it is provably not lock contention). That isolates the
+      // cause to raw CPU-time monopolization: a non-responding slave sits in
+      // THIS loop for the full timeout_ms (500-1000ms default), waking up
+      // every single tick (~1ms) to check uart1_available() and immediately
+      // going back to sleep. Each wake costs a real context switch, and the
+      // resulting 1ms windows are too short and too frequent for httpd/WiFi/
+      // lwIP to make USABLE progress on a request (TCP handshake, header
+      // parse, response send) even when they are technically "free" to run
+      // between them — a scheduling-thrash pattern, not starvation. Fix:
+      // poll far less often instead of yielding more cleverly. Modbus RTU
+      // has no sub-millisecond requirement for noticing the FIRST byte of a
+      // response — real slaves' turnaround time is commonly single-digit to
+      // low-tens of ms, and the UART hardware FIFO holds any byte that
+      // arrives regardless of how promptly software checks for it, so nothing
+      // is lost by checking less often. 10ms cuts the number of wake-ups
+      // (and thus context switches) by ~10x versus 1ms, giving httpd/lwIP
+      // windows an order of magnitude longer between this task's brief
+      // interruptions. Still confined to "no byte received yet" — inter-
+      // character timing (interchar_ms, the bytes_received>0 path) is
+      // completely untouched, so mid-frame RTU timing is unaffected.
+      vTaskDelay(pdMS_TO_TICKS(10));
     }
   }
 

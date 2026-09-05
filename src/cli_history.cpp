@@ -7,12 +7,23 @@
 
 #include "cli_history.h"
 #include <string.h>
+#include <stdlib.h>
+#include <esp_heap_caps.h>
 
 /* ============================================================================
  * HISTORY BUFFER
  * ============================================================================ */
 
-static char cli_history_buffer[CLI_HISTORY_SIZE][CLI_HISTORY_LINE_LENGTH];
+/* FEAT-154: flyttet fra intern DRAM til PSRAM (~2,5 KB frigjort).
+ * Kommandohistorikken er den koldest taenkelige buffer — den roeres kun naar
+ * et menneske taster en kommando eller blaedrer med piletasterne. Ingen
+ * ISR-adgang, ingen DMA, ingen timingkrav, saa PSRAM'ens hoejere latenstid
+ * er fuldstaendig ligegyldig her.
+ *
+ * Pegertypen `char (*)[CLI_HISTORY_LINE_LENGTH]` bevarer den oprindelige
+ * 2D-indeksering, saa cli_history_buffer[i] fortsat giver en char* til
+ * linje i — alle brugssteder er uaendrede. */
+static char (*cli_history_buffer)[CLI_HISTORY_LINE_LENGTH] = NULL;
 static uint8_t cli_history_count = 0;      // Number of valid entries
 static uint8_t cli_history_head = 0;       // Next write position
 static int8_t cli_history_nav_pos = -1;   // Navigation position (-1 = not navigating)
@@ -21,8 +32,27 @@ static int8_t cli_history_nav_pos = -1;   // Navigation position (-1 = not navig
  * INITIALIZATION
  * ============================================================================ */
 
+/* FEAT-154: allokerer ved foerste brug (PSRAM, ellers intern heap).
+ * Returnerer false hvis hukommelsen ikke kunne skaffes — saa springes
+ * historikken over i stedet for at dereferere NULL. Historik er en
+ * bekvemmelighed, ikke noget der maa vaelte systemet. */
+static bool cli_history_ready(void) {
+  if (cli_history_buffer) return true;
+  size_t bytes = (size_t)CLI_HISTORY_SIZE * CLI_HISTORY_LINE_LENGTH;
+  cli_history_buffer = (char (*)[CLI_HISTORY_LINE_LENGTH])
+                        heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
+  if (!cli_history_buffer) {
+    cli_history_buffer = (char (*)[CLI_HISTORY_LINE_LENGTH])malloc(bytes);
+  }
+  if (!cli_history_buffer) return false;
+  memset(cli_history_buffer, 0, bytes);
+  return true;
+}
+
 void cli_history_init(void) {
-  memset(cli_history_buffer, 0, sizeof(cli_history_buffer));
+  if (cli_history_ready()) {
+    memset(cli_history_buffer, 0, (size_t)CLI_HISTORY_SIZE * CLI_HISTORY_LINE_LENGTH);
+  }
   cli_history_count = 0;
   cli_history_head = 0;
   cli_history_nav_pos = -1;
@@ -35,6 +65,9 @@ void cli_history_init(void) {
 void cli_history_add(const char* command) {
   if (!command || strlen(command) == 0) {
     return;  // Don't store empty commands
+  }
+  if (!cli_history_ready()) {
+    return;  // FEAT-154: ingen buffer — spring historik over, fejl ikke
   }
 
   // Store command in circular buffer

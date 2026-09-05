@@ -277,9 +277,14 @@ void cli_cmd_set_reg_dynamic(uint8_t argc, char* argv[]) {
   uint8_t source_id = 0xff;
   const char* function_str = colon + 1;
 
+  // SECURITY_INDEX #10: colon-source_str is attacker/typo-controlled length
+  // with no upper bound before this — clamp it so a >31-char source token
+  // can't overflow the 32-byte stack buffer.
   char source_copy[32];
-  strncpy(source_copy, source_str, colon - source_str);
-  source_copy[colon - source_str] = '\0';
+  size_t source_len = (size_t)(colon - source_str);
+  if (source_len >= sizeof(source_copy)) source_len = sizeof(source_copy) - 1;
+  strncpy(source_copy, source_str, source_len);
+  source_copy[source_len] = '\0';
 
   if (strncmp(source_copy, "counter", 7) == 0) {
     source_type = DYNAMIC_SOURCE_COUNTER;

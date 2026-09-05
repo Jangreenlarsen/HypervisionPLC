@@ -42,6 +42,8 @@
 #include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 /* ============================================================================
  * SHOW CONFIG
@@ -1102,6 +1104,10 @@ void cli_cmd_show_config(const char *section) {
   debug_print_uint(g_persist_config.network.http.port);
   debug_println("");
 
+  debug_print("  https-port: ");
+  debug_print_uint(g_persist_config.https_port);
+  debug_println("");
+
   debug_print("  api: ");
   debug_println(g_persist_config.network.http.api_enabled ? "enabled" : "disabled");
 
@@ -1557,6 +1563,9 @@ void cli_cmd_show_config(const char *section) {
     debug_println(g_persist_config.network.http.tls_enabled ? "set http tls enable" : "set http tls disable");
     debug_print("set http port ");
     debug_print_uint(g_persist_config.network.http.port);
+    debug_println("");
+    debug_print("set http https-port ");
+    debug_print_uint(g_persist_config.https_port);
     debug_println("");
     debug_println(g_persist_config.network.http.api_enabled ? "set http api enable" : "set http api disable");
     if (g_persist_config.rbac.enabled) {
@@ -3464,8 +3473,12 @@ void cli_cmd_show_http(void) {
     }
   }
 
-  debug_print("Port: ");
+  debug_print("HTTP Port: ");
   debug_print_uint(g_persist_config.network.http.port);
+  debug_println("");
+
+  debug_print("HTTPS Port: ");
+  debug_print_uint(g_persist_config.https_port);
   debug_println("");
 
   debug_print("API: ");
@@ -4507,6 +4520,70 @@ void cli_cmd_show_persist(void) {
   registers_persist_list_groups();
 }
 
+/* BUG-343: diagnostik indfoert efter FEM forgaeves fix-forsoeg paa
+ * "dashboard/GUI utilgaengeligt under mb scan" (BUG-336/336b/336c/341/342).
+ * Alle fem byggede paa gaet om HVILKEN task der blev blokeret eller sultet,
+ * uden nogensinde at kunne SE det. Denne kommando kan koeres fra seriel/
+ * telnet MENS problemet staar paa, og viser sort paa hvidt hvilken tilstand
+ * hver enkelt task er i — saerligt om httpd-tasken er BLOCKED (venter paa
+ * noget) eller READY (klar, men naar aldrig at koere = CPU-sult). */
+void cli_cmd_show_tasks(void) {
+  // uxTaskGetSystemState() kan ikke bruges: CONFIG_FREERTOS_USE_TRACE_FACILITY
+  // er slaaet fra i denne Arduino-ESP32 framework-build (undefined reference
+  // ved link). Vi slaar derfor de relevante tasks op ved NAVN i stedet.
+  static const char *TASK_NAMES[] = {
+    "httpd",       // ESP-IDF's HTTP-server — DEN interessante under mb scan
+    "loopTask",    // Arduino main loop() — koerer CLI, incl. mb scan
+    "mb_async",    // Async Modbus Master (Core 0)
+    "sse_accept",  // SSE accept-task
+    "tiT",         // lwIP TCP/IP-stak
+    "wifi",        // Wi-Fi driver task
+    "sys_evt",     // ESP-IDF event loop (Wi-Fi/IP events)
+    "IDLE0",
+    "IDLE1",
+  };
+  const int TASK_COUNT = sizeof(TASK_NAMES) / sizeof(TASK_NAMES[0]);
+
+  debug_println("\n=== FREERTOS TASKS (opslag ved navn) ===");
+  debug_printf("%-12s %-9s %-5s %-5s %s\n", "Navn", "Tilstand", "Core", "Prio", "StakFri");
+
+  for (int i = 0; i < TASK_COUNT; i++) {
+    TaskHandle_t h = xTaskGetHandle(TASK_NAMES[i]);
+    if (!h) {
+      debug_printf("%-12s %s\n", TASK_NAMES[i], "(findes ikke)");
+      continue;
+    }
+
+    const char *state = "?";
+    switch (eTaskGetState(h)) {
+      case eRunning:   state = "RUNNING"; break;
+      case eReady:     state = "READY";   break;
+      case eBlocked:   state = "BLOCKED"; break;
+      case eSuspended: state = "SUSPEND"; break;
+      case eDeleted:   state = "DELETED"; break;
+      default:         break;
+    }
+
+    int core = (int)xTaskGetAffinity(h);
+    char core_str[6];
+    if (core < 0 || core > 1) {
+      snprintf(core_str, sizeof(core_str), "any");
+    } else {
+      snprintf(core_str, sizeof(core_str), "%d", core);
+    }
+
+    debug_printf("%-12s %-9s %-5s %-5u %u\n",
+                 TASK_NAMES[i], state, core_str,
+                 (unsigned)uxTaskPriorityGet(h),
+                 (unsigned)uxTaskGetStackHighWaterMark(h));
+  }
+
+  debug_println("\nTilstande: RUNNING=koerer nu, READY=klar men venter paa CPU,");
+  debug_println("           BLOCKED=venter paa laas/delay/IO, SUSPEND=sat paa pause");
+  debug_println("Koer denne MENS fx en mb scan haenger — er httpd BLOCKED venter den");
+  debug_println("paa noget; er den READY bliver den sultet for CPU-tid.\n");
+}
+
 void cli_cmd_show_watchdog(void) {
   WatchdogState* wdt = watchdog_get_state();
 
@@ -4572,7 +4649,8 @@ void cli_cmd_show_backup(void) {
 
   char base[64];
   const char *proto = g_persist_config.network.http.tls_enabled ? "https" : "http";
-  uint16_t port = g_persist_config.network.http.port;
+  // BUG-350: HTTPS lytter paa sin egen dedikerede port, ikke network.http.port
+  uint16_t port = g_persist_config.network.http.tls_enabled ? g_persist_config.https_port : g_persist_config.network.http.port;
   snprintf(base, sizeof(base), "%s://%d.%d.%d.%d:%d",
            proto, (int)(ip & 0xFF), (int)((ip >> 8) & 0xFF),
            (int)((ip >> 16) & 0xFF), (int)((ip >> 24) & 0xFF), port);
@@ -4711,7 +4789,8 @@ void cli_cmd_show_metrics(void) {
   uint32_t ip = network_manager_get_local_ip();
   if (ip != 0) {
     const char *proto = g_persist_config.network.http.tls_enabled ? "https" : "http";
-    uint16_t port = g_persist_config.network.http.port;
+    // BUG-350: HTTPS lytter paa sin egen dedikerede port, ikke network.http.port
+    uint16_t port = g_persist_config.network.http.tls_enabled ? g_persist_config.https_port : g_persist_config.network.http.port;
     char url[80];
     snprintf(url, sizeof(url), "\nURL: %s://%d.%d.%d.%d:%d/api/metrics",
              proto, (int)(ip & 0xFF), (int)((ip >> 8) & 0xFF),

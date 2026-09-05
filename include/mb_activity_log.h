@@ -17,7 +17,20 @@
 
 #include <Arduino.h>
 
-#define MB_ACTIVITY_LOG_MAX  40   // RAM-only ring buffer size (Master + Slave combined)
+/* FEAT-153: haevet 40 -> 500. Bufferen ligger i PSRAM (ES32D26/WROVER har
+ * 4 MB, naesten alt frit), saa de ~10 KB koster reelt ingenting og tager
+ * ikke af den knappe interne DRAM. Falder tilbage til almindelig heap hvis
+ * PSRAM ikke er tilgaengelig.
+ *
+ * To ting goer den stoerrelse ufarlig:
+ *  - JSON-svaret sendes i chunks, ikke samlet i én stor buffer. (Det var
+ *    netop en for lille fast buffer der gav BUG-332, hvor svaret blev
+ *    afkortet midt i et objekt og dashboardet holdt op med at opdatere.)
+ *  - GET understoetter ?limit=N, saa dashboardets polling hver 3. sekund
+ *    kun henter de nyeste N poster. Uden det ville 500 poster (~70 KB) over
+ *    WiFi 20 gange i minuttet blive et problem i sig selv.
+ */
+#define MB_ACTIVITY_LOG_MAX  500  // RAM-only ring buffer size (Master + Slave combined)
 
 typedef enum {
   MB_ACTIVITY_ROLE_MASTER = 0,   // We initiated this request to another device
@@ -38,7 +51,13 @@ typedef enum {
 } mb_activity_source_t;
 
 typedef struct {
-  uint32_t timestamp_ms;   // millis() at completion
+  uint32_t timestamp_ms;   // millis() at completion (altid sat — monotont, uafhaengigt af NTP)
+  /* FEAT-153: rigtig vaegur-tid naar NTP er synkroniseret, ellers 0.
+   * millis() bevares ved siden af, fordi den er monoton og fungerer fra
+   * boot — ogsaa foer NTP naar at synkronisere, og hvis uret senere
+   * justeres. Dashboardet viser epoch_s naar den er sat, ellers den
+   * relative millis-tid. */
+  uint32_t epoch_s;        // Unix-tid (sekunder), 0 = NTP ikke synkroniseret
   uint8_t  role;           // mb_activity_role_t
   uint8_t  source;         // mb_activity_source_t
   uint8_t  slave_id;       // MASTER: slave we talked to. SLAVE: our own slave_id addressed (0 = broadcast)
@@ -86,14 +105,30 @@ void mb_activity_log_add(mb_activity_role_t role, uint8_t source, uint8_t slave_
 void mb_activity_log_clear(void);
 
 /**
- * @brief Number of valid entries currently held (0..MB_ACTIVITY_LOG_MAX)
+ * @brief FEAT-153: start/stop logning uden at rydde det allerede opsamlede.
+ *
+ * Naar logningen er stoppet ignorerer mb_activity_log_add() nye poster —
+ * eksisterende indhold bevares, saa man kan fryse billedet og naa at laese
+ * (eller eksportere) det uden at det ruller videre. Ringbufferen er
+ * RAM-only, saa tilstanden nulstilles til "koerer" ved reboot.
  */
-uint8_t mb_activity_log_count(void);
+void mb_activity_log_set_enabled(bool enabled);
+
+/**
+ * @brief Er logningen aktiv? (til dashboard/API-visning)
+ */
+bool mb_activity_log_is_enabled(void);
+
+/**
+ * @brief Number of valid entries currently held (0..MB_ACTIVITY_LOG_MAX)
+ * @note uint16_t siden FEAT-153 — loggen rummer nu 500 poster, ikke 40.
+ */
+uint16_t mb_activity_log_count(void);
 
 /**
  * @brief Read one entry, oldest-first (idx 0 = oldest, count()-1 = newest)
  * @return true if idx valid and *out was filled
  */
-bool mb_activity_log_get(uint8_t idx, mb_activity_entry_t *out);
+bool mb_activity_log_get(uint16_t idx, mb_activity_entry_t *out);
 
 #endif // MB_ACTIVITY_LOG_H

@@ -159,7 +159,8 @@ For at undgå konflikter mellem system funktioner og bruger data, skal du bruge 
 
 | Range | Status | Anbefalet Brug | Konflikt Med |
 |-------|--------|----------------|-------------|
-| **HR 0-19** | ✅ **SAFE** | General purpose data, test variables | Ingen |
+| **HR 0-17** | ⚠️ **RESERVED** | Analog I/O (FEAT-034/035/036/037, ES32D26): Vi1-4 raw+value (HR0-7), Ii1-4 raw+value (HR8-15), AO1-2 setpoint (HR16-17) | Analog driver |
+| **HR 18-19** | ✅ **SAFE** | General purpose data, test variables | Ingen |
 | **HR 20-89** | ✅ **SAFE** | ST Logic test variables, temporary data | Ingen |
 | **HR 90-99** | ✅ **SAFE** | Reserved for future use | Ingen |
 | **HR 100-179** | ⚠️ **RESERVED** | Counter default allocation (4 counters × 20 registers) | Counter engine |
@@ -226,6 +227,27 @@ For at undgå konflikter mellem system funktioner og bruger data, skal du bruge 
   set logic 1 bind test_input reg:20 input
   set logic 1 bind test_output reg:25 output
   ```
+
+#### 1a. **Analog I/O (FEAT-034/035/036/037, ES32D26)**
+Faste registre (ikke bruger-omkonfigurerbare i v1), allokeret via register-allokatoren når kanalen er `enabled`:
+
+| Kanal | Raw (mV) | Kalibreret værdi (×100) |
+|-------|----------|--------------------------|
+| Vi1 (0-10V) | HR 0 | HR 1 |
+| Vi2 (0-10V) | HR 2 | HR 3 |
+| Vi3 (0-10V) | HR 4 | HR 5 |
+| Vi4 (0-10V) | HR 6 | HR 7 |
+| Ii1 (4-20mA) | HR 8 | HR 9 |
+| Ii2 (4-20mA) | HR 10 | HR 11 |
+| Ii3 (4-20mA) | HR 12 | HR 13 |
+| Ii4 (4-20mA) | HR 14 | HR 15 |
+
+| Kanal | Setpoint (×100) |
+|-------|-------------------|
+| AO1 | HR 16 |
+| AO2 | HR 17 |
+
+"Kalibreret værdi"/"Setpoint" er ×100 fixed-point (fx 1000 = 10,00V eller 20,00mA). Vi1 (GPIO14) og Vi3 (GPIO27) er ADC2 — registrene beholder deres sidste gyldige værdi mens WiFi er tilsluttet (kendt ESP32 HW-begrænsning). Se `show analog` / `docs/manual/04_Web_Dashboard_og_Monitor.md` for kalibrering (scale/offset).
 
 #### 2. **Counter Configuration**
 Counter default allocation bruger **HR 100-179** (4 counters × 20 registers):

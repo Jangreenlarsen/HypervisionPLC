@@ -22,6 +22,8 @@ set user overvaagning password <kodeord> roles monitor privilege read
 
 > **Fald-i-baglås-advarsel:** aktivér ikke RBAC før mindst én bruger med tilstrækkelige rettigheder er oprettet — CLI'en advarer om dette, men dobbelttjek altid før I logger ud af den session der aktiverer det.
 
+**Brugerstyring via web-GUI (FEAT-166):** samme funktionalitet findes nu også på `/system`-siden under "Brugerstyring" — til/fra for RBAC, tabel over eksisterende brugere, samt en formular til at oprette/redigere/slette brugere (roller som afkrydsningsfelter, privilegium som dropdown). Adgangskode skal genindtastes ved enhver redigering, også hvis kun roller/privilegium ændres — samme betingelse som CLI'ens `set user`, der heller ikke tilbyder en "kun rediger roller"-mulighed. De nye REST-endpoints (`GET/POST /api/rbac`, `POST /api/rbac/users`, `DELETE /api/rbac/users/{navn}`) kræver skriverettighed, bevidst samme grænse som CLI'en allerede har (se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #18) — ikke en strengere model, blot samme adgang et andet sted fra.
+
 ## 10.2 Roller og privilegier
 
 | Rolle | Giver adgang til |
@@ -46,14 +48,22 @@ En bruger med kun `monitor`+`read` kan altså se dashboardet, men hverken skrive
 | HTTP/dashboard | `admin` | `modbus123` |
 | Telnet | `admin` | `telnet123` |
 
-Disse er fabriksstandarder, dokumenteret i selve kildekoden — enhver med adgang til firmwaren (eller til denne manual) kender dem. **Skift dem ved installation**, se [§3.6](03_Installation_og_Foerste_Opstart.md#haerdning-efter-installation).
+Disse er fabriksstandarder, dokumenteret i selve kildekoden — enhver med adgang til firmwaren (eller til denne manual) kender dem. **Skift dem ved installation**, se [§3.6](03_Installation_og_Foerste_Opstart.md#haerdning-efter-installation) — eller nu også via `/system`-sidens "HTTP Legacy Auth"- og "Telnet"-kort (FEAT-166), som alternativ til CLI'ens `set http password`/`set telnet password`.
+
+**Password-lagring (BUG-352, fra v7.9.10.9):** HTTP/dashboard- og RBAC-brugerpasswords gemmes **hashet** (SHA-256 + et unikt, tilfældigt 16-byte salt pr. konto) — ikke længere i klartekst i NVS. En NVS-backup-eksport eller fysisk flash-dump afslører derfor ikke længere passwords direkte. **Undtagelser, bevidst uændrede:** WiFi-passwordet skal forblive klartekst (kræves af WPA2-håndtrykket mod radioen) og Telnet-passwordet er et separat, selvstændigt credential-system der endnu ikke er omfattet — begge er stadig synlige i en backup-eksport. Ændringen er transparent for eksisterende brugere: et allerede sat password bliver automatisk hashet ved første opstart efter opdateringen, uden at skulle sættes igen.
+
+**Session-tokens (BUG-353, fra v7.9.10.10):** Web-UI'et (dashboard, editor, system, web-CLI, OTA-siden) gensender ikke længere brugernavn/kodeord på hvert request. Login (`POST /api/login`) verificerer én gang og udsteder et kortlivet token, som browseren derefter bruger (`Authorization: Bearer <token>`) — med et **glidende 30-minutters inaktivitets-timeout** (en aktiv fane logges ikke ud, en glemt fane gør efter 30 min uden aktivitet). Log ud (`POST /api/logout`) invaliderer token'et med det samme på enheden. **Almindelig HTTP Basic Auth virker fortsat uændret og for evigt** — dette er en tilføjelse, ikke en erstatning: scripts, curl og Node-RED-integrationer der taler direkte med REST API'et behøver ikke ændres.
 
 ## 10.4 Transportkryptering (HTTPS/TLS)
 
 Systemet understøtter HTTPS via ESP-IDF's indbyggede TLS-server:
 ```
-set http tls on     (kræver reboot)
+set http tls on             (kræver reboot)
+set http https-port 443     (valgfrit — 443 er default)
 ```
+Eller i web-GUI'en: `/system` → kortet "HTTPS / TLS".
+
+**Vigtigt (BUG-350, fra v7.9.10.8): HTTPS lytter på sin egen, dedikerede port — som standard 443, adskilt fra HTTP's port (som standard 80).** De to porte er uafhængige af hinanden, styret af hhv. `set http port` og `set http https-port`. Før v7.9.10.8 delte HTTPS samme portnummer som HTTP, hvilket betød at aktivering af TLS gjorde HTTP-porten om til en TLS-only-lytter uden varsel — enhver klient der stadig sendte almindelig `http://` mod den port (browser-bogmarker, Node-RED, åbne dashboard-faner) fik en `mbedtls_ssl_handshake returned -0x7900` ("bad ClientHello")-fejlflod, og `https://` uden eksplicit portnummer ramte slet ikke serveren (browsere antager port 443 for https-skemaet, ikke 80). **Efter aktivering skal du derfor besøge `https://<enhedens-ip>:443/`** (eller den port du selv har sat) — ikke bare skifte `http://` til `https://` på samme URL som før.
 
 **Vigtige forbehold, læs før aktivering:**
 - Alle enheder bygget fra samme firmware **deler samme selvsignerede certifikat og private nøgle** (embeddet ved kompilering) — det giver kryptering på ledningen, men *ikke* enheds-unik identitet. Kompromitteres én enheds firmware, er nøglen kendt for alle enheder på samme build.

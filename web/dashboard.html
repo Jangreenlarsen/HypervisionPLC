@@ -1,0 +1,2870 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Monitor Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.topnav{background:#11111b;padding:6px 16px;display:flex;gap:8px;border-bottom:2px solid #89b4fa;flex-shrink:0;align-items:center}
+.topnav .brand{font-size:14px;font-weight:700;color:#89b4fa;margin-right:12px}
+.topnav a{padding:5px 14px;font-size:12px;font-weight:600;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s}
+.topnav a:hover{background:#45475a;color:#cdd6f4}
+.topnav a.active{background:#89b4fa;color:#1e1e2e}
+.save-btn{margin-left:auto;padding:4px 12px;font-size:11px;font-weight:600;background:#a6e3a1;color:#1e1e2e;border:none;border-radius:4px;cursor:pointer;transition:all .2s}
+.save-btn:hover{background:#94e2d5}
+.save-btn.saving{background:#fab387;cursor:wait}
+.save-btn.saved{background:#a6e3a1}
+.save-btn.save-err{background:#f38ba8}
+.user-badge{position:relative;display:flex;align-items:center;gap:6px}
+.user-btn{padding:4px 10px;font-size:11px;background:#313244;color:#a6adc8;border-radius:4px;cursor:pointer;border:1px solid #45475a;display:flex;align-items:center;gap:5px}
+.user-btn:hover{background:#45475a;color:#cdd6f4}
+.user-btn .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.user-btn .dot-on{background:#a6e3a1}
+.user-btn .dot-off{background:#f38ba8}
+.user-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#181825;border:1px solid #45475a;border-radius:6px;padding:8px 0;min-width:200px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.user-menu.show{display:block}
+.user-menu .um-row{padding:4px 14px;font-size:11px;color:#a6adc8;display:flex;justify-content:space-between}
+.user-menu .um-row .um-val{color:#cdd6f4;font-weight:600}
+.user-menu .um-sep{border-top:1px solid #313244;margin:4px 0}
+.user-menu .um-btn{display:block;width:calc(100% - 16px);margin:4px 8px;padding:5px 10px;font-size:11px;background:#313244;color:#a6adc8;border:none;border-radius:4px;cursor:pointer;text-align:center}
+.user-menu .um-btn:hover{background:#f38ba8;color:#1e1e2e}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center}
+.modal-bg.show{display:flex}
+.modal{background:#1e1e2e;border:1px solid #45475a;border-radius:8px;padding:24px;width:320px;max-width:90vw}
+.modal h2{color:#89b4fa;font-size:16px;margin:0 0 8px}
+.modal label{display:block;color:#a6adc8;font-size:11px;margin:8px 0 3px}
+.modal input{width:100%;padding:6px 8px;background:#181825;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:13px;box-sizing:border-box}
+.modal .actions{margin-top:14px;text-align:right}
+.btn-primary{padding:6px 16px;background:#89b4fa;color:#1e1e2e;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600}
+.btn-primary:hover{background:#74c7ec}
+.hdr{background:#181825;padding:10px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #313244;flex-shrink:0}
+.hdr h1{font-size:16px;color:#89b4fa;flex-shrink:0}
+.hdr .nav{margin-left:16px;display:flex;gap:6px}
+.hdr .nav a,.hdr .nav button{padding:4px 12px;font-size:12px;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s;border:none;cursor:pointer}
+.hdr .nav a:hover,.hdr .nav button:hover{background:#45475a;color:#cdd6f4}
+.hdr .nav button.active{background:#89b4fa;color:#1e1e2e}
+.hdr .info{font-size:11px;color:#6c7086;margin-left:auto}
+.sub-tabs{background:#181825;padding:4px 16px;display:none;gap:6px;border-bottom:1px solid #313244;flex-shrink:0;flex-wrap:wrap;align-items:center}
+.sub-tabs.show{display:flex}
+.sub-tabs button{padding:3px 12px;font-size:11px;font-weight:600;background:#313244;color:#a6adc8;border:1px solid transparent;border-radius:4px;cursor:pointer;transition:all .15s}
+.sub-tabs button:hover{background:#45475a;color:#cdd6f4}
+.sub-tabs button.active{background:#1e1e2e;color:#89b4fa;border-color:#89b4fa}
+.alarm-bar{background:#f38ba8;color:#1e1e2e;padding:4px 16px;font-size:12px;font-weight:600;display:none;align-items:center;justify-content:space-between;flex-shrink:0;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
+/* FEAT-160: fast 12-kolonners grid — hvert kort placeres med en inline
+   grid-column/grid-row (fra gridLayout{}) i stedet for browser-auto-placering.
+   .card-wide-klassen (stadig i HTML'en paa mbactivity/alarms/syslog) bruges
+   nu kun som et data-hint til default-layoutet, ikke som en CSS-regel. */
+.grid{flex:1;display:grid;grid-template-columns:repeat(12,1fr);grid-auto-rows:8px;gap:12px;padding:16px;overflow-y:auto;align-content:start}
+/* FEAT-161: overflow:auto er en BACKSTOP, ikke den primaere fix — hvis et
+   kort (mod forventning) alligevel bliver kortere end sit indhold, faar det
+   sin egen scrollbar i stedet for at overlappe naboceller i gridet. */
+.card{background:#181825;border:1px solid #313244;border-radius:8px;padding:14px 16px;position:relative;overflow:auto}
+.card.dragging{opacity:.4}
+/* FEAT-161: resize skal IKKE toenes ud (i modsaetning til flyt) — hele
+   pointen er at kunne se indholdet mens man vurderer stoerrelsen. */
+.card.resizing{outline:2px solid #89b4fa;outline-offset:-2px}
+.card.at-min-size{outline:2px solid #f38ba8;outline-offset:-2px}
+.card.at-min-size .resize-handle{background:linear-gradient(135deg,transparent 0 50%,#f38ba8 50%,#f38ba8 60%,transparent 60% 70%,#f38ba8 70% 80%,transparent 80%)}
+.resize-handle{position:absolute;right:2px;bottom:2px;width:14px;height:14px;cursor:nwse-resize;opacity:.35;user-select:none;background:linear-gradient(135deg,transparent 0 50%,#6c7086 50%,#6c7086 60%,transparent 60% 70%,#6c7086 70% 80%,transparent 80%)}
+.resize-handle:hover{opacity:.9}
+.card h2{font-size:13px;color:#89b4fa;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #313244;display:flex;align-items:center;gap:6px}
+.card h2 .badge{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:400}
+.badge-ok{background:#a6e3a1;color:#1e1e2e}
+.badge-err{background:#f38ba8;color:#1e1e2e}
+.badge-off{background:#45475a;color:#a6adc8}
+.row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
+.row .lbl{color:#6c7086}
+.row .val{font-weight:600;font-variant-numeric:tabular-nums}
+.val-ok{color:#a6e3a1}.val-err{color:#f38ba8}.val-warn{color:#fab387}.val-n{color:#cdd6f4}
+.bar-wrap{height:6px;background:#313244;border-radius:3px;margin-top:4px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .5s}
+.bar-ok{background:#a6e3a1}.bar-warn{background:#fab387}.bar-err{background:#f38ba8}
+.tbl{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
+.tbl th{text-align:left;padding:4px 6px;color:#89b4fa;border-bottom:1px solid #313244;font-weight:600}
+.tbl td{padding:3px 6px;border-bottom:1px solid rgba(49,50,68,.5)}
+/* FEAT-152: fastlås header-rækken i scrollbare log-tabeller (Modbus
+   Aktivitetslog + Alarm Historik) så den ikke scroller ud af billedet.
+   box-shadow i stedet for border-bottom, da border-collapse:collapse ellers
+   lader kanten scrolle væk sammen med indholdet. */
+#mbActivityBody .tbl th,#alarmBody .tbl th{position:sticky;top:0;background:#181825;z-index:2;box-shadow:inset 0 -1px 0 #313244}
+.tbl tr:hover{background:rgba(49,50,68,.3)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle}
+.dot-g{background:#a6e3a1}.dot-r{background:#f38ba8}.dot-y{background:#fab387}.dot-off{background:#45475a}
+.empty-msg{color:#6c7086;font-size:11px;padding:8px 0}
+.spark-row{display:flex;align-items:center;gap:8px;margin-top:4px}
+/* Trend-graf-SVG'erne har en fast 200x24 viewBox (koordinatsystemet
+   drawSparkline() tegner i), men skal VISUELT fylde resten af raekken —
+   ellers skalerer graferne ikke med, naar man goer kortet bredere. */
+.spark-row svg{flex:1;width:100%;height:24px;min-width:0;display:block}
+.spark-row .sl{font-size:10px;color:#6c7086;min-width:70px}
+.regview{display:grid;grid-template-columns:repeat(16,1fr);gap:1px;font-size:9px;font-family:monospace}
+.regview .rc{padding:2px;text-align:center;background:#313244;border-radius:2px;min-height:20px;display:flex;align-items:center;justify-content:center;cursor:default}
+.regview .rc:hover{background:#45475a}
+.regview .rc.used{background:#1e3a5f;color:#89b4fa}
+.regview .rc.coil-on{background:#2a4a2a;color:#a6e3a1}
+.regview .rc.coil-off{background:#313244;color:#585b70}
+.regmap{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.regmap .rm{padding:3px 8px;border-radius:3px;font-size:10px;white-space:nowrap}
+.rm-counter{background:#1e3a5f;color:#89b4fa}
+.rm-timer{background:#3a1e5f;color:#cba6f7}
+.rm-st{background:#1e5f3a;color:#a6e3a1}
+.rm-manual{background:#5f3a1e;color:#fab387}
+.rm-free{background:#313244;color:#585b70}
+.dio-led{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:36px}
+.dio-led .led{width:18px;height:18px;border-radius:50%;border:2px solid #45475a;transition:all .3s}
+.dio-led .led-on{background:#a6e3a1;border-color:#a6e3a1;box-shadow:0 0 6px #a6e3a1}
+.dio-led .led-off{background:#313244;border-color:#45475a}
+.dio-led .led-lbl{font-size:9px;color:#6c7086}
+.dio-led .led-out{cursor:pointer}
+.dio-led .led-out:hover{border-color:#89b4fa}
+.sev-crit{color:#f38ba8;font-weight:600}
+.sev-warn{color:#fab387}
+.sev-info{color:#a6adc8}
+.page-view{display:none;flex:1;overflow-y:auto;padding:16px}
+.page-view.active{display:block}
+.foot{background:#181825;border-top:1px solid #313244;padding:4px 16px;font-size:10px;color:#45475a;flex-shrink:0;display:flex;justify-content:space-between}
+.regmap-sticky{position:sticky;top:0;z-index:10;background:#1e1e2e;padding:12px 16px;border-bottom:2px solid #313244;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.regmap-sticky .tbl{max-height:168px;overflow-y:auto;display:block}
+.regmap-sticky .tbl thead,.regmap-sticky .tbl tbody{display:table;width:100%;table-layout:fixed}
+.drag-handle{cursor:grab;color:#45475a;margin-right:4px;font-size:14px;user-select:none}
+.drag-handle:hover{color:#89b4fa}
+.drag-handle:active{cursor:grabbing}
+/* FEAT-160: paa mobil tvinger vi enkelt-kolonne-flow uanset det gemte
+   desktop/tablet-layout — !important er noedvendigt fordi inline
+   grid-column/grid-row (sat af applyGridLayout()) ellers altid vinder over
+   almindelige CSS-regler, media queries inkl. */
+@media(max-width:768px){.grid{grid-template-columns:1fr;gap:8px;padding:8px;grid-auto-rows:auto}.grid .card{grid-column:auto!important;grid-row:auto!important}.resize-handle,.drag-handle{display:none}}
+</style>
+</head>
+<body>
+
+<!-- Login Modal (hidden by default on dashboard) -->
+<div class="modal-bg" id="loginModal">
+<div class="modal">
+<h2>Login</h2>
+<p style="font-size:12px;color:#6c7086;margin-bottom:12px">Log ind for at se brugerinfo</p>
+<div id="loginErr" style="display:none;color:#f38ba8;font-size:12px;padding:6px 0"></div>
+<label>Brugernavn</label>
+<input type="text" id="authUser" placeholder="Brugernavn" autocomplete="username">
+<label>Adgangskode</label>
+<input type="password" id="authPass" placeholder="Adgangskode" autocomplete="current-password">
+<div class="actions">
+<button class="btn-primary" onclick="doLogin()">Log ind</button>
+</div>
+</div>
+</div>
+
+<!-- Top Navigation -->
+<div class="topnav">
+<span class="brand">HyberFusion PLC</span>
+<a href="/" class="active">Monitor</a>
+<a href="/editor">ST Editor</a>
+<a href="/cli">CLI</a>
+<a href="/system">System</a>
+<button class="save-btn" id="saveBtn" onclick="doSystemSave()" title="Gem konfiguration til NVS">&#128190; Save</button>
+<div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogin" onclick="showLogin()">Log ind</div><div class="um-btn" id="umLogout" onclick="doLogout()" style="display:none">Log ud</div></div></div>
+</div>
+
+<!-- Header -->
+<div class="hdr">
+<h1>Monitor Dashboard</h1>
+<div class="nav">
+<button class="active" onclick="showPage('metrics',this)">Metrics</button>
+<button onclick="showPage('registers',this)">Registre</button>
+<button onclick="showPage('regmap',this)">Register Map</button>
+<button onclick="showPage('settings',this)">Indstillinger</button>
+</div>
+<span class="info" id="hdrInfo"></span>
+</div>
+
+<!-- Alarm Bar -->
+<div class="alarm-bar" id="alarmBar"></div>
+
+<!-- Sub-tabs for Metrics -->
+<div class="sub-tabs show" id="subTabs">
+<button class="active" onclick="showSubTab('all',this)">Alle</button>
+<button onclick="showSubTab('overview',this)">Overblik</button>
+<button onclick="showSubTab('modbus',this)">Modbus</button>
+<button onclick="showSubTab('connections',this)">Forbindelser</button>
+<button onclick="showSubTab('app',this)">Applikation</button>
+<button onclick="showSubTab('custom',this)" title="Dine egne valgte kort — vælges på Indstillinger-siden. Et kort her forsvinder ikke fra sin normale fane.">Custom</button>
+<button style="margin-left:auto" onclick="if(confirm('Auto-organisér kort-layoutet for denne fane og skærmstørrelse? Dit nuværende layout overskrives med et pænt standard-layout.'))resetGridLayout()" title="Nulstiller til et pænt, automatisk pakket standard-layout for DENNE fane og skærmstørrelse — samme som 'Nulstil layout' på Indstillinger-siden">⊞ Auto-organisér</button>
+</div>
+
+<!-- Metrics Page -->
+<div class="page-view active" id="pageMetrics">
+<div class="grid" id="grid">
+
+<!-- System Overview (merged with FreeRTOS Tasks) -->
+<div class="card" data-card-id="system" data-tab="overview">
+<h2>System</h2>
+<div class="row"><span class="lbl">Firmware</span><span class="val val-n" id="mFirmware">-</span></div>
+<div class="row"><span class="lbl">Uptime</span><span class="val val-n" id="mUptime">-</span></div>
+<div class="row"><span class="lbl">Heap fri</span><span class="val val-n" id="mHeapFree">-</span></div>
+<div class="row"><span class="lbl">Heap min</span><span class="val val-n" id="mHeapMin">-</span></div>
+<div class="bar-wrap"><div class="bar-fill bar-ok" id="heapBar" style="width:0%"></div></div>
+<div class="row" style="margin-top:2px"><span class="lbl">PSRAM</span><span class="val val-n" id="mPsram">-</span></div>
+<div class="row"><span class="lbl">SPIFFS</span><span class="val val-n" id="mSpiffs">-</span></div>
+<div class="bar-wrap"><div class="bar-fill bar-ok" id="spiffsBar" style="width:0%"></div></div>
+<div class="row" style="margin-top:2px"><span class="lbl">NVS entries</span><span class="val val-n" id="mNvs">-</span></div>
+<div class="bar-wrap"><div class="bar-fill bar-ok" id="nvsBar" style="width:0%"></div></div>
+<div class="row"><span class="lbl">Largest block</span><span class="val val-n" id="cpuLargestBlock">-</span></div>
+<div class="row"><span class="lbl">Fragmentering</span><span class="val val-n" id="cpuFragPct">-</span></div>
+<div class="bar-wrap"><div class="bar-fill bar-ok" id="fragBar" style="width:0%"></div></div>
+<div class="spark-row"><span class="sl">Frag. trend</span><svg id="sparkFrag" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl">Aktive tasks</span><span class="val val-n" id="cpuTaskCount">-</span></div>
+<div id="cpuTaskBody"></div>
+<div class="spark-row"><span class="sl">Heap trend</span><svg id="sparkHeap" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row" style="margin-top:2px;border-top:1px solid #313244;padding-top:4px"><span class="lbl">Reboots</span><span class="val val-n" id="mRebootCount">-</span></div>
+<div class="row"><span class="lbl">Sidste reset</span><span class="val val-n" id="mResetReason" style="font-size:11px">-</span></div>
+</div>
+
+<!-- Network Status -->
+<div class="card" data-card-id="network" data-tab="overview">
+<h2>Netværk</h2>
+<div class="row"><span class="lbl">Hostname</span><span class="val val-n" id="netHostname">-</span></div>
+<div style="border-top:1px solid #313244;margin-top:4px;padding-top:4px">
+<div class="row"><span class="lbl"><span class="dot dot-off" id="dotWifi"></span> WiFi</span><span class="val val-n" id="mWifi">-</span></div>
+<div class="spark-row"><span class="sl">RSSI trend</span><svg id="sparkRssi" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl" style="padding-left:16px">IP / Mask</span><span class="val val-n" id="netWifiIp" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">Gateway</span><span class="val val-n" id="netWifiGw" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">DNS</span><span class="val val-n" id="netWifiDns" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">SSID</span><span class="val val-n" id="netWifiSsid" style="font-size:11px">-</span></div>
+</div>
+<div style="border-top:1px solid #313244;margin-top:4px;padding-top:4px">
+<div class="row"><span class="lbl"><span class="dot dot-off" id="dotEth"></span> Ethernet</span><span class="val val-n" id="mEth">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">IP / Mask</span><span class="val val-n" id="netEthIp" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">Gateway</span><span class="val val-n" id="netEthGw" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">DNS</span><span class="val val-n" id="netEthDns" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">MAC</span><span class="val val-n" id="netEthMac" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl" style="padding-left:16px">Speed</span><span class="val val-n" id="netEthSpeed" style="font-size:11px">-</span></div>
+</div>
+<div style="border-top:1px solid #313244;margin-top:4px;padding-top:4px">
+<div class="row"><span class="lbl"><span class="dot dot-off" id="dotTelnet"></span> Telnet</span><span class="val val-n" id="mTelnet">-</span></div>
+<div class="row"><span class="lbl">WiFi reconnects</span><span class="val val-n" id="mWifiRetries">-</span></div>
+</div>
+</div>
+
+<!-- Modbus Slave -->
+<div class="card" data-card-id="modbusslave" data-tab="modbus">
+<h2>Modbus Slave <span class="badge badge-off" id="badgeSlave">-</span></h2>
+<div class="row"><span class="lbl">Interface</span><span class="val val-n" id="msConfigInfo" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="msTotal">-</span></div>
+<div class="row"><span class="lbl">Success</span><span class="val val-ok" id="msOk">-</span></div>
+<div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="msCrc">-</span></div>
+<div class="row"><span class="lbl">Exceptions</span><span class="val val-err" id="msExc">-</span></div>
+<div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="msRate">-</span></div>
+<div class="row"><span class="lbl">Rate (nu)</span><span class="val val-n" id="msRateNow">-</span></div>
+<div class="spark-row"><span class="sl">Requests</span><svg id="sparkMbSlave" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="msRateMinMax" style="font-size:10px;color:#6c7086">-</span></div>
+</div>
+
+<!-- Modbus Master (merged with Cache) -->
+<div class="card" data-card-id="modbusmaster" data-tab="modbus">
+<h2>Modbus Master <span class="badge badge-off" id="badgeMaster">-</span></h2>
+<div class="row"><span class="lbl">Interface</span><span class="val val-n" id="mmConfigInfo" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl">Statistik siden</span><span class="val val-n" id="mmStatsSince" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="mmTotal">-</span></div>
+<div class="row"><span class="lbl">Success</span><span class="val val-ok" id="mmOk">-</span></div>
+<div class="row"><span class="lbl">Timeout fejl</span><span class="val val-err" id="mmTimeout">-</span></div>
+<div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="mmCrc">-</span></div>
+<div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="mmRate">-</span></div>
+<div class="row"><span class="lbl">Rate (nu)</span><span class="val val-n" id="mmRateNow">-</span></div>
+<div class="spark-row"><span class="sl">Requests</span><svg id="sparkMbMaster" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="mmRateMinMax" style="font-size:10px;color:#6c7086">-</span></div>
+<div style="border-top:1px solid #313244;margin-top:6px;padding-top:6px">
+<div class="row"><span class="lbl">Cache entries</span><span class="val val-n" id="mcEntries">-</span></div>
+<div class="row"><span class="lbl">Cache hits/misses</span><span class="val val-n" id="mcHitMiss">-</span></div>
+<div class="row"><span class="lbl">Hit rate</span><span class="val val-n" id="mcHitRate">-</span></div>
+<div class="row"><span class="lbl">Cache utilization</span><span class="val val-n" id="mcUtil">-</span></div>
+<div class="row"><span class="lbl">Queue depth</span><span class="val val-n" id="mcQueueDepth">-</span></div>
+<div class="row"><span class="lbl">Queue HWM</span><span class="val val-n" id="mcQueueHwm">-</span></div>
+<div class="row"><span class="lbl">Queue full drops</span><span class="val val-err" id="mcQueueFull">-</span></div>
+<div class="row"><span class="lbl">Priority drops</span><span class="val val-warn" id="mcPrioDrop">-</span></div>
+<div class="row"><span class="lbl">Cache TTL</span><span class="val val-n" id="mcTtl">-</span></div>
+<div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
+<div id="mcBackoff" style="margin-top:6px"></div>
+<div style="border-top:1px solid #313244;margin-top:8px;padding-top:6px;text-align:center"><button id="btnResetMasterStats" onclick="resetMasterStats()" style="background:#45475a;color:#cdd6f4;border:1px solid #585b70;border-radius:4px;padding:4px 14px;cursor:pointer;font-size:12px">Nulstil statistik</button></div>
+<!-- FEAT-135: mb read/write mini-form -->
+<div style="border-top:1px solid #313244;margin-top:8px;padding-top:6px">
+<div style="font-size:11px;color:#89b4fa;margin-bottom:4px;font-weight:600">Modbus manuel Read/Write</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:4px">
+<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px">FC Type</div>
+<select id="mbOp" onchange="updateMbForm()" style="padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="read holding">Read Holding (FC03)</option>
+<option value="read input-reg">Read Input Reg (FC04)</option>
+<option value="read coil">Read Coil (FC01)</option>
+<option value="read input">Read Discrete In (FC02)</option>
+<option value="write holding">Write Holding (FC06)</option>
+<option value="write coil">Write Coil (FC05)</option>
+</select></div>
+<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px">Slave ID</div>
+<input type="number" id="mbSlave" value="1" min="1" max="247" title="Slave ID" style="width:55px;padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px"></div>
+<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px">Adresse</div>
+<input type="number" id="mbAddr" value="0" min="0" max="65535" title="Addr" style="width:60px;padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px"></div>
+<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px" id="mbValLabel">Antal</div>
+<input type="number" id="mbVal" value="1" title="Count (read) / Value (write)" style="width:55px;padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px"></div>
+<button onclick="doMbCmd()" style="padding:2px 10px;background:#89b4fa;color:#1e1e2e;border:none;border-radius:3px;cursor:pointer;font-size:10px;font-weight:600;align-self:flex-end">Udfør</button>
+</div>
+<pre id="mbResult" style="font-size:10px;background:#11111b;color:#a6adc8;padding:4px 6px;border-radius:3px;max-height:100px;overflow-y:auto;margin:0;white-space:pre-wrap;font-family:'Cascadia Code',monospace;user-select:text;cursor:text">(klar)</pre>
+</div>
+</div>
+</div>
+
+<!-- FEAT-149: Modbus Aktivitetslog (Master + Slave, RAM-only, wire-level) -->
+<div class="card card-wide" data-card-id="mbactivity" data-tab="modbus">
+<h2>Modbus Aktivitetslog <span class="badge badge-off" id="badgeMbActivity">0</span></h2>
+<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+<span style="font-size:10px;color:#6c7086" id="mbActivityInfo">-</span>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+<button id="mbActToggleBtn" onclick="toggleMbActivity()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Stop logning</button>
+<button onclick="exportMbActivity()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Eksporter CSV</button>
+<button onclick="clearMbActivity()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Ryd log</button>
+</div>
+</div>
+<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+<select id="mbActRole" onchange="renderMbActivity()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">Master + Slave</option>
+<option value="master">Kun Master</option>
+<option value="slave">Kun Slave</option>
+</select>
+<select id="mbActSrc" onchange="renderMbActivity()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">Alle kilder</option>
+<option value="st_logic">ST Logic</option>
+<option value="cli">CLI</option>
+<option value="dashboard">Dashboard</option>
+<option value="external">Ekstern master</option>
+</select>
+<select id="mbActStatus" onchange="renderMbActivity()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">OK + Fejlede</option>
+<option value="ok">Kun OK</option>
+<option value="failed">Kun fejlede</option>
+</select>
+<input type="number" id="mbActSlave" min="0" max="247" placeholder="Slave adr" title="Filtrér på slave-adresse (tom = alle)" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:70px" oninput="renderMbActivity()">
+<input type="number" id="mbActLimit" value="100" min="5" max="500" onchange="fetchMbActivity()" title="Max antal linjer der hentes og vises" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
+</div>
+<div id="mbActivityBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen aktivitet endnu</span></div>
+</div>
+
+<!-- HTTP API + SSE -->
+<div class="card" data-card-id="httpapi" data-tab="connections">
+<h2>HTTP API</h2>
+<div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="htTotal">-</span></div>
+<div class="row"><span class="lbl">Success (2xx)</span><span class="val val-ok" id="htOk">-</span></div>
+<div class="row"><span class="lbl">Client fejl (4xx)</span><span class="val val-err" id="ht4xx">-</span></div>
+<div class="row"><span class="lbl">Server fejl (5xx)</span><span class="val val-err" id="ht5xx">-</span></div>
+<div class="row"><span class="lbl">Auth failures</span><span class="val val-warn" id="htAuth">-</span></div>
+<div style="border-top:1px solid #313244;margin-top:6px;padding-top:6px">
+<div class="row"><span class="lbl"><span class="dot dot-off" id="dotSse"></span> SSE Server</span><span class="val val-n" id="sseStatus">-</span></div>
+<div class="row"><span class="lbl">SSE port</span><span class="val val-n" id="ssePort">-</span></div>
+<div class="row"><span class="lbl">SSE klienter</span><span class="val val-n" id="mSse">-</span></div>
+<div class="row"><span class="lbl">SSE max klienter</span><span class="val val-n" id="sseMax">-</span></div>
+<div class="row"><span class="lbl">Heartbeat</span><span class="val val-n" id="sseHeartbeat">-</span></div>
+</div>
+</div>
+
+<!-- Counters -->
+<div class="card" data-card-id="counters" data-tab="app">
+<h2>Tællere</h2>
+<div id="cntBody"><span class="empty-msg">Ingen aktive tællere</span></div>
+</div>
+
+<!-- Timers -->
+<div class="card" data-card-id="timers" data-tab="app">
+<h2>Timere</h2>
+<div id="tmrBody"><span class="empty-msg">Ingen aktive timere</span></div>
+</div>
+
+<!-- ST Logic -->
+<div class="card" data-card-id="stlogic" data-tab="app">
+<h2>ST Logic <span class="badge badge-off" id="badgeLogic">-</span></h2>
+<div class="row"><span class="lbl">Interval</span><span class="val val-n" id="stInterval">-</span></div>
+<div class="row"><span class="lbl">Total cycles</span><span class="val val-n" id="stCycles">-</span></div>
+<div class="row"><span class="lbl">Overruns</span><span class="val val-n" id="stOverruns">-</span></div>
+<div id="stBody"><span class="empty-msg">Ingen aktive programmer</span></div>
+</div>
+
+<!-- NTP Tidssynkronisering -->
+<div class="card" data-card-id="ntp" data-tab="connections">
+<h2>NTP Tid <span class="badge badge-off" id="badgeNtp">-</span></h2>
+<div class="row"><span class="lbl">Lokal tid</span><span class="val val-n" id="ntpTime" style="font-size:14px;color:#89b4fa">-</span></div>
+<div class="row"><span class="lbl">Server</span><span class="val val-n" id="ntpServer">-</span></div>
+<div class="row"><span class="lbl">Tidszone</span><span class="val val-n" id="ntpTz">-</span></div>
+<div class="row"><span class="lbl">Antal syncs</span><span class="val val-n" id="ntpSyncs">-</span></div>
+<div class="row"><span class="lbl">Sidste sync</span><span class="val val-n" id="ntpAge">-</span></div>
+</div>
+
+<!-- FEAT-072: Modbus RTU Trafik -->
+<div class="card" data-card-id="rtutrafik" data-tab="modbus">
+<h2>Modbus RTU Trafik</h2>
+<div class="row"><span class="lbl">Slave rate</span><span class="val val-n" id="rtSlaveRate">-</span></div>
+<div class="row"><span class="lbl">Master rate</span><span class="val val-n" id="rtMasterRate">-</span></div>
+<div class="row"><span class="lbl">Slave success rate</span><span class="val val-n" id="rtSlaveSucc">-</span></div>
+<div class="row"><span class="lbl">Master success rate</span><span class="val val-n" id="rtMasterSucc">-</span></div>
+<div class="row"><span class="lbl">CRC fejl (slave/master)</span><span class="val val-err" id="rtCrcBoth">-</span></div>
+<div class="row"><span class="lbl">Timeouts (master)</span><span class="val val-err" id="rtTimeout">-</span></div>
+<div class="row"><span class="lbl">Exceptions (slave/master)</span><span class="val val-warn" id="rtExcBoth">-</span></div>
+<div class="spark-row"><span class="sl">Slave rate</span><svg id="sparkRtSlave" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="rtSlaveMinMax" style="font-size:10px;color:#6c7086">-</span></div>
+<div class="spark-row"><span class="sl">Master rate</span><svg id="sparkRtMaster" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="rtMasterMinMax" style="font-size:10px;color:#6c7086">-</span></div>
+</div>
+
+<!-- FEAT-075: TCP Forbindelsesmonitor -->
+<div class="card" data-card-id="tcpmonitor" data-tab="connections">
+<h2>TCP Forbindelser <span class="badge badge-off" id="badgeTcp">0</span></h2>
+<div id="tcpConnBody"><span class="empty-msg">Ingen aktive forbindelser</span></div>
+</div>
+
+<!-- FEAT-085: Alarm Historik (expanded v7.8.3.1) -->
+<div class="card card-wide" data-card-id="alarms" data-tab="overview">
+<h2>Alarm Historik <span class="badge badge-off" id="badgeAlarm">0</span></h2>
+<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+<span style="font-size:10px;color:#6c7086" id="alarmInfo">-</span>
+<button onclick="ackAlarms()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Kvittér alle</button>
+</div>
+<!-- FEAT-134: Alarm filter bar -->
+<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+<select id="alarmSev" onchange="renderAlarms()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="-1">Alle severity</option>
+<option value="2">Kritiske</option>
+<option value="1">Advarsler</option>
+<option value="0">Info</option>
+</select>
+<select id="alarmAck" onchange="renderAlarms()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">Alle</option>
+<option value="unack">Kun ukvitterede</option>
+<option value="ack">Kun kvitterede</option>
+</select>
+<input type="text" id="alarmSearch" placeholder="Søg i tekst..." oninput="renderAlarms()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;flex:1;min-width:120px">
+<input type="number" id="alarmLimit" value="25" min="5" max="500" onchange="renderAlarms()" title="Max antal" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
+<button onclick="clearAlarmFilter()" style="font-size:10px;padding:3px 8px;background:#45475a;color:#cdd6f4;border:none;border-radius:3px;cursor:pointer">Nulstil</button>
+</div>
+<div id="alarmBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen alarmer</span></div>
+</div>
+
+<!-- FEAT-086/089: Haendelses- og registerandringslog -->
+<div class="card card-wide" data-card-id="syslog" data-tab="overview">
+<h2>Hændelseslog <span class="badge badge-off" id="badgeSyslog">0</span></h2>
+<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+<span style="font-size:10px;color:#6c7086" id="syslogInfo">-</span>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+<button id="syslogToggleBtn" onclick="toggleSyslog()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Stop logning</button>
+<button onclick="exportSyslog()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Eksporter CSV</button>
+<button onclick="clearSyslog()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Ryd log</button>
+</div>
+</div>
+<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+<select id="syslogCat" onchange="renderSyslog()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">Alle kategorier</option>
+<option value="event">Hændelser</option>
+<option value="regchange">Registerændringer</option>
+</select>
+<select id="syslogSrc" onchange="renderSyslog()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">Alle kilder</option>
+<option value="rest">REST API</option>
+<option value="modbus_slave">Modbus (ekstern master)</option>
+<option value="system">System</option>
+</select>
+<input type="number" id="syslogLimit" value="100" min="5" max="500" onchange="fetchSyslog()" title="Max antal linjer der hentes og vises" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
+</div>
+<div id="syslogBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen hændelser endnu</span></div>
+</div>
+
+<!-- FEAT-095: Digital I/O Dashboard -->
+<div class="card" data-card-id="dio" data-tab="app" id="cardDio">
+<h2>Digital I/O</h2>
+<div style="margin-bottom:8px">
+<div style="font-size:10px;color:#89b4fa;margin-bottom:4px;font-weight:600">Inputs (IN1-IN8)</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap" id="dioInputs">
+<span class="empty-msg">Ikke tilgængelig</span>
+</div>
+</div>
+<div>
+<div style="font-size:10px;color:#cba6f7;margin-bottom:4px;font-weight:600">Outputs (CH1-CH8)</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap" id="dioOutputs">
+<span class="empty-msg">Ikke tilgængelig</span>
+</div>
+</div>
+</div>
+
+</div>
+</div>
+
+<!-- FEAT-034/035/036/037: Analog I/O -->
+<div class="card" data-card-id="analogio" data-tab="app" id="cardAnalogIo">
+<h2>Analog I/O</h2>
+<div style="margin-bottom:8px">
+<div style="font-size:10px;color:#89b4fa;margin-bottom:4px;font-weight:600">Spænding (Vi1-Vi4, 0-10V)</div>
+<div id="analogVIn" style="font-size:11px"><span class="empty-msg">Ingen kanaler aktiveret</span></div>
+</div>
+<div style="margin-bottom:8px">
+<div style="font-size:10px;color:#f9e2af;margin-bottom:4px;font-weight:600">Strøm (Ii1-Ii4, 4-20mA)</div>
+<div id="analogIIn" style="font-size:11px"><span class="empty-msg">Ingen kanaler aktiveret</span></div>
+</div>
+<div>
+<div style="font-size:10px;color:#cba6f7;margin-bottom:4px;font-weight:600">Udgange (AO1-AO2, DAC)</div>
+<div id="analogOut" style="font-size:11px"><span class="empty-msg">Ingen kanaler aktiveret</span></div>
+</div>
+<div style="font-size:9px;color:#6c7086;margin-top:6px">Kalibrering (scale/offset) og aktivering: CLI <code>set analog</code> / <code>show analog</code>, eller REST <code>/api/analog</code></div>
+</div>
+
+<!-- Register Viewer Page -->
+<div class="page-view" id="pageRegisters">
+<div class="card" style="margin-bottom:12px">
+<h2>Holding Registers (HR 0-255)</h2>
+<div style="font-size:10px;color:#6c7086;margin-bottom:6px">16 kolonner × 16 rækker — hover for detaljer</div>
+<div class="regview" id="regHR"></div>
+</div>
+<div class="card">
+<h2>Coils (0-255)</h2>
+<div style="font-size:10px;color:#6c7086;margin-bottom:6px">Grøn = ON, grå = OFF</div>
+<div class="regview" id="regCoils"></div>
+</div>
+</div>
+
+<!-- Register Map Page -->
+<div class="page-view" id="pageRegmap" style="padding:0">
+<div class="regmap-sticky">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap">
+<h2 style="font-size:13px;color:#89b4fa;margin:0">Register Allokering</h2>
+<div class="regmap" id="regmapLegend" style="margin:0">
+<span class="rm rm-counter">Counter</span>
+<span class="rm rm-timer">Timer</span>
+<span class="rm rm-st">ST Logic</span>
+<span class="rm rm-manual">Manual/System</span>
+<span class="rm rm-free">Ledig</span>
+</div>
+</div>
+<table class="tbl" id="allocTable" style="margin:0">
+<thead><tr><th>Ejer</th><th>Type</th><th>Register</th><th>Start</th><th>Slut</th><th>Antal</th></tr></thead>
+<tbody id="allocBody"></tbody>
+</table>
+</div>
+<div style="padding:16px;padding-top:8px">
+<div class="card" style="margin-bottom:12px">
+<h2>Holding Registers (HR 0-255)</h2>
+<div class="regview" id="regmapHR"></div>
+</div>
+<div class="card" style="margin-bottom:12px">
+<h2>Input Registers (IR 0-255)</h2>
+<div class="regview" id="regmapIR"></div>
+</div>
+<div class="card" style="margin-bottom:12px">
+<h2>Coils (0-255)</h2>
+<div class="regview" id="regmapCoils"></div>
+</div>
+<div class="card">
+<h2>Discrete Inputs (DI 0-255)</h2>
+<div class="regview" id="regmapDI"></div>
+</div>
+</div>
+</div>
+
+<!-- Settings Page -->
+<div class="page-view" id="pageSettings" style="padding:16px;overflow-y:auto">
+<div class="card" style="max-width:700px">
+<h2>Dashboard Indstillinger</h2>
+<p style="font-size:11px;color:#6c7086;margin-bottom:12px">Vælg hvilke kort der vises og hvilken fane de tilhører. "Custom" er en uafhængig, ekstra fane — et kort markeret her forsvinder ikke fra sin normale fane. Ændringer gemmes på ESP32.</p>
+<table class="tbl" id="settingsTable">
+<thead><tr><th>Vis</th><th>Kort</th><th>Fane</th><th>Custom</th></tr></thead>
+<tbody id="settingsBody"></tbody>
+</table>
+<div style="margin-top:12px;display:flex;gap:8px">
+<button onclick="saveSettings()" class="btn-primary">Gem indstillinger</button>
+<button onclick="resetSettings()" style="padding:6px 16px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:4px;font-size:12px;cursor:pointer">Nulstil til standard</button>
+</div>
+<div id="settingsMsg" style="font-size:11px;margin-top:8px;color:#a6e3a1;display:none"></div>
+</div>
+<div class="card" style="max-width:700px;margin-top:12px">
+<h2>Kort-layout (FEAT-160)</h2>
+<p style="font-size:11px;color:#6c7086;margin-bottom:12px">Træk et kort i ☰-håndtaget for at flytte det, eller i hjørne-håndtaget nederst til højre for at ændre størrelse. Layoutet gemmes i browseren, separat for mobil/tablet/desktop — det er ikke det samme som "Vis/Fane"-indstillingerne ovenfor, som gemmes på ESP32.</p>
+<button onclick="if(confirm('Nulstil kort-layoutet for denne skærmstørrelse?'))resetGridLayout()" style="padding:6px 16px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:4px;font-size:12px;cursor:pointer">Nulstil layout (denne skærmstørrelse)</button>
+</div>
+</div>
+
+<!-- Footer -->
+<div class="foot">
+<span id="footRefresh">Opdaterer...</span>
+<span id="footVer"></span>
+</div>
+
+<script>
+let refreshTimer=null;
+const HIST_MAX=120; // 120 samples, typisk ~3-5s/poll (varierer, se _dtSec) = ca. 6-10 min
+let history={heap:[],mbSlave:[],mbMaster:[],rtSlave:[],rtMaster:[],fragPct:[],rssi:[],analog:{}};
+let prevMbSlave=null,prevMbMaster=null;
+let prevSlaveTotal=null,prevMasterTotal=null;
+// FEAT-163: reelt forloebet tid siden sidste poll (til req/s-beregning) —
+// poll-intervallet er IKKE altid noejagtigt 3s (5s i visse tilstande,
+// browser-throttling af baggrundsfaner, netvaerksforsinkelse), saa en
+// antaget fast periode giver en forkert rate. Én faelles timestamp er nok,
+// da alle raterne i updateDashboard() opdateres samlet i samme poll-cyklus.
+let _lastPollTs=null;
+// BUG-359: mens et kort flyttes/resizes (venstreklik holdt nede), skal den
+// periodiske metrics-opdatering IKKE køre — ellers gør applyGridLayout()'s
+// reapplicering af gridLayout-positionerne (kaldt efter hver poll) kortet
+// under aktiv traek "snap" tilbage til dets FOeR-traek position midt i
+// bevaegelsen (dets nye position er kun i card._pendingPos/_pendingSize
+// indtil mouseup), og indholdsopdateringer faar kortet til at hoppe i
+// stoerrelse mens man forsoeger at placere det praecist.
+let _dragOrResizeActive=false;
+// FEAT-075: Cached state from Prometheus (used by fetchConnections)
+let _tcpTelOn=false,_tcpTelIp='',_tcpTelUser='',_tcpTelUp=0;
+let _tcpHttpTotal=0,_tcpHttpOk=0,_tcpHttp4xx=0,_tcpHttp5xx=0;
+let _tcpNtpOn=false,_tcpNtpSync=false,_tcpNtpServer='',_tcpNtpSyncs=0;
+let alarms=[];
+// FEAT-158: den client-side beregnede alarm-bjælke (checkAlarms()) er ikke
+// det samme som "Alarm Historik"-kortet — den genberegnes fra RAA, monotont
+// stigende Prometheus-taellere (fejl-COUNTS, ikke events) ved hver poll, saa
+// den forsvinder ALDRIG af sig selv naar en taeller foerst har krydset sin
+// graense, kun ved reboot. "Afstem"-knappen gemmer et snapshot af den
+// aktuelle vaerdi pr. alarmtype — bjaelken forbliver skjult indtil vaerdien
+// bliver VAERRE end snapshottet (ikke bare stadig over graensen).
+let alarmAck={};
+try{alarmAck=JSON.parse(sessionStorage.getItem('hfplc_alarm_ack')||'{}');}catch(e){alarmAck={};}
+let alarmCurrentValues={};
+let lastMetricsRaw=null;
+let _stBindings=null;
+let _alarmLog=[];
+let _mbActivityLog=[];
+let _mbActivityLogging=true;   // FEAT-153: loggen koerer som udgangspunkt
+let _mbActivityTotal=0;        // FEAT-153: antal poster paa enheden (kan overstige det hentede)
+// FEAT-086/089: Haendelses- og registerandringslog
+let _syslogEntries=[];
+let _syslogLogging=true;
+let _syslogTotal=0;
+const _syslogSrcNames={rest:'REST API',modbus_slave:'Modbus (ekstern)',system:'System'};
+
+let _activeSubTab='all';
+const _defaultTabs={system:'overview',network:'overview',alarms:'overview',syslog:'overview',modbusslave:'modbus',modbusmaster:'modbus',mbactivity:'modbus',rtutrafik:'modbus',httpapi:'connections',tcpmonitor:'connections',ntp:'connections',counters:'app',timers:'app',stlogic:'app',dio:'app',analogio:'app'};
+let _customTabs={};   // Overrides from API
+let _hiddenCards={};   // Set of hidden card IDs
+let _customMembers={};   // FEAT-167: kort-id'er tilfoejet til den uafhaengige "Custom"-fane (ved siden af, ikke i stedet for, kortets normale fane)
+
+function showPage(page,btn){
+  document.querySelectorAll('.page-view').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.hdr .nav button').forEach(b=>b.classList.remove('active'));
+  const el=document.getElementById('page'+page.charAt(0).toUpperCase()+page.slice(1));
+  if(el)el.classList.add('active');
+  if(btn)btn.classList.add('active');
+  // Show/hide sub-tabs only on Metrics page
+  const st=$('subTabs');
+  if(st){st.classList.toggle('show',page==='metrics');}
+  if(page==='metrics')applySubTab();
+  if(page==='settings')buildSettingsTable();
+}
+
+function getCardTab(cardId){
+  return _customTabs[cardId]||_defaultTabs[cardId]||'overview';
+}
+
+function showSubTab(tab,btn){
+  _activeSubTab=tab;
+  document.querySelectorAll('#subTabs button').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  try{localStorage.setItem('hfplc_subtab',tab);}catch(e){}
+  // FEAT-167: layoutet er fane-scoped — genindlaes gridLayout for den NYE
+  // fane foer den anvendes, ellers ville man kortvarigt (og ved gem) bruge
+  // den forrige fanes positioner.
+  loadGridLayout();
+  applySubTab();
+}
+
+function applySubTab(){
+  const grid=$('grid');
+  if(!grid)return;
+  grid.querySelectorAll('.card[data-card-id]').forEach(c=>{
+    const id=c.dataset.cardId;
+    const hidden=_hiddenCards[id];
+    if(hidden){c.style.display='none';return;}
+    // FEAT-167: "Custom"-fanen viser et uafhaengigt, brugervalgt kort-sæt —
+    // et kort her bevarer STADIG sin normale fane (getCardTab), det er en
+    // ekstra visning ved siden af, ikke en omplacering.
+    if(_activeSubTab==='custom'){c.style.display=_customMembers[id]?'':'none';return;}
+    const tab=getCardTab(id);
+    if(_activeSubTab==='all'){c.style.display='';return;}
+    c.style.display=(tab===_activeSubTab)?'':'none';
+  });
+  applyGridLayout();
+}
+
+function parsePrometheus(text){
+  const m={};
+  for(const line of text.split('\n')){
+    if(!line||line.startsWith('#'))continue;
+    const match=line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\{?([^}]*)\}?\s+(.+)$/);
+    if(match){
+      const name=match[1],lblStr=match[2],value=parseFloat(match[3]);
+      const labels={};
+      if(lblStr){const re=/(\w+)="([^"]*)"/g;let lm;while((lm=re.exec(lblStr))!==null)labels[lm[1]]=lm[2]}
+      if(!m[name])m[name]=[];
+      m[name].push({labels,value});
+    }
+  }
+  return m;
+}
+
+function g(m,name,labels){
+  const entries=m[name];
+  if(!entries)return null;
+  if(!labels)return entries[0]?.value??null;
+  const e=entries.find(e=>Object.entries(labels).every(([k,v])=>e.labels[k]===v));
+  return e?.value??null;
+}
+function gAll(m,name){return m[name]||[]}
+
+// FEAT-080/087: mirrorer watchdog_get_reset_reason_str() i watchdog_monitor.cpp
+// (ESP_RST_* enum-vaerdier er faste i ESP-IDF, samme raekkefoelge begge steder)
+const _resetReasons=['Unknown','Power-on','Ekstern reset','Software reset','Panic/Exception',
+  'Interrupt watchdog','Task watchdog','Andet watchdog','Deep sleep','Brownout','SDIO reset'];
+function fmtResetReason(v){return(v!=null&&v>=0&&v<_resetReasons.length)?_resetReasons[v]:'-'}
+function fmtUp(s){
+  if(s==null)return'-';
+  const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),mn=Math.floor((s%3600)/60),sc=Math.floor(s%60);
+  let r='';if(d>0)r+=d+'d ';
+  r+=String(h).padStart(2,'0')+':'+String(mn).padStart(2,'0')+':'+String(sc).padStart(2,'0');
+  return r;
+}
+function fmtKB(b){return b!=null?(b/1024).toFixed(1)+' KB':'-'}
+function fmtN(v){return v!=null?v.toLocaleString('da-DK'):'-'}
+function rate(ok,total){return total>0?(ok/total*100).toFixed(1)+'%':'N/A'}
+// FEAT-163: request-rate-historik — reelt req/s (delta / faktisk forloebet
+// tid siden sidste poll, IKKE en antaget fast poll-periode) samt min/max
+// over den synlige sparkline-historik. `hist` forventes at indeholde req/s-
+// vaerdier (ikke raa delta-per-poll), saa min/max er sammenlignelige selvom
+// poll-intervallet varierer (3s/5s, browser-throttling af baggrundsfaner osv.)
+function fmtRate(v){return v!=null?v.toFixed(1)+'/s':'-'}
+function histMinMax(hist){
+  if(!hist||hist.length===0)return'-';
+  let mn=Infinity,mx=-Infinity;
+  for(const v of hist){if(v<mn)mn=v;if(v>mx)mx=v;}
+  return 'min '+fmtRate(mn)+' / max '+fmtRate(mx);
+}
+function dot(el,on){el.className='dot '+(on?'dot-g':'dot-r')}
+function badge(el,on,lbl){el.textContent=lbl||'';el.className='badge '+(on?'badge-ok':'badge-off')}
+function $(id){return document.getElementById(id)}
+
+// === Sparkline SVG ===
+function drawSparkline(svgId,data,color){
+  const svg=$(svgId);
+  if(!svg||!data.length)return;
+  const w=200,h=24;
+  const mn=Math.min(...data),mx=Math.max(...data);
+  const range=mx-mn||1;
+  const pts=data.map((v,i)=>{
+    const x=(i/(Math.max(data.length-1,1)))*w;
+    const y=h-((v-mn)/range)*(h-2)-1;
+    return x.toFixed(1)+','+y.toFixed(1);
+  }).join(' ');
+  svg.innerHTML='<polyline fill="none" stroke="'+(color||'#89b4fa')+'" stroke-width="1.5" points="'+pts+'"/>';
+}
+
+// === Alarm System ===
+// FEAT-158: addAlarm() sammenligner mod et evt. gemt afstemnings-snapshot
+// (alarmAck[key]) — lowerIsWorse afgør hvilken retning der taeller som
+// "blevet vaerre" (heap: lavere er vaerre; taellere: hoejere er vaerre).
+function addAlarm(key,value,text,lowerIsWorse){
+  alarmCurrentValues[key]=value;
+  const acked=alarmAck[key];
+  if(acked!=null){
+    const stillAcked=lowerIsWorse?(value>=acked):(value<=acked);
+    if(stillAcked)return;
+  }
+  alarms.push(text);
+}
+function checkAlarms(m){
+  lastMetricsRaw=m;
+  alarms=[];
+  alarmCurrentValues={};
+  const heap=g(m,'esp32_heap_free_bytes');
+  if(heap!=null&&heap<30000)addAlarm('heap',heap,'Heap kritisk lav: '+fmtKB(heap),true);
+  const heapMin=g(m,'esp32_heap_min_free_bytes');
+  if(heapMin!=null&&heapMin<20000)addAlarm('heapMin',heapMin,'Heap minimum nået: '+fmtKB(heapMin),true);
+  const msCrc=g(m,'modbus_slave_crc_errors_total');
+  if(msCrc!=null&&msCrc>100)addAlarm('msCrc',msCrc,'Modbus Slave CRC fejl: '+fmtN(msCrc),false);
+  const mmTo=g(m,'modbus_master_timeout_errors_total');
+  if(mmTo!=null&&mmTo>50)addAlarm('mmTo',mmTo,'Modbus Master timeouts: '+fmtN(mmTo),false);
+  const stOvr=g(m,'st_logic_cycle_overruns');
+  const stCyc=g(m,'st_logic_total_cycles');
+  const stOvrPct=(stCyc!=null&&stCyc>100)?(stOvr/stCyc*100):0;
+  if(stOvr!=null&&stOvrPct>5)addAlarm('stOvr',stOvr,'ST Logic overruns: '+fmtN(stOvr)+' ('+stOvrPct.toFixed(1)+'%)',false);
+  const authFail=g(m,'http_auth_failures_total');
+  if(authFail!=null&&authFail>20)addAlarm('authFail',authFail,'HTTP auth failures: '+fmtN(authFail),false);
+
+  const bar=$('alarmBar');
+  if(alarms.length){
+    bar.style.display='flex';
+    bar.innerHTML='<span>ALARM: '+alarms.join(' | ')+'</span>'
+      +'<button onclick="ackAlarmBar()" title="Afstem — skjul indtil det bliver værre" style="background:#1e1e2e;color:#f38ba8;border:none;border-radius:3px;padding:2px 10px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;margin-left:12px">Afstem ✕</button>';
+  }else{
+    bar.style.display='none';
+  }
+}
+function ackAlarmBar(){
+  for(const k in alarmCurrentValues){alarmAck[k]=alarmCurrentValues[k];}
+  try{sessionStorage.setItem('hfplc_alarm_ack',JSON.stringify(alarmAck));}catch(e){}
+  if(lastMetricsRaw)checkAlarms(lastMetricsRaw);
+}
+
+function updateDashboard(m){
+  // FEAT-163: faktisk forloebet tid siden sidste poll, brugt til alle
+  // req/s-udregninger nedenfor (Modbus Slave/Master, RTU Trafik)
+  const _nowTs=Date.now();
+  const _dtSec=_lastPollTs!=null?Math.max(0.25,(_nowTs-_lastPollTs)/1000):null;
+  _lastPollTs=_nowTs;
+  // System
+  {const fi=gAll(m,'firmware_info');if(fi.length>0){const v=fi[0].labels.version||'?';const b=fi[0].labels.build||'?';$('mFirmware').textContent='v'+v+'.'+b;}}
+  $('mUptime').textContent=fmtUp(g(m,'esp32_uptime_seconds'));
+  // FEAT-080/087 (delvist): reboot-taeller + seneste reset-aarsag (data fandtes
+  // allerede via Prometheus, blev bare aldrig vist i dashboardet)
+  $('mRebootCount').textContent=fmtN(g(m,'watchdog_reboot_count'));
+  $('mResetReason').textContent=fmtResetReason(g(m,'watchdog_reset_reason'));
+  const heapFree=g(m,'esp32_heap_free_bytes');
+  const heapMin=g(m,'esp32_heap_min_free_bytes');
+  $('mHeapFree').textContent=fmtKB(heapFree);
+  $('mHeapMin').textContent=fmtKB(heapMin);
+  if(heapFree!=null){
+    const pct=Math.min(100,heapFree/200000*100);
+    const bar=$('heapBar');
+    bar.style.width=pct.toFixed(0)+'%';
+    bar.className='bar-fill '+(pct>40?'bar-ok':pct>20?'bar-warn':'bar-err');
+    history.heap.push(heapFree/1024);
+    if(history.heap.length>HIST_MAX)history.heap.shift();
+    drawSparkline('sparkHeap',history.heap,'#a6e3a1');
+  }
+  const psram=g(m,'esp32_psram_total_bytes');
+  const psramFree=g(m,'esp32_psram_free_bytes');
+  if(psram!=null&&psram>0){
+    $('mPsram').textContent=fmtKB(psramFree)+' / '+fmtKB(psram);
+  }else{
+    $('mPsram').textContent='Ikke tilgængelig';
+  }
+
+  // FEAT-082: SPIFFS-forbrug
+  {
+    const spTotal=g(m,'spiffs_total_bytes'),spUsed=g(m,'spiffs_used_bytes');
+    if(spTotal!=null&&spTotal>0){
+      $('mSpiffs').textContent=fmtKB(spUsed)+' / '+fmtKB(spTotal);
+      const pct=Math.min(100,(spUsed/spTotal)*100);
+      const bar=$('spiffsBar');
+      bar.style.width=pct.toFixed(0)+'%';
+      bar.className='bar-fill '+(pct<70?'bar-ok':pct<90?'bar-warn':'bar-err');
+    }else{
+      $('mSpiffs').textContent='Ikke tilgængelig';
+    }
+  }
+
+  // FEAT-081: NVS-forbrug (entries, ikke raa bytes — NVS' egen granularitet)
+  {
+    const nvsUsed=g(m,'nvs_used_entries'),nvsTotal=g(m,'nvs_total_entries');
+    if(nvsTotal!=null&&nvsTotal>0){
+      $('mNvs').textContent=fmtN(nvsUsed)+' / '+fmtN(nvsTotal);
+      const pct=Math.min(100,(nvsUsed/nvsTotal)*100);
+      const bar=$('nvsBar');
+      bar.style.width=pct.toFixed(0)+'%';
+      bar.className='bar-fill '+(pct<70?'bar-ok':pct<90?'bar-warn':'bar-err');
+    }else{
+      $('mNvs').textContent='Ikke tilgængelig';
+    }
+  }
+
+  // Network
+  const wifiOn=g(m,'wifi_connected')===1;
+  dot($('dotWifi'),wifiOn);
+  const rssi=g(m,'wifi_rssi_dbm');
+  $('mWifi').textContent=wifiOn?(rssi!=null?'RSSI '+rssi+' dBm':'Forbundet'):'Ikke forbundet';
+  // FEAT-074: RSSI-trend (kun mens forbundet — undgår et fladt "hul" i grafen ved disconnect)
+  if(wifiOn&&rssi!=null){
+    history.rssi.push(rssi);
+    if(history.rssi.length>HIST_MAX)history.rssi.shift();
+    drawSparkline('sparkRssi',history.rssi,'#89b4fa');
+  }
+  const ethOn=g(m,'ethernet_connected')===1;
+  dot($('dotEth'),ethOn);
+  $('mEth').textContent=ethOn?'Forbundet':'Ikke forbundet';
+  const telOn=g(m,'telnet_connected')===1;
+  dot($('dotTelnet'),telOn);
+  $('mTelnet').textContent=telOn?'Forbundet':'Ikke forbundet';
+  $('mSse').textContent=fmtN(g(m,'sse_clients_active'));
+  const sseAct=g(m,'sse_clients_active');
+  dot($('dotSse'),sseAct!=null&&sseAct>0);
+  $('mWifiRetries').textContent=fmtN(g(m,'wifi_reconnect_retries'));
+
+  // Modbus Slave
+  const msT=g(m,'modbus_slave_requests_total');
+  const msO=g(m,'modbus_slave_success_total');
+  $('msTotal').textContent=fmtN(msT);
+  $('msOk').textContent=fmtN(msO);
+  $('msCrc').textContent=fmtN(g(m,'modbus_slave_crc_errors_total'));
+  $('msExc').textContent=fmtN(g(m,'modbus_slave_exceptions_total'));
+  $('msRate').textContent=rate(msO,msT);
+  const msEn=g(m,'modbus_slave_config_enabled');
+  badge($('badgeSlave'),msEn===1&&msT>0,msEn===1?(msT>0?'Aktiv':'Idle'):'Deaktiveret');
+  // Config info row
+  {const baud=g(m,'modbus_slave_config_baudrate');const par=g(m,'modbus_slave_config_parity');const sb=g(m,'modbus_slave_config_stopbits');const sid=g(m,'modbus_slave_config_id');
+  if(baud!=null){const pStr=par===1?'Even':par===2?'Odd':'None';const bK=baud>=1000?(baud/1000)+'K':baud;$('msConfigInfo').textContent=msEn===1?'ID:'+sid+' Baud:'+bK+' Data:8 Parity:'+pStr+' Stop:'+sb:'deaktiveret';}}
+  if(msT!=null){
+    const delta=prevMbSlave!=null?msT-prevMbSlave:0;
+    prevMbSlave=msT;
+    const r=(_dtSec!=null)?delta/_dtSec:0;
+    history.mbSlave.push(r);
+    if(history.mbSlave.length>HIST_MAX)history.mbSlave.shift();
+    drawSparkline('sparkMbSlave',history.mbSlave,'#89b4fa');
+    $('msRateNow').textContent=fmtRate(r);
+    $('msRateMinMax').textContent=histMinMax(history.mbSlave);
+  }
+
+  // Modbus Master
+  const mmT=g(m,'modbus_master_requests_total');
+  const mmO=g(m,'modbus_master_success_total');
+  {const ageMs=g(m,'modbus_master_stats_age_ms');
+  $('mmStatsSince').textContent=ageMs!=null?fmtUptime(ageMs)+' siden':'-';}
+  $('mmTotal').textContent=fmtN(mmT);
+  $('mmOk').textContent=fmtN(mmO);
+  $('mmTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
+  $('mmCrc').textContent=fmtN(g(m,'modbus_master_crc_errors_total'));
+  $('mmRate').textContent=rate(mmO,mmT);
+  const mmEn=g(m,'modbus_master_config_enabled');
+  badge($('badgeMaster'),mmEn===1&&mmT>0,mmEn===1?(mmT>0?'Aktiv':'Idle'):'Deaktiveret');
+  // Config info row
+  {const baud=g(m,'modbus_master_config_baudrate');const par=g(m,'modbus_master_config_parity');const sb=g(m,'modbus_master_config_stopbits');
+  if(baud!=null){const pStr=par===1?'Even':par===2?'Odd':'None';const bK=baud>=1000?(baud/1000)+'K':baud;$('mmConfigInfo').textContent=mmEn===1?'Baud:'+bK+' Data:8 Parity:'+pStr+' Stop:'+sb:'deaktiveret';}}
+  if(mmT!=null){
+    const delta=prevMbMaster!=null?mmT-prevMbMaster:0;
+    prevMbMaster=mmT;
+    const r=(_dtSec!=null)?delta/_dtSec:0;
+    history.mbMaster.push(r);
+    if(history.mbMaster.length>HIST_MAX)history.mbMaster.shift();
+    drawSparkline('sparkMbMaster',history.mbMaster,'#89b4fa');
+    $('mmRateNow').textContent=fmtRate(r);
+    $('mmRateMinMax').textContent=histMinMax(history.mbMaster);
+  }
+
+  // HTTP API
+  $('htTotal').textContent=fmtN(g(m,'http_requests_total'));
+  $('htOk').textContent=fmtN(g(m,'http_requests_success_total'));
+  $('ht4xx').textContent=fmtN(g(m,'http_requests_client_errors_total'));
+  $('ht5xx').textContent=fmtN(g(m,'http_requests_server_errors_total'));
+  $('htAuth').textContent=fmtN(g(m,'http_auth_failures_total'));
+
+  // Counters
+  const cVals=gAll(m,'counter_value');
+  const cFreqs=gAll(m,'counter_frequency_hz');
+  if(cVals.length>0){
+    let h='<table class="tbl"><tr><th>ID</th><th>Værdi</th><th>Frekvens</th></tr>';
+    for(const c of cVals){
+      const id=c.labels.id||'?';
+      const freq=cFreqs.find(f=>f.labels.id===id);
+      h+='<tr><td>#'+id+'</td><td>'+fmtN(c.value)+'</td><td>'+(freq?freq.value.toFixed(1)+' Hz':'-')+'</td></tr>';
+    }
+    h+='</table>';
+    $('cntBody').innerHTML=h;
+  }else{
+    $('cntBody').innerHTML='<span class="empty-msg">Ingen aktive tællere</span>';
+  }
+
+  // Timers
+  const tOut=gAll(m,'timer_output');
+  const tRun=gAll(m,'timer_is_running');
+  const tPhase=gAll(m,'timer_current_phase');
+  const phases=['Idle','ON','OFF','Pause'];
+  if(tOut.length>0){
+    let h='<table class="tbl"><tr><th>ID</th><th>Output</th><th>Status</th><th>Fase</th></tr>';
+    for(const t of tOut){
+      const id=t.labels.id||'?';
+      const run=tRun.find(r=>r.labels.id===id);
+      const ph=tPhase.find(p=>p.labels.id===id);
+      const isOn=t.value===1;
+      const isRun=run?.value===1;
+      const phName=ph?phases[ph.value]||'?':'-';
+      h+='<tr><td>#'+id+'</td>';
+      h+='<td><span class="dot '+(isOn?'dot-g':'dot-off')+'"></span> '+(isOn?'ON':'OFF')+'</td>';
+      h+='<td>'+(isRun?'Kører':'Stop')+'</td>';
+      h+='<td>'+phName+'</td></tr>';
+    }
+    h+='</table>';
+    $('tmrBody').innerHTML=h;
+  }else{
+    $('tmrBody').innerHTML='<span class="empty-msg">Ingen aktive timere</span>';
+  }
+
+  // ST Logic
+  const stEnabled=g(m,'st_logic_enabled')===1;
+  badge($('badgeLogic'),stEnabled,stEnabled?'Aktiv':'Deaktiveret');
+  // Fetch interval from /api/logic (less frequent)
+  if(!window._stIntervalFetched||(Date.now()-window._stIntervalFetched>15000)){
+    window._stIntervalFetched=Date.now();
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    fetch('/api/logic',opts).then(r=>r.json()).then(d=>{
+      if(d.execution_interval_ms!=null)$('stInterval').textContent=d.execution_interval_ms+' ms';
+    }).catch(()=>{});
+  }
+  const stCyc2=g(m,'st_logic_total_cycles');
+  $('stCycles').textContent=fmtN(stCyc2);
+  const stOvr2=g(m,'st_logic_cycle_overruns');
+  const stOvrP2=(stCyc2!=null&&stCyc2>100)?(stOvr2/stCyc2*100):0;
+  $('stOverruns').textContent=fmtN(stOvr2)+(stCyc2>100?' ('+stOvrP2.toFixed(1)+'%)':'');
+  $('stOverruns').className='val '+(stOvrP2>5?'val-err':stOvrP2>1?'val-warn':'val-n');
+  const stExec=gAll(m,'st_logic_execution_count');
+  const stErr=gAll(m,'st_logic_error_count');
+  const stTime=gAll(m,'st_logic_exec_time_us');
+  const stMin=gAll(m,'st_logic_min_exec_us');
+  const stMax=gAll(m,'st_logic_max_exec_us');
+  const stOvrP=gAll(m,'st_logic_overrun_count');
+  if(stExec.length>0){
+    let h='<table class="tbl"><tr><th>Slot</th><th>Navn</th><th>Exec</th><th>Fejl</th><th>Ovr</th><th>Tid (min/last/max us)</th></tr>';
+    for(const s of stExec){
+      const slot=s.labels.slot||'?';
+      const name=s.labels.name||'-';
+      const err=stErr.find(e=>e.labels.slot===slot);
+      const time=stTime.find(t=>t.labels.slot===slot);
+      const mn=stMin.find(t=>t.labels.slot===slot);
+      const mx=stMax.find(t=>t.labels.slot===slot);
+      const ovr=stOvrP.find(t=>t.labels.slot===slot);
+      const errN=err?.value||0;
+      const ovrN=ovr?.value||0;
+      const timeStr=(mn&&time&&mx)?mn.value+' / '+time.value+' / '+mx.value:time?String(time.value):'-';
+      h+='<tr><td>#'+slot+'</td><td>'+name+'</td><td>'+fmtN(s.value)+'</td>';
+      h+='<td class="'+(errN>0?'val-err':'')+'">'+fmtN(errN)+'</td>';
+      h+='<td class="'+(ovrN>0?'val-warn':'')+'">'+fmtN(ovrN)+'</td>';
+      h+='<td>'+timeStr+'</td></tr>';
+    }
+    h+='</table>';
+    $('stBody').innerHTML=h;
+  }else{
+    $('stBody').innerHTML='<span class="empty-msg">Ingen aktive programmer</span>';
+  }
+
+  // === NTP Time ===
+  {
+    const ntpOn=g(m,'ntp_enabled')===1;
+    const ntpSync=g(m,'ntp_synced')===1;
+    badge($('badgeNtp'),ntpSync,ntpSync?'Synkroniseret':ntpOn?'Venter...':'Deaktiveret');
+    $('ntpSyncs').textContent=fmtN(g(m,'ntp_sync_count'));
+    if(ntpSync){
+      // Use ESP32 local_time (follows NTP timezone setting) instead of browser timezone
+      if(window._ntpLocalTime)$('ntpTime').textContent=window._ntpLocalTime;
+      const age=g(m,'ntp_last_sync_age_ms');
+      if(age!=null)$('ntpAge').textContent=(age/1000).toFixed(0)+' sek. siden';
+    }else{
+      $('ntpTime').textContent=ntpOn?'Venter på sync...':'Deaktiveret';
+      $('ntpAge').textContent='-';
+    }
+  }
+  // Fetch NTP config + local time from ESP32 (every 3s via /api/ntp)
+  {
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    fetch('/api/ntp',opts).then(r=>r.json()).then(d=>{
+      $('ntpServer').textContent=d.server||'-';
+      $('ntpTz').textContent=d.timezone||'UTC';
+      _tcpNtpServer=d.server||'';
+      if(d.local_time)window._ntpLocalTime=d.local_time;
+    }).catch(()=>{});
+  }
+
+  // === FEAT-072: Modbus RTU Trafik ===
+  {
+    const sT=g(m,'modbus_slave_requests_total')||0;
+    const mT=g(m,'modbus_master_requests_total')||0;
+    const sDelta=prevSlaveTotal!=null?sT-prevSlaveTotal:0;
+    const mDelta=prevMasterTotal!=null?mT-prevMasterTotal:0;
+    prevSlaveTotal=sT;prevMasterTotal=mT;
+    // FEAT-163: reelt req/s (delta / faktisk forloebet tid) i stedet for et
+    // antaget fast "/3s" — poll-intervallet er ikke altid noejagtigt 3 sek.
+    const sRate=(_dtSec!=null)?sDelta/_dtSec:0;
+    const mRate=(_dtSec!=null)?mDelta/_dtSec:0;
+    history.rtSlave.push(sRate);if(history.rtSlave.length>HIST_MAX)history.rtSlave.shift();
+    history.rtMaster.push(mRate);if(history.rtMaster.length>HIST_MAX)history.rtMaster.shift();
+    $('rtSlaveRate').textContent=fmtRate(sRate);
+    $('rtMasterRate').textContent=fmtRate(mRate);
+    $('rtSlaveMinMax').textContent=histMinMax(history.rtSlave);
+    $('rtMasterMinMax').textContent=histMinMax(history.rtMaster);
+    const sO=g(m,'modbus_slave_success_total')||0;
+    const mO=g(m,'modbus_master_success_total')||0;
+    $('rtSlaveSucc').textContent=rate(sO,sT);
+    $('rtMasterSucc').textContent=rate(mO,mT);
+    const sCrc=g(m,'modbus_slave_crc_errors_total')||0;
+    const mCrc=g(m,'modbus_master_crc_errors_total')||0;
+    $('rtCrcBoth').textContent=fmtN(sCrc)+' / '+fmtN(mCrc);
+    $('rtTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
+    const sExc=g(m,'modbus_slave_exceptions_total')||0;
+    const mExc=g(m,'modbus_master_exception_errors_total')||0;
+    $('rtExcBoth').textContent=fmtN(sExc)+' / '+fmtN(mExc);
+    drawSparkline('sparkRtSlave',history.rtSlave,'#89b4fa');
+    drawSparkline('sparkRtMaster',history.rtMaster,'#cba6f7');
+  }
+
+  // === FEAT-073: Modbus Master Cache ===
+  {
+    const hits=g(m,'modbus_master_cache_hits');
+    const misses=g(m,'modbus_master_cache_misses');
+    const entries=g(m,'modbus_master_cache_entries');
+    const qfull=g(m,'modbus_master_queue_full_count');
+    const qdepth=g(m,'modbus_master_queue_depth');
+    const qhwm=g(m,'modbus_master_queue_hwm');
+    const pdrop=g(m,'modbus_master_priority_drops');
+    const hitRate=g(m,'modbus_master_cache_hit_rate');
+    const cUtil=g(m,'modbus_master_cache_utilization');
+    if(hits!=null){
+      $('mcEntries').textContent=fmtN(entries)+' / '+MB_CACHE_MAX;
+      $('mcHitMiss').textContent=fmtN(hits)+' / '+fmtN(misses);
+      const total=hits+misses;
+      $('mcHitRate').textContent=hitRate!=null?hitRate+'%':(total>0?(hits/total*100).toFixed(1)+'%':'N/A');
+      $('mcUtil').textContent=cUtil!=null?cUtil+'%':'-';
+      $('mcQueueDepth').textContent=(qdepth!=null?qdepth:'0')+' / '+MB_QUEUE_MAX;
+      $('mcQueueHwm').textContent=qhwm!=null?qhwm:'-';
+      $('mcQueueFull').textContent=fmtN(qfull);
+      $('mcPrioDrop').textContent=pdrop!=null?fmtN(pdrop):'0';
+      const ttl=g(m,'modbus_master_cache_ttl_ms');
+      $('mcTtl').textContent=(ttl==null)?'-':(ttl==0?'0 (aldrig expire)':ttl+' ms');
+      // Per-slave table
+      const slaves=gAll(m,'modbus_master_slave_status');
+      if(slaves.length>0){
+        let h='<table class="tbl"><tr><th>Slave</th><th>Addr</th><th>FC</th><th>Status</th><th>Age</th></tr>';
+        for(const s of slaves){
+          const st=s.labels.status||'?';
+          const ams=parseInt(s.labels.age_ms||'0');
+          const exp=(ttl>0 && ams>=ttl);
+          const cls=exp?'val-warn':(st==='valid'?'val-ok':st==='error'?'val-err':'val-warn');
+          const age=ams<1000?ams+'ms':ams<60000?(ams/1000).toFixed(1)+'s':(ams/60000).toFixed(1)+'m';
+          h+='<tr><td>#'+s.labels.slave+'</td><td>'+s.labels.addr+'</td><td>FC'+s.labels.fc+'</td>';
+          h+='<td class="'+cls+'">'+st+(exp?' [EXP]':'')+'</td><td>'+age+'</td></tr>';
+        }
+        h+='</table>';
+        $('mcSlaves').innerHTML=h;
+      }else{$('mcSlaves').innerHTML='<span class="empty-msg">Ingen aktive slaves</span>';}
+      // Adaptive backoff table
+      const boffs=gAll(m,'modbus_master_slave_backoff');
+      if(boffs.length>0){
+        let bh='<div style="border-top:1px solid #313244;margin-top:6px;padding-top:4px"><span class="lbl" style="font-size:11px;color:#6c7086">Adaptive Backoff</span></div>';
+        bh+='<table class="tbl"><tr><th>Slave</th><th>Backoff</th><th>Timeouts</th><th>OK</th></tr>';
+        for(const b of boffs){
+          const ms=parseInt(b.value);
+          const to=b.labels.timeouts||'0';
+          const ok=b.labels.successes||'0';
+          const cls=ms>=1000?'val-err':ms>0?'val-warn':'val-ok';
+          bh+='<tr><td>#'+b.labels.slave+'</td><td class="'+cls+'">'+(ms>0?ms+'ms':'0')+'</td>';
+          bh+='<td>'+to+'</td><td>'+ok+'</td></tr>';
+        }
+        bh+='</table>';
+        $('mcBackoff').innerHTML=bh;
+      }else{$('mcBackoff').innerHTML='';}
+    }else{
+      $('mcEntries').textContent='Inaktiv';
+      $('mcUtil').textContent='-';
+      $('mcQueueDepth').textContent='-';
+      $('mcQueueHwm').textContent='-';
+      $('mcPrioDrop').textContent='-';
+      $('mcSlaves').innerHTML='<span class="empty-msg">Master ikke startet</span>';
+      $('mcBackoff').innerHTML='';
+    }
+  }
+
+  // === FEAT-078: FreeRTOS Tasks ===
+  {
+    $('cpuTaskCount').textContent=fmtN(g(m,'freertos_task_count'));
+    const largest=g(m,'esp32_heap_largest_free_block');
+    const heapTotal=g(m,'esp32_heap_free_bytes');
+    $('cpuLargestBlock').textContent=fmtKB(largest);
+    if(largest!=null&&heapTotal!=null&&heapTotal>0){
+      const fragPct=((1-largest/heapTotal)*100);
+      $('cpuFragPct').textContent=fragPct.toFixed(1)+'%';
+      const bar=$('fragBar');
+      bar.style.width=Math.min(100,fragPct).toFixed(0)+'%';
+      bar.className='bar-fill '+(fragPct<30?'bar-ok':fragPct<60?'bar-warn':'bar-err');
+      // FEAT-077: fragmenterings-trend
+      history.fragPct.push(fragPct);
+      if(history.fragPct.length>HIST_MAX)history.fragPct.shift();
+      drawSparkline('sparkFrag',history.fragPct,'#f9e2af');
+    }
+    const tasks=gAll(m,'freertos_task_stack_hwm');
+    if(tasks.length>0){
+      let h='<table class="tbl"><tr><th>Task</th><th>Stack HWM</th></tr>';
+      for(const t of tasks){
+        const name=t.labels.task||'?';
+        const hwm=t.value;
+        const hwmCls=hwm<200?'val-err':hwm<500?'val-warn':'val-n';
+        h+='<tr><td>'+name+'</td><td class="'+hwmCls+'">'+hwm+' B</td></tr>';
+      }
+      h+='</table>';
+      $('cpuTaskBody').innerHTML=h;
+    }
+  }
+
+  // === FEAT-075: TCP Forbindelsesmonitor (cache til fetchConnections) ===
+  {
+    _tcpTelOn=g(m,'telnet_connected')===1;
+    const telIp=gAll(m,'telnet_client_ip');
+    _tcpTelIp=(telIp.length>0)?telIp[0].labels.ip||'':'';
+    _tcpTelUser=(telIp.length>0)?telIp[0].labels.user||'':'';
+    _tcpTelUp=g(m,'telnet_client_uptime_seconds')||0;
+    _tcpHttpTotal=g(m,'http_requests_total')||0;
+    _tcpHttpOk=g(m,'http_requests_success_total')||0;
+    _tcpHttp4xx=g(m,'http_requests_client_errors_total')||0;
+    _tcpHttp5xx=g(m,'http_requests_server_errors_total')||0;
+    _tcpNtpOn=g(m,'ntp_enabled')===1;
+    _tcpNtpSync=g(m,'ntp_synced')===1;
+    _tcpNtpSyncs=g(m,'ntp_sync_count')||0;
+  }
+
+  // === FEAT-085: Alarm Historik ===
+  {
+    const cnt=g(m,'alarm_log_count')||0;
+    const unack=g(m,'alarm_unacknowledged_count')||0;
+    badge($('badgeAlarm'),unack>0,String(unack));
+    $('alarmInfo').textContent=cnt+' alarmer totalt, '+unack+' ukvitterede';
+  }
+
+  // === FEAT-095: Digital I/O ===
+  {
+    const dins=gAll(m,'gpio_digital_input');
+    const douts=gAll(m,'gpio_digital_output');
+    if(dins.length>0){
+      let h='';
+      for(const d of dins){
+        const pin=d.labels.pin;
+        const on=d.value===1;
+        const num=parseInt(pin)-100;
+        h+='<div class="dio-led"><div class="led '+(on?'led-on':'led-off')+'"></div><span class="led-lbl">IN'+num+'</span></div>';
+      }
+      $('dioInputs').innerHTML=h;
+    }
+    if(douts.length>0){
+      let h='';
+      for(const d of douts){
+        const pin=d.labels.pin;
+        const on=d.value===1;
+        const num=parseInt(pin)-200;
+        h+='<div class="dio-led"><div class="led led-out '+(on?'led-on':'led-off')+'" onclick="toggleDO('+pin+')" title="Klik for at skifte"></div><span class="led-lbl">CH'+num+'</span></div>';
+      }
+      $('dioOutputs').innerHTML=h;
+    }
+    if(dins.length===0&&douts.length===0){
+      $('cardDio').style.display='none';
+    }
+  }
+
+  // === FEAT-034/035/036/037/094: Analog I/O + trending ===
+  {
+    const allAi=gAll(m,'analog_input_value');
+    const aiv=allAi.filter(d=>d.labels.type==='voltage');
+    const aii=allAi.filter(d=>d.labels.type==='current');
+    const aoset=gAll(m,'analog_output_setpoint');
+
+    // FEAT-094: opdatér rullende historik FØR tabellerne bygges, så min/max/avg
+    // i tabellen matcher præcis det vindue sparklinen viser.
+    for(const d of aiv.concat(aii)){
+      const ch=d.labels.channel;
+      if(!history.analog[ch])history.analog[ch]=[];
+      const hv=history.analog[ch];
+      hv.push(d.value/100);
+      if(hv.length>HIST_MAX)hv.shift();
+    }
+
+    // Tabellen genopbygges hver polling (innerHTML) — <svg>-elementerne
+    // findes derfor IKKE endnu når HTML-strengen bygges. drawSparkline()
+    // kaldes i en separat løkke NEDENFOR, efter innerHTML er sat.
+    function analogRows(list,unit){
+      let h='<table class="tbl"><tr><th>Kanal</th><th>Værdi</th><th>Min/Maks/Snit</th><th>Trend</th></tr>';
+      for(const d of list){
+        const ch=d.labels.channel;
+        const hv=history.analog[ch]||[d.value/100];
+        const mn=Math.min(...hv),mx=Math.max(...hv),avg=hv.reduce((a,b)=>a+b,0)/hv.length;
+        h+='<tr><td>'+ch.toUpperCase()+'</td><td>'+(d.value/100).toFixed(2)+' '+unit+'</td>'
+          +'<td style="font-size:9px;color:#6c7086">'+mn.toFixed(2)+' / '+mx.toFixed(2)+' / '+avg.toFixed(2)+'</td>'
+          +'<td><svg id="spark_'+ch+'" width="80" height="20" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></td></tr>';
+      }
+      return h+'</table>';
+    }
+    if(aiv.length>0){
+      $('analogVIn').innerHTML=analogRows(aiv,'V');
+      for(const d of aiv)drawSparkline('spark_'+d.labels.channel,history.analog[d.labels.channel],'#89b4fa');
+    }
+    if(aii.length>0){
+      $('analogIIn').innerHTML=analogRows(aii,'mA');
+      for(const d of aii)drawSparkline('spark_'+d.labels.channel,history.analog[d.labels.channel],'#f9e2af');
+    }
+    if(aoset.length>0){
+      let h='<table class="tbl"><tr><th>Kanal</th><th>Setpoint</th><th></th></tr>';
+      for(const d of aoset){
+        const ch=d.labels.channel;
+        h+='<tr><td>'+ch.toUpperCase()+'</td><td>'+(d.value/100).toFixed(2)+'</td>'
+          +'<td><input type="number" step="0.01" id="aoSet_'+ch+'" style="width:60px;font-size:10px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px" placeholder="ny">'
+          +' <button onclick="setAnalogOutput(\''+ch+'\')" style="font-size:10px;padding:1px 6px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Sæt</button></td></tr>';
+      }
+      $('analogOut').innerHTML=h+'</table>';
+    }
+    if(aiv.length===0&&aii.length===0&&aoset.length===0){
+      $('cardAnalogIo').style.display='none';
+    }
+  }
+
+  // Update register views if visible
+  updateRegisterViewer(m);
+  updateRegisterMap(m);
+
+  // Alarms
+  checkAlarms(m);
+
+  // Footer
+  $('footRefresh').textContent='Opdateret: '+new Date().toLocaleTimeString('da-DK');
+  const up=g(m,'esp32_uptime_seconds');
+  if(up!=null)$('hdrInfo').textContent='Uptime: '+fmtUp(up);
+}
+
+// === Register Viewer ===
+function updateRegisterViewer(m){
+  if(!$('pageRegisters').classList.contains('active'))return;
+  // HR grid
+  const hrGrid=$('regHR');
+  let hrHtml='';
+  for(let i=0;i<256;i++){
+    const val=g(m,'holding_register_value',{addr:String(i)});
+    const v=val!=null?Math.round(val):0;
+    const cls=v!==0?'rc used':'rc';
+    hrHtml+='<div class="'+cls+'" title="HR['+i+'] = '+v+'">'+v+'</div>';
+  }
+  hrGrid.innerHTML=hrHtml;
+
+  // Coil grid
+  const coilGrid=$('regCoils');
+  let cHtml='';
+  for(let i=0;i<256;i++){
+    const val=g(m,'coil_value',{addr:String(i)});
+    const v=val!=null?val:0;
+    cHtml+='<div class="rc '+(v?'coil-on':'coil-off')+'" title="Coil['+i+'] = '+(v?'ON':'OFF')+'">'+(v?'1':'0')+'</div>';
+  }
+  coilGrid.innerHTML=cHtml;
+}
+
+// === Register Map ===
+// Helper: render a 256-cell grid from an alloc array
+function renderMapGrid(el,alloc,prefix){
+  let html='';
+  for(let i=0;i<256;i++){
+    const a=alloc[i];
+    let cls='rc rm-free';
+    let title=prefix+'['+i+'] Ledig';
+    if(a){cls='rc rm-'+a.type;title=prefix+'['+i+'] '+a.label;}
+    html+='<div class="'+cls+'" title="'+title+'">'+i+'</div>';
+  }
+  el.innerHTML=html;
+}
+
+// Helper: collect ranges from alloc array for table
+function collectRanges(alloc,prefix){
+  const ranges=[];
+  let cur=null;
+  for(let i=0;i<256;i++){
+    const a=alloc[i];
+    const key=a?a.type+':'+a.label:'free';
+    if(!cur||cur.key!==key){
+      if(cur)ranges.push(cur);
+      cur={key,type:a?a.type:'free',label:a?a.label:'Ledig',start:i,end:i,prefix};
+    }else{cur.end=i;}
+  }
+  if(cur)ranges.push(cur);
+  return ranges.filter(r=>r.type!=='free');
+}
+
+function updateRegisterMap(m){
+  if(!$('pageRegmap').classList.contains('active'))return;
+
+  // === HR Allocation ===
+  const hrAlloc=new Array(256).fill(null);
+
+  // Counters: base=100+(id-1)*20, stride 20 per counter
+  const cVals=gAll(m,'counter_value');
+  cVals.forEach(c=>{
+    const id=parseInt(c.labels.id)||1;
+    const base=100+(id-1)*20;
+    const lbl='Counter #'+id;
+    for(let j=0;j<4;j++){if(base+j<256)hrAlloc[base+j]={type:'counter',label:lbl+' Value'};}
+    for(let j=4;j<8;j++){if(base+j<256)hrAlloc[base+j]={type:'counter',label:lbl+' Raw'};}
+    if(base+8<256)hrAlloc[base+8]={type:'counter',label:lbl+' Freq'};
+    if(base+10<256)hrAlloc[base+10]={type:'counter',label:lbl+' Ctrl'};
+    for(let j=11;j<15;j++){if(base+j<256)hrAlloc[base+j]={type:'counter',label:lbl+' Compare'};}
+  });
+
+  // Timers: ctrl_reg = 180+(id-1)*5
+  for(let id=1;id<=4;id++){
+    const base=180+(id-1)*5;
+    for(let j=0;j<5;j++){if(base+j<256)hrAlloc[base+j]={type:'timer',label:'Timer #'+id};}
+  }
+
+  // System registers (0-9)
+  for(let i=0;i<10;i++)if(!hrAlloc[i])hrAlloc[i]={type:'manual',label:'System'};
+
+  // ST Logic bindings → HR (input bindings with input_type=HR)
+  if(_stBindings&&_stBindings.bindings){
+    _stBindings.bindings.forEach(b=>{
+      if(b.register_type==='HR'){
+        const addr=b.register_addr;
+        const lbl='ST P'+b.program+' '+(b.name||('var'+b.var_index))+' ('+b.direction+')';
+        for(let j=0;j<(b.word_count||1);j++){
+          if(addr+j<256)hrAlloc[addr+j]={type:'st',label:lbl};
+        }
+      }
+    });
+  }
+
+  renderMapGrid($('regmapHR'),hrAlloc,'HR');
+
+  // === IR Allocation ===
+  const irAlloc=new Array(256).fill(null);
+
+  // ST Logic EXPORT pool: IR 220-251
+  const stExec=gAll(m,'st_logic_execution_count');
+  stExec.forEach(s=>{
+    const slot=parseInt(s.labels.slot)||1;
+    const base=220+(slot-1)*8;
+    const name=s.labels.name||('Program '+slot);
+    for(let j=0;j<8;j++)if(base+j<256)irAlloc[base+j]={type:'st',label:'ST #'+slot+' '+name};
+  });
+  // Mark IR 220-251 as ST pool even without active programs
+  for(let i=220;i<=251;i++)if(!irAlloc[i])irAlloc[i]={type:'st',label:'ST EXPORT Pool'};
+
+  renderMapGrid($('regmapIR'),irAlloc,'IR');
+
+  // === Coil Allocation ===
+  const coilAlloc=new Array(256).fill(null);
+
+  // Timer output coils (from metrics if available)
+  for(let id=1;id<=4;id++){
+    const val=g(m,'timer_value',{id:String(id)});
+    if(val!=null){
+      const coilBase=(id-1)*2;
+      coilAlloc[coilBase]={type:'timer',label:'Timer #'+id+' Output'};
+    }
+  }
+
+  // ST Logic bindings → Coil (output bindings with output_type=Coil)
+  if(_stBindings&&_stBindings.bindings){
+    _stBindings.bindings.forEach(b=>{
+      if(b.register_type==='Coil'){
+        const addr=b.register_addr;
+        const lbl='ST P'+b.program+' '+(b.name||('var'+b.var_index))+' (output)';
+        for(let j=0;j<(b.word_count||1);j++){
+          if(addr+j<256)coilAlloc[addr+j]={type:'st',label:lbl};
+        }
+      }
+    });
+  }
+
+  renderMapGrid($('regmapCoils'),coilAlloc,'Coil');
+
+  // === DI Allocation ===
+  const diAlloc=new Array(256).fill(null);
+
+  // Counter SW mode uses input_dis (DI index)
+  cVals.forEach(c=>{
+    const id=parseInt(c.labels.id)||1;
+    const diIdx=(id-1);
+    if(diIdx<256)diAlloc[diIdx]={type:'counter',label:'Counter #'+id+' Input'};
+  });
+
+  // ST Logic bindings → DI (input bindings with input_type=DI)
+  if(_stBindings&&_stBindings.bindings){
+    _stBindings.bindings.forEach(b=>{
+      if(b.register_type==='DI'){
+        const addr=b.register_addr;
+        const lbl='ST P'+b.program+' '+(b.name||('var'+b.var_index))+' (input)';
+        for(let j=0;j<(b.word_count||1);j++){
+          if(addr+j<256)diAlloc[addr+j]={type:'st',label:lbl};
+        }
+      }
+    });
+  }
+
+  renderMapGrid($('regmapDI'),diAlloc,'DI');
+
+  // === Combined Allocation Table ===
+  const allRanges=[
+    ...collectRanges(hrAlloc,'HR'),
+    ...collectRanges(irAlloc,'IR'),
+    ...collectRanges(coilAlloc,'Coil'),
+    ...collectRanges(diAlloc,'DI')
+  ];
+  const tbody=$('allocBody');
+  let thtml='';
+  allRanges.forEach(r=>{
+    thtml+='<tr><td>'+r.label+'</td><td><span class="rm rm-'+r.type+'">'+r.type+'</span></td><td>'+r.prefix+'</td><td>'+r.start+'</td><td>'+r.end+'</td><td>'+(r.end-r.start+1)+'</td></tr>';
+  });
+  tbody.innerHTML=thtml||'<tr><td colspan="6" class="empty-msg">Ingen allokeringer fundet</td></tr>';
+}
+
+async function fetchNetworkInfo(){
+  if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    // Hostname
+    fetch('/api/hostname',opts).then(r=>r.json()).then(d=>{
+      $('netHostname').textContent=d.hostname||'-';
+    }).catch(()=>{});
+    // WiFi details
+    fetch('/api/wifi',opts).then(r=>r.json()).then(d=>{
+      const rt=d.runtime||{};
+      if(rt.connected){
+        $('netWifiIp').textContent=(rt.ip||'-')+(rt.netmask?' / '+rt.netmask:'');
+        $('netWifiGw').textContent=rt.gateway||'-';
+        $('netWifiDns').textContent=rt.dns||'-';
+        $('netWifiSsid').textContent=rt.ssid||d.config?.ssid||'-';
+      }else{
+        $('netWifiIp').textContent='-';$('netWifiGw').textContent='-';
+        $('netWifiDns').textContent='-';$('netWifiSsid').textContent=d.config?.ssid||'-';
+      }
+    }).catch(()=>{});
+    // Ethernet details
+    fetch('/api/ethernet',opts).then(r=>r.json()).then(d=>{
+      const rt=d.runtime||{};
+      if(rt.connected){
+        $('netEthIp').textContent=(rt.ip||'-')+(rt.netmask?' / '+rt.netmask:'');
+        $('netEthGw').textContent=rt.gateway||'-';
+        $('netEthDns').textContent=rt.dns||'-';
+        $('netEthMac').textContent=rt.mac||'-';
+        const spd=rt.speed_mbps;
+        $('netEthSpeed').textContent=spd?(spd+'Mbps '+(rt.full_duplex?'Full-Duplex':'Half-Duplex')):'-';
+      }else{
+        $('netEthIp').textContent='-';$('netEthGw').textContent='-';
+        $('netEthDns').textContent='-';$('netEthMac').textContent='-';$('netEthSpeed').textContent='-';
+      }
+    }).catch(()=>{});
+    // SSE status
+    fetch('/api/events/status',opts).then(r=>r.json()).then(d=>{
+      $('sseStatus').textContent=d.sse_enabled?'Aktiv':'Deaktiveret';
+      $('ssePort').textContent=d.sse_port||'-';
+      $('sseMax').textContent=d.max_clients+' max';
+      $('sseHeartbeat').textContent=(d.heartbeat_ms/1000)+'s';
+    }).catch(()=>{});
+  }catch(e){}
+}
+// FEAT-075: Samlet TCP forbindelsestabel (SSE + Telnet + NTP)
+async function fetchConnections(){
+  if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    let rows=[];
+
+    // SSE klienter (indgående)
+    try{
+      const r=await fetch('/api/events/clients',opts);
+      if(r.ok){
+        const d=await r.json();
+        if(d.clients){for(const c of d.clients){
+          rows.push({proto:'SSE',dir:'&#8592;ind',ip:c.ip,user:c.username||'-',up:fmtUp(c.uptime_s),info:'slot '+c.slot+', '+c.topics});
+        }}
+      }
+    }catch(e){}
+
+    // Telnet (indgående)
+    if(_tcpTelOn){
+      rows.push({proto:'Telnet',dir:'&#8592;ind',ip:_tcpTelIp||'?',user:_tcpTelUser||'-',up:fmtUp(_tcpTelUp),info:'port 23'});
+    }
+
+    // HTTP API (indgående, service)
+    if(_tcpHttpTotal>0){
+      const errN=_tcpHttp4xx+_tcpHttp5xx;
+      const rate=_tcpHttpTotal>0?(_tcpHttpOk/_tcpHttpTotal*100).toFixed(0)+'%':'–';
+      rows.push({proto:'HTTP',dir:'&#8592;ind',ip:'*',user:'-',up:_tcpHttpTotal+' req',info:rate+' ok'+(errN>0?', '+errN+' fejl':''),dot:'dot-g'});
+    }
+
+    // NTP (udgående)
+    if(_tcpNtpOn){
+      const st=_tcpNtpSync?'synced':'venter';
+      rows.push({proto:'NTP',dir:'&#8594;ud',ip:_tcpNtpServer||'-',user:'-',up:_tcpNtpSyncs+' syncs',info:st});
+    }
+
+    const el=$('tcpConnBody');
+    const total=rows.length;
+    badge($('badgeTcp'),total>0,String(total));
+
+    if(total===0){
+      el.innerHTML='<span class="empty-msg">Ingen aktive forbindelser</span>';
+      return;
+    }
+    let h='<table class="tbl"><tr><th>Proto</th><th>Retn.</th><th>IP / Host</th><th>Bruger</th><th>Uptime</th><th>Info</th></tr>';
+    for(const r of rows){
+      const dot=r.dot||(r.proto==='NTP'?'dot-y':'dot-g');
+      h+='<tr><td><span class="dot '+dot+'"></span> '+r.proto+'</td>';
+      h+='<td>'+r.dir+'</td>';
+      h+='<td>'+r.ip+'</td>';
+      h+='<td>'+r.user+'</td>';
+      h+='<td>'+r.up+'</td>';
+      h+='<td style="font-size:10px;color:#6c7086">'+r.info+'</td></tr>';
+    }
+    h+='</table>';
+    el.innerHTML=h;
+  }catch(e){}
+}
+async function fetchBindings(){
+  if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    const r=await fetch('/api/bindings',opts);
+    if(r.ok){_stBindings=await r.json();}
+  }catch(e){}
+}
+async function fetchMetrics(){
+  // BUG-359: pause hele metrics-opdateringen mens et kort aktivt flyttes/
+  // resizes (venstreklik holdt nede) — ellers "snapper" kortet man er ved at
+  // placere tilbage til sin gemte position hver gang en poll lander midt i
+  // traekket (applyGridLayout() genanvender ALLE kort-positioner efter hver
+  // poll), og andre kort kan hoppe i indhold/stoerrelse imens.
+  if(_dragOrResizeActive)return;
+  try{
+    const r=await fetch('/api/metrics',{});
+    if(!r.ok)return;
+    const text=await r.text();
+    const m=parsePrometheus(text);
+    updateDashboard(m);
+    applyGridLayout();
+  }catch(e){
+    $('footRefresh').textContent='Forbindelse tabt...';
+  }
+}
+
+const MB_CACHE_MAX=32;
+const MB_QUEUE_MAX=32;
+
+async function fetchAlarms(){
+  if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
+  try{
+    const r=await fetch('/api/alarms',{});
+    if(!r.ok)return;
+    _alarmLog=await r.json();
+    renderAlarms();
+  }catch(e){}
+}
+// FEAT-134: Client-side alarm filtering
+function clearAlarmFilter(){
+  $('alarmSev').value='-1';
+  $('alarmAck').value='any';
+  $('alarmSearch').value='';
+  $('alarmLimit').value='25';
+  renderAlarms();
+}
+function renderAlarms(){
+  const el=$('alarmBody');
+  if(!_alarmLog||_alarmLog.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen alarmer</span>';
+    return;
+  }
+  const sevFilter=parseInt($('alarmSev').value);
+  const ackFilter=$('alarmAck').value;
+  const search=($('alarmSearch').value||'').toLowerCase();
+  const limit=Math.max(5,parseInt($('alarmLimit').value)||25);
+  // Filter
+  const filtered=_alarmLog.filter(a=>{
+    if(sevFilter>=0&&a.severity!==sevFilter)return false;
+    if(ackFilter==='unack'&&a.acknowledged)return false;
+    if(ackFilter==='ack'&&!a.acknowledged)return false;
+    if(search){
+      const hay=(a.message+' '+(a.source_ip||'')+' '+(a.username||'')+' '+(a.time||'')).toLowerCase();
+      if(hay.indexOf(search)<0)return false;
+    }
+    return true;
+  });
+  $('alarmInfo').textContent=_alarmLog.length+' total, '+filtered.length+' matcher filter';
+  if(filtered.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen alarmer matcher filter</span>';
+    return;
+  }
+  // Show newest first
+  const recent=filtered.slice(-limit).reverse();
+  let h='<table class="tbl"><tr><th>Tid</th><th>Sev.</th><th>Alarm</th><th>Kilde / Detaljer</th><th>Kvit</th></tr>';
+  for(const a of recent){
+    const sevCls=a.severity===2?'val-err':a.severity===1?'val-warn':'val-ok';
+    const sevLbl=a.severity===2?'KRIT':a.severity===1?'ADV':'INFO';
+    const ack=a.acknowledged?'<span class="dot dot-off" title="Kvitteret"></span>':'<span class="dot dot-r" title="Aktiv"></span>';
+    const timeStr=a.time||a.uptime;
+    let src='';
+    if(a.source_ip)src+='<span title="Klient IP" style="color:#89b4fa">'+a.source_ip+'</span>';
+    if(a.username)src+=(src?' / ':'')+'<span title="Bruger" style="color:#cba6f7">'+a.username+'</span>';
+    const txMatch=a.message.match(/TX\s*->\s*ID:(\d+)\s*@(\d+)/);
+    const rxMatch=a.message.match(/RX\s*<-\s*ID:(\d+)/);
+    if(txMatch)src+=(src?'<br>':'')+'<span title="Master TX til slave" style="color:#fab387">TX &rarr; Slave ID:'+txMatch[1]+' Reg:'+txMatch[2]+'</span>';
+    else if(rxMatch)src+=(src?'<br>':'')+'<span title="Slave RX" style="color:#fab387">RX &larr; Slave ID:'+rxMatch[1]+'</span>';
+    if(!src)src='<span style="color:#585b70">-</span>';
+    h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
+    h+='<td class="'+sevCls+'" style="font-weight:700;font-size:10px">'+sevLbl+'</td>';
+    h+='<td>'+a.message+'</td>';
+    h+='<td style="font-size:10px">'+src+'</td>';
+    h+='<td>'+ack+'</td></tr>';
+  }
+  h+='</table>';
+  el.innerHTML=h;
+  applyGridLayout();
+}
+async function ackAlarms(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{}};
+    if(auth)opts.headers['Authorization']=auth;
+    await fetch('/api/alarms/ack',opts);
+    fetchAlarms();
+  }catch(e){}
+}
+// FEAT-149: Modbus Activity Log (Master+Slave, RAM-only, wire-level)
+const _mbFcNames={1:'Read Coil',2:'Read Discrete',3:'Read Holding',4:'Read Input Reg',5:'Write Coil',6:'Write Holding',15:'Write Coils',16:'Write Holdings'};
+const _mbSrcNames={st_logic:'ST Logic',cli:'CLI',dashboard:'Dashboard',external:'Ekstern master',unknown:'-'};
+async function fetchMbActivity(){
+  if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
+  try{
+    // FEAT-153: hent kun det vi viser. Loggen rummer 500 poster; uden
+    // limit ville hver polling (hvert 3. sek) traekke det hele over WiFi.
+    const lim=Math.max(5,parseInt($('mbActLimit')?$('mbActLimit').value:100)||100);
+    const r=await fetch('/api/modbus/activity?limit='+lim,{});
+    if(!r.ok)return;
+    const d=await r.json();
+    // Bagudkompatibelt: gammelt format var et bart array, nyt er et objekt
+    _mbActivityLog=Array.isArray(d)?d:(d.entries||[]);
+    if(!Array.isArray(d)){
+      _mbActivityLogging=(d.logging!==false);
+      _mbActivityTotal=d.total||_mbActivityLog.length;
+    }
+    updateMbActToggleBtn();
+    renderMbActivity();
+  }catch(e){}
+}
+function updateMbActToggleBtn(){
+  const b=$('mbActToggleBtn');
+  if(!b)return;
+  b.textContent=_mbActivityLogging?'Stop logning':'Start logning';
+  b.style.color=_mbActivityLogging?'#a6adc8':'#f9e2af';
+  b.style.borderColor=_mbActivityLogging?'#45475a':'#f9e2af';
+}
+async function toggleMbActivity(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{}};
+    if(auth)opts.headers['Authorization']=auth;
+    const ep=_mbActivityLogging?'/api/modbus/activity/stop':'/api/modbus/activity/start';
+    const r=await fetch(ep,opts);
+    if(r.ok){
+      const d=await r.json();
+      _mbActivityLogging=(d.logging!==false);
+      updateMbActToggleBtn();
+      renderMbActivity();
+    }
+  }catch(e){}
+}
+async function exportMbActivity(){
+  try{
+    // Hent HELE loggen (uden limit), ikke kun det viste udsnit
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    const r=await fetch('/api/modbus/activity',opts);
+    if(!r.ok){alert('Kunne ikke hente log til eksport');return;}
+    const d=await r.json();
+    const rows=Array.isArray(d)?d:(d.entries||[]);
+    if(!rows.length){alert('Loggen er tom');return;}
+    let csv='tid;uptime_ms;epoch_s;rolle;kilde;slave;fc;fc_navn;adresse;antal;vaerdi;status;fejlkode\n';
+    for(const a of rows){
+      csv+=mbActTimeString(a)+';'+a.timestamp_ms+';'+(a.epoch_s||0)+';'+a.role+';'+a.source+';'
+        +a.slave_id+';'+a.fc+';'+(_mbFcNames[a.fc]||('FC'+a.fc))+';'+a.address+';'+a.count+';'
+        +(a.count>1?'':a.value)+';'+(a.success?'OK':'FEJL')+';'+a.error+'\n';
+    }
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');
+    link.href=url;
+    // Filnavn med rigtig dato hvis NTP er aktiv, ellers uptime
+    const now=new Date();
+    const pad=n=>String(n).padStart(2,'0');
+    link.download='modbus_log_'+now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())
+      +'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())+'.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }catch(e){alert('Eksport fejlede: '+e);}
+}
+// FEAT-153: vis rigtig vaegur-tid naar NTP er synkroniseret (epoch_s>0),
+// ellers uptime siden boot — det er stadig bedre end ingenting foer sync.
+function mbActTimeString(a){
+  if(a.epoch_s&&a.epoch_s>0){
+    const d=new Date(a.epoch_s*1000);
+    const pad=n=>String(n).padStart(2,'0');
+    return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+  }
+  const s=Math.floor(a.timestamp_ms/1000);
+  return String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor((s%3600)/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
+function renderMbActivity(){
+  const badgeEl=$('badgeMbActivity');
+  if(badgeEl)badge(badgeEl,_mbActivityLog.length>0,String(_mbActivityLog.length));
+  const el=$('mbActivityBody');
+  if(!el)return;
+  if(!_mbActivityLog||_mbActivityLog.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen aktivitet endnu</span>';
+    if($('mbActivityInfo'))$('mbActivityInfo').textContent='0 transaktioner';
+    return;
+  }
+  const roleFilter=$('mbActRole')?$('mbActRole').value:'any';
+  const srcFilter=$('mbActSrc')?$('mbActSrc').value:'any';
+  const statusFilter=$('mbActStatus')?$('mbActStatus').value:'any';
+  const slaveFilterStr=$('mbActSlave')?$('mbActSlave').value.trim():'';
+  const slaveFilter=slaveFilterStr===''?null:parseInt(slaveFilterStr);
+  const limit=Math.max(5,parseInt($('mbActLimit')?$('mbActLimit').value:100)||100);
+  const filtered=_mbActivityLog.filter(a=>{
+    if(roleFilter!=='any'&&a.role!==roleFilter)return false;
+    if(srcFilter!=='any'&&a.source!==srcFilter)return false;
+    if(statusFilter==='ok'&&!a.success)return false;
+    if(statusFilter==='failed'&&a.success)return false;
+    if(slaveFilter!==null&&!isNaN(slaveFilter)&&a.slave_id!==slaveFilter)return false;
+    return true;
+  });
+  if($('mbActivityInfo')){
+    // FEAT-153: vis ogsaa hvor mange enheden faktisk har (kan vaere flere end
+    // det hentede udsnit) og om logningen er sat paa pause
+    const tot=_mbActivityTotal||_mbActivityLog.length;
+    $('mbActivityInfo').textContent=tot+' på enheden, '+filtered.length+' vist'
+      +(_mbActivityLogging?'':' — LOGNING STOPPET');
+  }
+  if(filtered.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen transaktioner matcher filter</span>';
+    return;
+  }
+  const recent=filtered.slice(-limit).reverse();
+  let h='<table class="tbl"><tr><th>Tid</th><th>Rolle</th><th>Kilde</th><th>Slave</th><th>FC</th><th>Adresse</th><th>Antal</th><th>Værdi</th><th>Status</th></tr>';
+  for(const a of recent){
+    // FEAT-153: rigtig klokkeslet naar NTP er synkroniseret, ellers uptime
+    const timeStr=mbActTimeString(a);
+    const roleLbl=a.role==='master'?'<span style="color:#89b4fa">Master</span>':'<span style="color:#f9e2af">Slave</span>';
+    const srcLbl=_mbSrcNames[a.source]||a.source;
+    const fcLbl=_mbFcNames[a.fc]||('FC'+a.fc);
+    const statusLbl=a.success?'<span class="val-ok">OK</span>':'<span class="val-err" title="Fejlkode '+a.error+'">FEJL('+a.error+')</span>';
+    h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
+    h+='<td style="font-size:10px">'+roleLbl+'</td>';
+    h+='<td style="font-size:10px">'+srcLbl+'</td>';
+    h+='<td style="font-size:10px">'+a.slave_id+'</td>';
+    h+='<td style="font-size:10px" title="FC'+a.fc+'">'+fcLbl+'</td>';
+    h+='<td style="font-size:10px">'+a.address+'</td>';
+    h+='<td style="font-size:10px">'+a.count+'</td>';
+    h+='<td style="font-size:10px">'+(a.count>1?'-':a.value)+'</td>';
+    h+='<td style="font-size:10px">'+statusLbl+'</td></tr>';
+  }
+  h+='</table>';
+  el.innerHTML=h;
+  applyGridLayout();
+}
+async function clearMbActivity(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{}};
+    if(auth)opts.headers['Authorization']=auth;
+    await fetch('/api/modbus/activity/clear',opts);
+    fetchMbActivity();
+  }catch(e){}
+}
+// FEAT-086/089: Haendelses- og registerandringslog
+async function fetchSyslog(){
+  if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
+  try{
+    const lim=Math.max(5,parseInt($('syslogLimit')?$('syslogLimit').value:100)||100);
+    const r=await fetch('/api/syslog?limit='+lim,{});
+    if(!r.ok)return;
+    const d=await r.json();
+    _syslogEntries=d.entries||[];
+    _syslogLogging=(d.logging!==false);
+    _syslogTotal=d.total||_syslogEntries.length;
+    updateSyslogToggleBtn();
+    renderSyslog();
+  }catch(e){}
+}
+function updateSyslogToggleBtn(){
+  const b=$('syslogToggleBtn');
+  if(!b)return;
+  b.textContent=_syslogLogging?'Stop logning':'Start logning';
+  b.style.color=_syslogLogging?'#a6adc8':'#f9e2af';
+  b.style.borderColor=_syslogLogging?'#45475a':'#f9e2af';
+}
+async function toggleSyslog(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{}};
+    if(auth)opts.headers['Authorization']=auth;
+    const ep=_syslogLogging?'/api/syslog/stop':'/api/syslog/start';
+    const r=await fetch(ep,opts);
+    if(r.ok){
+      const d=await r.json();
+      _syslogLogging=(d.logging!==false);
+      updateSyslogToggleBtn();
+      renderSyslog();
+    }
+  }catch(e){}
+}
+function syslogTimeString(e){
+  if(e.epoch_s&&e.epoch_s>0){
+    const d=new Date(e.epoch_s*1000);
+    const pad=n=>String(n).padStart(2,'0');
+    return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+  }
+  const s=Math.floor(e.timestamp_ms/1000);
+  return String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor((s%3600)/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
+function syslogDetail(e){
+  if(e.category==='regchange'){
+    const kind=e.is_coil?'Coil':'HR';
+    return kind+e.reg_addr+': '+e.old_value+' → '+e.new_value;
+  }
+  return e.message||'';
+}
+async function exportSyslog(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    const r=await fetch('/api/syslog',opts);
+    if(!r.ok){alert('Kunne ikke hente log til eksport');return;}
+    const d=await r.json();
+    const rows=d.entries||[];
+    if(!rows.length){alert('Loggen er tom');return;}
+    let csv='tid;uptime_ms;epoch_s;kategori;kilde;bruger;ip;register;coil;gammel_vaerdi;ny_vaerdi;besked\n';
+    for(const e of rows){
+      csv+=syslogTimeString(e)+';'+e.timestamp_ms+';'+(e.epoch_s||0)+';'+e.category+';'+e.source+';'
+        +e.username+';'+e.ip+';'+(e.reg_addr===65535?'':e.reg_addr)+';'+e.is_coil+';'
+        +e.old_value+';'+e.new_value+';'+e.message+'\n';
+    }
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');
+    link.href=url;
+    const now=new Date();
+    const pad=n=>String(n).padStart(2,'0');
+    link.download='haendelseslog_'+now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())
+      +'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())+'.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }catch(e){alert('Eksport fejlede: '+e);}
+}
+function renderSyslog(){
+  const badgeEl=$('badgeSyslog');
+  if(badgeEl)badge(badgeEl,_syslogEntries.length>0,String(_syslogEntries.length));
+  const el=$('syslogBody');
+  if(!el)return;
+  if(!_syslogEntries||_syslogEntries.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen hændelser endnu</span>';
+    if($('syslogInfo'))$('syslogInfo').textContent='0 hændelser';
+    return;
+  }
+  const catFilter=$('syslogCat')?$('syslogCat').value:'any';
+  const srcFilter=$('syslogSrc')?$('syslogSrc').value:'any';
+  const limit=Math.max(5,parseInt($('syslogLimit')?$('syslogLimit').value:100)||100);
+  const filtered=_syslogEntries.filter(e=>{
+    if(catFilter!=='any'&&e.category!==catFilter)return false;
+    if(srcFilter!=='any'&&e.source!==srcFilter)return false;
+    return true;
+  });
+  if($('syslogInfo')){
+    const tot=_syslogTotal||_syslogEntries.length;
+    $('syslogInfo').textContent=tot+' på enheden, '+filtered.length+' vist'
+      +(_syslogLogging?'':' — LOGNING STOPPET');
+  }
+  if(filtered.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen hændelser matcher filter</span>';
+    return;
+  }
+  const recent=filtered.slice(-limit).reverse();
+  let h='<table class="tbl"><tr><th>Tid</th><th>Kategori</th><th>Kilde</th><th>Bruger</th><th>IP</th><th>Detaljer</th></tr>';
+  for(const e of recent){
+    const timeStr=syslogTimeString(e);
+    const catLbl=e.category==='regchange'?'<span style="color:#f9e2af">Reg.ændring</span>':'<span style="color:#89b4fa">Hændelse</span>';
+    const srcLbl=_syslogSrcNames[e.source]||e.source;
+    h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
+    h+='<td style="font-size:10px">'+catLbl+'</td>';
+    h+='<td style="font-size:10px">'+srcLbl+'</td>';
+    h+='<td style="font-size:10px">'+e.username+'</td>';
+    h+='<td style="font-size:10px">'+e.ip+'</td>';
+    h+='<td style="font-size:10px">'+syslogDetail(e)+'</td></tr>';
+  }
+  h+='</table>';
+  el.innerHTML=h;
+  applyGridLayout();
+}
+async function clearSyslog(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{}};
+    if(auth)opts.headers['Authorization']=auth;
+    await fetch('/api/syslog/clear',opts);
+    fetchSyslog();
+  }catch(e){}
+}
+async function toggleDO(pin){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    // Read current state from last metrics, then toggle
+    var opts1=auth?{headers:{'Authorization':auth}}:{};
+    const r=await fetch('/api/gpio/'+pin,opts1);
+    if(!r.ok){alert('GPIO læs fejl: HTTP '+r.status);return;}
+    const d=await r.json();
+    const cur=(d.value===1||d.value===true)?1:0;
+    const newVal=cur?0:1;
+    var opts2={method:'POST',headers:{'Content-Type':'application/json'}};
+    if(auth)opts2.headers['Authorization']=auth;
+    opts2.body=JSON.stringify({value:newVal});
+    const w=await fetch('/api/gpio/'+pin,opts2);
+    if(!w.ok){const t=await w.text();alert('GPIO skriv fejl: '+(t||w.status));return;}
+    // Instant visual feedback — SSE register event will confirm
+    fetchMetrics();
+  }catch(e){alert('GPIO toggle: '+e.message);}
+}
+
+// FEAT-034/035/036/037: saet AO-setpoint (runtime-vaerdi, virker med det samme)
+async function setAnalogOutput(ch){
+  try{
+    const inp=$('aoSet_'+ch);
+    if(!inp||inp.value==='')return;
+    const val=parseFloat(inp.value);
+    if(isNaN(val)){alert('Ugyldig vaerdi');return;}
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{'Content-Type':'application/json'}};
+    if(auth)opts.headers['Authorization']=auth;
+    opts.body=JSON.stringify({channel:ch,setpoint:val});
+    const r=await fetch('/api/analog',opts);
+    if(!r.ok){const t=await r.text();alert('Analog setpoint fejl: '+(t||r.status));return;}
+    inp.value='';
+    fetchMetrics();
+  }catch(e){alert('Analog setpoint: '+e.message);}
+}
+
+// === Masonry Auto-Size & Card Width Toggle ===
+const _RH=8,_RG=12;
+// FEAT-160: fri 2D kort-placering — erstatter FEAT-159s bred/normal-toggle
+// og det gamle DOM-raekkefoelge-baserede traek-og-slip. Hvert kort faar en
+// gemt {x,y,w,h} i et fast 12-kolonners grid (x=kolonne 0-11, w=kolonne-span,
+// y=raekke-start, h=raekke-span), sat som inline grid-column/grid-row —
+// browserens auto-placering bruges ikke laengere paa desktop/tablet. Gemmes
+// i localStorage pr. opløsnings-klasse (samme _sizeBreakpoint()-idé som
+// FEAT-159). Server-side card_order/card_tabs/card_hidden (NVS) er UÆNDRET —
+// de styrer stadig synlighed/fane, ikke placering.
+const GRID_COLS=12, GRID_MIN_W=2, GRID_MIN_H=4;
+let gridLayout={};
+// FEAT-160: sand foerst naar restoreCardOrder()s NVS-hentning er landet (eller
+// fejlet) — se applyGridLayout(): en for-tidlig auto-udregnet standard-position
+// (baseret paa endnu-ukorrekt synlighed) maa vises, men ikke gemmes permanent.
+let _cardVisibilityReady=false;
+// BUG-360: selvhelbred-passet i applyGridLayout() maa KUN koere én gang pr.
+// gridLayout-noegle (opløsning+fane) — det var oprindeligt tiltaenkt som en
+// engangs-reparation af layouts gemt forkert af FEAT-160s v1 (BUG-356), men
+// koerte i praksis efter HVER poll (~3s), hvilket kunne kompoundere en let
+// upraecis maaling til et kort der voksede uden graense over tid. Gating
+// her forhindrer det strukturelt, uanset hvor praecis naturalCardHeightPx()
+// maatte vaere. FEAT-167: sporet pr. _gridLayoutKey() (ikke ét globalt
+// flag), saa hver fane stadig faar SIN egen engangs-heling naar den
+// besoeges foerste gang denne session.
+let _selfHealedKeys={};
+function _sizeBreakpoint(){
+  const w=window.innerWidth;
+  if(w<640)return 'mobile';
+  if(w<1200)return 'tablet';
+  return 'desktop';
+}
+// FEAT-167: layoutet er nu FANE-scoped, ikke kun oploesnings-scoped —
+// et kort flyttet mens "Modbus"-fanen er aktiv paavirker ikke laengere
+// dets position paa "Alle" eller "Overblik". _gridLayoutKey() inkluderer
+// derfor _activeSubTab, og gridLayout genindlaeses hver gang fanen skifter
+// (se showSubTab()/applySubTab()), ikke kun ved oploesnings-skift.
+function _gridLayoutKey(){return 'hfplc_grid_layout_'+_sizeBreakpoint()+'_'+_activeSubTab;}
+function loadGridLayout(){
+  try{
+    const s=localStorage.getItem(_gridLayoutKey());
+    if(s){gridLayout=JSON.parse(s);return;}
+    // Engangs-fallback: "Alle"-fanen har ingen fane-scoped historik endnu —
+    // seed den fra det GAMLE, fane-loese layout (foer FEAT-167), saa det
+    // brugeren allerede har indrettet ikke bare forsvinder for den fane
+    // der ligner mest. Kun forsoegt for "all", kun naar der intet nyt findes.
+    if(_activeSubTab==='all'){
+      const old=localStorage.getItem('hfplc_grid_layout_'+_sizeBreakpoint());
+      if(old){gridLayout=JSON.parse(old);return;}
+    }
+    gridLayout={};
+  }catch(e){gridLayout={};}
+}
+function saveGridLayoutToStorage(){
+  try{localStorage.setItem(_gridLayoutKey(),JSON.stringify(gridLayout));}catch(e){}
+}
+function resetGridLayout(){
+  gridLayout={};
+  try{localStorage.removeItem(_gridLayoutKey());}catch(e){}
+  applyGridLayout();
+}
+function visibleCards(){
+  const grid=$('grid');
+  if(!grid)return [];
+  return [...grid.querySelectorAll('.card[data-card-id]')].filter(c=>c.style.display!=='none');
+}
+function _gridMetrics(){
+  const grid=$('grid');
+  const cs=getComputedStyle(grid);
+  const padL=parseFloat(cs.paddingLeft)||0;
+  const innerW=grid.clientWidth-padL-(parseFloat(cs.paddingRight)||0);
+  const colW=(innerW-_RG*(GRID_COLS-1))/GRID_COLS;
+  return {unit:colW+_RG, rowUnit:_RH+_RG};
+}
+// FEAT-161: et kort med en indre "max-height:Npx;overflow-y:auto"-scrollflade
+// (Modbus Aktivitetslog, Alarm Historik, Hændelseslog, Modbus manuel
+// Read/Write) har sit REELLE pladsbehov bestemt af den flades LOFT, ikke
+// dens aktuelle indhold — en tom tabel ("Ingen data endnu") maaler kortere
+// end en fuld, men kortet skal stadig have plads til loftet naar rigtige
+// data ankommer. Erstat den variable del (fladens nuvaerende scrollHeight)
+// med dens faste loft, behold resten (header, filterbar, padding) som
+// maalt — giver et paalideligt "hvis fladen var fyldt op" maal, uanset
+// hvornaar det beregnes.
+//
+// BUG-360 (to runder): card.scrollHeight er UPAALIDELIGT for ETHVERT kort,
+// ikke kun dem med en scrollable flade — .card er et grid-item og
+// STRAEKKES (default align-items:stretch) til at fylde sin tildelte
+// grid-row-span, saa scrollHeight afspejler den STRAKTE (evt. allerede
+// for store) hoejde, ikke indholdets reelle behov, saa snart kortet er
+// blot en smule hoejere end noedvendigt. Foerste fix-forsoeg brugte
+// scrollable.offsetTop for de fire scrollflade-kort specifikt, men loeste
+// ikke resten af kortene (System, Netvaerk, Modbus Slave/Master, Taellere,
+// osv.), som stadig faldt tilbage til det raa (og dermed lige saa
+// upaalidelige) card.scrollHeight — det er derfor "Auto-organisér" ikke
+// reelt fixede allerede-opblaeste kort af den type: den nye "default"
+// blev udregnet fra det SAMME opblaeste tal.
+//
+// Robust fix: fjern straekningen MIDLERTIDIGT (align-self:start) mens der
+// maales, saa scrollHeight/scrollable.scrollHeight altid afspejler den
+// VIRKELIGE, unstrakte indholdshoejde — uanset hvor stort kortet p.t. er
+// sat til i grid'et, og uanset hvor dybt scrollfladen er nestet inde i
+// kortet. Kun én synkron reflow pr. kald (ved layout-beregning/resize/
+// selvhelbred — aldrig i et hot loop), saa ingen maerkbar ydelses-effekt.
+function naturalCardHeightPx(card){
+  const prevAlign=card.style.alignSelf;
+  card.style.alignSelf='start';
+  const scrollable=card.querySelector('[style*="max-height"]');
+  let result;
+  if(scrollable){
+    const capPx=parseInt(scrollable.style.maxHeight)||scrollable.scrollHeight;
+    const overhead=card.scrollHeight-scrollable.scrollHeight;
+    result=overhead+capPx;
+  }else{
+    result=card.scrollHeight;
+  }
+  card.style.alignSelf=prevAlign||'';
+  return result;
+}
+function naturalCardRows(card){
+  return Math.max(GRID_MIN_H,Math.ceil((naturalCardHeightPx(card)+_RG)/(_RH+_RG)));
+}
+function computeDefaultLayout(cards){
+  const colHeights=[0,0];
+  const layout={};
+  cards.forEach(card=>{
+    const id=card.dataset.cardId;
+    const wide=card.classList.contains('card-wide');
+    const h=naturalCardRows(card);
+    if(wide){
+      const y=Math.max(colHeights[0],colHeights[1]);
+      layout[id]={x:0,y,w:12,h};
+      colHeights[0]=colHeights[1]=y+h;
+    }else{
+      const track=colHeights[0]<=colHeights[1]?0:1;
+      const y=colHeights[track];
+      layout[id]={x:track*6,y,w:6,h};
+      colHeights[track]=y+h;
+    }
+  });
+  return layout;
+}
+function findCardAt(x,y,exclude){
+  for(const c of visibleCards()){
+    if(c===exclude)continue;
+    const p=gridLayout[c.dataset.cardId];
+    if(!p)continue;
+    if(x<p.x+p.w && x+1>p.x && y<p.y+p.h && y+1>p.y)return c;
+  }
+  return null;
+}
+function applyGridLayout(){
+  const grid=$('grid');
+  if(!grid)return;
+  if(window.innerWidth<=768)return;
+  const cards=visibleCards();
+  // FEAT-160: standard-positioner for kort uden en gemt position beregnes og
+  // GEMMES kun naar den reelle synlighed er kendt (_cardVisibilityReady, sat
+  // af restoreCardOrder() naar NVS-svaret er landet) — ellers ville en for
+  // tidlig beregning (baseret paa MIDLERTIDIGT forkert synlighed, foer fane-/
+  // skjult-data er hentet) risikere at laase sig fast som en permanent forkert
+  // standard-layout. Foer da vises kort uden gemt position blot midlertidigt
+  // via browserens auto-placering (kan se lidt sammenklemte ud et kort
+  // øjeblik) — selvkorrigerende, ikke persisteret, ufarligt.
+  if(_cardVisibilityReady){
+    const missing=cards.filter(c=>!gridLayout[c.dataset.cardId]);
+    if(missing.length){
+      Object.assign(gridLayout,computeDefaultLayout(missing));
+      saveGridLayoutToStorage();
+    }
+    // FEAT-161/BUG-360: selvhelbred allerede-gemte layouts fra FoeR denne
+    // rettelse (eller en gemt hoejde der blev laast for lille foer indhold
+    // naaede at loade) — bump op til det reelt noedvendige. Koeres KUN ÉN
+    // GANG pr. gridLayout-noegle (se _selfHealedKeys) — ikke efter hver poll —
+    // for at undgaa en kompoundérende runaway-vaekst (BUG-360).
+    const _healKey=_gridLayoutKey();
+    if(!_selfHealedKeys[_healKey]){
+      _selfHealedKeys[_healKey]=true;
+      let healed=false;
+      cards.forEach(c=>{
+        const p=gridLayout[c.dataset.cardId];
+        if(!p)return;
+        const minRows=naturalCardRows(c);
+        if(p.h<minRows){
+          p.h=minRows;healed=true;
+        }else if(p.h>minRows*4){
+          // BUG-360: reparér allerede-opblaeste kort fra runaway-fejlen (kunne
+          // naa 10x+ for store over tid) — men lad bevidst store, brugervalgte
+          // kort (op til 4x det reelt noedvendige) vaere helt i fred.
+          p.h=minRows;healed=true;
+        }
+      });
+      if(healed)saveGridLayoutToStorage();
+    }
+  }
+  cards.forEach(c=>{
+    const p=gridLayout[c.dataset.cardId];
+    if(!p)return;
+    c.style.gridColumn=(p.x+1)+' / span '+p.w;
+    c.style.gridRow=(p.y+1)+' / span '+p.h;
+  });
+}
+function _dragBlockedTarget(target){
+  return !!target.closest('button, input, select, textarea, a, .resize-handle, .drag-handle, [contenteditable]');
+}
+function initCardDrag(card){
+  function startDrag(e){
+    if(e.button!==0)return;
+    e.preventDefault();
+    const id=card.dataset.cardId;
+    const startX=e.clientX,startY=e.clientY;
+    const startPos=Object.assign({},gridLayout[id]);
+    if(!startPos)return;
+    card.classList.add('dragging');
+    _dragOrResizeActive=true;
+    function onMove(ev){
+      const m=_gridMetrics();
+      const dx=Math.round((ev.clientX-startX)/m.unit);
+      const dy=Math.round((ev.clientY-startY)/m.rowUnit);
+      const nx=Math.max(0,Math.min(GRID_COLS-startPos.w,startPos.x+dx));
+      const ny=Math.max(0,startPos.y+dy);
+      card.style.gridColumn=(nx+1)+' / span '+startPos.w;
+      card.style.gridRow=(ny+1)+' / span '+startPos.h;
+      card._pendingPos={x:nx,y:ny,w:startPos.w,h:startPos.h};
+    }
+    function onUp(){
+      document.removeEventListener('mousemove',onMove);
+      document.removeEventListener('mouseup',onUp);
+      card.classList.remove('dragging');
+      _dragOrResizeActive=false;
+      const np=card._pendingPos;
+      delete card._pendingPos;
+      if(np){
+        const other=findCardAt(np.x,np.y,card);
+        if(other)gridLayout[other.dataset.cardId]=Object.assign({},startPos);
+        gridLayout[id]=np;
+        saveGridLayoutToStorage();
+      }
+      applyGridLayout();
+    }
+    document.addEventListener('mousemove',onMove);
+    document.addEventListener('mouseup',onUp);
+  }
+  const handle=card.querySelector('.drag-handle');
+  if(handle)handle.addEventListener('mousedown',startDrag);
+  // FEAT-162: venstreklik vilkårligt på kortet (ikke kun ☰-håndtaget) flytter det —
+  // undtagen på knapper/felter/links/resize-håndtag, som skal beholde deres egen funktion.
+  card.addEventListener('mousedown',e=>{
+    if(_dragBlockedTarget(e.target))return;
+    startDrag(e);
+  });
+}
+function initCardResize(card){
+  let handle=card.querySelector('.resize-handle');
+  if(!handle){
+    handle=document.createElement('span');
+    handle.className='resize-handle';
+    handle.title='Træk for at ændre størrelse';
+    card.appendChild(handle);
+  }
+  handle.addEventListener('mousedown',e=>{
+    if(e.button!==0)return;
+    e.preventDefault();e.stopPropagation();
+    const id=card.dataset.cardId;
+    const startX=e.clientX,startY=e.clientY;
+    const startPos=Object.assign({},gridLayout[id]);
+    if(!startPos)return;
+    // FEAT-161: kortets reelle mindstehøjde (maalt NU, mens kortet allerede
+    // viser reelt indhold — modsat den for-tidlige maaling ved side-indlæsning
+    // som forårsagede BUG-hvor-scroll-forsvandt) — resize kan ikke gaa under
+    // dette, saa man kan ikke laengere saette et kort for lille til sit eget indhold.
+    const minRows=naturalCardRows(card);
+    card.classList.add('resizing');
+    _dragOrResizeActive=true;
+    function onMove(ev){
+      const m=_gridMetrics();
+      const dw=Math.round((ev.clientX-startX)/m.unit);
+      const dh=Math.round((ev.clientY-startY)/m.rowUnit);
+      const nw=Math.max(GRID_MIN_W,Math.min(GRID_COLS-startPos.x,startPos.w+dw));
+      const wantedH=startPos.h+dh;
+      const nh=Math.max(minRows,wantedH);
+      card.classList.toggle('at-min-size',wantedH<minRows);
+      card.style.gridColumn=(startPos.x+1)+' / span '+nw;
+      card.style.gridRow=(startPos.y+1)+' / span '+nh;
+      card._pendingSize={x:startPos.x,y:startPos.y,w:nw,h:nh};
+    }
+    function onUp(){
+      document.removeEventListener('mousemove',onMove);
+      document.removeEventListener('mouseup',onUp);
+      card.classList.remove('resizing');
+      card.classList.remove('at-min-size');
+      _dragOrResizeActive=false;
+      const np=card._pendingSize;
+      delete card._pendingSize;
+      if(np){
+        gridLayout[id]=np;
+        visibleCards().forEach(other=>{
+          if(other===card)return;
+          const op=gridLayout[other.dataset.cardId];
+          if(!op)return;
+          const overlapX=np.x<op.x+op.w && np.x+np.w>op.x;
+          const overlapY=np.y<op.y+op.h && np.y+np.h>op.y;
+          if(overlapX&&overlapY)op.y=np.y+np.h;
+        });
+        saveGridLayoutToStorage();
+      }
+      applyGridLayout();
+    }
+    document.addEventListener('mousemove',onMove);
+    document.addEventListener('mouseup',onUp);
+  });
+}
+let _lastSizeBreakpoint=_sizeBreakpoint();
+window.addEventListener('resize',()=>{
+  const bp=_sizeBreakpoint();
+  if(bp!==_lastSizeBreakpoint){
+    _lastSizeBreakpoint=bp;
+    loadGridLayout();
+    applyGridLayout();
+  }
+});
+
+function initDragDrop(){
+  const grid=$('grid');
+  if(!grid)return;
+  loadGridLayout();
+  grid.querySelectorAll('.card[data-card-id]').forEach(card=>{
+    const h2=card.querySelector('h2');
+    if(h2&&!h2.querySelector('.drag-handle')){
+      const handle=document.createElement('span');
+      handle.className='drag-handle';
+      handle.textContent='≡';
+      handle.title='Træk for at flytte';
+      h2.insertBefore(handle,h2.firstChild);
+    }
+    initCardDrag(card);
+    initCardResize(card);
+  });
+  restoreCardOrder();
+  applyGridLayout();
+}
+function saveCardOrder(){
+  const grid=$('grid');
+  const ids=[...grid.querySelectorAll('.card[data-card-id]')].map(c=>c.dataset.cardId);
+  const order=ids.join(',');
+  // Save to ESP32 via API (persisted on next system save)
+  var auth=sessionStorage.getItem('hfplc_auth');
+  var opts={method:'POST',headers:{'Content-Type':'application/json'}};
+  if(auth)opts.headers['Authorization']=auth;
+  opts.body=JSON.stringify({card_order:order});
+  fetch('/api/dashboard/layout',opts).catch(()=>{});
+}
+function restoreCardOrder(){
+  fetch('/api/dashboard/layout',{}).then(r=>r.json()).then(d=>{
+    // Restore card order
+    if(d.card_order&&d.card_order.length>2){
+      const saved=d.card_order.split(',').filter(s=>s.length>0);
+      if(saved.length>=2){
+        const grid=$('grid');
+        const map={};
+        grid.querySelectorAll('.card[data-card-id]').forEach(c=>{map[c.dataset.cardId]=c;});
+        saved.forEach(id=>{if(map[id])grid.appendChild(map[id]);});
+      }
+    }
+    // Restore tab assignments (schema 18)
+    if(d.card_tabs&&d.card_tabs.length>2){
+      _customTabs={};
+      d.card_tabs.split(',').forEach(p=>{
+        const kv=p.split(':');
+        if(kv.length===2)_customTabs[kv[0]]=kv[1];
+      });
+    }
+    // Restore hidden cards (schema 18)
+    if(d.card_hidden&&d.card_hidden.length>0){
+      _hiddenCards={};
+      d.card_hidden.split(',').forEach(id=>{if(id)_hiddenCards[id]=true;});
+    }
+    // Restore "Custom"-fane medlemsskab (schema 23, FEAT-167)
+    if(d.card_custom&&d.card_custom.length>0){
+      _customMembers={};
+      d.card_custom.split(',').forEach(id=>{if(id)_customMembers[id]=true;});
+    }
+    // FEAT-160: foerst NU kender vi den REELLE synlighed (skjulte kort/fane-
+    // tildeling fra NVS) — foer dette tidspunkt kan applyGridLayout() (kaldt
+    // synkront fra init()) have set forkerte kort som "synlige", hvilket ikke
+    // maa laase sig fast som permanent gemte standard-positioner.
+    _cardVisibilityReady=true;
+    applySubTab();
+  }).catch(()=>{_cardVisibilityReady=true;});
+}
+
+// === Dashboard Settings Page ===
+const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',mbactivity:'Modbus Aktivitetslog',syslog:'Hændelseslog',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O',analogio:'Analog I/O'};
+const _tabNames={overview:'Overblik',modbus:'Modbus',connections:'Forbindelser',app:'Applikation'};
+const _allCardIds=['system','network','alarms','syslog','modbusslave','modbusmaster','mbactivity','rtutrafik','httpapi','tcpmonitor','ntp','counters','timers','stlogic','dio','analogio'];
+
+function buildSettingsTable(){
+  const body=$('settingsBody');
+  if(!body)return;
+  let h='';
+  for(const id of _allCardIds){
+    const name=_cardNames[id]||id;
+    const tab=getCardTab(id);
+    const hidden=!!_hiddenCards[id];
+    h+='<tr><td><input type="checkbox" data-set-id="'+id+'"'+(hidden?'':' checked')+'></td>';
+    h+='<td>'+name+'</td>';
+    h+='<td><select data-tab-id="'+id+'" style="padding:2px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:11px">';
+    for(const t of ['overview','modbus','connections','app']){
+      h+='<option value="'+t+'"'+(tab===t?' selected':'')+'>'+_tabNames[t]+'</option>';
+    }
+    h+='</select></td>';
+    h+='<td><input type="checkbox" data-custom-id="'+id+'"'+(_customMembers[id]?' checked':'')+' title="Vis også i Custom-fanen"></td></tr>';
+  }
+  body.innerHTML=h;
+}
+
+function saveSettings(){
+  // Collect hidden cards
+  const hidden=[];
+  document.querySelectorAll('[data-set-id]').forEach(cb=>{
+    if(!cb.checked)hidden.push(cb.dataset.setId);
+  });
+  // Collect tab assignments (only non-default)
+  const tabs=[];
+  document.querySelectorAll('[data-tab-id]').forEach(sel=>{
+    const id=sel.dataset.tabId;
+    const val=sel.value;
+    if(val!==_defaultTabs[id])tabs.push(id+':'+val);
+  });
+  // FEAT-167: Custom-fane medlemsskab — uafhaengigt af fane-tildelingen ovenfor
+  const custom=[];
+  document.querySelectorAll('[data-custom-id]').forEach(cb=>{
+    if(cb.checked)custom.push(cb.dataset.customId);
+  });
+
+  _hiddenCards={};
+  hidden.forEach(id=>{_hiddenCards[id]=true;});
+  _customTabs={};
+  tabs.forEach(p=>{const kv=p.split(':');_customTabs[kv[0]]=kv[1];});
+  _customMembers={};
+  custom.forEach(id=>{_customMembers[id]=true;});
+
+  // Also update data-tab attributes on cards
+  document.querySelectorAll('.card[data-card-id]').forEach(c=>{
+    c.dataset.tab=getCardTab(c.dataset.cardId);
+  });
+
+  // Save to ESP32
+  var auth=sessionStorage.getItem('hfplc_auth');
+  var opts={method:'POST',headers:{'Content-Type':'application/json'}};
+  if(auth)opts.headers['Authorization']=auth;
+  opts.body=JSON.stringify({card_tabs:tabs.join(','),card_hidden:hidden.join(','),card_custom:custom.join(',')});
+  fetch('/api/dashboard/layout',opts).then(r=>{
+    const msg=$('settingsMsg');
+    if(r.ok){msg.textContent='Indstillinger gemt';msg.style.color='#a6e3a1';}
+    else if(r.status===401){msg.textContent='Log ind først (klik bruger-knap øverst)';msg.style.color='#fab387';}
+    else if(r.status===403){msg.textContent='Ingen skriveadgang — kræver write privilege';msg.style.color='#fab387';}
+    else{r.text().then(t=>{msg.textContent='Fejl: '+r.status+' '+t;msg.style.color='#f38ba8';});}
+    msg.style.display='block';
+    setTimeout(()=>{msg.style.display='none';},5000);
+  }).catch(e=>{
+    const msg=$('settingsMsg');
+    msg.textContent='Netværksfejl: '+e.message;msg.style.color='#f38ba8';msg.style.display='block';
+    setTimeout(()=>{msg.style.display='none';},5000);
+  });
+
+  applySubTab();
+}
+
+function resetSettings(){
+  _customTabs={};
+  _hiddenCards={};
+  _customMembers={};
+  // Reset data-tab attributes to defaults
+  document.querySelectorAll('.card[data-card-id]').forEach(c=>{
+    c.dataset.tab=_defaultTabs[c.dataset.cardId]||'overview';
+  });
+  // Save empty to ESP32
+  var auth=sessionStorage.getItem('hfplc_auth');
+  var opts={method:'POST',headers:{'Content-Type':'application/json'}};
+  if(auth)opts.headers['Authorization']=auth;
+  opts.body=JSON.stringify({card_tabs:'',card_hidden:'',card_custom:''});
+  fetch('/api/dashboard/layout',opts).catch(()=>{});
+  buildSettingsTable();
+  applySubTab();
+  const msg=$('settingsMsg');
+  msg.textContent='Nulstillet til standard';msg.style.color='#fab387';msg.style.display='block';
+  setTimeout(()=>{msg.style.display='none';},3000);
+}
+
+// FEAT-135: Modbus Master mini-form handler
+// Matches CLI syntax in cli_commands_modbus_master.cpp:
+//   mb read coil     <slave> <addr>
+//   mb read input    <slave> <addr>
+//   mb read holding  <slave> <addr> [count=1..16]
+//   mb read input-reg <slave> <addr>
+//   mb write coil    <slave> <addr> <0|1>
+//   mb write holding <slave> <addr> <value 0..65535>
+function updateMbForm(){
+  const op=$('mbOp').value;
+  const valInp=$('mbVal');
+  const lbl=$('mbValLabel');
+  if(op.startsWith('write')){lbl.textContent='Værdi';}else if(op==='read holding'){lbl.textContent='Antal';}else{lbl.textContent='Antal';}
+  if(op==='read holding'){
+    valInp.title='Count (1-16)';
+    valInp.placeholder='count';
+    valInp.disabled=false;
+    if(parseInt(valInp.value)>16||parseInt(valInp.value)<1)valInp.value=1;
+  }else if(op==='write holding'){
+    valInp.title='Value (0-65535)';
+    valInp.placeholder='value';
+    valInp.disabled=false;
+  }else if(op==='write coil'){
+    valInp.title='Value (0 eller 1)';
+    valInp.placeholder='0/1';
+    valInp.disabled=false;
+    if(parseInt(valInp.value)!==0&&parseInt(valInp.value)!==1)valInp.value=1;
+  }else{
+    // read coil / read input / read input-reg — ingen værdi
+    valInp.title='(ikke brugt)';
+    valInp.placeholder='-';
+    valInp.disabled=true;
+  }
+}
+async function doMbCmd(){
+  const opFull=$('mbOp').value;
+  const slave=parseInt($('mbSlave').value)||1;
+  const addr=parseInt($('mbAddr').value)||0;
+  const valRaw=$('mbVal').value;
+  const result=$('mbResult');
+  // Parse "read holding" → op="read", type="holding"
+  const parts=opFull.split(' ');
+  const op=parts[0];
+  const type=parts.slice(1).join(' ')||'holding';
+
+  if(op==='write'){
+    const v=parseInt(valRaw);
+    if(type==='holding'&&(isNaN(v)||v<0||v>65535)){result.textContent='Fejl: value skal være 0-65535';return;}
+    if(type==='coil'&&v!==0&&v!==1){result.textContent='Fejl: coil value skal være 0 eller 1';return;}
+  }
+
+  const label=opFull+' slave='+slave+' addr='+addr;
+  result.textContent='> '+label+'\nSender via kø...';
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{'Content-Type':'application/json'}};
+    if(auth)opts.headers['Authorization']=auth;
+    var body={op:op,type:type,slave:slave,addr:addr};
+    if(op==='write')body.value=parseInt(valRaw)||0;
+    opts.body=JSON.stringify(body);
+    const r=await fetch('/api/modbus/master/rw',opts);
+    if(r.status===401){result.textContent='> '+label+'\nFejl: Login kræves';return;}
+    if(r.status===403){result.textContent='> '+label+'\nFejl: Skriv-rettigheder kræves';return;}
+    if(!r.ok){result.textContent='> '+label+'\nHTTP '+r.status;return;}
+    const d=await r.json();
+    if(d.status==='ok'){
+      result.textContent='> '+label+'\nVærdi: '+d.value+' ('+d.hex+') signed: '+d.signed+'\nCache alder: '+d.age_ms+'ms';
+    }else if(d.status==='pending'||d.status==='queued'){
+      result.textContent='> '+label+'\n'+d.message+'\nVenter på svar...';
+      // Poll for result after async queue processes
+      setTimeout(()=>doMbPoll(op,type,slave,addr,label),500);
+    }else{
+      result.textContent='> '+label+'\n'+(d.message||JSON.stringify(d));
+    }
+  }catch(e){
+    result.textContent='> '+label+'\nNetværksfejl: '+e.message;
+  }
+}
+async function doMbPoll(op,type,slave,addr,label,attempt){
+  attempt=attempt||1;
+  if(attempt>6)return; // max 3s
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{'Content-Type':'application/json'}};
+    if(auth)opts.headers['Authorization']=auth;
+    opts.body=JSON.stringify({op:'read',type:type,slave:slave,addr:addr});
+    const r=await fetch('/api/modbus/master/rw',opts);
+    if(!r.ok)return;
+    const d=await r.json();
+    const result=$('mbResult');
+    if(d.status==='ok'){
+      result.textContent='> '+label+'\nVærdi: '+d.value+' ('+d.hex+') signed: '+d.signed+'\nCache alder: '+d.age_ms+'ms';
+    }else if(d.status==='pending'){
+      setTimeout(()=>doMbPoll(op,type,slave,addr,label,attempt+1),500);
+    }else{
+      result.textContent='> '+label+'\n'+(d.message||d.status);
+    }
+  }catch(e){}
+}
+
+function resetMasterStats(){
+  var auth=sessionStorage.getItem('hfplc_auth');
+  var opts={method:'POST'};
+  if(auth)opts.headers={'Authorization':auth};
+  fetch('/api/modbus/master/reset-stats',opts).then(r=>{
+    if(r.ok){fetchMetrics();}else{alert('Fejl ved nulstilling');}
+  }).catch(()=>alert('Netværksfejl'));
+}
+function fmtUptime(ms){
+  if(ms==null||ms<=0)return'-';
+  var s=Math.floor(ms/1000);
+  if(s<60)return s+'s';
+  var m=Math.floor(s/60);s%=60;
+  if(m<60)return m+'m '+s+'s';
+  var h=Math.floor(m/60);m%=60;
+  if(h<24)return h+'t '+m+'m';
+  var d=Math.floor(h/24);h%=24;
+  return d+'d '+h+'t';
+}
+
+// === FEAT-130: SSE-driven live updates ===
+// Subscribes to ESP32 SSE event stream for instant register/coil/counter/timer updates.
+// Falls back to polling if SSE unavailable.
+let sseConn=null;
+let sseReconnectTimer=null;
+let sseLastEventMs=0;
+function sseSetIndicator(connected){
+  const el=$('footRefresh');
+  if(!el)return;
+  if(connected){el.style.color='#a6e3a1';}
+  else{el.style.color='';}
+}
+function sseApplyRegisterEvent(d){
+  // d = {type:"hr"|"ir"|"coil"|"di", addr:N, value:N}
+  if(!d||d.addr==null)return;
+  const addr=d.addr|0;
+  const val=d.value|0;
+  if(d.type==='hr'){
+    // Update both regHR grid and regmapHR grid
+    ['regHR','regmapHR'].forEach(gid=>{
+      const g=$(gid);if(!g||!g.children[addr])return;
+      const cell=g.children[addr];
+      cell.textContent=val;
+      cell.title='HR['+addr+'] = '+val;
+      cell.className=val!==0?'rc used':'rc';
+    });
+  }else if(d.type==='ir'){
+    const g=$('regmapIR');if(g&&g.children[addr]){
+      const cell=g.children[addr];
+      cell.textContent=val;
+      cell.title='IR['+addr+'] = '+val;
+      cell.className=val!==0?'rc used':'rc';
+    }
+  }else if(d.type==='coil'){
+    ['regCoils','regmapCoils'].forEach(gid=>{
+      const g=$(gid);if(!g||!g.children[addr])return;
+      const cell=g.children[addr];
+      cell.textContent=val;
+      cell.title='Coil['+addr+'] = '+(val?'ON':'OFF');
+      cell.className='rc '+(val?'coil-on':'coil-off');
+    });
+    // Also update DIO output LEDs (pins 201-208 map to coils via gpio metric labels)
+    const ledParent=$('dioOutputs');
+    if(ledParent){
+      // Re-fetch metrics soon to pick up gpio_digital_output change
+      // (no direct coil->pin mapping on client side)
+    }
+  }else if(d.type==='di'){
+    const g=$('regmapDI');if(g&&g.children[addr]){
+      const cell=g.children[addr];
+      cell.textContent=val;
+      cell.title='DI['+addr+'] = '+val;
+      cell.className=val!==0?'rc used':'rc';
+    }
+  }
+  sseLastEventMs=Date.now();
+  // Coil/DI changes drive DIO LEDs which come from /api/metrics gpio labels
+  // — kick a debounced metrics refresh so LEDs flip instantly too.
+  if(d.type==='coil'||d.type==='di'){sseKickMetrics();}
+}
+// Debounced metrics refresh — max 1 fetch per 150ms regardless of event burst
+var sseMetricsPending=false;
+function sseKickMetrics(){
+  if(sseMetricsPending)return;
+  sseMetricsPending=true;
+  setTimeout(function(){sseMetricsPending=false;fetchMetrics();},150);
+}
+function sseApplyCounterEvent(d){
+  sseLastEventMs=Date.now();
+  // Full metrics refresh picks up counter widget values + master stats
+  sseKickMetrics();
+}
+function sseApplyTimerEvent(d){
+  sseLastEventMs=Date.now();
+  sseKickMetrics();
+}
+function sseConnect(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    fetch('/api/events/status',opts).then(r=>r.json()).then(s=>{
+      if(!s||!s.sse_enabled){
+        console.log('[SSE] disabled, using polling only');
+        return;
+      }
+      let port=s.sse_port;
+      if(!port||port===0){
+        // Auto port = main port + 1
+        const mainPort=parseInt(location.port||'80')||80;
+        port=mainPort+1;
+      }
+      // Query-string token workaround: EventSource cannot set Basic Auth
+      // header, and browsers do not share credentials across ports. Token is
+      // issued by /api/events/status (on main port, authenticated normally).
+      const tok=s.sse_token?('&token='+encodeURIComponent(s.sse_token)):'';
+      const url=location.protocol+'//'+location.hostname+':'+port+'/api/events?subscribe=all'+tok;
+      try{
+        sseConn=new EventSource(url);
+      }catch(e){
+        console.log('[SSE] EventSource construct failed:',e);
+        return;
+      }
+      sseConn.addEventListener('connected',()=>{
+        console.log('[SSE] connected');
+        sseSetIndicator(true);
+        // Slow polling since SSE handles instant updates
+        if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,5000);}
+      });
+      sseConn.addEventListener('register',e=>{
+        try{sseApplyRegisterEvent(JSON.parse(e.data));}catch(err){}
+      });
+      sseConn.addEventListener('counter',e=>{
+        try{sseApplyCounterEvent(JSON.parse(e.data));}catch(err){}
+      });
+      sseConn.addEventListener('timer',e=>{
+        try{sseApplyTimerEvent(JSON.parse(e.data));}catch(err){}
+      });
+      sseConn.addEventListener('heartbeat',()=>{sseLastEventMs=Date.now();});
+      sseConn.onerror=()=>{
+        console.log('[SSE] connection error, will retry');
+        sseSetIndicator(false);
+        if(sseConn){sseConn.close();sseConn=null;}
+        // Restore fast polling as fallback
+        if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,3000);}
+        if(sseReconnectTimer)clearTimeout(sseReconnectTimer);
+        sseReconnectTimer=setTimeout(sseConnect,5000);
+      };
+    }).catch(e=>console.log('[SSE] status check failed:',e));
+  }catch(e){console.log('[SSE] init failed:',e);}
+}
+
+function init(){
+  // Initialize register grids
+  let hrInit='',coilInit='';
+  for(let i=0;i<256;i++){
+    hrInit+='<div class="rc" title="HR['+i+']">0</div>';
+    coilInit+='<div class="rc coil-off" title="Coil['+i+']">0</div>';
+  }
+  $('regHR').innerHTML=hrInit;
+  $('regCoils').innerHTML=coilInit;
+
+  // Restore sub-tab selection
+  try{
+    const st=localStorage.getItem('hfplc_subtab');
+    if(st&&['all','overview','modbus','connections','app','custom'].indexOf(st)>=0){
+      _activeSubTab=st;
+      document.querySelectorAll('#subTabs button').forEach(b=>{
+        b.classList.toggle('active',b.textContent==={all:'Alle',overview:'Overblik',modbus:'Modbus',connections:'Forbindelser',app:'Applikation',custom:'Custom'}[st]);
+      });
+    }
+  }catch(e){}
+
+  initDragDrop();
+  applySubTab();
+  updateMbForm();
+  fetchBindings();
+  fetchMetrics();
+  fetchAlarms();
+  fetchMbActivity();
+  fetchSyslog();
+  fetchNetworkInfo();
+  fetchConnections();
+  refreshTimer=setInterval(fetchMetrics,3000);
+  setInterval(fetchBindings,15000);
+  setInterval(fetchAlarms,5000);
+  setInterval(fetchMbActivity,3000);
+  setInterval(fetchSyslog,5000);
+  setInterval(fetchNetworkInfo,10000);
+  setInterval(fetchConnections,5000);
+  sseConnect();
+}
+init();
+
+// === User Badge ===
+function toggleUserMenu(){var m=document.getElementById('userMenu');m.classList.toggle('show')}
+document.addEventListener('click',function(e){var b=document.getElementById('userBtn');var m=document.getElementById('userMenu');if(b&&m&&!b.contains(e.target)&&!m.contains(e.target))m.classList.remove('show')});
+function updateUserBadge(){
+var auth=sessionStorage.getItem('hfplc_auth');
+var opts=auth?{headers:{'Authorization':auth}}:{};
+fetch('/api/user/me',opts).then(function(r){return r.json()}).then(function(d){
+if(d.authenticated){document.getElementById('userName').textContent=d.username;document.getElementById('userDot').className='dot dot-on';document.getElementById('umUser').textContent=d.username;document.getElementById('umRoles').textContent=d.roles||'all';document.getElementById('umPriv').textContent=d.privilege||'rw';document.getElementById('umMode').textContent=d.mode||'legacy';document.getElementById('umLogout').style.display='block';document.getElementById('umLogin').style.display='none'}
+else{document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('umLogout').style.display='none';document.getElementById('umLogin').style.display='block'}
+}).catch(function(){})
+}
+function showLogin(){document.getElementById('userMenu').classList.remove('show');document.getElementById('loginModal').classList.add('show')}
+function doLogin(){
+var u=document.getElementById('authUser').value;
+var p=document.getElementById('authPass').value;
+var basicAuth='Basic '+btoa(u+':'+p);
+// BUG-353: POST /api/login (samme Basic Auth-header som foer) i stedet for
+// GET /api/user/me — udsteder nu et session-token vi bruger fremover, saa
+// vi ikke skal gensende brugernavn/kodeord paa hvert request.
+fetch('/api/login',{method:'POST',headers:{'Authorization':basicAuth}}).then(function(r){return r.json()}).then(function(d){
+if(d.authenticated&&d.token){sessionStorage.setItem('hfplc_auth','Bearer '+d.token);document.getElementById('loginModal').classList.remove('show');updateUserBadge()}
+else{document.getElementById('loginErr').style.display='block';document.getElementById('loginErr').textContent='Forkert brugernavn eller adgangskode'}
+}).catch(function(){document.getElementById('loginErr').style.display='block';document.getElementById('loginErr').textContent='Forbindelsesfejl'})
+}
+function doLogout(){
+var auth=sessionStorage.getItem('hfplc_auth');
+if(auth){fetch('/api/logout',{method:'POST',headers:{'Authorization':auth}}).catch(function(){})}
+sessionStorage.removeItem('hfplc_auth');document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('umLogout').style.display='none';document.getElementById('umLogin').style.display='block';document.getElementById('userMenu').classList.remove('show')}
+document.getElementById('authPass').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin()});
+document.getElementById('authUser').addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('authPass').focus()});
+async function doSystemSave(){
+  const btn=$('saveBtn');
+  btn.classList.add('saving');btn.textContent='\u23F3 Gemmer...';
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{}};
+    if(auth)opts.headers['Authorization']=auth;
+    const r=await fetch('/api/system/save',opts);
+    if(r.ok){btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='\u2705 Gemt!';}
+    else{btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}
+  }catch(e){btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}
+  setTimeout(()=>{btn.className='save-btn';btn.innerHTML='&#128190; Save';},2000);
+}
+updateUserBadge();
+</script>
+</body>
+</html>

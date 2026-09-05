@@ -53,6 +53,10 @@ show ethernet         (detaljeret Ethernet-status, link-status)
 
 Dashboardets **Netværk**-kort ([§4.2](04_Web_Dashboard_og_Monitor.md)) viser samme information visuelt, inkl. antal Wi-Fi-genforbindelser — en stigende tæller her indikerer et ustabilt trådløst signal.
 
+## 12.5 Konfiguration via web-GUI (FEAT-166)
+
+Alt det ovenstående — Wi-Fi (SSID/adgangskode/DHCP/statisk IP/power-save), Ethernet (DHCP/statisk IP/hostname) og NTP (server/tidszone/sync-interval) — kan nu også indstilles direkte fra `/system`-siden, uden CLI. Enhedens eget hostname (mDNS) har sit eget felt der (adskilt fra Ethernet-modulets DHCP-hostname). Ændringer af IP/DHCP/Wi-Fi-credentials anvendes i RAM med det samme, men kræver "Save" + genstart for at overleve en reboot — samme betingelse som CLI'ens `save`-kommando. NTP-ændringer (server/tidszone/interval) anvendes derimod straks uden reboot.
+
 ---
 
 [← 11. Backup/Restore & Firmware](11_Backup_Restore_og_Firmware.md) · [Indeks](00_INDEKS.md) · Næste: [13. Fejlfinding →](13_Fejlfinding.md)

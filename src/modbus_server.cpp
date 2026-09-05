@@ -13,6 +13,8 @@
 #include "constants.h"
 #include "debug.h"
 #include "mb_activity_log.h"
+#include "system_log.h"  // FEAT-089
+#include "registers.h"   // FEAT-089: old-vaerdi-opslag foer dispatch
 #include <Arduino.h>
 
 /* ============================================================================
@@ -78,6 +80,45 @@ static void mb_log_slave_activity(const ModbusFrame *req, const ModbusFrame *res
   mb_activity_log_add(MB_ACTIVITY_ROLE_SLAVE, MB_SRC_EXTERNAL, req->slave_id, fc, address, count, value, error);
 }
 
+/**
+ * @brief FEAT-089: log en registerandring udloest af en ekstern Modbus
+ * master (FC05/06/0F/10). "Hvem" er her blot "ekstern master" — RTU-bussen
+ * har ingen finere identitet (ingen klient-IP/brugernavn som ved REST).
+ *
+ * Kaldes fra MODBUS_STATE_PROCESS lige EFTER dispatch — men gammel vaerdi
+ * skal laeses FOER dispatch (ellers er registret allerede overskrevet), saa
+ * kaldestedet laeser den separat og sender den ind som parameter.
+ */
+static void system_log_modbus_slave_write(const ModbusFrame *req, bool success, uint16_t old_val) {
+  if (!success) return;  // Kun log reelt gennemfoerte skrivninger
+
+  uint8_t fc = req->function_code;
+  if (fc != FC_WRITE_SINGLE_COIL && fc != FC_WRITE_SINGLE_REG &&
+      fc != FC_WRITE_MULTIPLE_COILS && fc != FC_WRITE_MULTIPLE_REGS) {
+    return;  // Kun skrive-FC'er
+  }
+  if (req->length < 4) return;
+
+  uint16_t address = ((uint16_t)req->data[0] << 8) | req->data[1];
+  bool is_coil = (fc == FC_WRITE_SINGLE_COIL || fc == FC_WRITE_MULTIPLE_COILS);
+
+  // Ny vaerdi ved FOERSTE register/coil (samme "kun foerste" pragmatiske
+  // forenkling som REST bulk-write-hooket — se der for begrundelse)
+  int32_t new_val;
+  if (fc == FC_WRITE_SINGLE_COIL) {
+    new_val = (req->length >= 4 && (((uint16_t)req->data[2] << 8) | req->data[3])) ? 1 : 0;
+  } else if (fc == FC_WRITE_SINGLE_REG) {
+    new_val = (req->length >= 4) ? (((uint16_t)req->data[2] << 8) | req->data[3]) : 0;
+  } else {
+    new_val = is_coil ? registers_get_coil(address) : registers_get_holding_register(address);
+  }
+
+  if (new_val == (int32_t)old_val) return;  // Ingen reel aendring
+
+  system_log_add_reg_change((uint8_t)SYSLOG_SRC_MODBUS_SLAVE, NULL, NULL,
+                             address, is_coil, (int32_t)old_val, new_val);
+}
+
 void modbus_server_init(uint8_t sid) {
   slave_id = sid;
   server_state = MODBUS_STATE_IDLE;
@@ -131,8 +172,23 @@ void modbus_server_loop(void) {
     case MODBUS_STATE_PROCESS:
       // Process request and generate response
       {
+        // FEAT-089: gammel vaerdi skal laeses FOER dispatch — bagefter er
+        // registret allerede overskrevet. Kun relevant for skrive-FC'er.
+        uint16_t syslog_old_val = 0;
+        {
+          uint8_t fc0 = request_frame.function_code;
+          if ((fc0 == FC_WRITE_SINGLE_COIL || fc0 == FC_WRITE_SINGLE_REG ||
+               fc0 == FC_WRITE_MULTIPLE_COILS || fc0 == FC_WRITE_MULTIPLE_REGS) &&
+              request_frame.length >= 4) {
+            uint16_t addr0 = ((uint16_t)request_frame.data[0] << 8) | request_frame.data[1];
+            bool is_coil0 = (fc0 == FC_WRITE_SINGLE_COIL || fc0 == FC_WRITE_MULTIPLE_COILS);
+            syslog_old_val = is_coil0 ? registers_get_coil(addr0) : registers_get_holding_register(addr0);
+          }
+        }
+
         bool success = modbus_dispatch_function_code(&request_frame, &response_frame);
         mb_log_slave_activity(&request_frame, &response_frame, success);
+        system_log_modbus_slave_write(&request_frame, success, syslog_old_val);
 
         if (success) {
           // Broadcast requests (slave_id == 0) should NOT generate responses

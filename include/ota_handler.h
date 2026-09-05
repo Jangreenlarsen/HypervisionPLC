@@ -36,4 +36,22 @@ esp_err_t api_handler_ota_status(httpd_req_t *req);
  */
 esp_err_t api_handler_ota_rollback(httpd_req_t *req);
 
+/**
+ * GET /api/system/ota/github-check - Check GitHub Releases for a newer
+ * firmware version (FEAT-169). Manual-only — never called automatically —
+ * so the device never talks out to the internet without an explicit,
+ * logged-in user action.
+ * Returns: { available, current_version, latest_version, asset_size, published_at }
+ */
+esp_err_t api_handler_ota_github_check(httpd_req_t *req);
+
+/**
+ * POST /api/system/ota/github-install - Download the latest GitHub Release
+ * asset (firmware.bin) and flash it via the same esp_ota_* flow as
+ * api_handler_ota_upload() (FEAT-169). Blocks synchronously until the
+ * download+flash completes or fails, same behavior as the manual-upload
+ * endpoint. Progress can still be polled via GET /api/system/ota/status.
+ */
+esp_err_t api_handler_ota_github_install(httpd_req_t *req);
+
 #endif // OTA_HANDLER_H

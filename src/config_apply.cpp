@@ -255,6 +255,22 @@ bool config_apply(const PersistConfig* cfg) {
     }
   }
 
+  // BUG-362: "st_logic"-modul-flaget (module_flags) blev ALDRIG haandhaevet
+  // noget sted — st_logic_init() hardkodede altid state->enabled=1, saa
+  // hverken "set modul st_logic off" eller POST /api/modules
+  // {"st_logic":false} + save + reboot reelt stoppede motoren, den kom
+  // altid tilbage aktiveret. st_logic_engine_loop() (den faktiske
+  // eksekverings-loekke) tjekker state->enabled foerst af alt, saa dette ene
+  // sted er nok til at goere flaget reelt virksomt ved boot. Runtime-
+  // aendringer via POST /api/modules opdaterer state->enabled direkte selv
+  // (se api_handler_modules_post), saa denne blok daekker kun boot-stien.
+  {
+    st_logic_engine_state_t *st_state = st_logic_get_state();
+    if (st_state) {
+      st_state->enabled = (cfg->module_flags & MODULE_FLAG_ST_LOGIC_DISABLED) ? 0 : 1;
+    }
+  }
+
   // Apply persistent register groups (v4.0+)
   if (cfg->persist_regs.enabled && cfg->persist_regs.group_count > 0) {
     debug_print("  Persistent registers: ");

@@ -24,6 +24,7 @@
 #include "cli_commands_logic.h"
 #include "cli_commands_modbus_master.h"
 #include "cli_commands_modbus_slave.h"
+#include "cli_commands_analog.h"
 #include "mb_async.h"
 #include "st_logic_config.h"
 #include "debug.h"
@@ -276,6 +277,12 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "STACK")) return "STACK";
   if (str_eq_i(s, "LINE") || str_eq_i(s, "LN")) return "LINE";
 
+  // BUG-343: task-diagnostik
+  if (str_eq_i(s, "TASKS") || str_eq_i(s, "TASK")) return "TASKS";
+
+  // FEAT-034/035/036/037: analog I/O
+  if (str_eq_i(s, "ANALOG")) return "ANALOG";
+
   return s;  // Return as-is if not an alias
 }
 
@@ -308,6 +315,8 @@ static void print_show_help(void) {
   debug_println("    show logic             - ST Logic programmer");
   debug_println("    show logic <id> [st|code] - Program detaljer");
   debug_println("    show st-stats          - ST Logic stats (IR 252-293)");
+  debug_println("    show analog            - Analog I/O status (ES32D26)");
+  debug_println("    show tasks             - FreeRTOS task-tilstande (diagnostik)");
   debug_println("    show persist           - Persistence grupper");
   debug_println("");
   debug_println("  Network:");
@@ -370,6 +379,8 @@ static void print_set_help(void) {
   debug_println("    set modul ?               - RS485 UART pins / Ethernet enable");
   debug_println("    set ao1 mode <voltage|current> - AO1 output mode (ES32D26)");
   debug_println("    set ao2 mode <voltage|current> - AO2 output mode (ES32D26)");
+  debug_println("    set analog <vi1-4|ii1-4|ao1-2> enabled <on|off> - Analog I/O kanal (ES32D26)");
+  debug_println("    set analog <kanal> scale|offset <tal>           - Kalibrering (ES32D26)");
   debug_println("    set debug ?               - Debug flag kommandoer");
   debug_println("");
   debug_println("  Deprecated (use set modbus-slave instead):");
@@ -417,12 +428,13 @@ static void print_http_help(void) {
   debug_println("");
   debug_println("Available 'set http' commands:");
   debug_println("  set http enabled <on|off>  - Aktivér/deaktivér HTTP server");
-  debug_println("  set http port <port>       - Sæt HTTP port (default 80, HTTPS: 443)");
+  debug_println("  set http port <port>       - Sæt HTTP port (default 80)");
+  debug_println("  set http https-port <port> - Sæt dedikeret HTTPS port (default 443, kræver reboot)");
   debug_println("  set http auth <on|off>     - Aktivér/deaktivér Basic Auth");
   debug_println("  set http username <user>   - Sæt HTTP username");
   debug_println("  set http password <pass>   - Sæt HTTP password");
   debug_println("  set http api <on|off>      - Aktivér/deaktivér API endpoints");
-  debug_println("  set http tls <on|off>      - Aktivér/deaktivér HTTPS/TLS (kræver reboot)");
+  debug_println("  set http tls <on|off>      - Aktivér/deaktivér HTTPS/TLS (kræver reboot; lytter paa https-port, IKKE port)");
   debug_println("");
   debug_println("API Endpoints:");
   debug_println("  GET  /api/status           - System info (version, uptime, heap)");
@@ -797,6 +809,15 @@ bool cli_parser_execute(char* line) {
     } else if (!strcmp(what, "MODBUS")) {
       // show modbus — shortcut for "show config modbus" (slave + master combined)
       cli_cmd_show_config("MODBUS");
+      return true;
+    } else if (!strcmp(what, "TASKS")) {
+      // BUG-343: koer denne MENS noget haenger for at se hvilken task der
+      // er BLOCKED eller sultet — se kommentar ved cli_cmd_show_tasks()
+      cli_cmd_show_tasks();
+      return true;
+    } else if (!strcmp(what, "ANALOG")) {
+      // FEAT-034/035/036/037: analog I/O status (Vi1-4, Ii1-4, AO1-2)
+      cli_cmd_show_analog();
       return true;
     } else if (!strcmp(what, "ETHERNET")) {
       cli_cmd_show_ethernet();
@@ -1671,6 +1692,8 @@ bool cli_parser_execute(char* line) {
             debug_print(is_ao1 ? "AO1" : "AO2");
             debug_println(" mode sat til: VOLTAGE (0-10V)");
             debug_println("  Kraever 'save' for at persistere");
+            debug_printf("  OBS: tjek 'set %s scale/offset' matcher 0-10V-omraadet (se 'show analog')\n",
+                          is_ao1 ? "ao1" : "ao2");
             return true;
           } else if (!strcmp(mval, "CURRENT")) {
             if (is_ao1) g_persist_config.ao1_mode = AO_MODE_CURRENT;
@@ -1678,6 +1701,8 @@ bool cli_parser_execute(char* line) {
             debug_print(is_ao1 ? "AO1" : "AO2");
             debug_println(" mode sat til: CURRENT (4-20mA)");
             debug_println("  Kraever 'save' for at persistere");
+            debug_printf("  OBS: tjek 'set %s scale/offset' matcher 4-20mA-omraadet (se 'show analog')\n",
+                          is_ao1 ? "ao1" : "ao2");
             return true;
           } else {
             debug_println("SET AO MODE: ugyldigt valg");
@@ -1690,6 +1715,18 @@ bool cli_parser_execute(char* line) {
       debug_print(is_ao1 ? "AO1" : "AO2");
       debug_println(": missing parameters");
       debug_println("  Usage: set ao1 mode voltage|current");
+      return false;
+
+    } else if (!strcmp(what, "ANALOG")) {
+      // set analog <vi1-4|ii1-4|ao1-2> enabled on|off / scale <f> / offset <f>
+      if (argc >= 5) {
+        char *sub_argv[3] = { argv[2], argv[3], argv[4] };
+        cli_cmd_set_analog(3, sub_argv);
+        return true;
+      }
+      debug_println("SET ANALOG: mangler parametre");
+      debug_println("  Usage: set analog <vi1-4|ii1-4|ao1-2> enabled on|off");
+      debug_println("         set analog <kanal> scale|offset <tal>");
       return false;
 
     } else if (!strcmp(what, "MODUL") || !strcmp(what, "MODULE")) {

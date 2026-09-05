@@ -20,6 +20,7 @@
 #include "counter_engine.h"
 #include "timer_engine.h"
 #include "gpio_driver.h"
+#include "analog_driver.h"  // FEAT-034/035/036: analog I/O (ES32D26)
 #include "gpio_mapping.h"
 #include "uart_driver.h"
 #include "modbus_server.h"
@@ -40,6 +41,7 @@
 #include "ntp_driver.h"        // v7.8.1 - NTP time synchronization
 #include "mb_async.h"          // v7.7.0 - Async Modbus Master background task
 #include "mb_activity_log.h"   // FEAT-149 - Wire-level Modbus activity log
+#include "system_log.h"        // FEAT-086/089 - Event + register-change log
 #include <esp_ota_ops.h>       // v7.5.0 - FEAT-031 OTA boot validation
 
 // ============================================================================
@@ -91,6 +93,11 @@ void setup() {
   Serial.print("GPIO: ");
   gpio_driver_init();       // GPIO system + shift registers (ES32D26)
   Serial.println("OK");
+#if defined(ANALOG_IO_ENABLED)
+  Serial.print("Analog I/O: ");
+  analog_driver_init();     // FEAT-034/035/036: ADC attenuering + register-allokering
+  Serial.println("OK");
+#endif
   Serial.print("UART: ");
   uart_driver_init();       // UART0/UART1 initialization
   Serial.println("OK");
@@ -107,6 +114,8 @@ void setup() {
 
   // FEAT-149: wire-level activity log (Master+Slave) — init before either mode
   mb_activity_log_init();
+  system_log_init();       // FEAT-086/089
+  system_log_add_event((uint8_t)SYSLOG_SRC_SYSTEM, NULL, NULL, "Enhed startet (boot)");
 
   // Modbus mode-based initialization (v7.2.0+)
   uint8_t mb_mode = g_persist_config.modbus_mode;
@@ -336,6 +345,10 @@ void loop() {
   // Læs shift register inputs (ES32D26: SN74HC165 digitale inputs → cache)
   gpio_driver_poll_inputs();
 
+  // FEAT-034/035: læs analoge indgange (Vi1-4, Ii1-4) ind i deres registre.
+  // Kaldes FØR ST Logic, samme rækkefølge som gpio_driver_poll_inputs().
+  analog_driver_poll_inputs();
+
   // UNIFIED VARIABLE MAPPING: Read INPUT bindings (GPIO + ST variables)
   // This must happen BEFORE st_logic_engine_loop() to provide fresh inputs
   gpio_mapping_read_before_st_logic();
@@ -350,6 +363,10 @@ void loop() {
   // Flush shift register outputs (ES32D26: cache → SN74HC595 relæer)
   // Skal ske EFTER write_after_st_logic() så nye output-værdier når hardware med det samme
   gpio_driver_flush_outputs();
+
+  // FEAT-036: skriv analog udgang (AO1-2) ud fra deres setpoint-register.
+  // Samme rækkefølge som gpio_driver_flush_outputs() — efter ST Logic.
+  analog_driver_flush_outputs();
 
   // Update ST Logic status registers (200-251) - MUST be after execution to get fresh values
   // BUG-008 FIX: Moved here to ensure IR 220-251 contain current iteration's results
