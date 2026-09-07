@@ -45,6 +45,16 @@ typedef struct {
   st_value_t variables[32];   // Local variables (mirrors bytecode->variables)
   uint8_t var_count;
 
+  // FEAT-005: STRING storage. string_vars mirrors program->string_vars (copied
+  // in st_vm_init(), copied back to the program after execution — same
+  // pattern as `variables[]` above). string_scratch is purely transient
+  // (intermediate CONCAT/LEFT/RIGHT/MID results), reset each execution and
+  // never copied back anywhere; string_scratch_cursor round-robins through
+  // it as expressions are evaluated (see st_vm_string_scratch_alloc()).
+  char string_vars[ST_MAX_STRING_VARS][ST_MAX_STRING_LEN + 1];
+  char string_scratch[ST_MAX_STRING_SCRATCH][ST_MAX_STRING_LEN + 1];
+  uint8_t string_scratch_cursor;
+
   // FEAT-003: Call stack for user-defined functions
   st_call_frame_t call_stack[8];  // Max ST_MAX_CALL_DEPTH nested calls
   uint8_t call_depth;             // Current call depth (0 = main program)
@@ -124,6 +134,24 @@ bool st_vm_pop(st_vm_t *vm, st_value_t *out_value);
  * @return Top stack value (undefined if stack empty)
  */
 st_value_t st_vm_peek(st_vm_t *vm);
+
+/**
+ * @brief FEAT-005: Resolve a STRING value's str_ref to its actual C-string
+ * content, regardless of kind (variable/literal/scratch).
+ * @param vm VM state (for variable/scratch lookup)
+ * @param value A st_value_t whose type is ST_TYPE_STRING
+ * @return Pointer to a NUL-terminated string (never NULL — points into vm/
+ *   program storage, valid only as long as the VM/program outlive it)
+ */
+const char *st_vm_string_resolve(st_vm_t *vm, st_value_t value);
+
+/**
+ * @brief FEAT-005: Allocate the next scratch slot (round-robin) and copy
+ * `text` into it (truncated to ST_MAX_STRING_LEN). Used by builtins (CONCAT/
+ * LEFT/RIGHT/MID) to produce a new, temporary STRING result.
+ * @return A st_value_t with type-appropriate str_ref pointing at the new slot
+ */
+st_value_t st_vm_string_scratch_alloc(st_vm_t *vm, const char *text);
 
 /**
  * @brief Print VM state (for debugging)

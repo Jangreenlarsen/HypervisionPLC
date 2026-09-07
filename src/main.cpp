@@ -34,6 +34,8 @@
 #include "st_logic_engine.h"
 #include "ir_pool_manager.h"  // v5.1.0 - IR pool management
 #include "network_manager.h"
+#include "wifi_driver.h"       // BUG-371: wifi_driver_set_hostname()
+#include "ethernet_driver.h"   // BUG-371: ethernet_driver_set_hostname()
 #include "watchdog_monitor.h"
 #include "register_allocator.h"
 #include "registers_persist.h"
@@ -42,6 +44,7 @@
 #include "mb_async.h"          // v7.7.0 - Async Modbus Master background task
 #include "mb_activity_log.h"   // FEAT-149 - Wire-level Modbus activity log
 #include "system_log.h"        // FEAT-086/089 - Event + register-change log
+#include "api_audit_log.h"     // FEAT-033 - Request audit log
 #include <esp_ota_ops.h>       // v7.5.0 - FEAT-031 OTA boot validation
 
 // ============================================================================
@@ -111,10 +114,12 @@ void setup() {
   timer_engine_init();      // Timer feature (4 modes)
   Serial.print("L"); Serial.flush();   // ST Logic
   st_logic_init(st_logic_get_state());  // ST Logic Mode (4 independent programs)
+  st_logic_high_task_init();  // FEAT-010: dedicated Core-0 HIGH-priority task (idle until a program is HIGH+enabled)
 
   // FEAT-149: wire-level activity log (Master+Slave) — init before either mode
   mb_activity_log_init();
   system_log_init();       // FEAT-086/089
+  api_audit_log_init();    // FEAT-033
   system_log_add_event((uint8_t)SYSLOG_SRC_SYSTEM, NULL, NULL, "Enhed startet (boot)");
 
   // Modbus mode-based initialization (v7.2.0+)
@@ -198,6 +203,18 @@ void setup() {
   // Initialize network subsystem (v3.0+)
   if (network_manager_init() == 0) {
     Serial.println("Network manager initialized (Wi-Fi + Ethernet)");
+
+    // BUG-371: hostname havde FOER ingen reel netvaerkseffekt overhovedet
+    // (kun vist i telnet-banner/REST-svar) — sat FOER wifi/ethernet-connect
+    // saa den korrekte vaert naar med i den allerfoerste DHCP-request.
+    // Ethernet har sit EGET, separat hostname-felt (network.ethernet.hostname,
+    // sat via /api/ethernet — se docs/manual/12_Netvaerkskonfiguration.md
+    // §12.5) til at give WiFi/Ethernet forskellige DHCP-navne paa samme
+    // enhed; falder tilbage til det globale felt hvis ikke sat.
+    wifi_driver_set_hostname(g_persist_config.hostname);
+    ethernet_driver_set_hostname(g_persist_config.network.ethernet.hostname[0]
+      ? g_persist_config.network.ethernet.hostname
+      : g_persist_config.hostname);
 
     // BUG-220: Start network services (Telnet, HTTP) FIRST — independent of WiFi/Ethernet
     // Services bind to 0.0.0.0 and will serve on whichever interface comes up

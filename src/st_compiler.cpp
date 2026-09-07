@@ -7,6 +7,7 @@
  */
 
 #include "st_compiler.h"
+#include "st_logic_config.h"   // FEAT-007: GLOBAL_VAR lookup (st_logic_get_state())
 #include "st_builtins.h"
 #include "st_stateful.h"
 #include "constants.h"
@@ -195,6 +196,115 @@ uint8_t st_compiler_lookup_symbol(st_compiler_t *compiler, const char *name) {
     }
   }
   return 0xFF;
+}
+
+/**
+ * @brief FEAT-009: Resolve a STRUCT field name to its absolute variable
+ * index, given the base symbol's index (base_index+0 IS field[0], see
+ * st_compiler_compile's Phase 1 struct expansion — field[f] for f>0 lives
+ * at base_index+f).
+ * @return absolute variable index, or 0xFF if the field name is unknown
+ * (caller is responsible for reporting the specific error)
+ */
+static uint8_t st_compiler_resolve_struct_field(st_compiler_t *compiler, uint8_t base_index,
+                                                 const char *field_name) {
+  st_symbol_t *base_sym = &compiler->symbol_table.symbols[base_index];
+  st_struct_type_decl_t *stype = &compiler->struct_types[base_sym->struct_type_index];
+  for (uint8_t f = 0; f < stype->field_count; f++) {
+    if (strcmp(stype->fields[f].name, field_name) == 0) {
+      return (uint8_t)(base_index + f);
+    }
+  }
+  return 0xFF;
+}
+
+/**
+ * @brief FEAT-007/FEAT-009: Resolve an identifier to either a local symbol
+ * (this program's own VAR/VAR_INPUT/VAR_OUTPUT/function scope) or, if not
+ * found locally, a GLOBAL_VAR shared across Logic1-4. Local names always
+ * win — a program-local variable can shadow a global with the same name.
+ *
+ * If field_name is non-empty (STRUCT member access, e.g. "point.x"), name
+ * must resolve to a LOCAL STRUCT variable — GLOBAL_VAR can never be a
+ * STRUCT in this v1 profile, so the global fallback is skipped entirely
+ * whenever a field is being accessed.
+ *
+ * On any failure this function calls st_compiler_error() itself with a
+ * specific message (unknown variable / not a STRUCT / unknown field / bare
+ * STRUCT reference) — callers should NOT overwrite it with a generic
+ * message, just propagate the false return.
+ *
+ * @return true if found (out_index/out_is_global set), false otherwise
+ */
+static bool st_compiler_resolve_name(st_compiler_t *compiler, const char *name, const char *field_name,
+                                      uint8_t *out_index, bool *out_is_global) {
+  uint8_t local_idx = st_compiler_lookup_symbol(compiler, name);
+  if (local_idx != 0xFF) {
+    st_symbol_t *sym = &compiler->symbol_table.symbols[local_idx];
+
+    // NOTE: these messages are kept deliberately short — st_logic_compile_monolithic
+    // re-wraps compiler->error_msg (itself already "Compile error at line N: ...")
+    // into prog->last_error[64], so only ~20 chars of actual content survive
+    // before silent truncation (a pre-existing constraint, not new here; see BUGS_INDEX).
+    if (field_name && field_name[0]) {
+      if (!sym->is_struct) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "not a STRUCT: %s", name);
+        st_compiler_error(compiler, msg);
+        return false;
+      }
+      uint8_t field_index = st_compiler_resolve_struct_field(compiler, local_idx, field_name);
+      if (field_index == 0xFF) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "bad field: %s.%s", name, field_name);
+        st_compiler_error(compiler, msg);
+        return false;
+      }
+      *out_index = field_index;
+      *out_is_global = false;
+      return true;
+    }
+
+    if (sym->is_struct) {
+      char msg[128];
+      snprintf(msg, sizeof(msg), "%s needs .field", name);
+      st_compiler_error(compiler, msg);
+      return false;
+    }
+
+    *out_index = local_idx;
+    *out_is_global = false;
+    return true;
+  }
+
+  if (field_name && field_name[0]) {
+    // STRUCT variables never exist as GLOBAL_VAR in this v1 profile —
+    // fall straight through to "unknown variable" rather than checking globals.
+    return false;
+  }
+
+  st_logic_engine_state_t *gstate = st_logic_get_state();
+  if (gstate) {
+    uint8_t global_idx = st_logic_globals_lookup(gstate, name);
+    if (global_idx != 0xFF) {
+      *out_index = global_idx;
+      *out_is_global = true;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+uint8_t st_compiler_intern_string_literal(st_compiler_t *compiler, const char *text) {
+  if (compiler->string_literal_count >= ST_MAX_STRING_LITERALS) {
+    st_compiler_error(compiler, "Too many STRING literals (max " "8" ")");
+    return 0xFF;
+  }
+  uint8_t idx = compiler->string_literal_count++;
+  strncpy(compiler->string_literals[idx], text ? text : "", ST_MAX_STRING_LEN);
+  compiler->string_literals[idx][ST_MAX_STRING_LEN] = '\0';
+  return idx;
 }
 
 /* ============================================================================
@@ -421,6 +531,13 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
         case ST_TYPE_TIME:
           // FEAT-121: TIME stored as DWORD (unsigned 32-bit milliseconds)
           return st_compiler_emit_int(compiler, ST_OP_PUSH_DWORD, node->data.literal.value.dint_val);
+        case ST_TYPE_STRING: {
+          // FEAT-005: intern the literal text (parser stashed it in
+          // string_text — the union `value` field is meaningless for STRING)
+          uint8_t lit_idx = st_compiler_intern_string_literal(compiler, node->data.literal.string_text);
+          if (lit_idx == 0xFF) return false;  // st_compiler_error() already called
+          return st_compiler_emit_int(compiler, ST_OP_PUSH_STRING_LIT, lit_idx);
+        }
         default:
           st_compiler_error(compiler, "Unknown literal type");
           return false;
@@ -428,14 +545,26 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
     }
 
     case ST_AST_VARIABLE: {
-      uint8_t var_index = st_compiler_lookup_symbol(compiler, node->data.variable.var_name);
-      if (var_index == 0xFF) {
-        char msg[128];
-        snprintf(msg, sizeof(msg), "Unknown variable: %s", node->data.variable.var_name);
-        st_compiler_error(compiler, msg);
+      uint8_t var_index;
+      bool is_global;
+      uint32_t err_before = compiler->error_count;
+      if (!st_compiler_resolve_name(compiler, node->data.variable.var_name, node->data.variable.field_name,
+                                     &var_index, &is_global)) {
+        // FEAT-009: resolve_name already reported a specific error (not a
+        // STRUCT / unknown field / bare STRUCT reference) — don't stomp it
+        // with the generic fallback below unless nothing was reported yet.
+        if (compiler->error_count == err_before) {
+          char msg[128];
+          snprintf(msg, sizeof(msg), "Unknown variable: %s", node->data.variable.var_name);
+          st_compiler_error(compiler, msg);
+        }
         return false;
       }
-      // FEAT-003: Emit scope-aware LOAD (global, param, or local)
+      // FEAT-007: GLOBAL_VAR (shared across Logic1-4)
+      if (is_global) {
+        return st_compiler_emit_var(compiler, ST_OP_LOAD_GLOBAL, var_index);
+      }
+      // FEAT-003: Emit scope-aware LOAD (global-to-function-scope, param, or local)
       return st_compiler_emit_load_symbol(compiler, var_index);
     }
 
@@ -529,6 +658,12 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "CNT_RAW") == 0) func_id = ST_BUILTIN_CNT_RAW;
       else if (strcasecmp(node->data.function_call.func_name, "CNT_FREQ") == 0) func_id = ST_BUILTIN_CNT_FREQ;
       else if (strcasecmp(node->data.function_call.func_name, "CNT_STATUS") == 0) func_id = ST_BUILTIN_CNT_STATUS;
+      // FEAT-005: STRING functions (v7.9.11.0)
+      else if (strcasecmp(node->data.function_call.func_name, "LEN") == 0) func_id = ST_BUILTIN_LEN;
+      else if (strcasecmp(node->data.function_call.func_name, "CONCAT") == 0) func_id = ST_BUILTIN_CONCAT;
+      else if (strcasecmp(node->data.function_call.func_name, "LEFT") == 0) func_id = ST_BUILTIN_LEFT;
+      else if (strcasecmp(node->data.function_call.func_name, "RIGHT") == 0) func_id = ST_BUILTIN_RIGHT;
+      else if (strcasecmp(node->data.function_call.func_name, "MID") == 0) func_id = ST_BUILTIN_MID;
       else {
         // FEAT-003: Check function registry for user-defined functions
         if (compiler->func_registry) {
@@ -847,13 +982,37 @@ static bool st_compiler_compile_assignment(st_compiler_t *compiler, st_ast_node_
     return false;
   }
 
-  // Look up variable
-  uint8_t var_index = st_compiler_lookup_symbol(compiler, node->data.assignment.var_name);
-  if (var_index == 0xFF) {
-    char msg[128];
-    snprintf(msg, sizeof(msg), "Unknown variable: %s", node->data.assignment.var_name);
-    st_compiler_error(compiler, msg);
-    return false;
+  // Look up variable (local first, then FEAT-009 STRUCT field, then FEAT-007 GLOBAL_VAR)
+  uint8_t var_index;
+  bool is_global;
+  {
+    uint32_t err_before = compiler->error_count;
+    if (!st_compiler_resolve_name(compiler, node->data.assignment.var_name, node->data.assignment.field_name,
+                                   &var_index, &is_global)) {
+      if (compiler->error_count == err_before) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Unknown variable: %s", node->data.assignment.var_name);
+        st_compiler_error(compiler, msg);
+      }
+      return false;
+    }
+  }
+
+  if (is_global) {
+    // GLOBAL_VAR is always a plain scalar — no array indexing, no FB fields
+    if (node->data.assignment.index_expr) {
+      st_compiler_error(compiler, "GLOBAL_VAR variables cannot be arrays");
+      return false;
+    }
+    return st_compiler_emit_var(compiler, ST_OP_STORE_GLOBAL, var_index);
+  }
+
+  // FEAT-009: STRUCT field assignment already resolved to the field's
+  // absolute index above — emit directly, skipping the array-index/FB
+  // checks below (which operate on node->data.assignment.var_name's OWN
+  // symbol, meaningless once var_index has been redirected to a field).
+  if (node->data.assignment.field_name[0]) {
+    return st_compiler_emit_store_symbol(compiler, var_index);
   }
 
   // FEAT-004: Array element assignment
@@ -1641,9 +1800,61 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
     return NULL;
   }
 
+  // FEAT-009: Copy STRUCT type declarations (parsed upfront by the parser,
+  // before the variable-declaration loop below needs to resolve them).
+  compiler->struct_type_count = program->struct_type_count;
+  memcpy(compiler->struct_types, program->struct_types, sizeof(compiler->struct_types));
+
   // Phase 1: Build symbol table from variable declarations
   for (int i = 0; i < program->var_count; i++) {
     st_variable_decl_t *var = &program->variables[i];
+
+    // FEAT-009: STRUCT variables expand to consecutive slots (one per
+    // field, each with its OWN scalar type — unlike ARRAY below, where
+    // every element shares var->type).
+    if (var->is_struct) {
+      int16_t type_idx = -1;
+      for (uint8_t t = 0; t < compiler->struct_type_count; t++) {
+        if (strcmp(compiler->struct_types[t].name, var->struct_type_name) == 0) {
+          type_idx = (int16_t)t;
+          break;
+        }
+      }
+      if (type_idx < 0) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "bad TYPE: %s", var->struct_type_name);
+        st_compiler_error(compiler, msg);
+        return NULL;
+      }
+      st_struct_type_decl_t *stype = &compiler->struct_types[type_idx];
+
+      // Base symbol IS field[0] — same "first element is the base" pattern
+      // ARRAY already uses below, so a bare reference to the struct name
+      // isn't a dangling/garbage slot (mirrors existing ARRAY behavior;
+      // st_compiler_resolve_name separately rejects a BARE struct-name
+      // reference with a clear error, so this fallback is never actually
+      // reachable from valid ST source — only a safety net).
+      uint8_t base_index = st_compiler_add_symbol(compiler, var->name, stype->fields[0].type,
+                                                   var->is_input, var->is_output, 0);
+      if (base_index == 0xFF) {
+        return NULL;
+      }
+      st_symbol_t *base_sym = &compiler->symbol_table.symbols[base_index];
+      base_sym->is_struct = 1;
+      base_sym->struct_type_index = (uint8_t)type_idx;
+
+      // Reserve additional slots for fields [1..N-1]
+      for (uint8_t f = 1; f < stype->field_count; f++) {
+        char field_slot_name[64];
+        snprintf(field_slot_name, sizeof(field_slot_name), "%s.%s", var->name, stype->fields[f].name);
+        uint8_t field_index = st_compiler_add_symbol(compiler, field_slot_name, stype->fields[f].type,
+                                                      var->is_input, var->is_output, 0);
+        if (field_index == 0xFF) {
+          return NULL;
+        }
+      }
+      continue;
+    }
 
     // FEAT-004: Array variables expand to consecutive slots
     if (var->is_array) {
@@ -1792,12 +2003,31 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
   bytecode->exported_var_count = 0;  // v5.1.0 - IR pool export count
   for (int i = 0; i < compiler->symbol_table.count; i++) {
     st_symbol_t *sym = &compiler->symbol_table.symbols[i];
-    bytecode->variables[i] = sym->has_initial_value ? sym->initial_value : (st_value_t){.int_val = 0};
-    bytecode->var_initial[i] = bytecode->variables[i];  // Save initial value for reset/persist
+    if (sym->type == ST_TYPE_STRING) {
+      // FEAT-005: STRING slots don't use the st_value_t union at all — the
+      // parser's `sym->initial_value` (if any `:= 'text'` was written) is
+      // meaningless garbage here (a union has no room for text; see
+      // st_literal_t.string_text). Every STRING variable simply starts
+      // empty (string_vars[i] is already "" from bytecode's memset above)
+      // and gets a self-referencing handle — V1 scope does not propagate
+      // an initial STRING literal's text (documented limitation, FEAT-005).
+      bytecode->variables[i].str_ref = ST_STR_REF_MAKE(ST_STR_REF_KIND_VAR, i);
+      bytecode->var_initial[i] = bytecode->variables[i];
+    } else {
+      bytecode->variables[i] = sym->has_initial_value ? sym->initial_value : (st_value_t){.int_val = 0};
+      bytecode->var_initial[i] = bytecode->variables[i];  // Save initial value for reset/persist
+    }
     // Save variable name and type for CLI binding
     // FEAT-004: Rename array base symbol for display (CH → CH[0])
+    // FEAT-009: Rename STRUCT base symbol for display (point → point.x) —
+    // the placeholder field[1..N-1] slots already carry their final
+    // "point.y"-style name directly in sym->name from Phase 1, so only the
+    // base symbol (which stores just "point") needs renaming here.
     if (sym->is_array) {
       snprintf(bytecode->var_names[i], sizeof(bytecode->var_names[i]), "%s[%d]", sym->name, sym->array_lower);
+    } else if (sym->is_struct) {
+      st_struct_type_decl_t *stype = &compiler->struct_types[sym->struct_type_index];
+      snprintf(bytecode->var_names[i], sizeof(bytecode->var_names[i]), "%s.%s", sym->name, stype->fields[0].name);
     } else {
       strncpy(bytecode->var_names[i], sym->name, sizeof(bytecode->var_names[i]) - 1);
       bytecode->var_names[i][sizeof(bytecode->var_names[i]) - 1] = '\0';
@@ -1810,6 +2040,12 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
     debug_printf("[COMPILER] Copied to bytecode: var[%d] name='%s' type=%d exported=%d\n",
                  i, bytecode->var_names[i], bytecode->var_types[i], bytecode->var_export_flags[i]);
   }
+
+  // FEAT-005: Copy interned STRING literal table (string_vars[] for the
+  // variable slots above is already correctly zeroed/self-referenced by the
+  // loop above — literals are a separate, compile-time-constant table).
+  bytecode->string_literal_count = compiler->string_literal_count;
+  memcpy(bytecode->string_literals, compiler->string_literals, sizeof(bytecode->string_literals));
 
   // v4.7+: Allocate stateful storage if any stateful functions were used
   if (compiler->edge_instance_count > 0 ||
@@ -1989,6 +2225,8 @@ const char *st_opcode_to_string(st_opcode_t opcode) {
     case ST_OP_JMP_IF_TRUE:     return "JMP_IF_TRUE";
     case ST_OP_STORE_VAR:       return "STORE_VAR";
     case ST_OP_LOAD_VAR:        return "LOAD_VAR";
+    case ST_OP_STORE_GLOBAL:    return "STORE_GLOBAL";
+    case ST_OP_LOAD_GLOBAL:     return "LOAD_GLOBAL";
     case ST_OP_DUP:             return "DUP";
     case ST_OP_POP:             return "POP";
     case ST_OP_LOOP_INIT:       return "LOOP_INIT";
@@ -2046,6 +2284,11 @@ void st_bytecode_print(st_bytecode_program_t *bytecode) {
       case ST_OP_LOAD_VAR:
       case ST_OP_PUSH_VAR:
         snprintf(line, sizeof(line), "  [%3d] %-18s var[%d]", i, opname, instr->arg.var_index);
+        break;
+
+      case ST_OP_STORE_GLOBAL:
+      case ST_OP_LOAD_GLOBAL:
+        snprintf(line, sizeof(line), "  [%3d] %-18s global[%d]", i, opname, instr->arg.var_index);
         break;
 
       case ST_OP_LOAD_FB_FIELD:

@@ -57,9 +57,12 @@ typedef enum {
   ST_BUILTIN_DWORD_TO_INT, // DWORD_TO_INT(d) → INT
   ST_BUILTIN_INT_TO_DWORD, // INT_TO_DWORD(i) → DWORD
 
-  // String (future: currently placeholder)
-  // ST_BUILTIN_LEN,          // LEN(s) → length
-  // ST_BUILTIN_CONCAT,       // CONCAT(s1, s2) → concatenation
+  // String (FEAT-005, v7.9.11.0)
+  ST_BUILTIN_LEN,          // LEN(s) → INT (character count)
+  ST_BUILTIN_CONCAT,       // CONCAT(s1, s2) → STRING (concatenation, truncated at ST_MAX_STRING_LEN)
+  ST_BUILTIN_LEFT,         // LEFT(s, n) → STRING (first n characters)
+  ST_BUILTIN_RIGHT,        // RIGHT(s, n) → STRING (last n characters)
+  ST_BUILTIN_MID,          // MID(s, start, len) → STRING (1-based start)
 
   // Persistence (v4.0+)
   ST_BUILTIN_PERSIST_SAVE,  // SAVE() → save all persistent register groups to NVS

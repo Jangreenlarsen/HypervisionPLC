@@ -70,8 +70,19 @@ int https_wrapper_start(httpd_handle_t *handle,
   ssl_config.httpd.server_port      = port;
   ssl_config.httpd.max_uri_handlers = max_uri;
   ssl_config.httpd.stack_size       = stack_size;
-  ssl_config.httpd.max_open_sockets = 3;
-  ssl_config.httpd.backlog_conn     = 3;
+  // BUG-369d: sat ned fra 3 til 2 — 132KB fri intern heap lige efter boot
+  // (bekraeftet stabil over 1+ minut UDEN nogen web-klient overhovedet) delt
+  // paa 3 samtidige TLS-sessioner giver kun ~44KB til hver, meget taet paa
+  // mbedTLS's egen ~32-40KB minimumsbehov pr. session (se BUG-369).
+  // Rammes graensen, evicter esp_https_server (lru_purge_enable) den
+  // aeldste session for at give plads til en ny — men ser ikke ud til at
+  // give den nye session nok "frisk" heap i praksis (bekraeftet: gentagne
+  // "mbedtls_ssl_setup returned -0x7F00"-fejl naar flere browser-faner/-
+  // requests presser paa). 2 samtidige giver hver session markant mere
+  // luft (~66KB), paa bekostning af at en 3. samtidig klient nu maa vente
+  // paa at en af de to eksisterende lukker foerst.
+  ssl_config.httpd.max_open_sockets = 2;
+  ssl_config.httpd.backlog_conn     = 2;
   ssl_config.httpd.uri_match_fn     = httpd_uri_match_wildcard;
   ssl_config.httpd.lru_purge_enable = true;
   ssl_config.httpd.recv_wait_timeout  = 15;

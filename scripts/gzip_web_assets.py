@@ -30,6 +30,7 @@ PAGES = [
     ("web/system.html",    "system_html_gz",    "generated_web/system_html_gz.h"),
     ("web/cli.html",       "cli_html_gz",       "generated_web/cli_html_gz.h"),
     ("web/ota.html",       "ota_html_gz",       "generated_web/ota_html_gz.h"),
+    ("web/logs.html",      "logs_html_gz",      "generated_web/logs_html_gz.h"),
 ]
 
 total_raw = 0

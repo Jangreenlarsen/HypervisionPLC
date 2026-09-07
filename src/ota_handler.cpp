@@ -26,10 +26,14 @@
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/semphr.h>
 #include <lwip/sockets.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <esp_heap_caps.h>
+#include "wifi_driver.h"
+#include "ethernet_driver.h"
 
 #include "ota_handler.h"
 #include "api_handlers.h"
@@ -431,6 +435,25 @@ static const char *get_github_ca_bundle(void)
   return ca_buf;
 }
 
+// BUG-366: WiFiClientSecure/mbedTLS-haandtrykket kraever ét stort SAMMENHAENGENDE
+// stykke INTERN hukommelse (ikke PSRAM — TLS-buffere allokeres via standard
+// heap, som paa denne PSRAM-udgave (BOARD_HAS_PSRAM) ellers automatisk
+// omdirigerer store allokeringer til ekstern SPI-RAM). Er interne heap for
+// fragmenteret (sandsynligt efter lang oppetid med web/Modbus/ST Logic-drift),
+// kan mbedTLS's allokering fejle paa en maade der IKKE fanges paent af
+// HTTPClient, men i stedet crasher hele enheden. Minimumsgraense er sat
+// konservativt hoejt (48KB) i forhold til ESP-IDF's default TLS in+out
+// buffer-stoerrelser (typisk 16KB+16KB) plus mbedTLS-kontekst-overhead.
+#define GITHUB_OTA_MIN_INTERNAL_BLOCK (48 * 1024)
+
+static bool github_ota_internal_heap_ok(const char *ctx_label)
+{
+  size_t largest_internal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  ESP_LOGI(TAG, "%s: stoerste sammenhaengende INTERNE bloek=%u byte (fri heap total=%u)",
+           ctx_label, (unsigned)largest_internal, (unsigned)ESP.getFreeHeap());
+  return largest_internal >= GITHUB_OTA_MIN_INTERNAL_BLOCK;
+}
+
 // Sammenligner to punktum-separerede numeriske versionsstrenge (fx
 // "7.9.10.27", med eller uden foranstillet "v"). >0 hvis a>b, <0 hvis a<b.
 static int compare_versions(const char *a, const char *b)
@@ -456,6 +479,131 @@ static struct {
   uint32_t asset_size;
 } g_github_release_cache = { false, {0}, 0 };
 
+// BUG-367: ALVORLIG regression opdaget efter BUG-366 — brugeren bekraeftede
+// at HELE web-serveren gik i sort (ping virkede stadig, men INGEN browser-
+// forbindelse kunne oprettes til hverken dashboard eller noget andet) efter
+// blot at have klikket "Tjek for opdatering". Root cause: esp_http_server er
+// SINGLETRAADET her (én "httpd"-task betjener ALLE HTTP-requests i denne
+// enhed) — http.setConnectTimeout()/setTimeout() begraenser kun TCP-connect
+// og databaseoverfoersel, IKKE selve DNS-opslaget (lwIP's
+// gethostbyname/getaddrinfo), som kan blokere langt laengere (i praksis
+// ubegraenset ved forkert/uopnaaeligt DNS-server-IP, fx efter et
+// netvaerksskift) end nogen af de eksplicitte timeouts. Blokerer DNS-kaldet,
+// blokerer dermed HELE web-serveren for evigt — ikke kun GitHub-kaldet —
+// hvilket praecis matcher det brugeren observerede.
+//
+// Fix: selve HTTPS-arbejdet (DNS+TLS+GET+parse/download) koeres nu i en
+// DEDIKERET FreeRTOS-baggrundstask, adskilt fra httpd's egen task. Den
+// oprindelige httpd-handler venter kun paa den med en HAARD, oevre
+// tidsgraense (semaphore-wait) — timer den ud, faar brugeren straks en
+// fejlbesked, og httpd-tasken (og dermed resten af web-serveren) er FRI
+// igen, uanset om baggrundstasken stadig haenger i DNS-opslaget. En evt.
+// "haengt" baggrundstask forbliver isoleret (egen stak, egen ressource) og
+// blokerer ikke laengere andre requests — i vaerste fald et enkelt, begraenset
+// ressourceforbrug per fejlslagent forsoeg, i stedet for at laase HELE
+// grebslebrugerfladen.
+
+static SemaphoreHandle_t g_github_check_sem = NULL;
+
+struct GithubCheckResult {
+  int http_code;      // 0 = aldrig naaet frem til GET
+  bool json_ok;
+  char tag[64];
+  char published[32];
+  char asset_url[384];
+  uint32_t asset_size;
+  char err[96];        // ikke-tom => hard fejl foer/uden http_code
+};
+static GithubCheckResult g_github_check_result;
+
+// BUG-368: vTaskDelete(NULL) er en FreeRTOS-primitiv, IKKE et normalt C++
+// return — den frigoer tasksens stak som en raa hukommelsesblok uden at
+// koere C++-destruktorer for objekter der stadig er i scope paa den stak.
+// Kaldes vTaskDelete() direkte fra en funktion der stadig har en levende
+// `WiFiClientSecure client`/`HTTPClient http` lokalt, bliver mbedTLS's
+// TLS-kontekst/buffere (typisk 20-40KB) ALDRIG frigivet — en permanent
+// hukommelseslaekage pr. forsoeg. Efter blot et par klik paa "Tjek for
+// opdatering" var intern heap saa opbrugt at enhedens EGEN HTTPS-server
+// ikke laengere kunne oprette TLS-sessions til browser-klienter
+// ("mbedtls_ssl_setup returned -0x7F00" / ESP_ERR_MBEDTLS_SSL_SETUP_FAILED
+// i CLI-loggen — bekraeftet af brugeren efter et par forsoeg med
+// v7.9.10.33). Fix: selve arbejdet ligger nu i en separat funktion
+// (github_check_do_work) der returnerer NORMALT — alle lokale C++-objekter
+// destrueres dermed korrekt FOER github_check_worker (den egentlige
+// FreeRTOS-task-entry) kalder vTaskDelete().
+static void github_check_do_work(void)
+{
+  GithubCheckResult *res = &g_github_check_result;
+  memset(res, 0, sizeof(*res));
+
+  const char *ca = get_github_ca_bundle();
+  if (!ca) {
+    snprintf(res->err, sizeof(res->err), "CA bundle unavailable");
+    return;
+  }
+
+  ESP_LOGI(TAG, "GitHub check (baggrundstask): starter HTTPS GET mod api.github.com, fri heap=%u", (unsigned)ESP.getFreeHeap());
+
+  WiFiClientSecure client;
+  client.setCACert(ca);
+  HTTPClient http;
+  http.setConnectTimeout(6000);
+  http.setTimeout(6000);
+
+  if (!http.begin(client, "https://api.github.com/repos/" GITHUB_OWNER_REPO "/releases/latest")) {
+    ESP_LOGE(TAG, "GitHub check: http.begin() fejlede");
+    snprintf(res->err, sizeof(res->err), "Could not begin HTTPS request");
+    return;
+  }
+  // GitHub's API afviser requests uden en User-Agent header
+  http.addHeader("User-Agent", "HyberFusion-PLC-OTA");
+  http.addHeader("Accept", "application/vnd.github+json");
+
+  ESP_LOGI(TAG, "GitHub check: kalder http.GET()...");
+  int httpCode = http.GET();
+  res->http_code = httpCode;
+  ESP_LOGI(TAG, "GitHub check: http.GET() returnerede %d, fri heap=%u", httpCode, (unsigned)ESP.getFreeHeap());
+  if (httpCode != 200) {
+    http.end();
+    return;
+  }
+
+  JsonDocument doc;
+  DeserializationError jerr = deserializeJson(doc, http.getStream());
+  http.end();
+  ESP_LOGI(TAG, "GitHub check: JSON parse %s, fri heap=%u", jerr ? "FEJLEDE" : "OK", (unsigned)ESP.getFreeHeap());
+  if (jerr) {
+    snprintf(res->err, sizeof(res->err), "Invalid JSON from GitHub");
+    return;
+  }
+
+  const char *tag = doc["tag_name"] | "";
+  const char *published = doc["published_at"] | "";
+  strncpy(res->tag, tag, sizeof(res->tag) - 1);
+  strncpy(res->published, published, sizeof(res->published) - 1);
+
+  if (doc["assets"].is<JsonArray>()) {
+    for (JsonObject a : doc["assets"].as<JsonArray>()) {
+      const char *name = a["name"] | "";
+      if (strcmp(name, GITHUB_RELEASE_ASSET_NAME) == 0) {
+        const char *url = a["browser_download_url"] | (const char *)NULL;
+        if (url) strncpy(res->asset_url, url, sizeof(res->asset_url) - 1);
+        res->asset_size = a["size"] | 0;
+        break;
+      }
+    }
+  }
+  res->json_ok = true;
+}
+
+static void github_check_worker(void *pv)
+{
+  (void)pv;
+  github_check_do_work();  // alle lokale C++-objekter (client/http/doc) destrueres normalt her
+  xSemaphoreGive(g_github_check_sem);
+  vTaskDelete(NULL);
+}
+
 esp_err_t api_handler_ota_github_check(httpd_req_t *req)
 {
   http_server_stat_request();
@@ -465,75 +613,70 @@ esp_err_t api_handler_ota_github_check(httpd_req_t *req)
     return api_send_error(req, 409, "OTA already in progress");
   }
 
-  const char *ca = get_github_ca_bundle();
-  if (!ca) {
-    return api_send_error(req, 500, "CA bundle unavailable");
+  // BUG-366: fejl hurtigt og TYDELIGT hvis der slet ikke er en netvaerksrute
+  // ud — reducerer chancen for at havne i BUG-367s DNS-hang-scenarie, men
+  // erstatter IKKE baggrundstask-loesningen nedenfor (link kan vaere oppe men
+  // DNS-serveren stadig uopnaaelig).
+  if (!wifi_driver_is_connected() && !ethernet_driver_is_connected()) {
+    return api_send_error(req, 502, "Ingen WiFi/Ethernet-forbindelse - kan ikke naa GitHub");
   }
 
-  WiFiClientSecure client;
-  client.setCACert(ca);
-  HTTPClient http;
-  http.setConnectTimeout(10000);
-  http.setTimeout(10000);
-
-  if (!http.begin(client, "https://api.github.com/repos/" GITHUB_OWNER_REPO "/releases/latest")) {
-    return api_send_error(req, 500, "Could not begin HTTPS request");
+  // BUG-366: undgaa et TLS-haandtryk der risikerer at crashe enheden hvis
+  // intern heap er for fragmenteret — fejl paent i stedet.
+  if (!github_ota_internal_heap_ok("GitHub check")) {
+    return api_send_error(req, 503, "Ikke nok sammenhaengende intern hukommelse til TLS lige nu - proev igen senere");
   }
-  // GitHub's API afviser requests uden en User-Agent header
-  http.addHeader("User-Agent", "HyberFusion-PLC-OTA");
-  http.addHeader("Accept", "application/vnd.github+json");
 
-  int httpCode = http.GET();
-  if (httpCode != 200) {
+  if (!g_github_check_sem) {
+    g_github_check_sem = xSemaphoreCreateBinary();
+  }
+  xSemaphoreTake(g_github_check_sem, 0);  // dræn evt. gammelt signal fra et timeout'et forsøg
+
+  BaseType_t created = xTaskCreatePinnedToCore(github_check_worker, "gh_check", 16384, NULL, 5, NULL, 0);
+  if (created != pdPASS) {
+    return api_send_error(req, 500, "Kunne ikke starte GitHub-check baggrundstask");
+  }
+
+  // BUG-367: HAARD oevre graense — timer denne ud, returnerer handleren
+  // (og dermed httpd-tasken) STRAKS, uanset om baggrundstasken stadig
+  // haenger (fx i DNS). Se kommentarblok ovenfor for hvorfor dette er
+  // noedvendigt.
+  if (xSemaphoreTake(g_github_check_sem, pdMS_TO_TICKS(20000)) != pdTRUE) {
+    ESP_LOGE(TAG, "GitHub check: TIMEOUT efter 20s - baggrundstask haenger formentlig i DNS-opslag/forbindelse");
+    return api_send_error(req, 504, "GitHub-tjek tog for lang tid (muligt DNS/netvaerksproblem) - proev igen");
+  }
+
+  GithubCheckResult *res = &g_github_check_result;
+  if (res->err[0]) {
+    return api_send_error(req, 502, res->err);
+  }
+  if (res->http_code != 200) {
     char msg[96];
-    snprintf(msg, sizeof(msg), "GitHub API returned HTTP %d", httpCode);
-    http.end();
+    snprintf(msg, sizeof(msg), "GitHub API returned HTTP %d", res->http_code);
     return api_send_error(req, 502, msg);
   }
-
-  JsonDocument doc;
-  DeserializationError jerr = deserializeJson(doc, http.getStream());
-  http.end();
-  if (jerr) {
-    return api_send_error(req, 502, "Invalid JSON from GitHub");
-  }
-
-  const char *tag = doc["tag_name"] | "";
-  const char *published = doc["published_at"] | "";
-  if (!tag[0]) {
+  if (!res->tag[0]) {
     return api_send_error(req, 502, "No releases found (repo has no published releases yet)");
   }
 
-  const char *asset_url = NULL;
-  uint32_t asset_size = 0;
-  if (doc["assets"].is<JsonArray>()) {
-    for (JsonObject a : doc["assets"].as<JsonArray>()) {
-      const char *name = a["name"] | "";
-      if (strcmp(name, GITHUB_RELEASE_ASSET_NAME) == 0) {
-        asset_url = a["browser_download_url"] | (const char *)NULL;
-        asset_size = a["size"] | 0;
-        break;
-      }
-    }
-  }
-
-  bool newer = (asset_url != NULL) && compare_versions(tag, PROJECT_VERSION) > 0;
+  bool has_asset = res->asset_url[0] != '\0';
+  bool newer = has_asset && compare_versions(res->tag, PROJECT_VERSION) > 0;
 
   g_github_release_cache.valid = false;
-  if (asset_url && newer) {
-    strncpy(g_github_release_cache.asset_url, asset_url, sizeof(g_github_release_cache.asset_url) - 1);
+  if (has_asset && newer) {
+    strncpy(g_github_release_cache.asset_url, res->asset_url, sizeof(g_github_release_cache.asset_url) - 1);
     g_github_release_cache.asset_url[sizeof(g_github_release_cache.asset_url) - 1] = '\0';
-    g_github_release_cache.asset_size = asset_size;
+    g_github_release_cache.asset_size = res->asset_size;
     g_github_release_cache.valid = true;
   }
 
   JsonDocument resp;
   resp["available"] = newer;
   resp["current_version"] = PROJECT_VERSION;
-  resp["latest_version"] = tag;
-  resp["asset_size"] = asset_size;
-  resp["published_at"] = published;
-  if (!asset_url) {
+  resp["latest_version"] = res->tag;
+  resp["asset_size"] = res->asset_size;
+  resp["published_at"] = res->published;
+  if (!has_asset) {
     resp["message"] = "Ingen '" GITHUB_RELEASE_ASSET_NAME "'-asset fundet i seneste release";
   }
 
@@ -542,58 +685,65 @@ esp_err_t api_handler_ota_github_check(httpd_req_t *req)
   return api_send_json(req, buf);
 }
 
-esp_err_t api_handler_ota_github_install(httpd_req_t *req)
+// BUG-367: samme baggrundstask-princip som github_check_worker ovenfor.
+// Download+flash-loopet havde allerede sit eget 30s-stalde-tjek (uaendret
+// nedenfor), men det DAEKKEDE IKKE opstartsfasen (DNS+TLS-connect FOER
+// download-loopet naas) — samme hul som i check-varianten. ota_state
+// (received/total/state/error_msg/new_version) bruges i forvejen til at
+// rapportere fremdrift (samme felter som manuel upload allerede skriver
+// til), saa baggrundstasken skriver blot ind i den, ganske som foer — kun
+// AT den koerer i sin egen task, samt at httpd-handleren nu venter med en
+// oevre graense i stedet for ubegraenset, er nyt.
+static SemaphoreHandle_t g_github_install_sem = NULL;
+
+struct GithubInstallCtx {
+  char asset_url[384];
+};
+static GithubInstallCtx g_github_install_ctx;
+
+// BUG-368: samme vTaskDelete()-skipper-C++-destruktorer-fejl som i
+// github_check_worker (se kommentar der) — arbejdet ligger derfor ogsaa her
+// i en separat funktion der returnerer NORMALT, saa `client`/`http` naar at
+// blive destrueret korrekt foer github_install_worker kalder vTaskDelete().
+static bool github_install_do_work(void)
 {
-  http_server_stat_request();
-  CHECK_AUTH_OTA(req);
-
-  if (ota_state.in_progress) {
-    return api_send_error(req, 409, "OTA already in progress");
-  }
-  if (!g_github_release_cache.valid || !g_github_release_cache.asset_url[0]) {
-    return api_send_error(req, 400, "Kald github-check foerst (ingen nyere version fundet/cachet)");
-  }
-
-  char asset_url[sizeof(g_github_release_cache.asset_url)];
-  strncpy(asset_url, g_github_release_cache.asset_url, sizeof(asset_url));
-  uint32_t expected_size = g_github_release_cache.asset_size;
-
   const char *ca = get_github_ca_bundle();
   if (!ca) {
-    return api_send_error(req, 500, "CA bundle unavailable");
+    snprintf(ota_state.error_msg, sizeof(ota_state.error_msg), "CA bundle unavailable");
+    ota_state.state = OTA_STATE_ERROR;
+    ota_state.in_progress = 0;
+    return false;
   }
-
-  ota_state.in_progress = 1;
-  ota_state.state = OTA_STATE_RECEIVING;
-  ota_state.received = 0;
-  ota_state.total = expected_size;
-  ota_state.error_msg[0] = '\0';
-  ota_state.new_version[0] = '\0';
 
   const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
   if (!update_partition) {
     snprintf(ota_state.error_msg, sizeof(ota_state.error_msg), "No OTA partition found");
     ota_state.state = OTA_STATE_ERROR;
     ota_state.in_progress = 0;
-    return api_send_error(req, 500, ota_state.error_msg);
+    return false;
   }
+
+  ESP_LOGI(TAG, "GitHub install (baggrundstask): starter download, fri heap=%u", (unsigned)ESP.getFreeHeap());
 
   WiFiClientSecure client;
   client.setCACert(ca);
   HTTPClient http;
-  http.setConnectTimeout(15000);
-  http.setTimeout(30000);
+  http.setConnectTimeout(8000);
+  http.setTimeout(15000);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // GitHub's browser_download_url redirecter til objects.githubusercontent.com
 
-  if (!http.begin(client, asset_url)) {
+  if (!http.begin(client, g_github_install_ctx.asset_url)) {
+    ESP_LOGE(TAG, "GitHub install: http.begin() fejlede");
     snprintf(ota_state.error_msg, sizeof(ota_state.error_msg), "Could not begin download");
     ota_state.state = OTA_STATE_ERROR;
     ota_state.in_progress = 0;
-    return api_send_error(req, 500, ota_state.error_msg);
+    return false;
   }
   http.addHeader("User-Agent", "HyberFusion-PLC-OTA");
 
+  ESP_LOGI(TAG, "GitHub install: kalder http.GET()...");
   int httpCode = http.GET();
+  ESP_LOGI(TAG, "GitHub install: http.GET() returnerede %d, fri heap=%u", httpCode, (unsigned)ESP.getFreeHeap());
   if (httpCode != 200) {
     char msg[96];
     snprintf(msg, sizeof(msg), "Download HTTP %d", httpCode);
@@ -601,7 +751,7 @@ esp_err_t api_handler_ota_github_install(httpd_req_t *req)
     snprintf(ota_state.error_msg, sizeof(ota_state.error_msg), "%s", msg);
     ota_state.state = OTA_STATE_ERROR;
     ota_state.in_progress = 0;
-    return api_send_error(req, 502, msg);
+    return false;
   }
 
   int content_len = http.getSize();
@@ -610,7 +760,7 @@ esp_err_t api_handler_ota_github_install(httpd_req_t *req)
     snprintf(ota_state.error_msg, sizeof(ota_state.error_msg), "Invalid content length: %d", content_len);
     ota_state.state = OTA_STATE_ERROR;
     ota_state.in_progress = 0;
-    return api_send_error(req, 400, ota_state.error_msg);
+    return false;
   }
   ota_state.total = (uint32_t)content_len;
 
@@ -621,7 +771,7 @@ esp_err_t api_handler_ota_github_install(httpd_req_t *req)
     snprintf(ota_state.error_msg, sizeof(ota_state.error_msg), "esp_ota_begin failed: 0x%x", (int)err);
     ota_state.state = OTA_STATE_ERROR;
     ota_state.in_progress = 0;
-    return api_send_error(req, 500, ota_state.error_msg);
+    return false;
   }
 
   char *chunk_buf = (char *)malloc(OTA_CHUNK_SIZE);
@@ -631,7 +781,7 @@ esp_err_t api_handler_ota_github_install(httpd_req_t *req)
     snprintf(ota_state.error_msg, sizeof(ota_state.error_msg), "Failed to allocate chunk buffer");
     ota_state.state = OTA_STATE_ERROR;
     ota_state.in_progress = 0;
-    return api_send_error(req, 500, ota_state.error_msg);
+    return false;
   }
 
   WiFiClient *stream = http.getStreamPtr();
@@ -702,7 +852,7 @@ esp_err_t api_handler_ota_github_install(httpd_req_t *req)
     ota_state.state = OTA_STATE_ERROR;
     ota_state.in_progress = 0;
     ESP_LOGE(TAG, "GitHub OTA failed: %s", ota_state.error_msg);
-    return api_send_error(req, 500, ota_state.error_msg);
+    return false;
   }
 
   ota_state.state = OTA_STATE_VERIFYING;
@@ -716,7 +866,7 @@ esp_err_t api_handler_ota_github_install(httpd_req_t *req)
     ota_state.state = OTA_STATE_ERROR;
     ota_state.in_progress = 0;
     ESP_LOGE(TAG, "%s", ota_state.error_msg);
-    return api_send_error(req, 500, ota_state.error_msg);
+    return false;
   }
 
   err = esp_ota_set_boot_partition(update_partition);
@@ -725,7 +875,7 @@ esp_err_t api_handler_ota_github_install(httpd_req_t *req)
     ota_state.state = OTA_STATE_ERROR;
     ota_state.in_progress = 0;
     ESP_LOGE(TAG, "%s", ota_state.error_msg);
-    return api_send_error(req, 500, ota_state.error_msg);
+    return false;
   }
 
   ota_state.state = OTA_STATE_DONE;
@@ -733,17 +883,87 @@ esp_err_t api_handler_ota_github_install(httpd_req_t *req)
            (unsigned long)received_total,
            ota_state.new_version[0] ? ota_state.new_version : "unknown",
            OTA_REBOOT_DELAY_MS);
+  return true;
+}
+
+static void github_install_worker(void *pv)
+{
+  (void)pv;
+  bool success = github_install_do_work();  // client/http destrueres normalt her, uanset udfald
+  xSemaphoreGive(g_github_install_sem);
+  if (success) {
+    xTaskCreate(ota_reboot_task, "ota_reboot", 2048, NULL, 5, NULL);
+  }
+  vTaskDelete(NULL);
+}
+
+esp_err_t api_handler_ota_github_install(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_OTA(req);
+
+  if (ota_state.in_progress) {
+    return api_send_error(req, 409, "OTA already in progress");
+  }
+  if (!g_github_release_cache.valid || !g_github_release_cache.asset_url[0]) {
+    return api_send_error(req, 400, "Kald github-check foerst (ingen nyere version fundet/cachet)");
+  }
+  // BUG-366: samme hurtige netvaerks-forhaandstjek som github-check
+  if (!wifi_driver_is_connected() && !ethernet_driver_is_connected()) {
+    return api_send_error(req, 502, "Ingen WiFi/Ethernet-forbindelse - kan ikke naa GitHub");
+  }
+  // BUG-366: samme heap-forhaandstjek som github-check
+  if (!github_ota_internal_heap_ok("GitHub install")) {
+    return api_send_error(req, 503, "Ikke nok sammenhaengende intern hukommelse til TLS lige nu - proev igen senere");
+  }
+
+  strncpy(g_github_install_ctx.asset_url, g_github_release_cache.asset_url, sizeof(g_github_install_ctx.asset_url) - 1);
+  g_github_install_ctx.asset_url[sizeof(g_github_install_ctx.asset_url) - 1] = '\0';
+
+  ota_state.in_progress = 1;
+  ota_state.state = OTA_STATE_RECEIVING;
+  ota_state.received = 0;
+  ota_state.total = g_github_release_cache.asset_size;
+  ota_state.error_msg[0] = '\0';
+  ota_state.new_version[0] = '\0';
+
+  if (!g_github_install_sem) {
+    g_github_install_sem = xSemaphoreCreateBinary();
+  }
+  xSemaphoreTake(g_github_install_sem, 0);  // dræn evt. gammelt signal
+
+  BaseType_t created = xTaskCreatePinnedToCore(github_install_worker, "gh_install", 16384, NULL, 5, NULL, 0);
+  if (created != pdPASS) {
+    ota_state.state = OTA_STATE_ERROR;
+    ota_state.in_progress = 0;
+    snprintf(ota_state.error_msg, sizeof(ota_state.error_msg), "Kunne ikke starte baggrundstask");
+    return api_send_error(req, 500, ota_state.error_msg);
+  }
+
+  // BUG-367: HAARD oevre graense (90s — rundhaandet ift. en typisk
+  // firmware-stoerrelse over enhver fungerende forbindelse). Timer den ud,
+  // fortsaetter baggrundstasken (begraenset yderligere af dens egen
+  // interne 30s-stalde-detektor i download-loopet ovenfor) — og BLOKERER
+  // IKKE web-serveren mens den goer det, i modsaetning til foer.
+  ESP_LOGI(TAG, "GitHub install: baggrundstask startet, venter (maks 90s)...");
+  if (xSemaphoreTake(g_github_install_sem, pdMS_TO_TICKS(90000)) != pdTRUE) {
+    ESP_LOGE(TAG, "GitHub install: intet svar efter 90s - fortsaetter i baggrunden (se /api/system/ota/status)");
+    return api_send_error(req, 504,
+      "Intet svar efter 90s (langsom forbindelse/DNS?) - installationen forsoeger stadig i baggrunden, enheden genstarter selv hvis den lykkes");
+  }
+
+  if (ota_state.state == OTA_STATE_ERROR) {
+    return api_send_error(req, 500, ota_state.error_msg);
+  }
 
   char resp[256];
   int len = snprintf(resp, sizeof(resp),
     "{\"status\":\"ok\",\"message\":\"GitHub OTA complete, rebooting...\","
     "\"bytes\":%lu,\"new_version\":\"%s\",\"reboot_in_ms\":%d}",
-    (unsigned long)received_total,
+    (unsigned long)ota_state.received,
     ota_state.new_version[0] ? ota_state.new_version : "unknown",
     OTA_REBOOT_DELAY_MS);
   httpd_resp_set_type(req, "application/json");
   httpd_resp_send(req, resp, len);
-
-  xTaskCreate(ota_reboot_task, "ota_reboot", 2048, NULL, 5, NULL);
   return ESP_OK;
 }

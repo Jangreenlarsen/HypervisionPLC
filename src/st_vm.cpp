@@ -6,6 +6,8 @@
  */
 
 #include "st_vm.h"
+#include "st_logic_config.h"   // FEAT-007: GLOBAL_VAR storage (st_logic_get_state())
+#include "st_logic_engine.h"   // FEAT-007: st_logic_lock_variables()/_unlock_variables()
 #include "st_builtins.h"
 #include "st_builtin_modbus.h"
 #include "st_stateful.h"  // For st_stateful_storage_t cast
@@ -52,6 +54,12 @@ void st_vm_init(st_vm_t *vm, const st_bytecode_program_t *program) {
     memcpy(vm->variables, program->variables, program->var_count * sizeof(st_value_t));
   }
 
+  // FEAT-005: STRING variable content (string_scratch stays zeroed — pure
+  // per-execution temp storage, memset(0) above already cleared it).
+  if (program) {
+    memcpy(vm->string_vars, program->string_vars, sizeof(vm->string_vars));
+  }
+
   // FEAT-003: Initialize call stack for user-defined functions
   vm->call_depth = 0;
   vm->local_base = 0;
@@ -68,6 +76,9 @@ void st_vm_reset(st_vm_t *vm) {
   vm->step_count = 0;
   memset(vm->stack, 0, sizeof(vm->stack));
   memcpy(vm->variables, vm->program->variables, vm->var_count * sizeof(st_value_t));
+  memcpy(vm->string_vars, vm->program->string_vars, sizeof(vm->string_vars));  // FEAT-005
+  memset(vm->string_scratch, 0, sizeof(vm->string_scratch));
+  vm->string_scratch_cursor = 0;
 }
 
 /* ============================================================================
@@ -126,6 +137,43 @@ st_value_t st_vm_peek(st_vm_t *vm) {
 }
 
 /* ============================================================================
+ * FEAT-005: STRING SUPPORT
+ * ============================================================================ */
+
+const char *st_vm_string_resolve(st_vm_t *vm, st_value_t value) {
+  static const char empty_str[1] = "";
+  uint8_t kind = ST_STR_REF_KIND(value.str_ref);
+  uint8_t idx = ST_STR_REF_INDEX(value.str_ref);
+
+  switch (kind) {
+    case ST_STR_REF_KIND_VAR:
+      if (idx >= ST_MAX_STRING_VARS) return empty_str;
+      return vm->string_vars[idx];
+    case ST_STR_REF_KIND_LITERAL:
+      if (!vm->program || idx >= vm->program->string_literal_count) return empty_str;
+      return vm->program->string_literals[idx];
+    case ST_STR_REF_KIND_SCRATCH:
+      if (idx >= ST_MAX_STRING_SCRATCH) return empty_str;
+      return vm->string_scratch[idx];
+    default:
+      return empty_str;
+  }
+}
+
+st_value_t st_vm_string_scratch_alloc(st_vm_t *vm, const char *text) {
+  uint8_t idx = vm->string_scratch_cursor;
+  vm->string_scratch_cursor = (uint8_t)((vm->string_scratch_cursor + 1) % ST_MAX_STRING_SCRATCH);
+
+  strncpy(vm->string_scratch[idx], text ? text : "", ST_MAX_STRING_LEN);
+  vm->string_scratch[idx][ST_MAX_STRING_LEN] = '\0';
+
+  st_value_t ref;
+  memset(&ref, 0, sizeof(ref));
+  ref.str_ref = ST_STR_REF_MAKE(ST_STR_REF_KIND_SCRATCH, idx);
+  return ref;
+}
+
+/* ============================================================================
  * VARIABLE OPERATIONS
  * ============================================================================ */
 
@@ -179,12 +227,136 @@ static bool st_vm_exec_push_real(st_vm_t *vm, st_bytecode_instr_t *instr) {
   return st_vm_push_typed(vm, val, ST_TYPE_REAL);  // BUG-050
 }
 
+// FEAT-005: push a compile-time STRING literal (int_arg = literal table index)
+static bool st_vm_exec_push_string_lit(st_vm_t *vm, st_bytecode_instr_t *instr) {
+  st_value_t val;
+  memset(&val, 0, sizeof(val));
+  uint8_t idx = (uint8_t)instr->arg.int_arg;
+  if (!vm->program || idx >= vm->program->string_literal_count) {
+    snprintf(vm->error_msg, sizeof(vm->error_msg), "Invalid string literal index: %d", idx);
+    vm->error = 1;
+    return false;
+  }
+  val.str_ref = ST_STR_REF_MAKE(ST_STR_REF_KIND_LITERAL, idx);
+  return st_vm_push_typed(vm, val, ST_TYPE_STRING);
+}
+
+// FEAT-007: IEC 61131-3 implicit-conversion rules on assignment, factored
+// out of STORE_VAR so STORE_GLOBAL can apply the identical rules — the two
+// paths must never silently drift apart on what "assign INT to a REAL"
+// (etc.) means.
+static st_value_t st_vm_convert_value(st_value_t val, st_datatype_t val_type, st_datatype_t target_type) {
+  st_value_t converted_val = val;
+
+  // FEAT-121: Normalize TIME to DINT for conversion logic (same representation)
+  if (val_type == ST_TYPE_TIME) val_type = ST_TYPE_DINT;
+  st_datatype_t norm_target = (target_type == ST_TYPE_TIME) ? ST_TYPE_DINT : target_type;
+
+  if (val_type == norm_target) return val;
+
+  // REAL -> INT: Truncate to 16-bit
+  if (val_type == ST_TYPE_REAL && norm_target == ST_TYPE_INT) {
+    int32_t temp = (int32_t)val.real_val;
+    if (temp > INT16_MAX) temp = INT16_MAX;
+    if (temp < INT16_MIN) temp = INT16_MIN;
+    converted_val.int_val = (int16_t)temp;
+  }
+  // REAL -> DINT: Truncate to 32-bit
+  else if (val_type == ST_TYPE_REAL && norm_target == ST_TYPE_DINT) {
+    converted_val.dint_val = (int32_t)val.real_val;
+  }
+  // REAL -> BOOL: Non-zero = TRUE
+  else if (val_type == ST_TYPE_REAL && norm_target == ST_TYPE_BOOL) {
+    converted_val.bool_val = (val.real_val != 0.0f);
+  }
+  // DINT -> INT: Clamp to INT16 range
+  else if (val_type == ST_TYPE_DINT && norm_target == ST_TYPE_INT) {
+    int32_t temp = val.dint_val;
+    if (temp > INT16_MAX) temp = INT16_MAX;
+    if (temp < INT16_MIN) temp = INT16_MIN;
+    converted_val.int_val = (int16_t)temp;
+  }
+  // DINT -> REAL: Convert to float
+  else if (val_type == ST_TYPE_DINT && norm_target == ST_TYPE_REAL) {
+    converted_val.real_val = (float)val.dint_val;
+  }
+  // INT -> REAL: Convert to float
+  else if (val_type == ST_TYPE_INT && norm_target == ST_TYPE_REAL) {
+    converted_val.real_val = (float)val.int_val;
+  }
+  // INT -> DINT: Sign-extend to 32-bit
+  else if (val_type == ST_TYPE_INT && norm_target == ST_TYPE_DINT) {
+    converted_val.dint_val = (int32_t)val.int_val;
+  }
+  // INT -> BOOL: Non-zero = TRUE
+  else if (val_type == ST_TYPE_INT && norm_target == ST_TYPE_BOOL) {
+    converted_val.bool_val = (val.int_val != 0);
+  }
+  // BOOL -> INT: TRUE=1, FALSE=0
+  else if (val_type == ST_TYPE_BOOL && norm_target == ST_TYPE_INT) {
+    converted_val.int_val = val.bool_val ? 1 : 0;
+  }
+  // BOOL -> REAL: TRUE=1.0, FALSE=0.0
+  else if (val_type == ST_TYPE_BOOL && norm_target == ST_TYPE_REAL) {
+    converted_val.real_val = val.bool_val ? 1.0f : 0.0f;
+  }
+  // DWORD conversions (if needed, add more cases)
+  else {
+    // No conversion needed or unsupported conversion (use value as-is)
+    converted_val = val;
+  }
+
+  return converted_val;
+}
+
 static bool st_vm_exec_load_var(st_vm_t *vm, st_bytecode_instr_t *instr) {
   st_value_t val = st_vm_get_variable(vm, instr->arg.var_index);
   if (vm->error) return false;
   // BUG-050: Push with correct type from program
   st_datatype_t var_type = vm->program->var_types[instr->arg.var_index];
   return st_vm_push_typed(vm, val, var_type);
+}
+
+// FEAT-007: GLOBAL_VAR — load a variable shared across Logic1-4 from
+// st_logic_engine_state_t.globals[] (NOT this program's own variables[]).
+static bool st_vm_exec_load_global(st_vm_t *vm, st_bytecode_instr_t *instr) {
+  uint8_t idx = (uint8_t)instr->arg.var_index;
+  st_logic_engine_state_t *state = st_logic_get_state();
+  if (!state || idx >= state->global_count) {
+    snprintf(vm->error_msg, sizeof(vm->error_msg), "Invalid GLOBAL_VAR index: %d", idx);
+    vm->error = 1;
+    return false;
+  }
+
+  st_logic_lock_variables();
+  st_value_t val = state->globals[idx].value;
+  st_datatype_t type = state->globals[idx].type;
+  st_logic_unlock_variables();
+
+  return st_vm_push_typed(vm, val, type);
+}
+
+// FEAT-007: GLOBAL_VAR — store to a variable shared across Logic1-4.
+// Applies the same implicit type conversion as STORE_VAR (st_vm_convert_value).
+static bool st_vm_exec_store_global(st_vm_t *vm, st_bytecode_instr_t *instr) {
+  st_value_t val;
+  st_datatype_t val_type;
+  if (!st_vm_pop_typed(vm, &val, &val_type)) return false;
+
+  uint8_t idx = (uint8_t)instr->arg.var_index;
+  st_logic_engine_state_t *state = st_logic_get_state();
+  if (!state || idx >= state->global_count) {
+    snprintf(vm->error_msg, sizeof(vm->error_msg), "Invalid GLOBAL_VAR index: %d", idx);
+    vm->error = 1;
+    return false;
+  }
+
+  st_logic_lock_variables();
+  st_datatype_t target_type = state->globals[idx].type;
+  state->globals[idx].value = st_vm_convert_value(val, val_type, target_type);
+  st_logic_unlock_variables();
+
+  return true;
 }
 
 static bool st_vm_exec_store_var(st_vm_t *vm, st_bytecode_instr_t *instr) {
@@ -197,66 +369,31 @@ static bool st_vm_exec_store_var(st_vm_t *vm, st_bytecode_instr_t *instr) {
   // Get target variable type
   st_datatype_t var_type = vm->program->var_types[instr->arg.var_index];
 
-  // Automatic type conversion on assignment (IEC 61131-3 implicit conversion)
-  st_value_t converted_val = val;
+  // FEAT-005: STRING assignment — copy the actual CHARACTERS into this
+  // variable's OWN slot (vm->string_vars[idx]), never just alias another
+  // slot's str_ref — the source (a literal, a scratch temp, or another
+  // variable) could change independently afterwards, which would otherwise
+  // silently corrupt what this variable "sees" on its next read.
+  if (var_type == ST_TYPE_STRING) {
+    if (val_type != ST_TYPE_STRING) {
+      snprintf(vm->error_msg, sizeof(vm->error_msg), "Cannot assign non-STRING value to STRING variable");
+      vm->error = 1;
+      return false;
+    }
+    uint8_t idx = (uint8_t)instr->arg.var_index;
+    const char *src = st_vm_string_resolve(vm, val);
+    strncpy(vm->string_vars[idx], src, ST_MAX_STRING_LEN);
+    vm->string_vars[idx][ST_MAX_STRING_LEN] = '\0';
 
-  // FEAT-121: Normalize TIME to DINT for conversion logic (same representation)
-  if (val_type == ST_TYPE_TIME) val_type = ST_TYPE_DINT;
-  st_datatype_t target_type = (var_type == ST_TYPE_TIME) ? ST_TYPE_DINT : var_type;
-
-  if (val_type != target_type) {
-    // REAL → INT: Truncate to 16-bit
-    if (val_type == ST_TYPE_REAL && target_type == ST_TYPE_INT) {
-      int32_t temp = (int32_t)val.real_val;
-      if (temp > INT16_MAX) temp = INT16_MAX;
-      if (temp < INT16_MIN) temp = INT16_MIN;
-      converted_val.int_val = (int16_t)temp;
-    }
-    // REAL → DINT: Truncate to 32-bit
-    else if (val_type == ST_TYPE_REAL && target_type == ST_TYPE_DINT) {
-      converted_val.dint_val = (int32_t)val.real_val;
-    }
-    // REAL → BOOL: Non-zero = TRUE
-    else if (val_type == ST_TYPE_REAL && target_type == ST_TYPE_BOOL) {
-      converted_val.bool_val = (val.real_val != 0.0f);
-    }
-    // DINT → INT: Clamp to INT16 range
-    else if (val_type == ST_TYPE_DINT && target_type == ST_TYPE_INT) {
-      int32_t temp = val.dint_val;
-      if (temp > INT16_MAX) temp = INT16_MAX;
-      if (temp < INT16_MIN) temp = INT16_MIN;
-      converted_val.int_val = (int16_t)temp;
-    }
-    // DINT → REAL: Convert to float
-    else if (val_type == ST_TYPE_DINT && target_type == ST_TYPE_REAL) {
-      converted_val.real_val = (float)val.dint_val;
-    }
-    // INT → REAL: Convert to float
-    else if (val_type == ST_TYPE_INT && target_type == ST_TYPE_REAL) {
-      converted_val.real_val = (float)val.int_val;
-    }
-    // INT → DINT: Sign-extend to 32-bit
-    else if (val_type == ST_TYPE_INT && target_type == ST_TYPE_DINT) {
-      converted_val.dint_val = (int32_t)val.int_val;
-    }
-    // INT → BOOL: Non-zero = TRUE
-    else if (val_type == ST_TYPE_INT && target_type == ST_TYPE_BOOL) {
-      converted_val.bool_val = (val.int_val != 0);
-    }
-    // BOOL → INT: TRUE=1, FALSE=0
-    else if (val_type == ST_TYPE_BOOL && target_type == ST_TYPE_INT) {
-      converted_val.int_val = val.bool_val ? 1 : 0;
-    }
-    // BOOL → REAL: TRUE=1.0, FALSE=0.0
-    else if (val_type == ST_TYPE_BOOL && target_type == ST_TYPE_REAL) {
-      converted_val.real_val = val.bool_val ? 1.0f : 0.0f;
-    }
-    // DWORD conversions (if needed, add more cases)
-    else {
-      // No conversion needed or unsupported conversion (use value as-is)
-      converted_val = val;
-    }
+    st_value_t self_ref;
+    memset(&self_ref, 0, sizeof(self_ref));
+    self_ref.str_ref = ST_STR_REF_MAKE(ST_STR_REF_KIND_VAR, idx);
+    st_vm_set_variable(vm, instr->arg.var_index, self_ref);
+    return !vm->error;
   }
+
+  // Automatic type conversion on assignment (IEC 61131-3 implicit conversion)
+  st_value_t converted_val = st_vm_convert_value(val, val_type, var_type);
 
   st_vm_set_variable(vm, instr->arg.var_index, converted_val);
   return !vm->error;
@@ -799,6 +936,17 @@ static bool st_vm_exec_eq(st_vm_t *vm, st_bytecode_instr_t *instr) {
   if (!st_vm_pop_typed(vm, &right, &right_type)) return false;
   if (!st_vm_pop_typed(vm, &left, &left_type)) return false;
 
+  // FEAT-005: STRING comparison (IEC 61131-3 permits = / <> on STRING)
+  if (left_type == ST_TYPE_STRING || right_type == ST_TYPE_STRING) {
+    if (left_type != ST_TYPE_STRING || right_type != ST_TYPE_STRING) {
+      snprintf(vm->error_msg, sizeof(vm->error_msg), "Cannot compare STRING with non-STRING");
+      vm->error = 1;
+      return false;
+    }
+    result.bool_val = (strcmp(st_vm_string_resolve(vm, left), st_vm_string_resolve(vm, right)) == 0);
+    return st_vm_push_typed(vm, result, ST_TYPE_BOOL);
+  }
+
   // If either operand is REAL, compare as REAL
   if (left_type == ST_TYPE_REAL || right_type == ST_TYPE_REAL) {
     float left_f = (left_type == ST_TYPE_REAL) ? left.real_val :
@@ -827,6 +975,17 @@ static bool st_vm_exec_ne(st_vm_t *vm, st_bytecode_instr_t *instr) {
   // BUG-059: Pop with type information
   if (!st_vm_pop_typed(vm, &right, &right_type)) return false;
   if (!st_vm_pop_typed(vm, &left, &left_type)) return false;
+
+  // FEAT-005: STRING comparison (IEC 61131-3 permits = / <> on STRING)
+  if (left_type == ST_TYPE_STRING || right_type == ST_TYPE_STRING) {
+    if (left_type != ST_TYPE_STRING || right_type != ST_TYPE_STRING) {
+      snprintf(vm->error_msg, sizeof(vm->error_msg), "Cannot compare STRING with non-STRING");
+      vm->error = 1;
+      return false;
+    }
+    result.bool_val = (strcmp(st_vm_string_resolve(vm, left), st_vm_string_resolve(vm, right)) != 0);
+    return st_vm_push_typed(vm, result, ST_TYPE_BOOL);
+  }
 
   // If either operand is REAL, compare as REAL
   if (left_type == ST_TYPE_REAL || right_type == ST_TYPE_REAL) {
@@ -1096,6 +1255,29 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
       }
     } else if (func_id == ST_BUILTIN_SEL) {
       result = st_builtin_sel(arg1, arg2, arg3);
+    } else if (func_id == ST_BUILTIN_MID) {
+      // FEAT-005: MID(s, start, len) — 1-baseret start (IEC 61131-3-stil,
+      // matcher LEFT/RIGHT's 1-baserede tegn-taelling nedenfor)
+      if (arg1_type != ST_TYPE_STRING) {
+        snprintf(vm->error_msg, sizeof(vm->error_msg), "MID() requires a STRING first argument");
+        vm->error = 1;
+        return false;
+      }
+      const char *src = st_vm_string_resolve(vm, arg1);
+      int32_t start = (arg2_type == ST_TYPE_DINT) ? arg2.dint_val : arg2.int_val;
+      int32_t len   = (arg3_type == ST_TYPE_DINT) ? arg3.dint_val : arg3.int_val;
+      size_t src_len = strlen(src);
+      char buf[ST_MAX_STRING_LEN + 1];
+      buf[0] = '\0';
+      if (start >= 1 && (size_t)(start - 1) < src_len && len > 0) {
+        size_t off = (size_t)(start - 1);
+        size_t avail = src_len - off;
+        size_t n = ((size_t)len < avail) ? (size_t)len : avail;
+        if (n > ST_MAX_STRING_LEN) n = ST_MAX_STRING_LEN;
+        memcpy(buf, src + off, n);
+        buf[n] = '\0';
+      }
+      result = st_vm_string_scratch_alloc(vm, buf);
     } else if (func_id == ST_BUILTIN_MB_WRITE_COIL) {
       // BUG-134/136 FIX: Type promotion for all arguments
       // arg1 = slave_id (INT), arg2 = address (INT), arg3 = value (BOOL)
@@ -1847,6 +2029,51 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
       result.int_val = status;
     }
   }
+  else if (func_id == ST_BUILTIN_LEN && arg_count == 1) {
+    // FEAT-005: LEN(s) -> INT (antal tegn, ekskl. NUL-terminator)
+    if (arg1_type != ST_TYPE_STRING) {
+      snprintf(vm->error_msg, sizeof(vm->error_msg), "LEN() requires a STRING argument");
+      vm->error = 1;
+      return false;
+    }
+    result.int_val = (int16_t)strlen(st_vm_string_resolve(vm, arg1));
+  }
+  else if (func_id == ST_BUILTIN_CONCAT && arg_count == 2) {
+    // FEAT-005: CONCAT(s1, s2) -> STRING (afkortes stille ved overloeb af
+    // ST_MAX_STRING_LEN — samme "clamp fremfor fejl"-stil som resten af
+    // VM'ens type-konverteringer, fx BUG-105's INT/DINT-clamping)
+    if (arg1_type != ST_TYPE_STRING || arg2_type != ST_TYPE_STRING) {
+      snprintf(vm->error_msg, sizeof(vm->error_msg), "CONCAT() requires two STRING arguments");
+      vm->error = 1;
+      return false;
+    }
+    char buf[ST_MAX_STRING_LEN + 1];
+    snprintf(buf, sizeof(buf), "%s%s", st_vm_string_resolve(vm, arg1), st_vm_string_resolve(vm, arg2));
+    result = st_vm_string_scratch_alloc(vm, buf);
+  }
+  else if ((func_id == ST_BUILTIN_LEFT || func_id == ST_BUILTIN_RIGHT) && arg_count == 2) {
+    // FEAT-005: LEFT(s, n) / RIGHT(s, n) -> STRING (de n foerste/sidste tegn)
+    if (arg1_type != ST_TYPE_STRING) {
+      snprintf(vm->error_msg, sizeof(vm->error_msg), "%s() requires a STRING first argument",
+               (func_id == ST_BUILTIN_LEFT) ? "LEFT" : "RIGHT");
+      vm->error = 1;
+      return false;
+    }
+    const char *src = st_vm_string_resolve(vm, arg1);
+    int32_t n = (arg2_type == ST_TYPE_DINT) ? arg2.dint_val : arg2.int_val;
+    size_t src_len = strlen(src);
+    if (n < 0) n = 0;
+    if ((size_t)n > src_len) n = (int32_t)src_len;
+    char buf[ST_MAX_STRING_LEN + 1];
+    if (func_id == ST_BUILTIN_LEFT) {
+      memcpy(buf, src, (size_t)n);
+      buf[n] = '\0';
+    } else {
+      memcpy(buf, src + (src_len - (size_t)n), (size_t)n);
+      buf[n] = '\0';
+    }
+    result = st_vm_string_scratch_alloc(vm, buf);
+  }
   else {
     result = st_builtin_call(func_id, arg1, arg2);
   }
@@ -2003,8 +2230,11 @@ bool st_vm_step(st_vm_t *vm) {
     case ST_OP_PUSH_INT:        result = st_vm_exec_push_int(vm, instr); break;
     case ST_OP_PUSH_DWORD:      result = st_vm_exec_push_dword(vm, instr); break;
     case ST_OP_PUSH_REAL:       result = st_vm_exec_push_real(vm, instr); break;
+    case ST_OP_PUSH_STRING_LIT: result = st_vm_exec_push_string_lit(vm, instr); break;
     case ST_OP_LOAD_VAR:        result = st_vm_exec_load_var(vm, instr); break;
     case ST_OP_STORE_VAR:       result = st_vm_exec_store_var(vm, instr); break;
+    case ST_OP_LOAD_GLOBAL:     result = st_vm_exec_load_global(vm, instr); break;
+    case ST_OP_STORE_GLOBAL:    result = st_vm_exec_store_global(vm, instr); break;
     case ST_OP_DUP:             result = st_vm_exec_dup(vm, instr); break;
     case ST_OP_POP:             result = st_vm_exec_pop(vm, instr); break;
     case ST_OP_ADD:             result = st_vm_exec_add(vm, instr); break;

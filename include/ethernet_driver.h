@@ -130,6 +130,13 @@ int ethernet_driver_set_static_ip(uint32_t ip_addr, uint32_t gateway, uint32_t n
  */
 int ethernet_driver_enable_dhcp(void);
 
+/**
+ * BUG-371: Set the network-visible hostname (broadcast i DHCP-requests) paa
+ * Ethernet-interfacet — se wifi_driver_set_hostname()'s dokumentation for
+ * den fulde begrundelse.
+ */
+int ethernet_driver_set_hostname(const char *hostname);
+
 /* ============================================================================
  * BACKGROUND TASKS
  * ============================================================================ */

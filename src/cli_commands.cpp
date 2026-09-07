@@ -704,9 +704,14 @@ void cli_cmd_set_hostname(const char* hostname) {
   strncpy(g_persist_config.hostname, hostname, 31);
   g_persist_config.hostname[31] = '\0';
 
+  // BUG-371: anvend straks paa netif'en — se wifi_driver_set_hostname()'s
+  // dokumentation for hvorfor dette tidligere ikke havde nogen reel effekt.
+  wifi_driver_set_hostname(g_persist_config.hostname);
+  ethernet_driver_set_hostname(g_persist_config.hostname);
+
   debug_print("Hostname set to: ");
   debug_println(hostname);
-  debug_println("NOTE: Use 'save' to persist to NVS");
+  debug_println("NOTE: Anvendt paa interfacet nu. Reconnect/genstart opdaterer den DHCP-broadcastede vaert. Brug 'save' for at persistere til NVS.");
 }
 
 void cli_cmd_set_baud(uint32_t baud) {

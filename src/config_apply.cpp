@@ -251,6 +251,13 @@ bool config_apply(const PersistConfig* cfg) {
   if (cfg->st_logic_interval_ms >= 2 && cfg->st_logic_interval_ms <= 100) {
     st_logic_engine_state_t *st_state = st_logic_get_state();
     if (st_state) {
+      // FEAT-010: deliberately NOT st_logic_set_global_interval() (which
+      // cascades to every NORMAL program's own interval_ms) — main.cpp
+      // calls st_logic_load_from_persist_config() BEFORE config_apply(),
+      // so each program's interval_ms has ALREADY been loaded from its own
+      // .dat file by this point; cascading here would silently clobber
+      // those per-program values with the old global default on every boot.
+      // Only the "default for brand-new programs" field is set here.
       st_state->execution_interval_ms = cfg->st_logic_interval_ms;
     }
   }
@@ -298,6 +305,11 @@ bool config_apply(const PersistConfig* cfg) {
   } else {
     debug_println("  Wi-Fi power save: skipped (WiFi disabled)");
   }
+
+  // BUG-371: hostname anvendes IKKE her — config_apply() koerer FOER
+  // network_manager_init() opretter WiFi/Ethernet-netif'erne (se main.cpp),
+  // saa et kald her ville altid ramme "netif ikke oprettet endnu". Anvendes
+  // i stedet direkte i main.cpp lige efter network_manager_init() lykkes.
 
   // Apply Ethernet configuration (v6.1.0+)
   debug_print("  Ethernet: ");

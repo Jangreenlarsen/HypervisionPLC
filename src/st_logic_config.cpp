@@ -13,6 +13,7 @@
 #include "st_bytecode_persist.h"  // Bytecode cache in SPIFFS
 #include "st_source_scanner.h"   // Chunked compilation pre-scanner
 #include "st_stateful.h"         // st_stateful_storage_t for chunked compile
+#include "st_builtin_modbus.h"   // FEAT-010: g_mb_request_count/g_mb_cache_enabled for the HIGH task
 #include "debug.h"
 #include "debug_flags.h"
 #include <string.h>
@@ -23,6 +24,10 @@
 #include <FS.h>
 #include <SPIFFS.h>
 #include <esp_heap_caps.h>  // heap_caps_malloc for PSRAM allocation (v7.9.7.6)
+#include <esp_timer.h>       // FEAT-010: HIGH-priority task wake-up timer
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
 
 /* ============================================================================
  * GLOBAL STATE
@@ -85,6 +90,12 @@ void st_logic_init(st_logic_engine_state_t *state) {
     prog->source_size = 0;
     prog->ir_pool_offset = 65535;  // v5.1.0 - IR pool not allocated
     prog->ir_pool_size = 0;
+    // FEAT-010: default every program to NORMAL priority at the current
+    // shared interval — bit-identical to pre-FEAT-010 behavior unless the
+    // user explicitly opts a program into HIGH.
+    prog->priority = ST_LOGIC_PRIORITY_NORMAL;
+    prog->interval_ms = (uint16_t)state->execution_interval_ms;
+    prog->last_run_time = 0;
   }
 
   // v5.1.0 - Initialize IR pool manager
@@ -828,7 +839,15 @@ chunked_cleanup:
 
 /* Public API: uses monolithic compile with bytecode caching */
 bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
-  return st_logic_compile_monolithic(state, program_id);
+  bool ok = st_logic_compile_monolithic(state, program_id);
+  // FEAT-010: a program only becomes HIGH-schedulable once compiled==1 —
+  // pick up a program that just went from "flagged HIGH but not yet
+  // compiled" to "ready" (or vice versa on a failed recompile).
+  if (program_id < ST_LOGIC_MAX_PROGRAMS &&
+      state->programs[program_id].priority == ST_LOGIC_PRIORITY_HIGH) {
+    st_logic_high_reschedule(state);
+  }
+  return ok;
 }
 
 /* ============================================================================
@@ -861,6 +880,13 @@ bool st_logic_set_enabled(st_logic_engine_state_t *state, uint8_t program_id, ui
 
   st_logic_program_config_t *prog = &state->programs[program_id];
   prog->enabled = (enabled != 0);
+  prog->last_run_time = 0;  // FEAT-010: avoid a stale due-time on re-enable
+
+  // FEAT-010: enabling/disabling a HIGH-priority program changes whether
+  // (and how fast) the shared HIGH timer needs to run.
+  if (prog->priority == ST_LOGIC_PRIORITY_HIGH) {
+    st_logic_high_reschedule(state);
+  }
 
   return true;
 }
@@ -1061,6 +1087,330 @@ void st_logic_reset_cycle_stats(st_logic_engine_state_t *state) {
 }
 
 /* ============================================================================
+ * FEAT-007: GLOBAL_VAR MANAGEMENT (inter-program shared variables)
+ * ============================================================================ */
+
+bool st_logic_globals_upload(st_logic_engine_state_t *state, const char *source, uint32_t source_size) {
+  if (!state || !source) return false;
+  if (source_size >= ST_GLOBAL_SOURCE_MAX) {
+    snprintf(state->global_last_error, sizeof(state->global_last_error),
+             "Source too large (max %d bytes)", ST_GLOBAL_SOURCE_MAX - 1);
+    return false;
+  }
+
+  memcpy(state->global_source, source, source_size);
+  state->global_source[source_size] = '\0';
+  state->global_source_size = source_size;
+  return true;
+}
+
+bool st_logic_globals_compile(st_logic_engine_state_t *state) {
+  if (!state) return false;
+
+  if (state->global_source_size == 0) {
+    // No GLOBAL_VAR block uploaded — valid, just means zero globals exist
+    st_logic_lock_variables();
+    memset(state->globals, 0, sizeof(state->globals));
+    state->global_count = 0;
+    st_logic_unlock_variables();
+    state->global_last_error[0] = '\0';
+    return true;
+  }
+
+  st_parser_t *parser = (st_parser_t *)malloc(sizeof(st_parser_t));
+  if (!parser) {
+    snprintf(state->global_last_error, sizeof(state->global_last_error), "Insufficient heap for parser");
+    return false;
+  }
+  st_parser_init(parser, state->global_source);
+
+  // BUG-364/369 lesson applied here too: the plain-HTTP httpd worker task
+  // only has an 8KB stack — this array must be HEAP, not stack (a REST
+  // upload always reaches this function from that worker's call chain).
+  st_variable_decl_t *vars = (st_variable_decl_t *)malloc(sizeof(st_variable_decl_t) * ST_MAX_GLOBAL_VARS);
+  if (!vars) {
+    snprintf(state->global_last_error, sizeof(state->global_last_error), "Insufficient heap for variable table");
+    free(parser);
+    return false;
+  }
+  uint8_t count = 0;
+  bool ok = st_parser_parse_global_var_block(parser, vars, &count, ST_MAX_GLOBAL_VARS);
+
+  if (!ok) {
+    snprintf(state->global_last_error, sizeof(state->global_last_error), "%s", parser->error_msg);
+    free(parser);
+    free(vars);
+    return false;
+  }
+  free(parser);
+
+  // Duplicate-name check (same rule st_compiler_add_symbol enforces locally)
+  for (uint8_t i = 0; i < count; i++) {
+    for (uint8_t j = i + 1; j < count; j++) {
+      if (strcmp(vars[i].name, vars[j].name) == 0) {
+        snprintf(state->global_last_error, sizeof(state->global_last_error),
+                 "Duplicate GLOBAL_VAR name: %s", vars[i].name);
+        free(vars);
+        return false;
+      }
+    }
+  }
+
+  // Commit new layout — ALL values reset to zero. A GLOBAL_VAR change can
+  // also shift which index a name binds to, so any already-compiled program
+  // must be recompiled below to re-bind against this new layout (never left
+  // silently reading/writing the WRONG global by stale index).
+  st_logic_lock_variables();
+  memset(state->globals, 0, sizeof(state->globals));
+  for (uint8_t i = 0; i < count; i++) {
+    strncpy(state->globals[i].name, vars[i].name, sizeof(state->globals[i].name) - 1);
+    state->globals[i].name[sizeof(state->globals[i].name) - 1] = '\0';
+    state->globals[i].type = vars[i].type;
+  }
+  state->global_count = count;
+  st_logic_unlock_variables();
+  free(vars);
+  state->global_last_error[0] = '\0';
+
+  // Only recompile a program that ACTUALLY references a global — never
+  // touch (and never reset the runtime state of) an unrelated program.
+  // This matters a lot in practice: e.g. a long-running test program in
+  // another slot must never be silently reset just because an unrelated
+  // GLOBAL_VAR block was re-uploaded. Recompiling is also not free (SPIFFS
+  // bytecode-cache write per program), so skipping non-users keeps a
+  // globals-only edit fast.
+  for (uint8_t i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
+    st_logic_program_config_t *p = &state->programs[i];
+    if (!p->compiled) continue;
+
+    bool uses_globals = false;
+    for (uint16_t pc = 0; pc < p->bytecode.instr_count; pc++) {
+      st_opcode_t op = p->bytecode.instructions[pc].opcode;
+      if (op == ST_OP_LOAD_GLOBAL || op == ST_OP_STORE_GLOBAL) {
+        uses_globals = true;
+        break;
+      }
+    }
+    if (uses_globals) {
+      st_logic_compile(state, i);
+    }
+  }
+
+  return true;
+}
+
+uint8_t st_logic_globals_lookup(st_logic_engine_state_t *state, const char *name) {
+  if (!state || !name) return 0xFF;
+  for (uint8_t i = 0; i < state->global_count; i++) {
+    if (strcmp(state->globals[i].name, name) == 0) {
+      return i;
+    }
+  }
+  return 0xFF;
+}
+
+/* ============================================================================
+ * FEAT-010: PROGRAM PRIORITY / SCHEDULING (v7.9.14.0)
+ *
+ * HIGH-priority programs run on a dedicated FreeRTOS task pinned to Core 0,
+ * woken by a periodic esp_timer via a semaphore — completely decoupled from
+ * loopTask's (Core 1) own cadence. See BUGS_INDEX.md FEAT-010 for the full
+ * design rationale (why Core 0, why esp_timer+semaphore rather than the
+ * timer doing work directly, why HIGH programs cannot use bindings/GPIO).
+ *
+ * The task itself is created ONCE at boot and lives forever, blocked on
+ * the semaphore whenever no HIGH program is enabled — only the esp_timer
+ * (which is what actually drives execution) is started/stopped/rescheduled
+ * dynamically as programs are enabled/disabled/reconfigured.
+ * ============================================================================ */
+
+static esp_timer_handle_t s_high_timer = nullptr;
+static SemaphoreHandle_t s_high_semaphore = nullptr;
+static TaskHandle_t s_high_task_handle = nullptr;
+static st_logic_engine_state_t *s_high_state = nullptr;
+static bool s_high_timer_running = false;
+
+static void st_logic_high_timer_cb(void *arg) {
+  (void)arg;
+  // ESP_TIMER_TASK dispatch (not ISR context) — plain xSemaphoreGive is
+  // correct here, NOT the FromISR variant. Deliberately does nothing else:
+  // all real work happens in st_logic_high_task_func() after it wakes.
+  if (s_high_semaphore) {
+    xSemaphoreGive(s_high_semaphore);
+  }
+}
+
+static void st_logic_high_task_func(void *arg) {
+  st_logic_engine_state_t *state = (st_logic_engine_state_t *)arg;
+
+  while (1) {
+    xSemaphoreTake(s_high_semaphore, portMAX_DELAY);
+
+    if (!state || !state->enabled) continue;
+
+    uint32_t now = millis();
+    for (int prog_id = 0; prog_id < ST_LOGIC_MAX_PROGRAMS; prog_id++) {
+      st_logic_program_config_t *prog = &state->programs[prog_id];
+
+      if (!prog->enabled || !prog->compiled) continue;
+      if (prog->priority != ST_LOGIC_PRIORITY_HIGH) continue;
+
+      uint32_t elapsed = now - prog->last_run_time;
+      if (elapsed < prog->interval_ms) continue;
+      prog->last_run_time = now;
+
+      // NOTE: g_mb_request_count/g_mb_cache_enabled are process-global, not
+      // per-task — a NORMAL program on Core 1 and a HIGH program on Core 0
+      // executing in the same instant could theoretically interleave resets
+      // of this soft per-cycle Modbus request quota. Accepted as a known,
+      // low-severity limitation (worst case: a cycle's request throttle is
+      // briefly off by a few) rather than restructuring this shared counter
+      // — see BUGS_INDEX.md FEAT-010.
+      g_mb_request_count = 0;
+      g_mb_cache_enabled = true;
+
+      st_logic_execute_program(state, prog_id);
+    }
+  }
+}
+
+void st_logic_high_task_init(void) {
+  if (s_high_task_handle) return;  // already initialized (idempotent)
+
+  s_high_state = st_logic_get_state();
+  if (!s_high_state) {
+    debug_println("ST_LOGIC HIGH: FEJL - state ikke tilgaengelig");
+    return;
+  }
+
+  s_high_semaphore = xSemaphoreCreateBinary();
+  if (!s_high_semaphore) {
+    debug_println("ST_LOGIC HIGH: FEJL - kunne ikke oprette semafor");
+    return;
+  }
+
+  BaseType_t ret = xTaskCreatePinnedToCore(
+    st_logic_high_task_func,
+    "st_logic_high",
+    ST_LOGIC_HIGH_TASK_STACK,
+    s_high_state,
+    ST_LOGIC_HIGH_TASK_PRIO,
+    &s_high_task_handle,
+    ST_LOGIC_HIGH_TASK_CORE
+  );
+
+  if (ret != pdPASS) {
+    debug_println("ST_LOGIC HIGH: FEJL - kunne ikke starte task");
+    vSemaphoreDelete(s_high_semaphore);
+    s_high_semaphore = nullptr;
+    s_high_task_handle = nullptr;
+    return;
+  }
+
+  debug_printf("ST_LOGIC HIGH: task startet (Core %d, prio %d) — inaktiv indtil et program saettes til HIGH\n",
+               ST_LOGIC_HIGH_TASK_CORE, ST_LOGIC_HIGH_TASK_PRIO);
+}
+
+void st_logic_high_reschedule(st_logic_engine_state_t *state) {
+  if (!state || !s_high_task_handle) return;
+
+  // Find the fastest interval among currently enabled+compiled+HIGH programs
+  uint32_t fastest_ms = 0;
+  for (int i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
+    st_logic_program_config_t *prog = &state->programs[i];
+    if (!prog->enabled || !prog->compiled) continue;
+    if (prog->priority != ST_LOGIC_PRIORITY_HIGH) continue;
+    if (fastest_ms == 0 || prog->interval_ms < fastest_ms) {
+      fastest_ms = prog->interval_ms;
+    }
+  }
+
+  // Stop any existing timer before (re)configuring
+  if (s_high_timer_running && s_high_timer) {
+    esp_timer_stop(s_high_timer);
+    s_high_timer_running = false;
+  }
+
+  if (fastest_ms == 0) {
+    // No enabled HIGH program — leave the timer stopped, task stays blocked
+    return;
+  }
+
+  if (!s_high_timer) {
+    esp_timer_create_args_t timer_args = {};
+    timer_args.callback = &st_logic_high_timer_cb;
+    timer_args.arg = nullptr;
+    timer_args.dispatch_method = ESP_TIMER_TASK;
+    timer_args.name = "st_logic_high";
+    esp_err_t err = esp_timer_create(&timer_args, &s_high_timer);
+    if (err != ESP_OK) {
+      debug_printf("ST_LOGIC HIGH: FEJL - esp_timer_create fejlede (%d)\n", (int)err);
+      return;
+    }
+  }
+
+  esp_err_t err = esp_timer_start_periodic(s_high_timer, (uint64_t)fastest_ms * 1000ULL);
+  if (err != ESP_OK) {
+    debug_printf("ST_LOGIC HIGH: FEJL - esp_timer_start_periodic fejlede (%d)\n", (int)err);
+    return;
+  }
+  s_high_timer_running = true;
+  debug_printf("ST_LOGIC HIGH: timer koerer nu hver %ums\n", (unsigned)fastest_ms);
+}
+
+void st_logic_set_global_interval(st_logic_engine_state_t *state, uint32_t interval_ms) {
+  if (!state) return;
+  state->execution_interval_ms = interval_ms;
+  for (int i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
+    st_logic_program_config_t *prog = &state->programs[i];
+    if (prog->priority == ST_LOGIC_PRIORITY_NORMAL) {
+      prog->interval_ms = (uint16_t)interval_ms;
+    }
+  }
+}
+
+bool st_logic_set_program_interval(st_logic_engine_state_t *state, uint8_t program_id, uint32_t interval_ms) {
+  if (!state || program_id >= ST_LOGIC_MAX_PROGRAMS) return false;
+  if (interval_ms < ST_LOGIC_INTERVAL_MIN_MS || interval_ms > ST_LOGIC_INTERVAL_MAX_MS) return false;
+
+  st_logic_program_config_t *prog = &state->programs[program_id];
+  prog->interval_ms = (uint16_t)interval_ms;
+
+  if (prog->priority == ST_LOGIC_PRIORITY_HIGH) {
+    st_logic_high_reschedule(state);
+  }
+  return true;
+}
+
+bool st_logic_set_program_priority(st_logic_engine_state_t *state, uint8_t program_id, uint8_t priority,
+                                    char *error_out, size_t error_out_size) {
+  if (!state || program_id >= ST_LOGIC_MAX_PROGRAMS) {
+    if (error_out) snprintf(error_out, error_out_size, "Invalid program ID");
+    return false;
+  }
+  if (priority != ST_LOGIC_PRIORITY_NORMAL && priority != ST_LOGIC_PRIORITY_HIGH) {
+    if (error_out) snprintf(error_out, error_out_size, "Invalid priority");
+    return false;
+  }
+
+  st_logic_program_config_t *prog = &state->programs[program_id];
+
+  if (priority == ST_LOGIC_PRIORITY_HIGH && prog->binding_count > 0) {
+    if (error_out) {
+      snprintf(error_out, error_out_size,
+               "HIGH priority requires no Modbus/GPIO bindings (this program has %u)",
+               (unsigned)prog->binding_count);
+    }
+    return false;
+  }
+
+  prog->priority = priority;
+  prog->last_run_time = 0;  // avoid a stale timestamp causing an immediate/delayed first run
+  st_logic_high_reschedule(state);
+  return true;
+}
+
+/* ============================================================================
  * PERSISTENCE (SPIFFS STORAGE)
  * ============================================================================ */
 
@@ -1082,6 +1432,29 @@ bool st_logic_save_to_nvs(void) {
 
   if (dbg->config_save) {
     debug_println("ST_LOGIC SAVE: Saving programs to SPIFFS");
+  }
+
+  // FEAT-007: Save GLOBAL_VAR declaration source (values are NOT persisted —
+  // only the declarations; see st_logic_globals_compile for why a fresh
+  // compile always resets values to zero, same as regular local variables).
+  if (state->global_source_size == 0) {
+    if (SPIFFS.exists("/logic_global.dat")) {
+      SPIFFS.remove("/logic_global.dat");
+    }
+  } else {
+    File gfile = SPIFFS.open("/logic_global.dat", FILE_WRITE);
+    if (gfile) {
+      gfile.write((uint8_t*)&state->global_source_size, sizeof(uint32_t));
+      gfile.write((uint8_t*)state->global_source, state->global_source_size);
+      gfile.close();
+      if (dbg->config_save) {
+        debug_print("  GLOBAL_VAR: saved ");
+        debug_print_uint(state->global_source_size);
+        debug_println(" bytes");
+      }
+    } else if (dbg->config_save) {
+      debug_println("  GLOBAL_VAR: FAILED to open file");
+    }
   }
 
   // Save each program
@@ -1116,8 +1489,15 @@ bool st_logic_save_to_nvs(void) {
       continue;
     }
 
-    // Write: enabled flag (1 byte) + source size (4 bytes) + source code
+    // FEAT-010: Write [magic(1)][enabled(1)][priority(1)][interval_ms(2)]
+    // [source_size(4)] + source code. Magic byte (0xAA) lets the loader
+    // distinguish this from the pre-FEAT-010 [enabled(1)][source_size(4)]
+    // format (see ST_LOGIC_DAT_MAGIC's doc comment in constants.h).
+    uint8_t magic = ST_LOGIC_DAT_MAGIC;
+    file.write(magic);
     file.write(prog->enabled);
+    file.write(prog->priority);
+    file.write((uint8_t*)&prog->interval_ms, sizeof(uint16_t));
     file.write((uint8_t*)&prog->source_size, sizeof(uint32_t));
 
     // Get source code from pool and write
@@ -1168,6 +1548,33 @@ bool st_logic_load_from_nvs(void) {
     debug_println("ST_LOGIC LOAD: Loading programs from SPIFFS");
   }
 
+  // FEAT-007: Load + compile GLOBAL_VAR declarations BEFORE any of Logic1-4
+  // — their compile below must see the final globals[] layout so a
+  // GLOBAL_VAR reference in program source resolves correctly, instead of
+  // wrongly erroring "Unknown variable" against an empty/stale global table.
+  if (SPIFFS.exists("/logic_global.dat")) {
+    File gfile = SPIFFS.open("/logic_global.dat", FILE_READ);
+    if (gfile && gfile.available() >= 4) {
+      uint32_t gsize = 0;
+      gfile.read((uint8_t*)&gsize, sizeof(uint32_t));
+      if (gsize > 0 && gsize < ST_GLOBAL_SOURCE_MAX) {
+        char *gbuf = (char *)malloc(gsize);
+        if (gbuf) {
+          gfile.read((uint8_t*)gbuf, gsize);
+          st_logic_globals_upload(state, gbuf, gsize);
+          free(gbuf);
+        }
+      }
+      gfile.close();
+    } else if (gfile) {
+      gfile.close();
+    }
+  }
+  if (!st_logic_globals_compile(state) && dbg->config_load) {
+    debug_print("ST_LOGIC LOAD: GLOBAL_VAR compile FAILED: ");
+    debug_println(state->global_last_error);
+  }
+
   // Load each program
   uint8_t loaded_count = 0;
   for (uint8_t i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
@@ -1193,7 +1600,11 @@ bool st_logic_load_from_nvs(void) {
       continue;
     }
 
-    // Read: enabled flag (1 byte) + source size (4 bytes) + source code
+    // FEAT-010: header format detection — old format is [enabled(1)]
+    // [source_size(4)] where enabled was always 0 or 1; new format is
+    // [magic=0xAA(1)][enabled(1)][priority(1)][interval_ms(2)][source_size(4)].
+    // 0xAA can never appear as a valid old-format "enabled" byte, so the
+    // two are distinguished unambiguously by peeking the first byte.
     if (file.available() < 5) {
       if (dbg->config_load) {
         debug_print("  Program ");
@@ -1204,8 +1615,36 @@ bool st_logic_load_from_nvs(void) {
       continue;
     }
 
-    prog->enabled = file.read();
-    file.read((uint8_t*)&prog->source_size, sizeof(uint32_t));
+    uint8_t first_byte = file.read();
+    if (first_byte == ST_LOGIC_DAT_MAGIC) {
+      if (file.available() < 7) {
+        if (dbg->config_load) {
+          debug_print("  Program ");
+          debug_print_uint(i);
+          debug_println(": new-format file too small");
+        }
+        file.close();
+        continue;
+      }
+      prog->enabled = file.read();
+      prog->priority = file.read();
+      uint16_t interval16 = 0;
+      file.read((uint8_t*)&interval16, sizeof(uint16_t));
+      prog->interval_ms = interval16;
+      if (prog->priority != ST_LOGIC_PRIORITY_NORMAL && prog->priority != ST_LOGIC_PRIORITY_HIGH) {
+        prog->priority = ST_LOGIC_PRIORITY_NORMAL;  // corrupt/unknown value — fail safe to NORMAL
+      }
+      if (prog->interval_ms < ST_LOGIC_INTERVAL_MIN_MS || prog->interval_ms > ST_LOGIC_INTERVAL_MAX_MS) {
+        prog->interval_ms = (uint16_t)state->execution_interval_ms;
+      }
+      file.read((uint8_t*)&prog->source_size, sizeof(uint32_t));
+    } else {
+      // Legacy pre-FEAT-010 file: first_byte IS the enabled flag
+      prog->enabled = first_byte;
+      prog->priority = ST_LOGIC_PRIORITY_NORMAL;
+      prog->interval_ms = (uint16_t)state->execution_interval_ms;
+      file.read((uint8_t*)&prog->source_size, sizeof(uint32_t));
+    }
 
     if (prog->source_size > 0 && prog->source_size <= ST_LOGIC_POOL_SIZE) {
       // Allocate space in pool
@@ -1298,6 +1737,21 @@ bool st_logic_load_from_nvs(void) {
 
   // BUG-005 FIX: Update binding count cache after loading programs
   st_logic_update_binding_counts(state);
+
+  // FEAT-010 safety net: a HIGH program must never have bindings (see
+  // st_logic_set_program_priority) — this can only be violated by a
+  // hand-edited/corrupted .dat file, but fail safe to NORMAL rather than
+  // let an unsynced HIGH task touch GPIO/register-bound variables.
+  for (uint8_t i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
+    st_logic_program_config_t *prog = &state->programs[i];
+    if (prog->priority == ST_LOGIC_PRIORITY_HIGH && prog->binding_count > 0) {
+      debug_printf("ST_LOGIC LOAD: Program %d var HIGH med bindinger — tvunget til NORMAL\n", i + 1);
+      prog->priority = ST_LOGIC_PRIORITY_NORMAL;
+    }
+  }
+
+  // FEAT-010: pick up any program(s) persisted as HIGH+enabled
+  st_logic_high_reschedule(state);
 
   return true;
 }

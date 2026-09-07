@@ -164,6 +164,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <a href="/editor">ST Editor</a>
 <a href="/cli">CLI</a>
 <a href="/system">System</a>
+<a href="/logs">Logs</a>
 <button class="save-btn" id="saveBtn" onclick="doSystemSave()" title="Gem konfiguration til NVS">&#128190; Save</button>
 <div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogin" onclick="showLogin()">Log ind</div><div class="um-btn" id="umLogout" onclick="doLogout()" style="display:none">Log ud</div></div></div>
 </div>
@@ -612,6 +613,34 @@ let _lastPollTs=null;
 // indtil mouseup), og indholdsopdateringer faar kortet til at hoppe i
 // stoerrelse mens man forsoeger at placere det praecist.
 let _dragOrResizeActive=false;
+// BUG-369: dashboardets automatiske polling (7 forskellige setInterval-
+// cadencer, hvoraf fetchNetworkInfo() alene fyrer 4 fetch-kald parallelt)
+// kunne tidligere alle ramme enheden samtidigt. Hver ny HTTPS-forbindelse
+// kraever en frisk TLS-session (~35-40KB intern heap paa enheden), og
+// serveren tillader kun 3 samtidige (max_open_sockets=3, https_wrapper.c)
+// — overskrides det, fejler mbedTLS's opsaetning paa en maade der (i den
+// ESP-IDF-version enheden koerer) lækker hukommelse pr. fejlet forsoeg,
+// hvilket i vaerste fald spiraler mod heap-udtoemning. dashFetch() sikrer
+// at ALLE automatiske polling-kald deler én koe med et hardt loft paa
+// samtidige forbindelser, uanset hvor mange timere der tilfaeldigvis
+// rammer samme oejeblik.
+let _dashFetchActive=0;
+const _dashFetchQueue=[];
+const DASH_FETCH_MAX_CONCURRENT=2;
+function _dashFetchPump(){
+  while(_dashFetchActive<DASH_FETCH_MAX_CONCURRENT && _dashFetchQueue.length>0){
+    const job=_dashFetchQueue.shift();
+    _dashFetchActive++;
+    fetch(job.url,job.opts).then(r=>{_dashFetchActive--;_dashFetchPump();job.resolve(r);})
+      .catch(e=>{_dashFetchActive--;_dashFetchPump();job.reject(e);});
+  }
+}
+function dashFetch(url,opts){
+  return new Promise((resolve,reject)=>{
+    _dashFetchQueue.push({url,opts,resolve,reject});
+    _dashFetchPump();
+  });
+}
 // FEAT-075: Cached state from Prometheus (used by fetchConnections)
 let _tcpTelOn=false,_tcpTelIp='',_tcpTelUser='',_tcpTelUp=0;
 let _tcpHttpTotal=0,_tcpHttpOk=0,_tcpHttp4xx=0,_tcpHttp5xx=0;
@@ -1505,11 +1534,11 @@ async function fetchNetworkInfo(){
     var auth=sessionStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
     // Hostname
-    fetch('/api/hostname',opts).then(r=>r.json()).then(d=>{
+    dashFetch('/api/hostname',opts).then(r=>r.json()).then(d=>{
       $('netHostname').textContent=d.hostname||'-';
     }).catch(()=>{});
     // WiFi details
-    fetch('/api/wifi',opts).then(r=>r.json()).then(d=>{
+    dashFetch('/api/wifi',opts).then(r=>r.json()).then(d=>{
       const rt=d.runtime||{};
       if(rt.connected){
         $('netWifiIp').textContent=(rt.ip||'-')+(rt.netmask?' / '+rt.netmask:'');
@@ -1522,7 +1551,7 @@ async function fetchNetworkInfo(){
       }
     }).catch(()=>{});
     // Ethernet details
-    fetch('/api/ethernet',opts).then(r=>r.json()).then(d=>{
+    dashFetch('/api/ethernet',opts).then(r=>r.json()).then(d=>{
       const rt=d.runtime||{};
       if(rt.connected){
         $('netEthIp').textContent=(rt.ip||'-')+(rt.netmask?' / '+rt.netmask:'');
@@ -1537,7 +1566,7 @@ async function fetchNetworkInfo(){
       }
     }).catch(()=>{});
     // SSE status
-    fetch('/api/events/status',opts).then(r=>r.json()).then(d=>{
+    dashFetch('/api/events/status',opts).then(r=>r.json()).then(d=>{
       $('sseStatus').textContent=d.sse_enabled?'Aktiv':'Deaktiveret';
       $('ssePort').textContent=d.sse_port||'-';
       $('sseMax').textContent=d.max_clients+' max';
@@ -1555,7 +1584,7 @@ async function fetchConnections(){
 
     // SSE klienter (indgående)
     try{
-      const r=await fetch('/api/events/clients',opts);
+      const r=await dashFetch('/api/events/clients',opts);
       if(r.ok){
         const d=await r.json();
         if(d.clients){for(const c of d.clients){
@@ -1609,7 +1638,7 @@ async function fetchBindings(){
   try{
     var auth=sessionStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
-    const r=await fetch('/api/bindings',opts);
+    const r=await dashFetch('/api/bindings',opts);
     if(r.ok){_stBindings=await r.json();}
   }catch(e){}
 }
@@ -1621,7 +1650,7 @@ async function fetchMetrics(){
   // poll), og andre kort kan hoppe i indhold/stoerrelse imens.
   if(_dragOrResizeActive)return;
   try{
-    const r=await fetch('/api/metrics',{});
+    const r=await dashFetch('/api/metrics',{});
     if(!r.ok)return;
     const text=await r.text();
     const m=parsePrometheus(text);
@@ -1638,7 +1667,7 @@ const MB_QUEUE_MAX=32;
 async function fetchAlarms(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
   try{
-    const r=await fetch('/api/alarms',{});
+    const r=await dashFetch('/api/alarms',{});
     if(!r.ok)return;
     _alarmLog=await r.json();
     renderAlarms();
@@ -1722,7 +1751,7 @@ async function fetchMbActivity(){
     // FEAT-153: hent kun det vi viser. Loggen rummer 500 poster; uden
     // limit ville hver polling (hvert 3. sek) traekke det hele over WiFi.
     const lim=Math.max(5,parseInt($('mbActLimit')?$('mbActLimit').value:100)||100);
-    const r=await fetch('/api/modbus/activity?limit='+lim,{});
+    const r=await dashFetch('/api/modbus/activity?limit='+lim,{});
     if(!r.ok)return;
     const d=await r.json();
     // Bagudkompatibelt: gammelt format var et bart array, nyt er et objekt
@@ -1871,7 +1900,7 @@ async function fetchSyslog(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
   try{
     const lim=Math.max(5,parseInt($('syslogLimit')?$('syslogLimit').value:100)||100);
-    const r=await fetch('/api/syslog?limit='+lim,{});
+    const r=await dashFetch('/api/syslog?limit='+lim,{});
     if(!r.ok)return;
     const d=await r.json();
     _syslogEntries=d.entries||[];
@@ -2415,10 +2444,9 @@ function restoreCardOrder(){
       _hiddenCards={};
       d.card_hidden.split(',').forEach(id=>{if(id)_hiddenCards[id]=true;});
     }
-    // Restore "Custom"-fane medlemsskab (schema 23, FEAT-167)
+    // Restore "Custom"-fane medlemsskab (schema 23, FEAT-167; indeks-kodet, BUG-365)
     if(d.card_custom&&d.card_custom.length>0){
-      _customMembers={};
-      d.card_custom.split(',').forEach(id=>{if(id)_customMembers[id]=true;});
+      _customMembers=_decodeCardIdxList(d.card_custom);
     }
     // FEAT-160: foerst NU kender vi den REELLE synlighed (skjulte kort/fane-
     // tildeling fra NVS) — foer dette tidspunkt kan applyGridLayout() (kaldt
@@ -2433,6 +2461,36 @@ function restoreCardOrder(){
 const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',mbactivity:'Modbus Aktivitetslog',syslog:'Hændelseslog',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O',analogio:'Analog I/O'};
 const _tabNames={overview:'Overblik',modbus:'Modbus',connections:'Forbindelser',app:'Applikation'};
 const _allCardIds=['system','network','alarms','syslog','modbusslave','modbusmaster','mbactivity','rtutrafik','httpapi','tcpmonitor','ntp','counters','timers','stlogic','dio','analogio'];
+// BUG-365: Custom-fane-medlemsskab gemmes som INDEKS i _allCardIds
+// ("0,4,7,12"), ikke fulde kort-navne ("system,modbusslave,...") — de fulde
+// navne kunne let overstige det 80-byte NVS-felt (dashboard_card_custom) med
+// blot 6-8 valgte kort, hvilket fik "Gem indstillinger" til STILLE at fejle
+// (serveren dropper opdateringen uden fejlsvar hvis strengen er for lang —
+// samme klasse bug som ville ramme card_hidden ved mange skjulte kort, men
+// Custom er langt mere tilboejelig til at ramme graensen, da hensigten netop
+// er "vaelg dem jeg vil se"). Serveren behandler feltet som en opak streng
+// (ingen fortolkning server-side), saa dette er en ren client-side
+// kodningsaendring — ingen backend-/schema-aendring noedvendig. _allCardIds'
+// raekkefoelge maa fremover kun UDVIDES (nye kort tilfoejes sidst), aldrig
+// omarrangeres/fjernes midt i, ellers peger allerede gemte indekser paa
+// forkerte kort efter en opdatering.
+function _encodeCardIdxList(memberMap){
+  const idxs=[];
+  Object.keys(memberMap).forEach(id=>{
+    const i=_allCardIds.indexOf(id);
+    if(i>=0)idxs.push(i);
+  });
+  return idxs.join(',');
+}
+function _decodeCardIdxList(str){
+  const map={};
+  if(!str)return map;
+  str.split(',').forEach(s=>{
+    const i=parseInt(s,10);
+    if(!isNaN(i)&&_allCardIds[i])map[_allCardIds[i]]=true;
+  });
+  return map;
+}
 
 function buildSettingsTable(){
   const body=$('settingsBody');
@@ -2489,10 +2547,15 @@ function saveSettings(){
   var auth=sessionStorage.getItem('hfplc_auth');
   var opts={method:'POST',headers:{'Content-Type':'application/json'}};
   if(auth)opts.headers['Authorization']=auth;
-  opts.body=JSON.stringify({card_tabs:tabs.join(','),card_hidden:hidden.join(','),card_custom:custom.join(',')});
+  opts.body=JSON.stringify({card_tabs:tabs.join(','),card_hidden:hidden.join(','),card_custom:_encodeCardIdxList(_customMembers)});
   fetch('/api/dashboard/layout',opts).then(r=>{
     const msg=$('settingsMsg');
-    if(r.ok){msg.textContent='Indstillinger gemt';msg.style.color='#a6e3a1';}
+    // BUG-365: /api/dashboard/layout opdaterer kun g_persist_config i RAM —
+    // ligesom stort set alle andre indstillinger i dette system kraever det
+    // en EFTERFOELGENDE "Save" (System-siden, eller "Gem"-knappen i toppen)
+    // for at overleve en reboot. Goer det eksplicit her, da det tidligere
+    // var uklart om denne knap ogsaa gemte til NVS.
+    if(r.ok){msg.textContent='Indstillinger anvendt (RAM). Husk Save/Gem Config for at overleve en genstart.';msg.style.color='#a6e3a1';}
     else if(r.status===401){msg.textContent='Log ind først (klik bruger-knap øverst)';msg.style.color='#fab387';}
     else if(r.status===403){msg.textContent='Ingen skriveadgang — kræver write privilege';msg.style.color='#fab387';}
     else{r.text().then(t=>{msg.textContent='Fejl: '+r.status+' '+t;msg.style.color='#f38ba8';});}
@@ -2803,13 +2866,26 @@ function init(){
   initDragDrop();
   applySubTab();
   updateMbForm();
-  fetchBindings();
+  // BUG-369: disse fetch-kald blev tidligere fyret helt samtidigt ved
+  // side-indlaesning (+ updateUserBadge() og sseConnect()s eget kald,
+  // se laengere nede) — op til 9 samtidige HTTPS-forbindelsesforsoeg paa
+  // én gang, mod en HTTPS-server konfigureret med kun max_open_sockets=3.
+  // Hver TLS-session kraever ~35-40KB intern heap (se https_wrapper.c) —
+  // 3-4 samtidige laykker naesten al ledig intern heap, saa resten fejler
+  // TLS-opsaetning, hvilket i visse ESP-IDF-versioner lækker hukommelse
+  // pr. fejlet forsoeg (bekraeftet af bruger: heap faldt fra ~132KB til
+  // under 36KB inden for faa minutters normal brug). Spredt ud over ~1s
+  // saa der aldrig er mere end 1-2 NYE TLS-handshakes i gang samtidig —
+  // loeser ikke selve frameworkets lækage, men fjerner den udloesende
+  // burst helt.
   fetchMetrics();
-  fetchAlarms();
-  fetchMbActivity();
-  fetchSyslog();
-  fetchNetworkInfo();
-  fetchConnections();
+  setTimeout(fetchBindings, 120);
+  setTimeout(fetchAlarms, 240);
+  setTimeout(fetchMbActivity, 360);
+  setTimeout(fetchSyslog, 480);
+  setTimeout(fetchNetworkInfo, 600);
+  setTimeout(fetchConnections, 720);
+  setTimeout(updateUserBadge, 840);
   refreshTimer=setInterval(fetchMetrics,3000);
   setInterval(fetchBindings,15000);
   setInterval(fetchAlarms,5000);
@@ -2817,7 +2893,7 @@ function init(){
   setInterval(fetchSyslog,5000);
   setInterval(fetchNetworkInfo,10000);
   setInterval(fetchConnections,5000);
-  sseConnect();
+  setTimeout(sseConnect, 960);
 }
 init();
 
@@ -2864,7 +2940,8 @@ async function doSystemSave(){
   }catch(e){btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}
   setTimeout(()=>{btn.className='save-btn';btn.innerHTML='&#128190; Save';},2000);
 }
-updateUserBadge();
+// BUG-369: updateUserBadge() flyttet ind i init()s forsinkede raekkefoelge
+// ovenfor — kaldtes tidligere ogsaa herfra, samtidigt med resten
 </script>
 </body>
 </html>

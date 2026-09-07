@@ -41,8 +41,11 @@ Hvert program eksekveres fra `BEGIN` til `END_PROGRAM` **én gang pr. scan-cyklu
 | `DWORD` | 32-bit usigneret | Bitmasker, store positive tal |
 | `REAL` | 32-bit IEEE 754 flydende | Decimaltal |
 | `TIME` | 32-bit (ms), skrives `T#5s`, `T#100ms`, `T#1h30m`, `T#2d5h30m15s100ms` | Tidsintervaller til timere |
+| `STRING` | Fast kapacitet, op til 32 tegn, skrives `'tekst'` | Tekststrenge — se boks nedenfor |
 
-Literaler over `INT`s grænse (>32767) auto-forfremmes til `DINT`. Arrays understøttes: `regs: ARRAY[0..15] OF INT;`.
+Literaler over `INT`s grænse (>32767) auto-forfremmes til `DINT`. Arrays understøttes: `regs: ARRAY[0..15] OF INT;` (ikke for `STRING`).
+
+> **`STRING`-begrænsninger:** alle strenge har en fast maks-længde på 32 tegn (længere literaler/resultater afkortes stille, ingen fejl) — der er ingen `STRING[N]`-størrelsessyntaks. Indbyggede funktioner: `LEN(s)` (→ INT), `CONCAT(s1,s2)`, `LEFT(s,n)`, `RIGHT(s,n)`, `MID(s,start,len)` (1-indekseret `start`, IEC-stil) — alle → STRING undtagen `LEN`. `STRING`-variabler kan **ikke** `EXPORT`'es til IR-poolen og kan **ikke** bindes til Modbus-registre/coils (en registerskrivning ville ellers overskrive variablens interne reference med vilkårlige bits). Programmer der bruger `STRING` genkompileres altid fra kildekode ved boot (ingen bytecode-cache).
 
 ## 8.4 Kontrolstrukturer
 
@@ -209,6 +212,80 @@ Dette mønster — ST Logic som lokal, altid-kørende beslutningslogik + REST AP
       END_IF;
     END_IF;
   ```
+
+## 8.10 Delte variable mellem programmer (GLOBAL_VAR)
+
+Normalt er Logic1-4 **fuldstændigt isolerede** — hvert program har sit eget variabelrum, og et program kan ikke se eller ændre et andet programs variabler. **`GLOBAL_VAR`** er en separat, delt deklarationsblok (uafhængig af de 4 programmer) hvis variabler alle 4 programmer kan læse og skrive direkte, uden om Modbus-bindinger:
+
+```st
+GLOBAL_VAR
+  produktion_i_gang: BOOL;
+  total_tæller: DINT;
+END_VAR
+```
+
+Ethvert program der refererer til `produktion_i_gang` eller `total_tæller` som et almindeligt variabelnavn (uden lokal deklaration af samme navn) læser/skriver automatisk den delte værdi:
+
+```st
+(* Program 1: tæller op hver gang en cyklus fra sensoren registreres *)
+PROGRAM Tæller
+VAR
+  puls: BOOL;
+END_VAR
+BEGIN
+  IF puls THEN
+    total_tæller := total_tæller + 1;
+  END_IF;
+END_PROGRAM
+```
+
+```st
+(* Program 2: bruger den SAMME tæller til at afgøre alarmgrænse — uden nogen Modbus-binding mellem de to programmer *)
+PROGRAM Overvågning
+BEGIN
+  IF total_tæller > 10000 THEN
+    produktion_i_gang := FALSE;
+  END_IF;
+END_PROGRAM
+```
+
+**Håndtering via REST API:**
+```bash
+curl -u admin:modbus123 -X POST http://192.168.1.100/api/logic/globals/source \
+     -H "Content-Type: application/json" -d '{"source": "GLOBAL_VAR\n  x: INT;\nEND_VAR\n"}'
+curl -u admin:modbus123 http://192.168.1.100/api/logic/globals   # se aktuelle værdier
+```
+CLI: `show logic globals` (læs-kun status — redigering sker via REST/web-editoren, samme princip som almindelig program-kildekode).
+
+**Begrænsninger og faldgruber:**
+- Kun **scalar-typer** (`BOOL INT DINT DWORD REAL TIME`) — hverken `STRING`, `ARRAY` eller FB-instanser kan deles.
+- Et globalt navn kan **skygges** af en lokal variabel med samme navn i et program — den lokale vinder altid, uden fejl eller advarsel. Undgå at genbruge navne mellem lokal og global scope.
+- **Genupload af `GLOBAL_VAR`-blokken nulstiller alle globale værdier til 0/FALSE** og udløser automatisk genkompilering af ethvert program der rent faktisk bruger en global variabel (nødvendigt, fordi variabelnavne-til-indeks-bindingen kan skifte ved omstrukturering) — programmer der ikke bruger nogen global røres slet ikke. Kun selve **deklarationerne** (kildeteksten) overlever reboot, ligesom almindelig program-kildekode — de aktuelle **værdier** nulstilles altid ved genstart.
+- Da flere programmer nu reelt kan dele hukommelse, er der (ligesom med Modbus-bindinger) intet der forhindrer et "race" hvor to programmer skriver til samme globale variabel i samme scan-cyklus — adgangen er tråd-sikker (ingen korruption), men *rækkefølgen* mellem programmerne inden for én cyklus er ikke noget man bør designe logik der er afhængig af.
+
+## 8.11 Program-prioritet: NORMAL vs. HIGH
+
+Hvert af Logic1-4 har nu sin **egen** eksekveringsinterval og prioritet — i stedet for ét fælles interval for alle fire.
+
+- **NORMAL** (standard): kører kooperativt sammen med resten af systemet (Modbus RTU-scan, GPIO, dashboard) — uændret opførsel, bare med sit eget interval.
+- **HIGH**: kører på en **dedikeret, uafhængig baggrundstask**, vækket af en hardware-timer med lav jitter — helt afkoblet fra hovedloopets kadence. Til brug hvis et program skal reagere hurtigere/mere præcist end resten af systemet tillader (fx et hurtigt sikkerhedsinterlock).
+
+```bash
+curl -u admin:modbus123 -X POST http://192.168.1.100/api/logic/1/priority \
+     -H "Content-Type: application/json" -d '{"priority": "high"}'
+curl -u admin:modbus123 -X POST http://192.168.1.100/api/logic/1/interval \
+     -H "Content-Type: application/json" -d '{"interval_ms": 5}'
+```
+CLI: `set logic 1 priority high`, `set logic 1 interval 5`. Det gamle `set logic interval <ms>` (uden program-nummer) findes stadig — det sætter nu blot samme interval på alle NORMAL-programmer på én gang.
+
+**Vigtig begrænsning: et HIGH-program kan ikke bindes til Modbus-registre eller GPIO.** Bindings-tabellen synkroniseres med hovedloopets egen kadence — et HIGH-program der kører på sin egen, uafhængige timer ville læse/skrive bundne variable på uforudsigelige tidspunkter i forhold til den synkronisering. Forsøg på at binde et HIGH-program (eller sætte et allerede bundet program til HIGH) afvises med en klar fejl. Et HIGH-program kan stadig:
+- bruge almindelige lokale variable
+- læse/skrive [GLOBAL_VAR](#810-delte-variable-mellem-programmer-global_var) (delt sikkert med de øvrige programmer)
+- kalde Modbus Master-funktioner (`MB_READ_*`/`MB_WRITE_*`) — disse går allerede gennem en asynkron, trådsikker kø
+
+**Skærpet sikkerhedsnet for HIGH:** et HIGH-program der låser sig fast (fx en uendelig løkke) stoppes automatisk efter færre instruktioner OG et kortere tidsbudget end et NORMAL-program (for at aldrig kunne blokere resten af systemet) — programmet markeres fejlet (`error_count` stiger, `last_error` viser årsagen), men enheden som helhed forbliver upåvirket og fuldt responsiv.
+
+**Persistens:** priority/interval gemmes sammen med programmets egen kildekode (samme fil som `enabled`-status) — de overlever reboot ligesom resten af programmet.
 
 ---
 

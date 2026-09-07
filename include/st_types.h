@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "constants.h"  // FEAT-005: ST_MAX_STRING_LEN/VARS/LITERALS/SCRATCH
 
 /* ============================================================================
  * LEXER TOKEN TYPES (IEC 61131-3 6.3.1)
@@ -42,6 +43,7 @@ typedef enum {
   ST_TOK_DWORD,             // DWORD (or UINT32, ULINT - 32-bit unsigned)
   ST_TOK_REAL_KW,           // REAL (keyword - different from literal ST_TOK_REAL)
   ST_TOK_TIME_KW,           // TIME (keyword - for VAR declarations, FEAT-121)
+  ST_TOK_STRING_KW,         // STRING (keyword - different from literal ST_TOK_STRING, FEAT-005)
 
   // Keywords - Variable declarators (IEC 6.2.3)
   ST_TOK_VAR,               // VAR
@@ -50,6 +52,7 @@ typedef enum {
   ST_TOK_VAR_IN_OUT,        // VAR_IN_OUT (future)
   ST_TOK_END_VAR,           // END_VAR
   ST_TOK_EXPORT,            // EXPORT (v5.1.0 - mark variable for IR pool export)
+  ST_TOK_GLOBAL_VAR,        // GLOBAL_VAR (FEAT-007 - inter-program shared variable block)
 
   // Keywords - Control structures (IEC 6.3.2)
   ST_TOK_IF,                // IF
@@ -122,9 +125,16 @@ typedef enum {
   ST_TOK_RBRACKET,          // ]
   ST_TOK_DOTDOT,            // .. (array range, FEAT-004)
   ST_TOK_ARRAY,             // ARRAY keyword (FEAT-004)
+  ST_TOK_DOT,               // . (STRUCT member access, FEAT-009)
   ST_TOK_SEMICOLON,         // ;
   ST_TOK_COMMA,             // ,
   ST_TOK_COLON,             // :
+
+  // FEAT-009: STRUCT type declarations
+  ST_TOK_TYPE_KW,           // TYPE
+  ST_TOK_STRUCT_KW,         // STRUCT
+  ST_TOK_END_STRUCT,        // END_STRUCT
+  ST_TOK_END_TYPE,          // END_TYPE
 
   // Special
   ST_TOK_EOF,               // End of input
@@ -154,8 +164,21 @@ typedef enum {
   ST_TYPE_DWORD,            // DWORD (0 to 2^32-1) - 32-bit unsigned, 2 registers
   ST_TYPE_REAL,             // REAL (IEEE 754 32-bit float) - 2 registers
   ST_TYPE_TIME,             // TIME (milliseconds, stored as uint32) - FEAT-121
+  ST_TYPE_STRING,           // STRING (FEAT-005, v7.9.11.0) - handle into program/VM string arrays
   ST_TYPE_NONE,             // Used for statements (not variables)
 } st_datatype_t;
+
+// FEAT-005: str_ref encoding — top 2 bits = kind, low 6 bits = index (0-63).
+// Strings are NEVER stored inline in st_value_t (which must stay a small,
+// fixed-size union copied by value everywhere — stack, variables[], debug
+// snapshots, bytecode cache). Kun en reference; de faktiske tegn ligger i
+// et af tre faste arrays (se st_bytecode_program_t/st_vm_t).
+#define ST_STR_REF_KIND_VAR      0   // index -> program/vm string_vars[index] (persists across cycles)
+#define ST_STR_REF_KIND_LITERAL  1   // index -> program->string_literals[index] (compile-time constant)
+#define ST_STR_REF_KIND_SCRATCH  2   // index -> vm->string_scratch[index] (kun gyldig i én eksekvering)
+#define ST_STR_REF_MAKE(kind, idx)  (uint8_t)(((kind) << 6) | ((idx) & 0x3F))
+#define ST_STR_REF_KIND(ref)        ((uint8_t)((ref) >> 6))
+#define ST_STR_REF_INDEX(ref)       ((uint8_t)((ref) & 0x3F))
 
 /* Union to hold any ST value */
 typedef union {
@@ -164,6 +187,7 @@ typedef union {
   int32_t dint_val;         // DINT: 32-bit signed (-2^31 to 2^31-1)
   uint32_t dword_val;       // DWORD: 32-bit unsigned (0 to 2^32-1)
   float real_val;           // REAL: 32-bit IEEE 754 float
+  uint8_t str_ref;          // STRING: reference, see ST_STR_REF_* above (FEAT-005)
 } st_value_t;
 
 /* ST Variable (in VAR declarations) */
@@ -179,7 +203,28 @@ typedef struct {
   uint8_t array_size;       // Number of elements (0 if not array)
   int16_t array_lower;      // Lower bound (e.g., 0)
   int16_t array_upper;      // Upper bound (e.g., 7)
+  // FEAT-009: STRUCT support — mutually exclusive with is_array (no ARRAY OF
+  // STRUCT, no STRUCT field that is itself an array, in this v1 profile).
+  uint8_t is_struct;        // 1 = STRUCT-typed variable
+  char struct_type_name[32]; // Name from "TYPE <name> : STRUCT ... END_TYPE" (resolved by the compiler, not the parser)
 } st_variable_decl_t;
+
+/* FEAT-009: one field inside a "TYPE Name : STRUCT ... END_STRUCT END_TYPE"
+ * declaration. Scalar types only (no nested STRUCT, no ARRAY, no STRING —
+ * see st_parser_parse_struct_type_decl for the full rationale). */
+typedef struct {
+  char name[32];
+  st_datatype_t type;
+} st_struct_field_decl_t;
+
+/* FEAT-009: one "TYPE Name : STRUCT ... END_STRUCT END_TYPE" declaration.
+ * Scoped to a single program's own source (parsed before its VAR block) —
+ * NOT shared across Logic1-4 like GLOBAL_VAR. */
+typedef struct {
+  char name[32];
+  st_struct_field_decl_t fields[ST_MAX_STRUCT_FIELDS];
+  uint8_t field_count;
+} st_struct_type_decl_t;
 
 /* ============================================================================
  * AST NODE TYPES (Abstract Syntax Tree)
@@ -228,11 +273,18 @@ typedef struct {
 typedef struct {
   char var_name[32];        // Variable identifier (31 chars max, was 64 — heap optimization)
   st_datatype_t type;       // Type (inferred from context)
+  char field_name[32];      // FEAT-009: non-empty for STRUCT member access (point.field); "" for a plain variable
 } st_variable_ref_t;
 
 typedef struct {
   st_datatype_t type;       // Type of literal
-  st_value_t value;         // Value
+  st_value_t value;         // Value (unused for STRING — see string_text below)
+  // FEAT-005: raw text of a STRING literal, captured verbatim by the parser.
+  // st_value_t is a union and has no room for text; the COMPILER reads this
+  // field once (to intern the literal into the program's string_literals[]
+  // table and emit ST_OP_PUSH_STRING_LIT with the resulting index) — it is
+  // never touched again after compilation (bytecode/AST are separate).
+  char string_text[ST_MAX_STRING_LEN + 1];
 } st_literal_t;
 
 // FEAT-122: Output parameter binding for IEC 61131-3 function blocks
@@ -290,6 +342,7 @@ typedef struct {
   char var_name[32];        // Variable being assigned (31 chars max, was 64 — heap optimization)
   st_ast_node_t *expr;      // Expression
   st_ast_node_t *index_expr; // FEAT-004: Array index (NULL for scalar)
+  char field_name[32];      // FEAT-009: non-empty for STRUCT field assignment (point.field := expr); "" otherwise. Mutually exclusive with index_expr.
 } st_assignment_t;
 
 /* FEAT-004: Array element access */
@@ -465,6 +518,12 @@ typedef struct {
   st_variable_decl_t variables[32]; // Max 32 variables per program
   uint8_t var_count;
 
+  // FEAT-009: STRUCT type declarations, parsed BEFORE the VAR block
+  // ("TYPE Name : STRUCT ... END_STRUCT END_TYPE"). Scoped to this one
+  // program's own source — not shared across Logic1-4 like GLOBAL_VAR.
+  st_struct_type_decl_t struct_types[ST_MAX_STRUCT_TYPES];
+  uint8_t struct_type_count;
+
   // AST root (linked list of statements)
   st_ast_node_t *body;
 
@@ -484,6 +543,7 @@ typedef enum {
   ST_OP_PUSH_INT,           // Push int literal
   ST_OP_PUSH_DWORD,         // Push dword literal
   ST_OP_PUSH_REAL,          // Push real literal
+  ST_OP_PUSH_STRING_LIT,    // FEAT-005: push STRING literal (int_arg = index into program->string_literals)
   ST_OP_PUSH_VAR,           // Push variable value onto stack
   ST_OP_DUP,                // Duplicate top stack value
   ST_OP_POP,                // Pop and discard top stack value
@@ -523,6 +583,13 @@ typedef enum {
   // Variable operations
   ST_OP_STORE_VAR,          // Pop value, store to variable
   ST_OP_LOAD_VAR,           // Load variable to stack
+
+  // FEAT-007: Inter-program shared variables (GLOBAL_VAR block). Unlike
+  // STORE_VAR/LOAD_VAR (var_index into THIS program's own variables[]),
+  // var_index here indexes st_logic_engine_state_t.globals[] — storage
+  // shared by all 4 programs, guarded by st_var_spinlock.
+  ST_OP_STORE_GLOBAL,       // Pop value, store to global variable
+  ST_OP_LOAD_GLOBAL,        // Load global variable to stack
 
   // Loop
   ST_OP_LOOP_INIT,          // Initialize loop counter
@@ -600,6 +667,17 @@ typedef struct {
   char var_names[32][16];          // Variable names (for CLI binding by name, 15 chars max — heap optimization)
   st_datatype_t var_types[32];     // Variable types (BOOL, INT, etc.) - for bindings display
   uint8_t var_count;
+
+  // FEAT-005: STRING storage. Kun slots hvor var_types[i]==ST_TYPE_STRING
+  // bruger den tilsvarende string_vars[i] — resten staar ubrugt (fast
+  // reserveret plads, samme stil som variables[32] i forvejen). Persisterer
+  // paa tvaers af cyklusser (ligesom variables[] goer for scalars).
+  // string_literals[] er derimod compile-time-konstant (fyldt én gang af
+  // compileren, aendres aldrig ved runtime) — laeses direkte fra programmet,
+  // kopieres IKKE ind i VM'en per eksekvering (til forskel fra string_vars).
+  char string_vars[ST_MAX_STRING_VARS][ST_MAX_STRING_LEN + 1];
+  char string_literals[ST_MAX_STRING_LITERALS][ST_MAX_STRING_LEN + 1];
+  uint8_t string_literal_count;
 
   // IR Pool Export (v5.1.0 - dynamic allocation of IR 220-251)
   uint8_t var_export_flags[32]; // 1 = EXPORT (visible in IR pool), 0 = private

@@ -625,6 +625,11 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_CNT_RAW:       return "CNT_RAW";
     case ST_BUILTIN_CNT_FREQ:      return "CNT_FREQ";
     case ST_BUILTIN_CNT_STATUS:    return "CNT_STATUS";
+    case ST_BUILTIN_LEN:           return "LEN";
+    case ST_BUILTIN_CONCAT:        return "CONCAT";
+    case ST_BUILTIN_LEFT:          return "LEFT";
+    case ST_BUILTIN_RIGHT:         return "RIGHT";
+    case ST_BUILTIN_MID:           return "MID";
     default:                       return "UNKNOWN";
   }
 }
@@ -750,6 +755,16 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_CNT_STATUS:    // CNT_STATUS(id)
       return 1;
 
+    // FEAT-005: STRING functions (v7.9.11.0)
+    case ST_BUILTIN_LEN:           // LEN(s)
+      return 1;
+    case ST_BUILTIN_CONCAT:        // CONCAT(s1, s2)
+    case ST_BUILTIN_LEFT:          // LEFT(s, n)
+    case ST_BUILTIN_RIGHT:         // RIGHT(s, n)
+      return 2;
+    case ST_BUILTIN_MID:           // MID(s, start, len)
+      return 3;
+
     default:
       return 0;
   }
@@ -830,6 +845,16 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_BIT_CLR:           // BIT_CLR → INT
     case ST_BUILTIN_CNT_FREQ:          // CNT_FREQ → INT (Hz)
     case ST_BUILTIN_CNT_STATUS:        // CNT_STATUS → INT (bitfield)
+    case ST_BUILTIN_LEN:               // LEN → INT (FEAT-005, character count)
+      return ST_TYPE_INT;
+
+    // Returns STRING (FEAT-005, v7.9.11.0)
+    case ST_BUILTIN_CONCAT:
+    case ST_BUILTIN_LEFT:
+    case ST_BUILTIN_RIGHT:
+    case ST_BUILTIN_MID:
+      return ST_TYPE_STRING;
+
     default:
       return ST_TYPE_INT;
   }

@@ -157,12 +157,17 @@ Register-adresser er faste i denne version (ikke bruger-omkonfigurerbare) — se
 | POST | `/api/logic/{id}/reinit` *(suffix)* | CHECK_AUTH_WRITE | Cold restart (nulstil variabler) |
 | DELETE | `/api/logic/{id}` | CHECK_AUTH_WRITE | Slet program |
 | GET | `/api/logic/{id}/stats` *(suffix)* | CHECK_AUTH | execution_count, error_count, min/max/avg/last_execution_us, overrun_count |
-| POST | `/api/logic/{id}/bind` *(suffix)* | CHECK_AUTH_WRITE | Body: `{"variable":"navn","binding":"reg:N\|coil:N\|input:N","direction":"input\|output\|both"}` (direction valgfri) |
+| POST | `/api/logic/{id}/bind` *(suffix)* | CHECK_AUTH_WRITE | Body: `{"variable":"navn","binding":"reg:N\|coil:N\|input:N","direction":"input\|output\|both"}` (direction valgfri). **FEAT-010**: afvist hvis programmet er sat til HIGH-prioritet |
+| POST | `/api/logic/{id}/priority` *(suffix)* | CHECK_AUTH_WRITE | **FEAT-010.** Body: `{"priority":"normal"\|"high"}`. Afvist hvis programmet har ≥1 aktiv binding (se §8.11 i manualen) |
+| POST | `/api/logic/{id}/interval` *(suffix)* | CHECK_AUTH_WRITE | **FEAT-010.** Body: `{"interval_ms":2-60000}` — dette ene programs eksekveringsinterval |
 | GET | `/api/logic/{id}/debug/state` *(suffix)* | **CHECK_AUTH** (ikke write!) | mode(`off`/`paused`/`step`/`run`), breakpoints[], snapshot (pc,sp,halted,error,variables[]) |
 | POST | `/api/logic/{id}/debug/pause\|continue\|step\|stop` *(suffix)* | **CHECK_AUTH** (ikke write!) | Styr debugger — bemærk: kun almindelig auth kræves, ikke write-privilegie |
 | POST | `/api/logic/{id}/debug/breakpoint` *(suffix)* | CHECK_AUTH | Body: `{"pc":N}`. Maks 8 breakpoints. |
 | DELETE | `/api/logic/{id}/debug/breakpoint` *(suffix)* | CHECK_AUTH | Body: `{"pc":N}` (fjern én) eller uden body (ryd alle) |
-| POST | `/api/logic/settings` | CHECK_AUTH_WRITE | Body: `{"interval_ms":1-60000}` — globalt exec-interval |
+| POST | `/api/logic/settings` | CHECK_AUTH_WRITE | Body: `{"interval_ms":1-60000}` — **FEAT-010**: sætter nu interval på alle NORMAL-prioritets-programmer på én gang (HIGH-programmer upåvirket) |
+| GET | `/api/logic/globals` *(suffix af `/api/logic/*`)* | CHECK_AUTH | **FEAT-007.** Aktuelle GLOBAL_VAR-værdier (delt mellem Logic1-4): `{"globals":[{"index","name","type","value"}],"count"}` |
+| GET | `/api/logic/globals/source` *(suffix)* | CHECK_AUTH | `{"source","size"}` — GLOBAL_VAR-blokkens kildetekst |
+| POST | `/api/logic/globals/source` *(suffix)* | CHECK_AUTH_WRITE | Body: `{"source":"GLOBAL_VAR ... END_VAR"}` (maks 1024 bytes). Uploader + kompilerer; nulstiller alle globale værdier til 0/FALSE og genkompilerer automatisk ethvert program der reelt bruger en global (se [§8.10](08_ST_Logic_Programmering.md#810-delte-variable-mellem-programmer-global_var)). Svar inkl. `compiled`, `count`, evt. `compile_error` |
 | GET | `/api/bindings` | CHECK_AUTH | Alle variabel↔register-bindinger: index, program, var_index, name, type, direction, register_type(`HR`/`DI`/`Coil`), register_addr |
 | DELETE | `/api/bindings/{index}` *(wildcard)* | CHECK_AUTH_WRITE | Fjern én binding (global `var_maps`-indeks fra GET-listen) |
 
@@ -237,6 +242,9 @@ Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevari
 | POST | `/api/syslog/clear` | CHECK_AUTH_WRITE | Tømmer loggen (ændrer ikke start/stop-tilstanden) |
 | POST | `/api/syslog/start` | CHECK_AUTH_WRITE | Genoptager logning. Svar: `{"status":"ok","logging":true}` |
 | POST | `/api/syslog/stop` | CHECK_AUTH_WRITE | Stopper logning uden at rydde indholdet. Svar: `{"status":"ok","logging":false}` |
+| GET | `/api/system/logs` | CHECK_AUTH | **FEAT-033.** 100-entry ringbuffer (PSRAM) over afsluttede API-requests. Svar: `{"logging":bool,"capacity":100,"total":N,"entries":[...]}`. Hver post: `timestamp_ms`, `epoch_s`, `method`, `path`, `status`, `ip`, `username` (`"-"` hvis ukendt). Logges fra `api_send_error()`/`api_send_json()` — dækker IKKE endpoints der streamer chunked svar direkte (fx `/api/syslog`, `/api/modbus/activity`, sig selv). Understøtter `?limit=N` (nyeste N poster). GUI: `/logs`-siden (5. knap i topnavigationen, ved siden af Monitor/ST Editor/CLI/System) |
+| POST | `/api/system/logs/clear` | CHECK_AUTH_WRITE | Tømmer audit-loggen |
+| GET | `/api/schema` | CHECK_AUTH | **FEAT-029.** OpenAPI 3.0-skema genereret fra enhedens interne route-tabel (samme kilde som `/api/`'s endpoint-liste) — til automatisk klient-kodegenerering. Kun sti/metode/kort-beskrivelse pr. endpoint, ingen detaljerede request/response-skemaer |
 
 **Hændelser (`event`) logges ved:** config gemt til NVS, reboot (REST/CLI/OTA), login-fejl (401/403), boot. Login-**succes** logges bevidst ikke (stateless Basic Auth ville flode loggen).
 
@@ -284,7 +292,7 @@ Disse serverer statisk HTML/JS **uden nogen server-side auth-kontrol** — sider
 
 ## B.21 Opsummering / verifikation
 
-- `grep -c "httpd_register_uri_handler(http_state.server" src/http_server.cpp` → **103** (FEAT-166 tilføjede 4: `/api/rbac` GET+POST, `/api/rbac/users` POST, `/api/rbac/users/*` DELETE) — alle er dokumenteret ovenfor (enten som selvstændig række, eller som *suffix*-delegeret under-endpoint med reference til deres fælles wildcard-registrering).
+- `grep -c "httpd_register_uri_handler(http_state.server" src/http_server.cpp` → **109** (FEAT-169 tilføjede GitHub-OTA check/install; FEAT-033/029 tilføjede `/api/system/logs` GET+POST og `/api/schema`) — alle er dokumenteret ovenfor (enten som selvstændig række, eller som *suffix*-delegeret under-endpoint med reference til deres fælles wildcard-registrering). FEAT-007's `/api/logic/globals*` endpoints tilføjer INGEN nye registreringer — de er suffix-delegerede under den allerede-eksisterende `/api/logic/*`-wildcard, ligesom `/source`/`/enable` m.fl.
 - Dertil kommer **1** endpoint der bevidst ikke er en del af hoved-`httpd`'en: `GET /api/events` (dedikeret SSE-portserver).
 - `ota_handler.cpp` bidrager 3 (registreres fra `http_server.cpp`, men implementeres i egen fil).
 

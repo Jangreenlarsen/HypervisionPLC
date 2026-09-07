@@ -87,6 +87,7 @@ static const keyword_entry_t keywords[] = {
   {"DWORD", ST_TOK_DWORD},
   {"REAL", ST_TOK_REAL_KW},
   {"TIME", ST_TOK_TIME_KW},  // FEAT-121: TIME datatype keyword
+  {"STRING", ST_TOK_STRING_KW},  // FEAT-005: STRING datatype keyword (v7.9.11.0)
 
   // Variable declarations
   {"VAR", ST_TOK_VAR},
@@ -96,6 +97,7 @@ static const keyword_entry_t keywords[] = {
   {"END_VAR", ST_TOK_END_VAR},
   {"CONST", ST_TOK_CONST},
   {"EXPORT", ST_TOK_EXPORT},  // v5.1.0 - IR pool export modifier
+  {"GLOBAL_VAR", ST_TOK_GLOBAL_VAR},  // FEAT-007 - inter-program shared variable block
 
   // Control structures
   {"IF", ST_TOK_IF},
@@ -137,6 +139,12 @@ static const keyword_entry_t keywords[] = {
 
   // FEAT-004: Array support
   {"ARRAY", ST_TOK_ARRAY},
+
+  // FEAT-009: STRUCT type declarations
+  {"TYPE", ST_TOK_TYPE_KW},
+  {"STRUCT", ST_TOK_STRUCT_KW},
+  {"END_STRUCT", ST_TOK_END_STRUCT},
+  {"END_TYPE", ST_TOK_END_TYPE},
 
   // Operators
   {"AND", ST_TOK_AND},
@@ -667,6 +675,15 @@ bool st_lexer_next_token(st_lexer_t *lexer, st_token_t *token) {
       token->value[0] = ',';
       lexer_advance(lexer);
       return true;
+    case '.':
+      // FEAT-009: STRUCT member access (point.field). Numbers (123.45) and
+      // the ARRAY range operator (0..7) are both already fully consumed
+      // above before execution ever reaches this single-char switch, so a
+      // bare '.' reaching here can only be member access.
+      token->type = ST_TOK_DOT;
+      token->value[0] = '.';
+      lexer_advance(lexer);
+      return true;
     case ':':
       token->type = ST_TOK_COLON;
       token->value[0] = ':';
@@ -722,6 +739,7 @@ const char *st_token_type_to_string(st_token_type_t type) {
     case ST_TOK_VAR_OUTPUT:     return "VAR_OUTPUT";
     case ST_TOK_VAR_IN_OUT:     return "VAR_IN_OUT";
     case ST_TOK_EXPORT:         return "EXPORT";
+    case ST_TOK_GLOBAL_VAR:     return "GLOBAL_VAR";
     case ST_TOK_IF:             return "IF";
     case ST_TOK_THEN:           return "THEN";
     case ST_TOK_ELSE:           return "ELSE";
@@ -759,6 +777,7 @@ const char *st_token_type_to_string(st_token_type_t type) {
     case ST_TOK_GE:             return "GE";
     case ST_TOK_OUTPUT_ARROW:   return "OUTPUT_ARROW";
     case ST_TOK_TIME_KW:        return "TIME_KW";
+    case ST_TOK_STRING_KW:      return "STRING_KW";
     case ST_TOK_PLUS:           return "PLUS";
     case ST_TOK_MINUS:          return "MINUS";
     case ST_TOK_MUL:            return "MUL";
@@ -769,6 +788,11 @@ const char *st_token_type_to_string(st_token_type_t type) {
     case ST_TOK_NOT:            return "NOT";
     case ST_TOK_DOTDOT:         return "DOTDOT";
     case ST_TOK_ARRAY:          return "ARRAY";
+    case ST_TOK_DOT:            return "DOT";
+    case ST_TOK_TYPE_KW:        return "TYPE_KW";
+    case ST_TOK_STRUCT_KW:      return "STRUCT_KW";
+    case ST_TOK_END_STRUCT:     return "END_STRUCT";
+    case ST_TOK_END_TYPE:       return "END_TYPE";
     case ST_TOK_EOF:            return "EOF";
     case ST_TOK_ERROR:          return "ERROR";
     default:                    return "UNKNOWN";

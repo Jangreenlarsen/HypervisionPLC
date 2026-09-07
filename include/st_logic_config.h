@@ -10,6 +10,7 @@
 #define ST_LOGIC_CONFIG_H
 
 #include <stdint.h>
+#include <stddef.h>  // FEAT-010: size_t (st_logic_set_program_priority's error_out_size)
 #include "st_types.h"
 #include "constants.h"
 #include "config_struct.h"
@@ -72,7 +73,30 @@ typedef struct {
   uint16_t ir_pool_offset;    // Start offset in IR 220-251 (65535 if not allocated)
   uint8_t ir_pool_size;       // Number of registers allocated (0-32)
 
+  // FEAT-010: Per-program priority + execution interval (v7.9.14.0).
+  // Replaces the single shared execution_interval_ms as the effective
+  // interval for NORMAL programs; HIGH programs are scheduled by a
+  // separate dedicated Core-0 task (see st_logic_config.cpp). Persisted
+  // in the program's own SPIFFS .dat file header, NOT in PersistConfig —
+  // see ST_LOGIC_DAT_MAGIC's doc comment for why.
+  uint8_t priority;           // ST_LOGIC_PRIORITY_NORMAL or ST_LOGIC_PRIORITY_HIGH
+  uint16_t interval_ms;       // 2-60000ms
+  uint32_t last_run_time;     // millis() of this program's last execution (per-program due-time scheduling)
+
 } st_logic_program_config_t;
+
+/* ============================================================================
+ * FEAT-007: GLOBAL_VAR — inter-program shared variable (v7.9.12.0)
+ *
+ * Scalar-only (BOOL/INT/DINT/DWORD/REAL/TIME) — no STRING/ARRAY. See
+ * constants.h's ST_MAX_GLOBAL_VARS comment for the full design rationale.
+ * ============================================================================ */
+
+typedef struct {
+  char name[32];
+  st_datatype_t type;
+  st_value_t value;
+} st_global_var_t;
 
 /* ============================================================================
  * GLOBAL LOGIC ENGINE STATE
@@ -81,6 +105,17 @@ typedef struct {
 typedef struct {
   // 4 independent logic programs
   st_logic_program_config_t programs[ST_LOGIC_MAX_PROGRAMS];
+
+  // FEAT-007: variables shared between Logic1-4, declared once in a
+  // dedicated "GLOBAL_VAR ... END_VAR" source block (separate from any
+  // single program's own source). Values reset to zero on every
+  // (re)compile of this block; only the declaration source text persists
+  // across reboot (st_logic_save_to_nvs/_load_from_nvs).
+  st_global_var_t globals[ST_MAX_GLOBAL_VARS];
+  uint8_t global_count;
+  char global_source[ST_GLOBAL_SOURCE_MAX];  // Null-terminated; fixed buffer, no pool needed (small)
+  uint32_t global_source_size;
+  char global_last_error[64];
 
   // Global source code pool (v7.9.7.6: dynamisk PSRAM/heap allokering).
   // Peger på buffer allokeret i st_logic_init() — PSRAM foretrækkes.
@@ -240,6 +275,93 @@ void st_logic_reset_stats(st_logic_engine_state_t *state, uint8_t program_id);
  * @param state Logic engine state
  */
 void st_logic_reset_cycle_stats(st_logic_engine_state_t *state);
+
+/* ============================================================================
+ * FEAT-007: GLOBAL_VAR MANAGEMENT
+ * ============================================================================ */
+
+/**
+ * @brief Upload GLOBAL_VAR declaration source (does NOT compile/parse it)
+ * @param state Logic engine state
+ * @param source Source text (just the "GLOBAL_VAR ... END_VAR" block)
+ * @param source_size Size of source code
+ * @return true if successful (false if too large for ST_GLOBAL_SOURCE_MAX)
+ */
+bool st_logic_globals_upload(st_logic_engine_state_t *state, const char *source, uint32_t source_size);
+
+/**
+ * @brief Parse the uploaded GLOBAL_VAR source and (re)build state->globals[]
+ *
+ * Resets all global values to zero — any program relying on a global's
+ * current value across this call will see it reset. Safe to call at boot
+ * (before any of Logic1-4 compile) or after an explicit re-upload.
+ *
+ * @param state Logic engine state
+ * @return true if successful (false on parse error, see state->global_last_error)
+ */
+bool st_logic_globals_compile(st_logic_engine_state_t *state);
+
+/**
+ * @brief Look up a global variable by name
+ * @param state Logic engine state
+ * @param name Variable name (case-sensitive, matches local variable rules)
+ * @return Index into state->globals[], or 0xFF if not found
+ */
+uint8_t st_logic_globals_lookup(st_logic_engine_state_t *state, const char *name);
+
+/* ============================================================================
+ * FEAT-010: PROGRAM PRIORITY / SCHEDULING
+ * ============================================================================ */
+
+/**
+ * @brief Set the shared "default NORMAL interval" AND cascade it to every
+ * currently-NORMAL-priority program's own interval_ms (HIGH programs are
+ * untouched — they're scheduled independently). This is what the old,
+ * single global execution_interval_ms setter now means in practice.
+ * @param state Logic engine state
+ * @param interval_ms New interval (ST_LOGIC_INTERVAL_MIN_MS..MAX_MS)
+ */
+void st_logic_set_global_interval(st_logic_engine_state_t *state, uint32_t interval_ms);
+
+/**
+ * @brief Set one program's own execution interval (independent of the others)
+ * @param state Logic engine state
+ * @param program_id Program ID (0-3)
+ * @param interval_ms New interval (ST_LOGIC_INTERVAL_MIN_MS..MAX_MS)
+ * @return true if successful (false: invalid ID/range)
+ */
+bool st_logic_set_program_interval(st_logic_engine_state_t *state, uint8_t program_id, uint32_t interval_ms);
+
+/**
+ * @brief Set one program's priority (NORMAL/HIGH)
+ *
+ * Rejected if the program currently has any active Modbus/GPIO variable
+ * binding (HIGH programs cannot use bindings in this v1 — see BUGS_INDEX.md
+ * FEAT-010). Starts/stops the shared HIGH task+timer as needed.
+ * @param state Logic engine state
+ * @param program_id Program ID (0-3)
+ * @param priority ST_LOGIC_PRIORITY_NORMAL or ST_LOGIC_PRIORITY_HIGH
+ * @param error_out Optional: filled with a reason string if rejected (may be NULL)
+ * @param error_out_size Size of error_out buffer
+ * @return true if successful
+ */
+bool st_logic_set_program_priority(st_logic_engine_state_t *state, uint8_t program_id, uint8_t priority,
+                                    char *error_out, size_t error_out_size);
+
+/**
+ * @brief Initialize the shared HIGH-priority task + esp_timer (called once at boot).
+ * The task starts idle (no timer running) until at least one program is both
+ * enabled and HIGH-priority.
+ */
+void st_logic_high_task_init(void);
+
+/**
+ * @brief Recompute the HIGH-priority esp_timer's period from the fastest
+ * currently enabled+HIGH program's interval_ms, starting/stopping the timer
+ * as needed. Call after any enable/disable/priority/interval change.
+ * @param state Logic engine state
+ */
+void st_logic_high_reschedule(st_logic_engine_state_t *state);
 
 /**
  * @brief Save ST Logic programs to PersistConfig (before config_save_to_nvs)

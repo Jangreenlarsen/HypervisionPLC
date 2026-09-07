@@ -93,6 +93,86 @@
 #define ST_MAX_CALL_DEPTH         8     // Max nested function calls (recursion limit)
 #define ST_MAX_TOTAL_FUNCTIONS    32    // User-defined (builtins resolved via func_id, not registry)
 
+/* FEAT-005: STRING type limits (v7.9.11.0)
+ *
+ * Strings er "handle"-baserede — st_value_t.str_ref er 1 byte, opdelt i
+ * 2 bits "kind" (00=variabel,01=literal,10=scratch) + 6 bits index — IKKE
+ * variabel-langde data i selve unionen. Hver kind har sit eget faste array
+ * i st_bytecode_program_t (variabel/literal, persisterer paa tvaers af
+ * cyklusser) eller st_vm_t (scratch, kun gyldig indenfor én eksekvering).
+ * Se st_types.h's st_value_t/st_bytecode_program_t for den fulde model.
+ */
+#define ST_MAX_STRING_LEN         32    // Max tegn pr. STRING-vaerdi (ekskl. NUL)
+#define ST_MAX_STRING_VARS        32    // 1:1 med variable[32] — kun brugt for STRING-typede slots
+#define ST_MAX_STRING_LITERALS    8     // Distinkte streng-literaler pr. program (kompileringstid)
+#define ST_MAX_STRING_SCRATCH     8     // Midlertidige slots til udtryks-mellemresultater (CONCAT mv.)
+
+/* FEAT-007: GLOBAL_VAR inter-program shared variables (v7.9.12.0)
+ *
+ * Ét delt array i st_logic_engine_state_t (IKKE i den enkelte program-
+ * bytecode), synligt fra alle 4 programmers navne-opslag ved kompilering
+ * og laest/skrevet af nye ST_OP_LOAD_GLOBAL/STORE_GLOBAL opcodes under
+ * koersel. Kun scalar-typer (BOOL/INT/DINT/DWORD/REAL/TIME) — STRING er
+ * bevidst UDENFOR scope her (ville kraeve sin egen delte string_vars-pulje,
+ * se st_vm_string_resolve) og ARRAY/STRUCT findes slet ikke som globals.
+ * Deklarationerne (kildetekst) persisterer paa tvaers af reboot ligesom
+ * Logic1-4's kildetekst; selve VAERDIERNE nulstilles ved hver (gen)kompilering
+ * af GLOBAL_VAR-blokken, ligesom almindelige lokale variable ogsaa altid
+ * starter forfra ved en programgenkompilering.
+ */
+#define ST_MAX_GLOBAL_VARS        16    // Max globale variable paa tvaers af Logic1-4
+#define ST_GLOBAL_SOURCE_MAX      1024  // Max kildetekst-stoerrelse for GLOBAL_VAR-blokken (fast buffer, ingen pool)
+
+/* FEAT-009: STRUCT-type deklarationer (v7.9.13.0)
+ *
+ * "TYPE Navn : STRUCT felt: type; ... END_STRUCT END_TYPE", parset FOER et
+ * programs egen VAR-blok, scoped til DET ENE program (ikke delt paa tvaers
+ * af Logic1-4 som GLOBAL_VAR). Kun scalar-felter (BOOL/INT/DINT/DWORD/REAL/
+ * TIME) — INGEN nested STRUCT, INGEN ARRAY-felter, INGEN STRING-felter, og
+ * INGEN "ARRAY OF <StructType>". En struct-instans udvides ved kompilering
+ * til N sammenhaengende variable-slots (praecis samme mekanisme som ARRAY
+ * allerede bruger, se st_compiler.cpp's "Phase 1" symbol-tabel-opbygning) —
+ * felt-adgang (`instans.felt`) er ALTID et kompileringstids-konstant navn,
+ * saa det opløses direkte til et almindeligt LOAD_VAR/STORE_VAR paa det
+ * rigtige slot-indeks. INGEN nye VM-opcodes, INGEN aendringer i st_vm.cpp,
+ * INGEN aendringer i bytecode-cache-formatet er noedvendige.
+ */
+#define ST_MAX_STRUCT_TYPES       4     // Max distinkte STRUCT-typer deklareret pr. program
+#define ST_MAX_STRUCT_FIELDS      8     // Max felter pr. STRUCT-type
+
+/* FEAT-010: Program-prioritet/scheduling (v7.9.14.0)
+ *
+ * NORMAL: uaendret — kooerativt i loopTask/Core 1, nu med sit EGET
+ * forfaldstidspunkt (prog->interval_ms) i stedet for ét delt interval.
+ * HIGH: eksekveres af en dedikeret FreeRTOS-task PINNET TIL CORE 0, vaakket
+ * af en esp_timer via en semafor — se st_logic_config.cpp's design-kommentar
+ * for hvorfor (BUG-336/337-praecedens: ALDRIG en ny task der konkurrerer om
+ * UART/RS485 paa Core 1). HIGH-programmer kan i v1 IKKE bindes til Modbus-
+ * registre/GPIO (kun lokale variable, GLOBAL_VAR, Modbus Master-kald) —
+ * se BUGS_INDEX.md FEAT-010 for den fulde begrundelse.
+ */
+#define ST_LOGIC_PRIORITY_NORMAL  0
+#define ST_LOGIC_PRIORITY_HIGH    1
+#define ST_LOGIC_INTERVAL_MIN_MS  2
+#define ST_LOGIC_INTERVAL_MAX_MS  60000
+#define ST_LOGIC_HIGH_MAX_STEPS   1000    // Lavere end den almindelige max_steps=10000 (BUG-159) — HIGH maa aldrig spaerre Core 0 laenge
+#define ST_LOGIC_HIGH_WALLCLOCK_US 5000   // 5ms haardt loft pr. eksekvering, tjekket hver ST_LOGIC_HIGH_CHECK_INTERVAL instruktioner
+#define ST_LOGIC_HIGH_CHECK_INTERVAL 50   // Tjek micros() hver N instruktioner (undgaar per-instruktion micros()-overhead)
+#define ST_LOGIC_HIGH_TASK_STACK 8192     // st_vm_t (~2.7KB: string_vars/scratch/stack/variables) er stack-lokal i
+                                            // st_logic_execute_program() — mb_async's 4096 er IKKE nok her (BUG,
+                                            // fundet ved live test: 4096 crashede enheden, se BUGS_INDEX.md FEAT-010)
+#define ST_LOGIC_HIGH_TASK_PRIO  4        // sse_accept=4/gh_check=5-niveau, under WiFi/lwIP-interne tasks
+#define ST_LOGIC_HIGH_TASK_CORE  0        // ALDRIG Core 1 (loopTask/RS485) — se BUG-336c/BUG-337
+
+// Persistens (/logic_%d.dat): gammelt format var [enabled(1)][source_size(4)],
+// hvor enabled kun nogensinde var 0 eller 1. 0xAA kan ALDRIG forekomme som
+// gyldig enabled-vaerdi i det gamle format, saa den bruges som et entydigt
+// magic-byte til at kende det NYE format [magic(1)][enabled(1)][priority(1)]
+// [interval_ms(2)][source_size(4)] fra hinanden ved indlaesning — samme
+// "magic+version"-robusthedsmoenster som st_bytecode_persist.cpp allerede
+// bruger (se BUG-375).
+#define ST_LOGIC_DAT_MAGIC       0xAA
+
 /* ============================================================================
  * MODULE ENABLE/DISABLE FLAGS (v6.2.0+)
  * ============================================================================ */
@@ -515,7 +595,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.10.28"
+#define PROJECT_VERSION     "7.9.14.2"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:

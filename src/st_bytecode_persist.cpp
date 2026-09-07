@@ -50,6 +50,20 @@ bool st_bytecode_save(uint8_t program_id, const st_bytecode_program_t *bytecode,
     return false;
   }
 
+  // FEAT-005: STRING-brugende programmer caches bevidst IKKE til SPIFFS —
+  // formatet nedenfor (header+navn+variabel-tabel+instruktioner+registry)
+  // gemmer/genindlaeser i dag ikke string_vars[]/string_literals[], saa et
+  // genindlaest program ville faa TOMME strenge efter naeste boot (en reel
+  // korrekthedsfejl, ikke bare et tabt cache-hit). Simplere og sikrere at
+  // altid genkompilere disse fra kildekode ved boot end at udvide det
+  // etablerede binaere format nu — ren "recompile hver gang"-afgraensning,
+  // ingen anden funktionel forskel.
+  for (uint8_t v = 0; v < bytecode->var_count; v++) {
+    if (bytecode->var_types[v] == ST_TYPE_STRING) {
+      return false;
+    }
+  }
+
   char filename[32];
   bc_filename(program_id, filename, sizeof(filename));
 

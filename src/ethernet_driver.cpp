@@ -484,6 +484,24 @@ int ethernet_driver_enable_dhcp(void)
   return 0;
 }
 
+int ethernet_driver_set_hostname(const char *hostname)
+{
+  if (!eth_state.eth_netif) {
+    ESP_LOGW(TAG, "set_hostname: Ethernet netif ikke oprettet endnu");
+    return -1;
+  }
+  if (!hostname || !hostname[0]) {
+    hostname = "modbus-esp32";  // Samme fallback som CLI/telnet allerede bruger
+  }
+  esp_err_t err = esp_netif_set_hostname(eth_state.eth_netif, hostname);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "esp_netif_set_hostname fejlede: %s", esp_err_to_name(err));
+    return -1;
+  }
+  ESP_LOGI(TAG, "Hostname sat til '%s' (traeder i kraft ved naeste DHCP-lease/reconnect)", hostname);
+  return 0;
+}
+
 /* ============================================================================
  * BACKGROUND TASKS
  * ============================================================================ */
@@ -561,6 +579,7 @@ uint8_t  ethernet_driver_is_full_duplex(void) { return 0; }
 int      ethernet_driver_get_mac_str(char *out_mac) { if (out_mac) out_mac[0] = '\0'; return -1; }
 int      ethernet_driver_set_static_ip(uint32_t ip, uint32_t gw, uint32_t nm, uint32_t dns) { return -1; }
 int      ethernet_driver_enable_dhcp(void) { return -1; }
+int      ethernet_driver_set_hostname(const char *hostname) { (void)hostname; return -1; }
 int      ethernet_driver_loop(void)       { return 0; }
 uint32_t ethernet_driver_get_uptime_ms(void) { return 0; }
 const char* ethernet_driver_get_state_string(void) { return "Not compiled"; }

@@ -30,6 +30,17 @@ static uint16_t input_regs[INPUT_REGS_SIZE] = {0};          // 16-bit registers
 static uint8_t coils[COILS_SIZE] = {0};                     // Packed bits (8 per byte)
 static uint8_t discrete_inputs[DISCRETE_INPUTS_SIZE] = {0}; // Packed bits (8 per byte)
 
+// FEAT-010: until now, EVERYTHING that touches these arrays ran cooperatively
+// on loopTask (Core 1), so no lock was ever needed. A HIGH-priority ST Logic
+// program now executes on its own dedicated Core-0 task and CAN legitimately
+// touch these arrays too (e.g. via EXPORT to the IR pool, or Modbus Master
+// builtins' cached-read path) — this spinlock protects the raw array
+// accesses only. It deliberately does NOT extend to the control-register
+// side-effect handlers below (registers_process_st_logic_*) — those can
+// call into compilation/other locks, and a spinlock's critical section must
+// never wrap anything that can block (same lesson as BUG-374 this session).
+static portMUX_TYPE g_registers_spinlock = portMUX_INITIALIZER_UNLOCKED;
+
 /* ============================================================================
  * FORWARD DECLARATIONS (handlers called from registers_set_holding_register)
  * ============================================================================ */
@@ -44,12 +55,17 @@ void registers_process_st_logic_var_input(uint16_t addr, uint16_t value);
 
 uint16_t registers_get_holding_register(uint16_t addr) {
   if (addr >= HOLDING_REGS_SIZE) return 0;
-  return holding_regs[addr];
+  portENTER_CRITICAL(&g_registers_spinlock);
+  uint16_t value = holding_regs[addr];
+  portEXIT_CRITICAL(&g_registers_spinlock);
+  return value;
 }
 
 void registers_set_holding_register(uint16_t addr, uint16_t value) {
   if (addr >= HOLDING_REGS_SIZE) return;
+  portENTER_CRITICAL(&g_registers_spinlock);
   holding_regs[addr] = value;
+  portEXIT_CRITICAL(&g_registers_spinlock);
 
   // Process ST Logic control registers
   if (addr >= ST_LOGIC_CONTROL_REG_BASE && addr < ST_LOGIC_CONTROL_REG_BASE + ST_LOGIC_MAX_PROGRAMS) {
@@ -77,12 +93,17 @@ uint16_t* registers_get_holding_regs(void) {
 
 uint16_t registers_get_input_register(uint16_t addr) {
   if (addr >= INPUT_REGS_SIZE) return 0;
-  return input_regs[addr];
+  portENTER_CRITICAL(&g_registers_spinlock);
+  uint16_t value = input_regs[addr];
+  portEXIT_CRITICAL(&g_registers_spinlock);
+  return value;
 }
 
 void registers_set_input_register(uint16_t addr, uint16_t value) {
   if (addr >= INPUT_REGS_SIZE) return;
+  portENTER_CRITICAL(&g_registers_spinlock);
   input_regs[addr] = value;
+  portEXIT_CRITICAL(&g_registers_spinlock);
 }
 
 uint16_t* registers_get_input_regs(void) {
@@ -97,7 +118,10 @@ uint8_t registers_get_coil(uint16_t idx) {
   if (idx >= (COILS_SIZE * 8)) return 0;
   uint16_t byte_idx = idx / 8;
   uint16_t bit_idx = idx % 8;
-  return (coils[byte_idx] >> bit_idx) & 1;
+  portENTER_CRITICAL(&g_registers_spinlock);
+  uint8_t value = (coils[byte_idx] >> bit_idx) & 1;
+  portEXIT_CRITICAL(&g_registers_spinlock);
+  return value;
 }
 
 void registers_set_coil(uint16_t idx, uint8_t value) {
@@ -105,11 +129,16 @@ void registers_set_coil(uint16_t idx, uint8_t value) {
   uint16_t byte_idx = idx / 8;
   uint16_t bit_idx = idx % 8;
 
+  // Read-modify-write on a shared packed byte — the highest-risk spot for
+  // real corruption (two concurrent sets of DIFFERENT bits in the SAME
+  // byte could otherwise silently lose one write).
+  portENTER_CRITICAL(&g_registers_spinlock);
   if (value) {
     coils[byte_idx] |= (1 << bit_idx);  // Set bit
   } else {
     coils[byte_idx] &= ~(1 << bit_idx); // Clear bit
   }
+  portEXIT_CRITICAL(&g_registers_spinlock);
 }
 
 uint8_t* registers_get_coils(void) {
@@ -124,7 +153,10 @@ uint8_t registers_get_discrete_input(uint16_t idx) {
   if (idx >= (DISCRETE_INPUTS_SIZE * 8)) return 0;
   uint16_t byte_idx = idx / 8;
   uint16_t bit_idx = idx % 8;
-  return (discrete_inputs[byte_idx] >> bit_idx) & 1;
+  portENTER_CRITICAL(&g_registers_spinlock);
+  uint8_t value = (discrete_inputs[byte_idx] >> bit_idx) & 1;
+  portEXIT_CRITICAL(&g_registers_spinlock);
+  return value;
 }
 
 void registers_set_discrete_input(uint16_t idx, uint8_t value) {
@@ -132,11 +164,13 @@ void registers_set_discrete_input(uint16_t idx, uint8_t value) {
   uint16_t byte_idx = idx / 8;
   uint16_t bit_idx = idx % 8;
 
+  portENTER_CRITICAL(&g_registers_spinlock);
   if (value) {
     discrete_inputs[byte_idx] |= (1 << bit_idx);  // Set bit
   } else {
     discrete_inputs[byte_idx] &= ~(1 << bit_idx); // Clear bit
   }
+  portEXIT_CRITICAL(&g_registers_spinlock);
 }
 
 uint8_t* registers_get_discrete_inputs(void) {
@@ -520,8 +554,9 @@ void registers_process_st_logic_interval(uint16_t addr, uint16_t value) {
     return;
   }
 
-  // Apply new interval
-  st_state->execution_interval_ms = new_interval;
+  // Apply new interval — FEAT-010: cascades to every NORMAL-priority
+  // program's own interval_ms (HIGH programs are scheduled independently).
+  st_logic_set_global_interval(st_state, new_interval);
 
   debug_print("[ST_LOGIC] Execution interval set to ");
   debug_print_uint(new_interval);

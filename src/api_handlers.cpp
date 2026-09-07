@@ -24,6 +24,7 @@
 #include <SPIFFS.h>  // FEAT-082: SPIFFS.usedBytes()/totalBytes()
 #include <nvs.h>     // FEAT-081: nvs_get_stats()
 #include "system_log.h"  // FEAT-086/089
+#include "api_audit_log.h"  // FEAT-033
 #include "types.h"
 #include "config_struct.h"
 #include "registers.h"
@@ -33,6 +34,7 @@
 #include "timer_engine.h"
 #include "timer_config.h"
 #include "st_logic_config.h"
+#include "st_logic_engine.h"  // FEAT-007: st_logic_lock_variables()/_unlock_variables()
 #include "wifi_driver.h"
 #include "ethernet_driver.h"
 #include "build_version.h"
@@ -80,6 +82,9 @@ esp_err_t api_handler_logic_enable(httpd_req_t *req);
 esp_err_t api_handler_logic_disable(httpd_req_t *req);
 esp_err_t api_handler_logic_reinit(httpd_req_t *req);
 esp_err_t api_handler_logic_stats(httpd_req_t *req);
+esp_err_t api_handler_logic_globals(httpd_req_t *req);  // FEAT-007
+esp_err_t api_handler_logic_priority_post(httpd_req_t *req);  // FEAT-010
+esp_err_t api_handler_logic_program_interval_post(httpd_req_t *req);  // FEAT-010
 esp_err_t api_handler_counter_reset(httpd_req_t *req);
 esp_err_t api_handler_counter_start(httpd_req_t *req);
 esp_err_t api_handler_counter_stop(httpd_req_t *req);
@@ -448,6 +453,23 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
     }
   }
 
+  // FEAT-033/BUG-372: audit-log-hook — IP+brugernavn skal indhentes FOER
+  // httpd_resp_sendstr() (samme regel som 401/403-stien to sektioner
+  // ovenfor allerede overholder, jf. kommentaren "capture ... BEFORE sending
+  // response"). Bekraeftet ved test mod rigtig hardware: efter send()
+  // returnerer httpd_req_get_hdr_value_str("Authorization") stille en fejl
+  // (headeren kan ikke laengere laeses), saa et username-opslag EFTER send
+  // gav altid "-" uanset autentificering — kun IP (raa socket-fd, forbliver
+  // gyldig) kom korrekt igennem.
+  char audit_ip[16] = {0};
+  char audit_user[24] = {0};
+  if (status == 401 || status == 403) {
+    strncpy(audit_ip, fail_ip, sizeof(audit_ip) - 1);
+    strncpy(audit_user, fail_user, sizeof(audit_user) - 1);
+  } else {
+    http_get_client_info(req, audit_ip, sizeof(audit_ip), audit_user, sizeof(audit_user));
+  }
+
   httpd_resp_sendstr(req, buf);
 
   if (status == 401) {
@@ -469,6 +491,10 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
     http_server_stat_client_error();
   }
 
+  // FEAT-033: audit-log-hook — dette er ét af de to centrale respons-punkter
+  // (se api_audit_log.h for hvorfor her og ikke i hver enkelt handler).
+  api_audit_log_add(req, status, audit_ip, audit_user);
+
   return ESP_OK;
 }
 
@@ -484,8 +510,17 @@ esp_err_t api_send_json(httpd_req_t *req, const char *json_str)
   httpd_resp_set_hdr(req, "Connection", "keep-alive");
   httpd_resp_set_hdr(req, "Keep-Alive", "timeout=15, max=100");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+  // FEAT-033/BUG-372: audit-log-hook — SKAL indhentes FOER send (se
+  // api_audit_log.h's dokumentation af hvorfor: Authorization-headeren kan
+  // ikke laeses efter httpd_resp_sendstr()).
+  char audit_ip[16], audit_user[24];
+  http_get_client_info(req, audit_ip, sizeof(audit_ip), audit_user, sizeof(audit_user));
+
   httpd_resp_sendstr(req, json_str);
   http_server_stat_success();
+  api_audit_log_add(req, 200, audit_ip, audit_user);
+
   return ESP_OK;
 }
 
@@ -549,120 +584,281 @@ esp_err_t api_send_json(httpd_req_t *req, const char *json_str)
 
 /* ============================================================================
  * GET /api/ - API Discovery (list all endpoints)
+ * GET /api/schema - OpenAPI 3.0 schema (FEAT-029)
+ *
+ * FEAT-029: begge endpoints deler nu ÉN kilde (API_ROUTES nedenfor) i stedet
+ * for hver sin haandskrevne liste. Forud for dette var /api/'s liste (82
+ * entries) allerede ude af sync med de faktisk registrerede routes (105+ i
+ * http_server.cpp) — en delt tabel forhindrer at /api/schema arver samme
+ * drift. Listen er stadig haandholdt (ingen runtime-introspektion af
+ * ESP-IDF's httpd-registry findes), saa en ny route her SKAL ogsaa
+ * tilfoejes til API_ROUTES for at dukke op i begge endpoints.
  * ============================================================================ */
+
+typedef struct {
+  const char *method;
+  const char *path;
+  const char *desc;
+} api_route_info_t;
+
+static const api_route_info_t API_ROUTES[] = {
+  {"GET",    "/api/",                              "List endpoints"},
+  {"GET",    "/api/schema",                        "OpenAPI 3.0 schema (FEAT-029)"},
+  {"GET",    "/api/status",                        "System status"},
+  {"GET",    "/api/config",                        "Full configuration"},
+  {"GET",    "/api/counters",                      "All counters"},
+  {"GET",    "/api/counters/{1-4}",                 "Single counter"},
+  {"POST",   "/api/counters/{1-4}",                 "Configure counter"},
+  {"POST",   "/api/counters/{1-4}/reset",            "Reset counter"},
+  {"POST",   "/api/counters/{1-4}/start",            "Start counter"},
+  {"POST",   "/api/counters/{1-4}/stop",             "Stop counter"},
+  {"POST",   "/api/counters/{1-4}/control",          "Counter control"},
+  {"DELETE", "/api/counters/{1-4}",                 "Delete counter"},
+  {"GET",    "/api/timers",                        "All timers"},
+  {"GET",    "/api/timers/{1-4}",                    "Single timer"},
+  {"POST",   "/api/timers/{1-4}",                    "Configure timer"},
+  {"DELETE", "/api/timers/{1-4}",                    "Delete timer"},
+  {"GET",    "/api/registers/hr/{addr}",            "Read HR"},
+  {"POST",   "/api/registers/hr/{addr}",            "Write HR"},
+  {"GET",    "/api/registers/ir/{addr}",            "Read IR"},
+  {"GET",    "/api/registers/coils/{addr}",         "Read coil"},
+  {"POST",   "/api/registers/coils/{addr}",         "Write coil"},
+  {"GET",    "/api/registers/di/{addr}",            "Read DI"},
+  {"GET",    "/api/gpio",                          "All GPIO mappings"},
+  {"GET",    "/api/gpio/{pin}",                     "Single GPIO"},
+  {"POST",   "/api/gpio/{pin}",                     "Write GPIO"},
+  {"DELETE", "/api/gpio/{pin}",                     "Remove GPIO mapping"},
+  {"POST",   "/api/gpio/2/heartbeat",               "Heartbeat control"},
+  {"GET",    "/api/logic",                         "ST Logic programs"},
+  {"GET",    "/api/logic/{1-4}",                     "Single program"},
+  {"GET",    "/api/logic/{1-4}/source",              "Download ST code"},
+  {"POST",   "/api/logic/{1-4}/source",              "Upload ST code"},
+  {"POST",   "/api/logic/{1-4}/enable",              "Enable program"},
+  {"POST",   "/api/logic/{1-4}/disable",             "Disable program"},
+  {"POST",   "/api/logic/{1-4}/reinit",              "Cold restart (reset variables)"},
+  {"DELETE", "/api/logic/{1-4}",                     "Delete program"},
+  {"GET",    "/api/logic/{1-4}/stats",               "Program stats"},
+  {"POST",   "/api/logic/{1-4}/debug/pause",         "Pause program"},
+  {"POST",   "/api/logic/{1-4}/debug/continue",      "Continue program"},
+  {"POST",   "/api/logic/{1-4}/debug/step",          "Step instruction"},
+  {"POST",   "/api/logic/{1-4}/debug/breakpoint",    "Set breakpoint"},
+  {"DELETE", "/api/logic/{1-4}/debug/breakpoint",    "Remove breakpoint"},
+  {"POST",   "/api/logic/{1-4}/debug/stop",          "Stop debug"},
+  {"GET",    "/api/logic/{1-4}/debug/state",         "Debug snapshot"},
+  {"POST",   "/api/logic/settings",                "Logic engine settings"},
+  {"GET",    "/api/logic/globals",                   "List GLOBAL_VAR values"},
+  {"GET",    "/api/logic/globals/source",            "Download GLOBAL_VAR source"},
+  {"POST",   "/api/logic/globals/source",            "Upload GLOBAL_VAR source"},
+  {"GET",    "/api/bindings",                      "ST var<->register bindings"},
+  {"POST",   "/api/bindings/{id}",                  "Configure binding"},
+  {"GET",    "/api/modbus/slave",                  "Slave config+stats"},
+  {"POST",   "/api/modbus/slave",                  "Configure slave"},
+  {"GET",    "/api/modbus/master",                 "Master config+stats"},
+  {"POST",   "/api/modbus/master",                 "Configure master"},
+  {"GET",    "/api/wifi",                          "WiFi config+status"},
+  {"POST",   "/api/wifi",                          "Configure WiFi"},
+  {"POST",   "/api/wifi/connect",                  "Connect WiFi"},
+  {"POST",   "/api/wifi/disconnect",               "Disconnect WiFi"},
+  {"GET",    "/api/ethernet",                      "Ethernet (W5500) config+status"},
+  {"POST",   "/api/ethernet",                      "Configure Ethernet"},
+  {"POST",   "/api/http",                          "Configure HTTP server"},
+  {"GET",    "/api/ntp",                           "NTP config+status"},
+  {"POST",   "/api/ntp",                           "Configure NTP"},
+  {"GET",    "/api/analog",                        "Analog I/O values (ES32D26)"},
+  {"POST",   "/api/analog",                        "Configure/write analog I/O"},
+  {"GET",    "/api/modules",                       "Module flags"},
+  {"POST",   "/api/modules",                       "Set module flags"},
+  {"GET",    "/api/debug",                         "Debug flags"},
+  {"POST",   "/api/debug",                         "Set debug flags"},
+  {"GET",    "/api/rbac",                          "RBAC status + user list"},
+  {"POST",   "/api/rbac",                          "Enable/disable RBAC"},
+  {"POST",   "/api/rbac/users",                    "Create/update RBAC user"},
+  {"DELETE", "/api/rbac/users/{username}",         "Delete RBAC user"},
+  {"GET",    "/api/user/me",                       "Current session info"},
+  {"POST",   "/api/login",                         "Authenticate, issue session token"},
+  {"POST",   "/api/logout",                        "Invalidate session token"},
+  {"POST",   "/api/system/reboot",                 "Reboot ESP32"},
+  {"POST",   "/api/system/save",                   "Save config to NVS"},
+  {"POST",   "/api/system/load",                   "Load config from NVS"},
+  {"POST",   "/api/system/defaults",               "Reset to defaults"},
+  {"GET",    "/api/system/backup",                 "Download config backup"},
+  {"POST",   "/api/system/restore",                "Restore config from backup"},
+  {"GET",    "/api/system/watchdog",                "Watchdog status"},
+  {"GET",    "/api/system/logs",                   "Request audit log (FEAT-033)"},
+  {"POST",   "/api/system/logs/clear",             "Clear request audit log"},
+  {"GET",    "/api/syslog",                        "System event/reg-change log"},
+  {"POST",   "/api/syslog/clear",                  "Clear system log"},
+  {"POST",   "/api/syslog/start",                  "Resume system log"},
+  {"POST",   "/api/syslog/stop",                   "Pause system log"},
+  {"GET",    "/api/telnet",                        "Telnet config+status"},
+  {"POST",   "/api/telnet",                        "Configure Telnet"},
+  {"GET",    "/api/hostname",                      "Get hostname"},
+  {"POST",   "/api/hostname",                      "Set hostname"},
+  {"GET",    "/api/registers/hr",                  "Bulk read HRs (start,count)"},
+  {"POST",   "/api/registers/hr/bulk",             "Bulk write HRs"},
+  {"GET",    "/api/registers/ir",                  "Bulk read IRs (start,count)"},
+  {"GET",    "/api/registers/coils",               "Bulk read coils (start,count)"},
+  {"POST",   "/api/registers/coils/bulk",          "Bulk write coils"},
+  {"GET",    "/api/registers/di",                  "Bulk read DIs (start,count)"},
+  {"GET",    "/api/events",                        "SSE real-time event stream (FEAT-023)"},
+  {"GET",    "/api/events/status",                 "SSE subsystem info"},
+  {"GET",    "/api/events/clients",                "SSE connected clients"},
+  {"POST",   "/api/events/disconnect",             "Disconnect an SSE client"},
+  {"GET",    "/api/version",                       "API version info (FEAT-030)"},
+  {"GET",    "/api/v1/*",                          "API v1 versioned endpoint (FEAT-030)"},
+  {"GET",    "/api/metrics",                       "Prometheus metrics (FEAT-032)"},
+  {"GET",    "/api/alarms",                        "Alarm log"},
+  {"POST",   "/api/alarms/ack",                    "Acknowledge alarm"},
+  {"GET",    "/api/persist/groups",                "List persistence groups"},
+  {"GET",    "/api/persist/groups/{id}",           "Single persistence group"},
+  {"POST",   "/api/persist/groups/{id}",           "Create/modify persistence group"},
+  {"DELETE", "/api/persist/groups/{id}",           "Delete persistence group"},
+  {"POST",   "/api/persist/save",                  "Save persistence group(s)"},
+  {"POST",   "/api/persist/restore",               "Restore persistence group(s)"},
+  {"GET",    "/api/dashboard/layout",               "Dashboard layout settings"},
+  {"POST",   "/api/dashboard/layout",               "Save dashboard layout settings"},
+  {"POST",   "/api/system/ota",                    "Upload firmware (OTA, FEAT-031)"},
+  {"GET",    "/api/system/ota/status",              "OTA progress status (FEAT-031)"},
+  {"POST",   "/api/system/ota/rollback",           "Rollback firmware (FEAT-031)"},
+  {"GET",    "/api/system/ota/github-check",        "Check GitHub Releases for newer firmware (FEAT-169)"},
+  {"POST",   "/api/system/ota/github-install",      "Download+install latest GitHub release (FEAT-169)"},
+};
+#define API_ROUTES_COUNT (sizeof(API_ROUTES) / sizeof(API_ROUTES[0]))
 
 esp_err_t api_handler_endpoints(httpd_req_t *req)
 {
   http_server_stat_request();
   CHECK_AUTH(req);
 
-  // Use heap allocation for larger response (endpoints list ~10KB with v6.3.0 additions)
-  char *buf = (char *)malloc(10240);
-  if (!buf) {
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+  char head[128];
+  snprintf(head, sizeof(head), "{\"name\":\"Modbus ESP32 REST API\",\"version\":\"%s\",\"build\":%d,\"endpoints\":[",
+           PROJECT_VERSION, BUILD_NUMBER);
+  httpd_resp_send_chunk(req, head, HTTPD_RESP_USE_STRLEN);
+
+  char item[192];
+  for (size_t i = 0; i < API_ROUTES_COUNT; i++) {
+    snprintf(item, sizeof(item), "%s{\"method\":\"%s\",\"path\":\"%s\",\"desc\":\"%s\"}",
+             (i == 0) ? "" : ",", API_ROUTES[i].method, API_ROUTES[i].path, API_ROUTES[i].desc);
+    httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
+  }
+
+  httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN);
+  httpd_resp_send_chunk(req, NULL, 0);
+  http_server_stat_success();
+  return ESP_OK;
+}
+
+// Konverterer et {method}-templeret sti-mønster ("/api/counters/{1-4}") til
+// en OpenAPI-lovlig "{param}"-form ("/api/counters/{id}") — OpenAPI tillader
+// ikke bogstaveligt "{1-4}" som et path-parameternavn.
+static void openapi_normalize_path(const char *src, char *out, size_t out_len) {
+  size_t j = 0;
+  bool in_brace = false;
+  for (size_t i = 0; src[i] != '\0' && j + 1 < out_len; i++) {
+    char c = src[i];
+    if (c == '{') { in_brace = true; out[j++] = '{'; continue; }
+    if (c == '}') { in_brace = false; if (j > 0 && out[j - 1] != '{') { /* already wrote a name */ } out[j++] = '}'; continue; }
+    if (in_brace) {
+      // Skriv kun ÉT normaliseret "param" pr. brace-par, ignorér resten (1-4, addr, pin, id, username)
+      if (j == 0 || out[j - 1] == '{') {
+        const char *name = "param";
+        for (size_t k = 0; name[k] != '\0' && j + 1 < out_len; k++) out[j++] = name[k];
+      }
+      continue;
+    }
+    out[j++] = c;
+  }
+  out[j] = '\0';
+}
+
+// GET /api/schema — OpenAPI 3.0 schema (FEAT-029). Genererer et gyldigt,
+// om end minimalt, OpenAPI-dokument fra API_ROUTES ovenfor — hvert path faar
+// et generisk request/response-skema (projektet sporer ikke i dag
+// parameter-/svar-typer struktureret pr. endpoint, kun fritekst-beskrivelser),
+// tilstraekkeligt til automatisk klient-kodegenerering af selve
+// rute-/metode-overfladen.
+esp_err_t api_handler_schema(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+  char head[256];
+  snprintf(head, sizeof(head),
+    "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"Modbus ESP32 REST API\",\"version\":\"%s\",\"description\":\"Auto-generated fra enhedens interne route-tabel (FEAT-029)\"},\"paths\":{",
+    PROJECT_VERSION);
+  httpd_resp_send_chunk(req, head, HTTPD_RESP_USE_STRLEN);
+
+  // Grupperer eksplicit efter normaliseret sti FREMFOR at antage at samme
+  // sti's forskellige metoder staar ved siden af hinanden i API_ROUTES —
+  // det gør de IKKE altid (fx har /api/counters/{1-4}'s DELETE flere andre
+  // sub-action-paths imellem sig og sit GET/POST) — en ren nabo-sammenligning
+  // ville ellers have emitteret samme "path"-nøgle to gange (ugyldigt/tabt
+  // data i et JSON-objekt).
+  // BUG-nyeste: seen_paths (~103*64 = 6.6KB) paa STACKEN ville risikere
+  // overflow af den 8KB httpd-worker-stak (samme klasse fejl som denne
+  // enhed lige har brugt en hel session paa at fikse for GitHub-OTA,
+  // BUG-364/369) — allokeres derfor eksplicit paa heap i stedet.
+  char item[256];
+  char norm_path[64];
+  char (*seen_paths)[64] = (char (*)[64])malloc(API_ROUTES_COUNT * 64);
+  if (!seen_paths) {
     return api_send_error(req, 500, "Out of memory");
   }
+  size_t seen_count = 0;
+  bool first_path = true;
 
-  // Build JSON manually for efficiency
-  int len = snprintf(buf, 10240,
-    "{"
-    "\"name\":\"Modbus ESP32 REST API\","
-    "\"version\":\"%s\","
-    "\"build\":%d,"
-    "\"endpoints\":["
-    "{\"method\":\"GET\",\"path\":\"/api/\",\"desc\":\"List endpoints\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/status\",\"desc\":\"System status\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/config\",\"desc\":\"Full configuration\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/counters\",\"desc\":\"All counters\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/counters/{1-4}\",\"desc\":\"Single counter\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/counters/{1-4}\",\"desc\":\"Configure counter\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/counters/{1-4}/reset\",\"desc\":\"Reset counter\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/counters/{1-4}/start\",\"desc\":\"Start counter\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/counters/{1-4}/stop\",\"desc\":\"Stop counter\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/counters/{1-4}/control\",\"desc\":\"Counter control\"},"
-    "{\"method\":\"DELETE\",\"path\":\"/api/counters/{1-4}\",\"desc\":\"Delete counter\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/timers\",\"desc\":\"All timers\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/timers/{1-4}\",\"desc\":\"Single timer\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/timers/{1-4}\",\"desc\":\"Configure timer\"},"
-    "{\"method\":\"DELETE\",\"path\":\"/api/timers/{1-4}\",\"desc\":\"Delete timer\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/registers/hr/{addr}\",\"desc\":\"Read HR\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/registers/hr/{addr}\",\"desc\":\"Write HR\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/registers/ir/{addr}\",\"desc\":\"Read IR\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/registers/coils/{addr}\",\"desc\":\"Read coil\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/registers/coils/{addr}\",\"desc\":\"Write coil\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/registers/di/{addr}\",\"desc\":\"Read DI\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/gpio\",\"desc\":\"All GPIO mappings\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/gpio/{pin}\",\"desc\":\"Single GPIO\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/gpio/{pin}\",\"desc\":\"Write GPIO\"},"
-    "{\"method\":\"DELETE\",\"path\":\"/api/gpio/{pin}\",\"desc\":\"Remove GPIO mapping\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/logic\",\"desc\":\"ST Logic programs\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/logic/{1-4}\",\"desc\":\"Single program\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/logic/{1-4}/source\",\"desc\":\"Download ST code\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/source\",\"desc\":\"Upload ST code\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/enable\",\"desc\":\"Enable program\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/disable\",\"desc\":\"Disable program\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/reinit\",\"desc\":\"Cold restart (reset variables)\"},"
-    "{\"method\":\"DELETE\",\"path\":\"/api/logic/{1-4}\",\"desc\":\"Delete program\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/logic/{1-4}/stats\",\"desc\":\"Program stats\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/logic/settings\",\"desc\":\"Logic engine settings\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/modbus/slave\",\"desc\":\"Slave config+stats\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/modbus/slave\",\"desc\":\"Configure slave\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/modbus/master\",\"desc\":\"Master config+stats\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/modbus/master\",\"desc\":\"Configure master\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/wifi\",\"desc\":\"WiFi config+status\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/wifi\",\"desc\":\"Configure WiFi\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/wifi/connect\",\"desc\":\"Connect WiFi\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/wifi/disconnect\",\"desc\":\"Disconnect WiFi\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/ethernet\",\"desc\":\"Ethernet (W5500) config+status\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/ethernet\",\"desc\":\"Configure Ethernet\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/http\",\"desc\":\"Configure HTTP server\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/modules\",\"desc\":\"Module flags\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/modules\",\"desc\":\"Set module flags\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/debug\",\"desc\":\"Debug flags\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/debug\",\"desc\":\"Set debug flags\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/system/reboot\",\"desc\":\"Reboot ESP32\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/system/save\",\"desc\":\"Save config to NVS\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/system/load\",\"desc\":\"Load config from NVS\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/system/defaults\",\"desc\":\"Reset to defaults\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/system/backup\",\"desc\":\"Download config backup\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/system/restore\",\"desc\":\"Restore config from backup\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/telnet\",\"desc\":\"Telnet config+status\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/telnet\",\"desc\":\"Configure Telnet\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/hostname\",\"desc\":\"Get hostname\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/hostname\",\"desc\":\"Set hostname\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/system/watchdog\",\"desc\":\"Watchdog status\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/registers/hr\",\"desc\":\"Bulk read HRs (start,count)\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/registers/hr/bulk\",\"desc\":\"Bulk write HRs\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/registers/ir\",\"desc\":\"Bulk read IRs (start,count)\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/registers/coils\",\"desc\":\"Bulk read coils (start,count)\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/registers/coils/bulk\",\"desc\":\"Bulk write coils\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/registers/di\",\"desc\":\"Bulk read DIs (start,count)\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/debug/pause\",\"desc\":\"Pause program\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/debug/continue\",\"desc\":\"Continue program\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/debug/step\",\"desc\":\"Step instruction\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/debug/breakpoint\",\"desc\":\"Set breakpoint\"},"
-    "{\"method\":\"DELETE\",\"path\":\"/api/logic/{1-4}/debug/breakpoint\",\"desc\":\"Remove breakpoint\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/logic/{1-4}/debug/stop\",\"desc\":\"Stop debug\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/logic/{1-4}/debug/state\",\"desc\":\"Debug snapshot\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/gpio/2/heartbeat\",\"desc\":\"Heartbeat control\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/events\",\"desc\":\"SSE real-time event stream (FEAT-023)\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/events/status\",\"desc\":\"SSE subsystem info\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/version\",\"desc\":\"API version info (FEAT-030)\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/v1/*\",\"desc\":\"API v1 versioned endpoint (FEAT-030)\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/system/ota\",\"desc\":\"Upload firmware (OTA, FEAT-031)\"},"
-    "{\"method\":\"GET\",\"path\":\"/api/system/ota/status\",\"desc\":\"OTA progress status (FEAT-031)\"},"
-    "{\"method\":\"POST\",\"path\":\"/api/system/ota/rollback\",\"desc\":\"Rollback firmware (FEAT-031)\"}"
-    "]"
-    "}",
-    PROJECT_VERSION, BUILD_NUMBER);
+  for (size_t i = 0; i < API_ROUTES_COUNT; i++) {
+    if (strstr(API_ROUTES[i].path, "*") != NULL) continue;  // wildcard-ruter, se ovenfor
+    openapi_normalize_path(API_ROUTES[i].path, norm_path, sizeof(norm_path));
 
-  if (len < 0 || len >= 10240) {
-    free(buf);
-    return api_send_error(req, 500, "Buffer overflow");
+    bool already_emitted = false;
+    for (size_t s = 0; s < seen_count; s++) {
+      if (strcmp(seen_paths[s], norm_path) == 0) { already_emitted = true; break; }
+    }
+    if (already_emitted) continue;
+    strncpy(seen_paths[seen_count], norm_path, sizeof(seen_paths[0]) - 1);
+    seen_paths[seen_count][sizeof(seen_paths[0]) - 1] = '\0';
+    seen_count++;
+
+    if (!first_path) httpd_resp_send_chunk(req, "},", HTTPD_RESP_USE_STRLEN);
+    snprintf(item, sizeof(item), "\"%s\":{", norm_path);
+    httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
+    first_path = false;
+
+    bool first_method = true;
+    for (size_t j = i; j < API_ROUTES_COUNT; j++) {
+      if (strstr(API_ROUTES[j].path, "*") != NULL) continue;
+      char cmp_path[64];
+      openapi_normalize_path(API_ROUTES[j].path, cmp_path, sizeof(cmp_path));
+      if (strcmp(cmp_path, norm_path) != 0) continue;
+
+      snprintf(item, sizeof(item),
+        "%s\"%s\":{\"summary\":\"%s\",\"responses\":{\"200\":{\"description\":\"OK\"},"
+        "\"401\":{\"description\":\"Authentication required\"},\"403\":{\"description\":\"Forbidden\"}}}",
+        first_method ? "" : ",",
+        (strcmp(API_ROUTES[j].method, "GET") == 0) ? "get" :
+        (strcmp(API_ROUTES[j].method, "POST") == 0) ? "post" :
+        (strcmp(API_ROUTES[j].method, "DELETE") == 0) ? "delete" : "get",
+        API_ROUTES[j].desc);
+      httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
+      first_method = false;
+    }
   }
+  if (!first_path) httpd_resp_send_chunk(req, "}", HTTPD_RESP_USE_STRLEN);
+  free(seen_paths);
 
-  esp_err_t ret = api_send_json(req, buf);
-  free(buf);
-  return ret;
+  httpd_resp_send_chunk(req, "}}", HTTPD_RESP_USE_STRLEN);
+  httpd_resp_send_chunk(req, NULL, 0);
+  http_server_stat_success();
+  return ESP_OK;
 }
 
 /* ============================================================================
@@ -1306,6 +1502,12 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
   const char *uri = req->uri;
   size_t uri_len = strlen(uri);
 
+  // FEAT-007: GLOBAL_VAR routes (/api/logic/globals, /api/logic/globals/source)
+  // — no numeric {id} in these, route before ID-dependent suffixes below.
+  if (strstr(uri, "/logic/globals") != NULL) {
+    return api_handler_logic_globals(req);
+  }
+
   // FEAT-020: Debug routes (contains /debug/) — route before other suffixes
   if (strstr(uri, "/debug/") != NULL) {
     return api_handler_logic_debug(req);
@@ -1338,6 +1540,13 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
     // GAP-13: Variable binding
     if (uri_len >= 5 && strcmp(uri + uri_len - 5, "/bind") == 0) {
       return api_handler_logic_bind_post(req);
+    }
+    // FEAT-010: per-program priority/interval
+    if (uri_len >= 9 && strcmp(uri + uri_len - 9, "/priority") == 0) {
+      return api_handler_logic_priority_post(req);
+    }
+    if (uri_len >= 9 && strcmp(uri + uri_len - 9, "/interval") == 0) {
+      return api_handler_logic_program_interval_post(req);
     }
     // GAP-26/FEAT-164: /api/logic/settings er en EXACT route registreret i
     // http_server.cpp, men registreret EFTER dette wildcard-handler
@@ -1375,6 +1584,8 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
   doc["name"] = prog->name;
   doc["enabled"] = prog->enabled ? true : false;
   doc["compiled"] = prog->compiled ? true : false;
+  doc["priority"] = (prog->priority == ST_LOGIC_PRIORITY_HIGH) ? "HIGH" : "NORMAL";  // FEAT-010
+  doc["interval_ms"] = prog->interval_ms;  // FEAT-010
   doc["execution_count"] = prog->execution_count;
   doc["error_count"] = prog->error_count;
   doc["last_execution_us"] = prog->last_execution_us;
@@ -1401,6 +1612,7 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
         case ST_TYPE_DINT: type_str = "DINT"; break;
         case ST_TYPE_REAL: type_str = "REAL"; break;
         case ST_TYPE_TIME: type_str = "TIME"; break;
+        case ST_TYPE_STRING: type_str = "STRING"; break;  // FEAT-005
         default: break;
       }
       v["type"] = type_str;
@@ -1422,6 +1634,12 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
           break;
         case ST_TYPE_TIME:
           v["value"] = val.dint_val;
+          break;
+        case ST_TYPE_STRING:
+          // FEAT-005: en variabels egen str_ref peger altid paa sit eget
+          // slot (self-referencing, sat af compileren/VM'en) — laes direkte,
+          // ingen VM-kontekst noedvendig for at resolve en KIND_VAR-reference.
+          v["value"] = prog->bytecode.string_vars[i];
           break;
         default:
           v["value"] = val.int_val;
@@ -1601,6 +1819,169 @@ esp_err_t api_handler_logic_source_post(httpd_req_t *req)
     (!prog->compiled && prog->last_error[0]) ? "\"" : "");
 
   return api_send_json(req, buf);
+}
+
+/* ============================================================================
+ * FEAT-007: GLOBAL_VAR (inter-program shared variables)
+ *   GET  /api/logic/globals         - list current globals + live values
+ *   GET  /api/logic/globals/source  - get GLOBAL_VAR declaration source
+ *   POST /api/logic/globals/source  - upload + (re)compile GLOBAL_VAR block
+ * ============================================================================ */
+
+esp_err_t api_handler_logic_globals(httpd_req_t *req)
+{
+  http_server_stat_request();
+
+  const char *uri = req->uri;
+  size_t uri_len = strlen(uri);
+  bool is_source = (uri_len >= 7 && strcmp(uri + uri_len - 7, "/source") == 0);
+
+  st_logic_engine_state_t *state = st_logic_get_state();
+  if (!state) {
+    return api_send_error(req, 500, "ST Logic not initialized");
+  }
+
+  if (req->method == HTTP_GET) {
+    CHECK_AUTH(req);
+
+    if (is_source) {
+      size_t buf_size = state->global_source_size + 256;
+      char *buf = (char *)malloc(buf_size);
+      if (!buf) {
+        return api_send_error(req, 500, "Out of memory");
+      }
+      JsonDocument doc;
+      doc["source"] = state->global_source;
+      doc["size"] = state->global_source_size;
+      size_t json_len = serializeJson(doc, buf, buf_size);
+      if (json_len >= buf_size) {
+        free(buf);
+        return api_send_error(req, 500, "Response too large");
+      }
+      esp_err_t ret = api_send_json(req, buf);
+      free(buf);
+      return ret;
+    }
+
+    // GET /api/logic/globals — list current globals + live values
+    JsonDocument doc;
+    JsonArray arr = doc["globals"].to<JsonArray>();
+    st_logic_lock_variables();
+    for (uint8_t i = 0; i < state->global_count; i++) {
+      JsonObject v = arr.add<JsonObject>();
+      v["index"] = i;
+      v["name"] = state->globals[i].name;
+
+      const char *type_str = "INT";
+      switch (state->globals[i].type) {
+        case ST_TYPE_BOOL:  type_str = "BOOL"; break;
+        case ST_TYPE_INT:   type_str = "INT"; break;
+        case ST_TYPE_DINT:  type_str = "DINT"; break;
+        case ST_TYPE_DWORD: type_str = "DWORD"; break;
+        case ST_TYPE_REAL:  type_str = "REAL"; break;
+        case ST_TYPE_TIME:  type_str = "TIME"; break;
+        default: break;
+      }
+      v["type"] = type_str;
+
+      st_value_t val = state->globals[i].value;
+      switch (state->globals[i].type) {
+        case ST_TYPE_BOOL:  v["value"] = val.bool_val ? true : false; break;
+        case ST_TYPE_INT:   v["value"] = val.int_val; break;
+        case ST_TYPE_DINT:  v["value"] = val.dint_val; break;
+        case ST_TYPE_DWORD: v["value"] = val.dword_val; break;
+        case ST_TYPE_REAL:  v["value"] = val.real_val; break;
+        case ST_TYPE_TIME:  v["value"] = val.dint_val; break;
+        default: v["value"] = val.int_val; break;
+      }
+    }
+    st_logic_unlock_variables();
+    doc["count"] = state->global_count;
+    if (state->global_last_error[0]) {
+      doc["last_error"] = state->global_last_error;
+    }
+
+    char buf[HTTP_JSON_DOC_SIZE];
+    size_t json_len = serializeJson(doc, buf, sizeof(buf));
+    if (json_len >= sizeof(buf)) {
+      return api_send_error(req, 500, "Response too large");
+    }
+    return api_send_json(req, buf);
+  }
+
+  if (req->method == HTTP_POST && is_source) {
+    CHECK_AUTH_WRITE(req);
+
+    size_t content_len = req->content_len;
+    if (content_len == 0) {
+      return api_send_error(req, 400, "Empty request body");
+    }
+    if (content_len > ST_GLOBAL_SOURCE_MAX + 256) {
+      return api_send_error(req, 400, "Request too large");
+    }
+
+    char *content = (char *)malloc(content_len + 1);
+    if (!content) {
+      return api_send_error(req, 500, "Out of memory");
+    }
+
+    int received = 0;
+    while (received < (int)content_len) {
+      int ret = httpd_req_recv(req, content + received, content_len - received);
+      if (ret <= 0) {
+        free(content);
+        return api_send_error(req, 400, "Failed to read request body");
+      }
+      received += ret;
+    }
+    content[content_len] = '\0';
+
+    uint32_t source_len = 0;
+    bool upload_ok = false;
+    {
+      JsonDocument doc;
+      DeserializationError error = deserializeJson(doc, content);
+      if (error) {
+        free(content);
+        return api_send_error(req, 400, "Invalid JSON");
+      }
+      if (!doc.containsKey("source")) {
+        free(content);
+        return api_send_error(req, 400, "Missing 'source' field");
+      }
+      const char *source = doc["source"].as<const char *>();
+      if (!source) {
+        free(content);
+        return api_send_error(req, 400, "Empty source code");
+      }
+      source_len = strlen(source);
+      upload_ok = st_logic_globals_upload(state, source, source_len);
+    }
+    free(content);
+
+    if (!upload_ok) {
+      return api_send_error(req, 500, state->global_last_error[0] ? state->global_last_error : "Upload failed");
+    }
+
+    // Compiling also cascades a recompile of any already-compiled Logic1-4
+    // program, so name->index bindings stay correct against the new layout
+    // (see st_logic_globals_compile's doc comment).
+    bool compiled = st_logic_globals_compile(state);
+
+    char buf[384];
+    snprintf(buf, sizeof(buf),
+      "{\"status\":200,\"compiled\":%s,\"count\":%d,\"source_size\":%lu%s%s%s}",
+      compiled ? "true" : "false",
+      (int)state->global_count,
+      (unsigned long)source_len,
+      (!compiled && state->global_last_error[0]) ? ",\"compile_error\":\"" : "",
+      (!compiled && state->global_last_error[0]) ? state->global_last_error : "",
+      (!compiled && state->global_last_error[0]) ? "\"" : "");
+
+    return api_send_json(req, buf);
+  }
+
+  return api_send_error(req, 405, "Method not allowed");
 }
 
 /* ============================================================================
@@ -2061,6 +2442,113 @@ esp_err_t api_handler_logic_reinit(httpd_req_t *req)
   char buf[256];
   serializeJson(doc, buf, sizeof(buf));
 
+  return api_send_json(req, buf);
+}
+
+/* ============================================================================
+ * FEAT-010: POST /api/logic/{id}/priority — {"priority":"normal"|"high"}
+ * ============================================================================ */
+esp_err_t api_handler_logic_priority_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  int id = api_extract_id_from_uri(req, "/api/logic/");
+  if (id < 1 || id > ST_LOGIC_MAX_PROGRAMS) {
+    return api_send_error(req, 400, "Invalid logic program ID");
+  }
+
+  st_logic_engine_state_t *state = st_logic_get_state();
+  if (!state) {
+    return api_send_error(req, 500, "ST Logic not initialized");
+  }
+
+  char content[128];
+  int received = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (received <= 0) {
+    return api_send_error(req, 400, "Failed to read request body");
+  }
+  content[received] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+  if (!doc.containsKey("priority")) {
+    return api_send_error(req, 400, "Missing 'priority' field");
+  }
+  const char *pstr = doc["priority"].as<const char *>();
+  uint8_t priority;
+  if (pstr && strcasecmp(pstr, "high") == 0) {
+    priority = ST_LOGIC_PRIORITY_HIGH;
+  } else if (pstr && strcasecmp(pstr, "normal") == 0) {
+    priority = ST_LOGIC_PRIORITY_NORMAL;
+  } else {
+    return api_send_error(req, 400, "priority must be \"normal\" or \"high\"");
+  }
+
+  char err[96] = "";
+  if (!st_logic_set_program_priority(state, id - 1, priority, err, sizeof(err))) {
+    return api_send_error(req, 400, err[0] ? err : "Could not set priority");
+  }
+
+  JsonDocument resp;
+  resp["status"] = 200;
+  resp["program"] = id;
+  resp["priority"] = (priority == ST_LOGIC_PRIORITY_HIGH) ? "HIGH" : "NORMAL";
+
+  char buf[192];
+  serializeJson(resp, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+/* ============================================================================
+ * FEAT-010: POST /api/logic/{id}/interval — {"interval_ms":N}
+ * ============================================================================ */
+esp_err_t api_handler_logic_program_interval_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  int id = api_extract_id_from_uri(req, "/api/logic/");
+  if (id < 1 || id > ST_LOGIC_MAX_PROGRAMS) {
+    return api_send_error(req, 400, "Invalid logic program ID");
+  }
+
+  st_logic_engine_state_t *state = st_logic_get_state();
+  if (!state) {
+    return api_send_error(req, 500, "ST Logic not initialized");
+  }
+
+  char content[128];
+  int received = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (received <= 0) {
+    return api_send_error(req, 400, "Failed to read request body");
+  }
+  content[received] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+  if (!doc.containsKey("interval_ms")) {
+    return api_send_error(req, 400, "Missing 'interval_ms' field");
+  }
+  uint32_t interval_ms = doc["interval_ms"].as<uint32_t>();
+
+  if (!st_logic_set_program_interval(state, id - 1, interval_ms)) {
+    char msg[96];
+    snprintf(msg, sizeof(msg), "interval_ms must be %u-%u", ST_LOGIC_INTERVAL_MIN_MS, ST_LOGIC_INTERVAL_MAX_MS);
+    return api_send_error(req, 400, msg);
+  }
+
+  JsonDocument resp;
+  resp["status"] = 200;
+  resp["program"] = id;
+  resp["interval_ms"] = state->programs[id - 1].interval_ms;
+
+  char buf[192];
+  serializeJson(resp, buf, sizeof(buf));
   return api_send_json(req, buf);
 }
 
@@ -3059,6 +3547,11 @@ esp_err_t api_handler_ethernet_post(httpd_req_t *req)
       strncpy(g_persist_config.network.ethernet.hostname, hn,
               sizeof(g_persist_config.network.ethernet.hostname) - 1);
       g_persist_config.network.ethernet.hostname[sizeof(g_persist_config.network.ethernet.hostname) - 1] = '\0';
+      // BUG-371: anvend straks — se api_handler_hostname_post()'s kommentar
+      // for den fulde forklaring (hostname havde foer ingen netvaerkseffekt).
+      ethernet_driver_set_hostname(g_persist_config.network.ethernet.hostname[0]
+        ? g_persist_config.network.ethernet.hostname
+        : g_persist_config.hostname);
     }
   }
 
@@ -3697,6 +4190,25 @@ esp_err_t api_handler_logic_bind_post(httpd_req_t *req)
     return api_send_error(req, 404, errmsg);
   }
 
+  // FEAT-005: STRING kan ikke bindes til et Modbus-register/coil — der
+  // findes ingen meningsfuld 1-2-register-mapping for en variabel-laengde
+  // tekststreng, og at tillade det ville lade en registerskrivning
+  // overskrive variablens str_ref (en intern reference, IKKE en vaerdi) med
+  // vilkaarlige bits — en reel hukommelseskorruptionsrisiko, ikke kun en
+  // "meningsloes vaerdi"-ulempe.
+  if (prog->bytecode.var_types[var_index] == ST_TYPE_STRING) {
+    return api_send_error(req, 400, "STRING variables cannot be bound to Modbus registers/coils");
+  }
+
+  // FEAT-010: HIGH-priority programs run on their own independent Core-0
+  // task, decoupled from the main loop's gpio_mapping read-before/write-
+  // after cadence — a binding would read/write at unpredictable times
+  // relative to that synchronization (a timing-correctness gap, not just a
+  // memory-safety one). See BUGS_INDEX.md FEAT-010.
+  if (prog->priority == ST_LOGIC_PRIORITY_HIGH) {
+    return api_send_error(req, 400, "HIGH-priority programs cannot use Modbus/GPIO bindings");
+  }
+
   // Parse binding spec
   uint16_t register_addr = 0;
   uint8_t input_type = 0;  // 0=HR, 1=DI, 2=Coil
@@ -4156,6 +4668,7 @@ esp_err_t api_handler_bindings_list(httpd_req_t *req)
           case ST_TYPE_DINT: type_str = "DINT"; break;
           case ST_TYPE_REAL: type_str = "REAL"; break;
           case ST_TYPE_TIME: type_str = "TIME"; break;
+          case ST_TYPE_STRING: type_str = "STRING"; break;  // FEAT-005 (not bindable, see binding-creation validation)
           default: break;
         }
         b["type"] = type_str;
@@ -4241,10 +4754,11 @@ esp_err_t api_handler_logic_settings_post(httpd_req_t *req)
     }
     g_persist_config.st_logic_interval_ms = interval;
 
-    // Also update runtime state
+    // FEAT-010: cascades to every NORMAL-priority program's own interval_ms
+    // (HIGH programs are scheduled independently, untouched by this).
     st_logic_engine_state_t *state = st_logic_get_state();
     if (state) {
-      state->execution_interval_ms = interval;
+      st_logic_set_global_interval(state, interval);
     }
   }
 
@@ -5624,8 +6138,22 @@ esp_err_t api_handler_hostname_post(httpd_req_t *req)
   strncpy(g_persist_config.hostname, hostname, sizeof(g_persist_config.hostname) - 1);
   g_persist_config.hostname[sizeof(g_persist_config.hostname) - 1] = '\0';
 
-  char resp[128];
-  snprintf(resp, sizeof(resp), "{\"status\":200,\"hostname\":\"%s\"}", g_persist_config.hostname);
+  // BUG-371: hostname havde FOER ingen reel netvaerkseffekt overhovedet (kun
+  // vist i telnet-banner/REST-svar) — anvendes nu straks paa netif'en. Selve
+  // NAVNET er sat med det samme, men den FAKTISKE DHCP-broadcastede vaert
+  // opdateres foerst ved naeste DHCP-lease/reconnect (routerens/DHCP-
+  // serverens client-liste kan derfor stadig vise det gamle navn indtil da).
+  // Ethernet har sit eget separate hostname-felt (/api/ethernet) — ryk kun
+  // Ethernet's netif med her hvis DEN ikke selv har en override sat.
+  wifi_driver_set_hostname(g_persist_config.hostname);
+  if (!g_persist_config.network.ethernet.hostname[0]) {
+    ethernet_driver_set_hostname(g_persist_config.hostname);
+  }
+
+  char resp[192];
+  snprintf(resp, sizeof(resp),
+    "{\"status\":200,\"hostname\":\"%s\",\"message\":\"Anvendt paa interfacet — reconnect/genstart for at opdatere DHCP-broadcast hostname\"}",
+    g_persist_config.hostname);
   return api_send_json(req, resp);
 }
 
@@ -6104,6 +6632,13 @@ esp_err_t api_handler_logic_debug(httpd_req_t *req)
         } else if (dbg->snapshot.var_types[i] == ST_TYPE_BOOL) {
           v["type"] = "BOOL";
           v["value"] = dbg->snapshot.variables[i].bool_val ? true : false;
+        } else if (dbg->snapshot.var_types[i] == ST_TYPE_STRING) {
+          // FEAT-005: snapshottet kopierer kun st_value_t (str_ref), ikke
+          // selve teksten — resolves her direkte fra det LEVENDE programs
+          // string_vars[] (gyldigt saa laenge programmet stadig er
+          // compileret/kompileret, hvilket det er naar en snapshot findes).
+          v["type"] = "STRING";
+          v["value"] = st->programs[id - 1].bytecode.string_vars[i];
         } else {
           v["type"] = "INT";
           v["value"] = dbg->snapshot.variables[i].int_val;
@@ -7398,6 +7933,90 @@ esp_err_t api_handler_syslog_post_dispatch(httpd_req_t *req)
   if (strstr(uri, "/start") != NULL) return api_handler_syslog_toggle(req, true);
   if (strstr(uri, "/stop") != NULL)  return api_handler_syslog_toggle(req, false);
   return api_send_error(req, 404, "Ukendt /api/syslog-underrute (brug /clear, /start eller /stop)");
+}
+
+/* ============================================================================
+ * FEAT-033: Request Audit Log API
+ *
+ *   GET  /api/system/logs         — Liste over seneste API-requests
+ *   POST /api/system/logs/clear   — Ryd loggen
+ *
+ * Samme moenster som /api/syslog (system_log.h) — se api_audit_log.h for
+ * hvorfor loggen fyldes fra api_send_error()/api_send_json() i stedet for
+ * fra hver enkelt handler.
+ * ============================================================================ */
+
+esp_err_t api_handler_audit_log_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  uint16_t n = api_audit_log_count();
+
+  // ?limit=N — kun de NYESTE N (samme moenster som /api/syslog)
+  uint16_t first = 0;
+  char q[64];
+  if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+    char val[12];
+    if (httpd_query_key_value(q, "limit", val, sizeof(val)) == ESP_OK) {
+      long lim = strtol(val, NULL, 10);
+      if (lim > 0 && lim < (long)n) {
+        first = (uint16_t)(n - lim);
+      }
+    }
+  }
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+  char head[96];
+  snprintf(head, sizeof(head), "{\"logging\":%s,\"capacity\":%d,\"total\":%u,\"entries\":[",
+           api_audit_log_is_enabled() ? "true" : "false", (int)API_AUDIT_LOG_MAX, (unsigned)n);
+  httpd_resp_send_chunk(req, head, HTTPD_RESP_USE_STRLEN);
+
+  char item[192];
+  bool first_written = true;
+  for (uint16_t i = first; i < n; i++) {
+    api_audit_entry_t e;
+    if (!api_audit_log_get(i, &e)) break;
+
+    snprintf(item, sizeof(item),
+      "%s{\"timestamp_ms\":%lu,\"epoch_s\":%lu,\"method\":\"%s\",\"path\":\"%s\","
+      "\"status\":%u,\"ip\":\"%s\",\"username\":\"%s\"}",
+      first_written ? "" : ",",
+      (unsigned long)e.timestamp_ms, (unsigned long)e.epoch_s,
+      e.method, e.path, (unsigned)e.status, e.ip, e.username);
+    httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
+    first_written = false;
+  }
+
+  httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN);
+  httpd_resp_send_chunk(req, NULL, 0);
+
+  http_server_stat_success();
+  return ESP_OK;
+}
+
+esp_err_t api_handler_audit_log_clear(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+  api_audit_log_clear();
+  return api_send_json(req, "{\"status\":\"ok\",\"message\":\"Audit-log ryddet\"}");
+}
+
+// POST /api/system/logs/clear — samme wildcard-suffiks-dispatch-moenster
+// som /api/syslog/* (kun én underrute i dag, men holder samme struktur
+// klar til flere hvis der senere tilfoejes fx start/stop-toggle)
+esp_err_t api_handler_audit_log_post_dispatch(httpd_req_t *req)
+{
+  const char *uri = req->uri;
+  if (strstr(uri, "/clear") != NULL) return api_handler_audit_log_clear(req);
+  return api_send_error(req, 404, "Ukendt /api/system/logs-underrute (brug /clear)");
 }
 
 /* ============================================================================

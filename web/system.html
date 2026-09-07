@@ -81,6 +81,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <a href="/editor">ST Editor</a>
 <a href="/cli">CLI</a>
 <a href="/system" class="active">System</a>
+<a href="/logs">Logs</a>
 <button class="save-btn" id="saveBtn" onclick="doGlobalSave()" title="Gem konfiguration til NVS">&#128190; Save</button>
 <div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogout" onclick="doLogout()">Log ud</div></div></div>
 </div>
@@ -559,11 +560,36 @@ function showAlert(id,type,msg){
   setTimeout(()=>{el.style.display='none'},8000);
 }
 
+// BUG-369c: loadAllSettings() (og andre steder) fyrer op til 10+ parallelle
+// api()-kald ved side-indlæsning — se dashboard.html's dashFetch()-kommentar
+// for den fulde forklaring (HTTPS-serveren tillader kun max_open_sockets=3
+// samtidige TLS-sessioner; flere samtidige forsøg kan udløse en
+// ESP-IDF/mbedTLS-fejl der i værste fald leder mod heap-udtømning). Samme
+// simple kø-princip her: et hårdt loft på samtidige forbindelser, delt af
+// ALLE api()-kald fra denne side.
+let _apiFetchActive=0;
+const _apiFetchQueue=[];
+const API_FETCH_MAX_CONCURRENT=2;
+function _apiFetchPump(){
+  while(_apiFetchActive<API_FETCH_MAX_CONCURRENT && _apiFetchQueue.length>0){
+    const job=_apiFetchQueue.shift();
+    _apiFetchActive++;
+    fetch(job.url,job.opts).then(r=>{_apiFetchActive--;_apiFetchPump();job.resolve(r);})
+      .catch(e=>{_apiFetchActive--;_apiFetchPump();job.reject(e);});
+  }
+}
+function queuedFetch(url,opts){
+  return new Promise((resolve,reject)=>{
+    _apiFetchQueue.push({url,opts,resolve,reject});
+    _apiFetchPump();
+  });
+}
+
 // --- API helper ---
 function api(url,opts={}){
   opts.headers=opts.headers||{};
   opts.headers['Authorization']=AUTH;
-  return fetch(url,opts).then(r=>{if(r.status===401){AUTH='';sessionStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}return r;});
+  return queuedFetch(url,opts).then(r=>{if(r.status===401){AUTH='';sessionStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}return r;});
 }
 
 // --- System Info ---

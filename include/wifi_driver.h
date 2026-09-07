@@ -106,6 +106,17 @@ int wifi_driver_get_ssid(char *out_ssid);
  */
 int8_t wifi_driver_get_rssi(void);
 
+/**
+ * BUG-371: Set the network-visible hostname (broadcast in DHCP requests) on
+ * the STA interface. Kaldes baade ved boot (config_apply.cpp, med den
+ * persisterede vaerdi) og straks ved en REST/CLI-aendring — foer denne fix
+ * havde `g_persist_config.hostname` INGEN reel netvaerkseffekt overhovedet
+ * (kun vist i telnet-banner og REST-svar).
+ * @param hostname Nyt hostname (maks 32 tegn inkl. terminator, ESP-IDF-graense)
+ * @return 0 on success, -1 hvis STA-interfacet ikke er oprettet endnu
+ */
+int wifi_driver_set_hostname(const char *hostname);
+
 /* ============================================================================
  * STATIC IP CONFIGURATION
  * ============================================================================ */

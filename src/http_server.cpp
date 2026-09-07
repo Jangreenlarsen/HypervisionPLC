@@ -23,6 +23,7 @@
 #include "web_system.h"
 #include "web_ota.h"
 #include "web_cli.h"
+#include "web_logs.h"
 #include "rbac.h"
 #include "ota_handler.h"
 #include "constants.h"
@@ -196,6 +197,29 @@ static const httpd_uri_t uri_syslog_post = {
   .uri      = "/api/syslog/*",
   .method   = HTTP_POST,
   .handler  = api_handler_syslog_post_dispatch,
+  .user_ctx = NULL
+};
+
+// FEAT-033: Request Audit Log
+static const httpd_uri_t uri_audit_log_get = {
+  .uri      = "/api/system/logs",
+  .method   = HTTP_GET,
+  .handler  = api_handler_audit_log_get,
+  .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_audit_log_post = {
+  .uri      = "/api/system/logs/*",
+  .method   = HTTP_POST,
+  .handler  = api_handler_audit_log_post_dispatch,
+  .user_ctx = NULL
+};
+
+// FEAT-029: OpenAPI/Swagger schema
+static const httpd_uri_t uri_schema = {
+  .uri      = "/api/schema",
+  .method   = HTTP_GET,
+  .handler  = api_handler_schema,
   .user_ctx = NULL
 };
 
@@ -783,6 +807,14 @@ static const httpd_uri_t uri_cli_page = {
   .user_ctx = NULL
 };
 
+// FEAT-033: Web Request Audit Log page
+static const httpd_uri_t uri_logs_page = {
+  .uri      = "/logs",
+  .method   = HTTP_GET,
+  .handler  = web_logs_handler,
+  .user_ctx = NULL
+};
+
 /* ============================================================================
  * v7.0.0 URI DEFINITIONS (FEAT-023 SSE, FEAT-030 API Versioning)
  * ============================================================================ */
@@ -1002,6 +1034,17 @@ int http_server_start(const HttpConfig *config)
     httpd_config.server_port = config->port;
     http_state.active_port = config->port;
     httpd_config.max_uri_handlers = 128;  // BUG-354: see https_wrapper_start() call above for why
+    // BUG-364/366 bumpede denne til 16384 saa siden 20480, fordi FEAT-169s
+    // GitHub-OTA-handlers dengang lavede deres eget KLIENT-side TLS-
+    // handshake (WiFiClientSecure/HTTPClient/mbedtls) direkte INDE i denne
+    // delte worker-task. BUG-367 flyttede al det arbejde til DEDIKEREDE
+    // (transiente, egen-stak) baggrundstasks — denne task laver derfor ikke
+    // laengere TLS-handshakes overhovedet, og den begrundelse for ekstra
+    // stak-margin er vaek. Reverteret til original 8192 (samme vaerdi som
+    // altid var nok til alle ANDRE handlers foer FEAT-169) for at give
+    // hukommelsen tilbage — BUG-369 viste at hver ekstra KB task-stak her
+    // er permanent taget fra den samme knappe interne heap-pulje som
+    // mbedTLS's SSL-sessioner (server-side, port 443) konkurrerer om.
     httpd_config.stack_size = 8192;
     httpd_config.uri_match_fn = httpd_uri_match_wildcard;
     httpd_config.lru_purge_enable = true;  // BUG-241: Auto-close idle keep-alive connections to reduce heap fragmentation
@@ -1051,6 +1094,9 @@ int http_server_start(const HttpConfig *config)
   // FEAT-086/089: Haendelses- og registerandringslog
   httpd_register_uri_handler(http_state.server, &uri_syslog_get);
   httpd_register_uri_handler(http_state.server, &uri_syslog_post);
+  httpd_register_uri_handler(http_state.server, &uri_audit_log_get);
+  httpd_register_uri_handler(http_state.server, &uri_audit_log_post);
+  httpd_register_uri_handler(http_state.server, &uri_schema);
   // Timers
   httpd_register_uri_handler(http_state.server, &uri_timers);
   httpd_register_uri_handler(http_state.server, &uri_timer_single);
@@ -1172,6 +1218,7 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_ota_github_install);
   httpd_register_uri_handler(http_state.server, &uri_ota_page);
   httpd_register_uri_handler(http_state.server, &uri_cli_page);
+  httpd_register_uri_handler(http_state.server, &uri_logs_page);
 
   http_state.running = 1;
   ESP_LOGI(TAG, "%s server started on port %d", config->tls_enabled ? "HTTPS" : "HTTP", http_state.active_port);

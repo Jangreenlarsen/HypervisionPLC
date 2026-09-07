@@ -55,7 +55,9 @@ Dashboardets **Netværk**-kort ([§4.2](04_Web_Dashboard_og_Monitor.md)) viser s
 
 ## 12.5 Konfiguration via web-GUI (FEAT-166)
 
-Alt det ovenstående — Wi-Fi (SSID/adgangskode/DHCP/statisk IP/power-save), Ethernet (DHCP/statisk IP/hostname) og NTP (server/tidszone/sync-interval) — kan nu også indstilles direkte fra `/system`-siden, uden CLI. Enhedens eget hostname (mDNS) har sit eget felt der (adskilt fra Ethernet-modulets DHCP-hostname). Ændringer af IP/DHCP/Wi-Fi-credentials anvendes i RAM med det samme, men kræver "Save" + genstart for at overleve en reboot — samme betingelse som CLI'ens `save`-kommando. NTP-ændringer (server/tidszone/interval) anvendes derimod straks uden reboot.
+Alt det ovenstående — Wi-Fi (SSID/adgangskode/DHCP/statisk IP/power-save), Ethernet (DHCP/statisk IP/hostname) og NTP (server/tidszone/sync-interval) — kan nu også indstilles direkte fra `/system`-siden, uden CLI. Enhedens eget hostname har sit eget felt der, adskilt fra Ethernet-modulets egen hostname-indstilling — er Ethernets felt tomt, bruges det globale hostname for begge interfaces; er det udfyldt, får Ethernet sit eget, forskelligt DHCP-navn (nyttigt hvis begge interfaces er aktive samtidig på samme LAN). Ændringer af IP/DHCP/Wi-Fi-credentials/hostname anvendes i RAM med det samme, men kræver "Save" + genstart for at overleve en reboot — samme betingelse som CLI'ens `save`-kommando. NTP-ændringer (server/tidszone/interval) anvendes derimod straks uden reboot.
+
+**Om hostname (BUG-371, rettet):** hostname-indstillingen ændrer det navn enheden broadcaster i sine DHCP-requests (synligt i routerens/DHCP-serverens klientliste) — den anvendes med det samme på interfacet, men selve DHCP-broadcastet opdateres først ved næste reconnect/genstart. Enheden kører **ikke** en mDNS-responder — `<hostname>.local`-opløsning i browseren virker derfor ikke, uanset hvad hostname er sat til.
 
 ---
 

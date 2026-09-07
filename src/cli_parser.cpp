@@ -258,6 +258,10 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "BIND")) return "BIND";
   if (str_eq_i(s, "DELETE") || str_eq_i(s, "DEL")) return "DELETE";
   if (str_eq_i(s, "REINIT") || str_eq_i(s, "COLDSTART") || str_eq_i(s, "COLD-START")) return "REINIT";
+  // FEAT-010: program priority/scheduling
+  if (str_eq_i(s, "PRIORITY") || str_eq_i(s, "PRIO")) return "PRIORITY";
+  if (str_eq_i(s, "HIGH")) return "HIGH";
+  if (str_eq_i(s, "NORMAL")) return "NORMAL";
 
   // RBAC user management
   if (str_eq_i(s, "USER") || str_eq_i(s, "USR")) return "USER";
@@ -671,6 +675,7 @@ static void print_logic_help(void) {
   debug_println("  show logic all           - Vis alle programmer");
   debug_println("  show logic program       - Vis oversigt over alle programmer");
   debug_println("  show logic errors        - Vis kun programmer med fejl");
+  debug_println("  show logic globals       - Vis GLOBAL_VAR (delt mellem Logic1-4, FEAT-007)");
   debug_println("  show logic stats         - Vis statistik");
   debug_println("  show logic <id> code     - Vis program source code");
   debug_println("  show logic all code      - Vis alle programmer source code");
@@ -983,6 +988,10 @@ bool cli_parser_execute(char* line) {
         return true;
       } else if (!strcmp(subcommand_norm, "ERRORS")) {
         cli_cmd_show_logic_errors(st_logic_get_state());
+        return true;
+      } else if (!strcmp(subcommand_norm, "GLOBALS")) {
+        // FEAT-007: show logic globals
+        cli_cmd_show_logic_globals(st_logic_get_state());
         return true;
       } else {
         // show logic <id> - specific program (hide source code by default - v5.1.0)
@@ -1407,8 +1416,10 @@ bool cli_parser_execute(char* line) {
         debug_println("         set logic <id> reinit   (cold restart: reset vars)");
         debug_println("         set logic <id> delete");
         debug_println("         set logic <id> bind <var_name> reg:100|coil:10|input:5");
+        debug_println("         set logic <id> priority normal|high  (FEAT-010)");
+        debug_println("         set logic <id> interval <ms>         (FEAT-010, this program only)");
         debug_println("         set logic debug:true|false");
-        debug_println("         set logic interval:X  (X = 10,20,25,50,75,100 ms)");
+        debug_println("         set logic interval:X  (all NORMAL programs, X = 2,5,10,20,25,50,75,100 ms)");
         return false;
       }
 
@@ -1441,6 +1452,33 @@ bool cli_parser_execute(char* line) {
         return true;
       } else if (!strcmp(cmd_normalized, "REINIT") || !strcmp(cmd_normalized, "COLDSTART")) {
         cli_cmd_set_logic_reinit(st_logic_get_state(), prog_idx);
+        return true;
+      } else if (!strcmp(cmd_normalized, "PRIORITY")) {
+        // FEAT-010: set logic <id> priority normal|high
+        if (argc < 5) {
+          debug_println("SET LOGIC PRIORITY: missing value");
+          debug_println("  Usage: set logic <id> priority normal|high");
+          return false;
+        }
+        const char *pval = normalize_alias(argv[4]);
+        if (!strcmp(pval, "HIGH")) {
+          cli_cmd_set_logic_priority(st_logic_get_state(), prog_idx, ST_LOGIC_PRIORITY_HIGH);
+        } else if (!strcmp(pval, "NORMAL")) {
+          cli_cmd_set_logic_priority(st_logic_get_state(), prog_idx, ST_LOGIC_PRIORITY_NORMAL);
+        } else {
+          debug_println("SET LOGIC PRIORITY: expected 'normal' or 'high'");
+          return false;
+        }
+        return true;
+      } else if (!strcmp(cmd_normalized, "INTERVAL")) {
+        // FEAT-010: set logic <id> interval <ms> (this program only)
+        if (argc < 5) {
+          debug_println("SET LOGIC INTERVAL: missing value");
+          debug_printf("  Usage: set logic <id> interval <ms>  (%u-%u)\n",
+                       ST_LOGIC_INTERVAL_MIN_MS, ST_LOGIC_INTERVAL_MAX_MS);
+          return false;
+        }
+        cli_cmd_set_logic_program_interval(st_logic_get_state(), prog_idx, (uint32_t)atoi(argv[4]));
         return true;
       }
 
@@ -2750,6 +2788,8 @@ void cli_parser_print_help(void) {
   debug_println("  set logic <id> compile             - Compile program to bytecode");
   debug_println("  set logic <id> enable              - Enable/disable program");
   debug_println("  set logic <id> interval:<ms>       - Set execution interval (10,20,25,50,75,100)");
+  debug_println("  set logic <id> interval <ms>       - FEAT-010: same, this program only (2-60000)");
+  debug_println("  set logic <id> priority normal|high - FEAT-010: HIGH = dedicated real-time task, no bindings allowed");
   debug_println("  set logic <id> debug:<true|false>  - Enable timing debug output");
   debug_println("");
   debug_println("  Variable Bindings (CLI method - permanent):");

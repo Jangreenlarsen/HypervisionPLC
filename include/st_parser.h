@@ -54,6 +54,32 @@ st_program_t *st_parser_parse_program(st_parser_t *parser);
 bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *variables, uint8_t *var_count);
 
 /**
+ * @brief FEAT-007: Parse a standalone GLOBAL_VAR block (not nested in a
+ * PROGRAM). Scalar types only (BOOL/INT/DINT/DWORD/REAL/TIME) — no
+ * STRING, ARRAY, EXPORT, or initial value. See st_parser.cpp for the
+ * full rationale.
+ * @param parser Parser state
+ * @param variables Output variable array
+ * @param var_count Output variable count
+ * @param max_count Capacity of the variables array (e.g. ST_MAX_GLOBAL_VARS)
+ * @return true if successful
+ */
+bool st_parser_parse_global_var_block(st_parser_t *parser, st_variable_decl_t *variables,
+                                       uint8_t *var_count, uint8_t max_count);
+
+/**
+ * @brief FEAT-009: Parse one "TYPE Name : STRUCT field: type; ... END_STRUCT
+ * END_TYPE" declaration. Scalar fields only (BOOL/INT/DINT/DWORD/REAL/TIME)
+ * — no nested STRUCT, ARRAY, or STRING fields. Called in a loop from
+ * st_parser_parse_program() before the PROGRAM keyword, so zero or more
+ * TYPE blocks may precede a program's own VAR block.
+ * @param parser Parser state (must be positioned at the TYPE token)
+ * @param out_type Output struct type declaration
+ * @return true if successful
+ */
+bool st_parser_parse_struct_type_decl(st_parser_t *parser, st_struct_type_decl_t *out_type);
+
+/**
  * @brief Parse statement list
  * @param parser Parser state
  * @return Root AST node (linked list of statements), NULL on error

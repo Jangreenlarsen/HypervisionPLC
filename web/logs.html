@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HyperFusion PLC : Request Audit Log</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+nav{background:#181825;padding:8px 16px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #313244}
+nav a{color:#89b4fa;text-decoration:none;padding:6px 12px;border-radius:6px;font-size:13px;transition:background .2s}
+nav a:hover{background:#313244}
+nav a.active{background:#89b4fa;color:#1e1e2e;font-weight:600}
+nav .brand{font-weight:700;color:#cba6f7;margin-right:auto;font-size:15px}
+.container{flex:1;padding:24px;overflow-y:auto;max-width:1000px;margin:0 auto;width:100%}
+.card{background:#181825;border:1px solid #313244;border-radius:12px;padding:20px;margin-bottom:16px}
+.card h2{font-size:16px;color:#cba6f7;margin-bottom:12px}
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.toolbar select{background:#1e1e2e;border:1px solid #45475a;color:#cdd6f4;border-radius:6px;padding:6px 10px;font-size:13px}
+.toolbar .spacer{flex:1}
+.badge{font-size:12px;color:#a6adc8}
+.btn{padding:8px 16px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:#89b4fa;color:#1e1e2e}
+.btn-danger{background:#f38ba8;color:#1e1e2e}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:#a6adc8;font-weight:600;padding:6px 10px;border-bottom:1px solid #313244;position:sticky;top:0;background:#181825}
+td{padding:6px 10px;border-bottom:1px solid #24243a;font-family:monospace}
+tr:hover td{background:#1e1e33}
+.tbl-wrap{max-height:60vh;overflow-y:auto}
+.method{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700}
+.method-get{background:#1e2e3e;color:#89b4fa}
+.method-post{background:#1e2e1e;color:#a6e3a1}
+.method-delete{background:#2e1e1e;color:#f38ba8}
+.status-ok{color:#a6e3a1}
+.status-err{color:#f38ba8}
+.empty-msg{color:#6c7086;text-align:center;padding:24px;font-size:13px}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:#181825;border:1px solid #313244;border-radius:12px;padding:24px;width:340px}
+.modal h3{color:#cba6f7;margin-bottom:12px}
+.modal input{width:100%;padding:8px;margin:4px 0 8px;background:#1e1e2e;border:1px solid #45475a;border-radius:6px;color:#cdd6f4;font-size:14px}
+.modal .btn{width:100%;margin-top:8px}
+footer{background:#181825;border-top:1px solid #313244;padding:6px 16px;font-size:11px;color:#585b70;text-align:center}
+</style>
+</head>
+<body>
+<nav>
+<span class="brand">HyberFusion PLC</span>
+<a href="/">Monitor</a>
+<a href="/editor">ST Editor</a>
+<a href="/cli">CLI</a>
+<a href="/system">System</a>
+<a href="/logs" class="active">Logs</a>
+</nav>
+
+<div class="container">
+<div class="card">
+<h2>Request Audit Log (FEAT-033)</h2>
+<div class="toolbar">
+<select id="limitSel" onchange="fetchLogs()">
+<option value="25">Seneste 25</option>
+<option value="50" selected>Seneste 50</option>
+<option value="100">Seneste 100 (alle)</option>
+</select>
+<button class="btn btn-primary" onclick="fetchLogs()">&#8635; Opdater</button>
+<button class="btn btn-danger" onclick="clearLogs()">Ryd log</button>
+<div class="spacer"></div>
+<span class="badge" id="logBadge">-</span>
+</div>
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>Tid</th><th>Metode</th><th>Sti</th><th>Status</th><th>IP</th><th>Bruger</th></tr></thead>
+<tbody id="logBody"><tr><td colspan="6" class="empty-msg">Indlaeser...</td></tr></tbody>
+</table>
+</div>
+</div>
+</div>
+
+<!-- Login Modal -->
+<div class="modal-overlay" id="loginModal">
+<div class="modal">
+<h3>Login</h3>
+<input id="authUser" placeholder="Brugernavn" autocomplete="username">
+<input id="authPass" type="password" placeholder="Adgangskode" autocomplete="current-password">
+<div id="loginErr" style="display:none;color:#f38ba8;font-size:12px;padding:6px 0"></div>
+<button class="btn btn-primary" onclick="doLogin()">Log ind</button>
+</div>
+</div>
+
+<footer id="footStatus">Request Audit Log - FEAT-033</footer>
+
+<script>
+let AUTH=sessionStorage.getItem('hfplc_auth')||'';
+
+// BUG-369c: hardt loft paa samtidige forbindelser fra denne side — se
+// dashboard.html's dashFetch()-kommentar for den fulde forklaring
+// (max_open_sockets=3 paa HTTPS-serveren; flere samtidige forsoeg kan
+// udloese en ESP-IDF/mbedTLS-fejl der i vaerste fald leder mod
+// heap-udtoemning).
+let _apiFetchActive=0;
+const _apiFetchQueue=[];
+const API_FETCH_MAX_CONCURRENT=2;
+function _apiFetchPump(){
+  while(_apiFetchActive<API_FETCH_MAX_CONCURRENT && _apiFetchQueue.length>0){
+    const job=_apiFetchQueue.shift();
+    _apiFetchActive++;
+    fetch(job.url,job.opts).then(r=>{_apiFetchActive--;_apiFetchPump();job.resolve(r);})
+      .catch(e=>{_apiFetchActive--;_apiFetchPump();job.reject(e);});
+  }
+}
+function queuedFetch(url,opts){
+  return new Promise((resolve,reject)=>{
+    _apiFetchQueue.push({url,opts,resolve,reject});
+    _apiFetchPump();
+  });
+}
+
+function api(url,opts={}){
+  if(AUTH){if(!opts.headers)opts.headers={};opts.headers['Authorization']=AUTH;}
+  return queuedFetch(url,opts).then(r=>{
+    if(r.status===401){AUTH='';sessionStorage.removeItem('hfplc_auth');document.getElementById('loginModal').classList.add('show');throw new Error('Login');}
+    return r;
+  });
+}
+async function doLogin(){
+  const u=document.getElementById('authUser').value;
+  const p=document.getElementById('authPass').value;
+  const basicAuth='Basic '+btoa(u+':'+p);
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Authorization':basicAuth}});
+    if(!r.ok){
+      document.getElementById('loginErr').style.display='block';
+      document.getElementById('loginErr').textContent='Forkert brugernavn eller adgangskode';
+      return;
+    }
+    const d=await r.json();
+    if(!d.token){
+      document.getElementById('loginErr').style.display='block';
+      document.getElementById('loginErr').textContent='Login fejlede (intet token)';
+      return;
+    }
+    AUTH='Bearer '+d.token;
+    sessionStorage.setItem('hfplc_auth',AUTH);
+    document.getElementById('loginModal').classList.remove('show');
+    fetchLogs();
+  }catch(e){
+    document.getElementById('loginErr').style.display='block';
+    document.getElementById('loginErr').textContent='Forbindelsesfejl';
+  }
+}
+
+function fmtTime(e){
+  if(e.epoch_s&&e.epoch_s>0){
+    const d=new Date(e.epoch_s*1000);
+    return d.toLocaleTimeString('da-DK');
+  }
+  return 'oppetid '+Math.round(e.timestamp_ms/1000)+'s';
+}
+function methodClass(m){
+  if(m==='GET')return 'method-get';
+  if(m==='DELETE')return 'method-delete';
+  return 'method-post';
+}
+
+function fetchLogs(){
+  const lim=document.getElementById('limitSel').value;
+  api('/api/system/logs?limit='+lim).then(r=>r.json()).then(d=>{
+    document.getElementById('logBadge').textContent=
+      (d.logging?'Aktiv':'Pause')+' — '+d.total+' / '+d.capacity+' poster';
+    const tbody=document.getElementById('logBody');
+    if(!d.entries||d.entries.length===0){
+      tbody.innerHTML='<tr><td colspan="6" class="empty-msg">Ingen requests logget endnu</td></tr>';
+      return;
+    }
+    // Nyeste oeverst
+    const rows=d.entries.slice().reverse();
+    tbody.innerHTML=rows.map(e=>{
+      const statusCls=(e.status>=200&&e.status<400)?'status-ok':'status-err';
+      return '<tr>'+
+        '<td>'+fmtTime(e)+'</td>'+
+        '<td><span class="method '+methodClass(e.method)+'">'+e.method+'</span></td>'+
+        '<td>'+e.path+'</td>'+
+        '<td class="'+statusCls+'">'+e.status+'</td>'+
+        '<td>'+e.ip+'</td>'+
+        '<td>'+e.username+'</td>'+
+        '</tr>';
+    }).join('');
+  }).catch(()=>{
+    document.getElementById('logBody').innerHTML='<tr><td colspan="6" class="empty-msg">Kunne ikke hente log</td></tr>';
+  });
+}
+
+function clearLogs(){
+  if(!confirm('Ryd hele audit-loggen?'))return;
+  api('/api/system/logs/clear',{method:'POST'}).then(r=>{
+    if(r.ok)fetchLogs();
+    else alert('Kunne ikke rydde loggen');
+  }).catch(e=>alert('Fejl: '+e.message));
+}
+
+fetchLogs();
+</script>
+</body>
+</html>

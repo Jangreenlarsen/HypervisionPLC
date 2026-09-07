@@ -253,13 +253,59 @@ int cli_cmd_set_logic_interval(st_logic_engine_state_t *logic_state, uint32_t in
                  (unsigned int)interval_ms);
   }
 
-  logic_state->execution_interval_ms = interval_ms;
+  // FEAT-010: this now means "set the interval for every NORMAL-priority
+  // program at once" — HIGH programs are scheduled independently and
+  // untouched by this. See st_logic_set_global_interval().
+  st_logic_set_global_interval(logic_state, interval_ms);
 
   // BUG-014 FIX: Also update persistent config so interval survives reboot
   extern PersistConfig g_persist_config;
   g_persist_config.st_logic_interval_ms = interval_ms;
 
-  debug_printf("[OK] ST Logic execution interval set to %ums\n", (unsigned int)interval_ms);
+  debug_printf("[OK] ST Logic execution interval set to %ums (all NORMAL-priority programs)\n", (unsigned int)interval_ms);
+  debug_println("Note: Use 'save' command to persist to NVS");
+  return 0;
+}
+
+/**
+ * @brief FEAT-010: set logic <id> interval <ms>
+ *
+ * Set ONE program's own execution interval, independent of the others.
+ */
+int cli_cmd_set_logic_program_interval(st_logic_engine_state_t *logic_state, uint8_t program_id, uint32_t interval_ms) {
+  if (!logic_state) {
+    debug_println("ERROR: Logic state not initialized");
+    return -1;
+  }
+  if (program_id >= ST_LOGIC_MAX_PROGRAMS) {
+    debug_printf("ERROR: Invalid program ID (0-%d)\n", ST_LOGIC_MAX_PROGRAMS - 1);
+    return -1;
+  }
+  if (!st_logic_set_program_interval(logic_state, program_id, interval_ms)) {
+    debug_printf("ERROR: Invalid interval %ums (allowed: %u-%u)\n",
+                 (unsigned int)interval_ms, ST_LOGIC_INTERVAL_MIN_MS, ST_LOGIC_INTERVAL_MAX_MS);
+    return -1;
+  }
+  debug_printf("[OK] Logic%d interval set to %ums\n", program_id + 1, (unsigned int)interval_ms);
+  debug_println("Note: Use 'save' command to persist to NVS");
+  return 0;
+}
+
+/**
+ * @brief FEAT-010: set logic <id> priority normal|high
+ */
+int cli_cmd_set_logic_priority(st_logic_engine_state_t *logic_state, uint8_t program_id, uint8_t priority) {
+  if (!logic_state) {
+    debug_println("ERROR: Logic state not initialized");
+    return -1;
+  }
+  char err[96] = "";
+  if (!st_logic_set_program_priority(logic_state, program_id, priority, err, sizeof(err))) {
+    debug_printf("ERROR: %s\n", err[0] ? err : "Could not set priority");
+    return -1;
+  }
+  debug_printf("[OK] Logic%d priority set to %s\n", program_id + 1,
+               priority == ST_LOGIC_PRIORITY_HIGH ? "HIGH" : "NORMAL");
   debug_println("Note: Use 'save' command to persist to NVS");
   return 0;
 }
@@ -488,6 +534,21 @@ int cli_cmd_set_logic_bind(st_logic_engine_state_t *logic_state, uint8_t program
 
   if (var_index >= prog->bytecode.var_count) {
     debug_printf("ERROR: Invalid variable index (0-%d)\n", prog->bytecode.var_count - 1);
+    return -1;
+  }
+
+  // FEAT-005: samme begrundelse som REST-siden (api_handlers.cpp) — STRING
+  // har ingen meningsfuld 1-2-register-mapping, og at tillade det ville
+  // lade en registerskrivning overskrive variablens str_ref (en intern
+  // reference, ikke en vaerdi) med vilkaarlige bits.
+  if (prog->bytecode.var_types[var_index] == ST_TYPE_STRING) {
+    debug_println("ERROR: STRING variables cannot be bound to Modbus registers/coils");
+    return -1;
+  }
+
+  // FEAT-010: samme begrundelse som REST-siden — se BUGS_INDEX.md FEAT-010
+  if (prog->priority == ST_LOGIC_PRIORITY_HIGH) {
+    debug_println("ERROR: HIGH-priority programs cannot use Modbus/GPIO bindings");
     return -1;
   }
 
@@ -805,6 +866,65 @@ int cli_cmd_show_logic_errors(st_logic_engine_state_t *logic_state) {
   } else {
     debug_printf("  Total programs with errors: %d/%d\n\n", error_count, ST_LOGIC_MAX_PROGRAMS);
   }
+
+  return 0;
+}
+
+/**
+ * @brief FEAT-007: show logic globals
+ *
+ * Show current GLOBAL_VAR declarations + live values (shared across Logic1-4).
+ * Upload/recompile is REST-only (POST /api/logic/globals/source) — same as
+ * how program source is really edited via the web ST Editor, not the CLI.
+ */
+static const char *cli_datatype_to_string(st_datatype_t type) {
+  switch (type) {
+    case ST_TYPE_BOOL:  return "BOOL";
+    case ST_TYPE_INT:   return "INT";
+    case ST_TYPE_DINT:  return "DINT";
+    case ST_TYPE_DWORD: return "DWORD";
+    case ST_TYPE_REAL:  return "REAL";
+    case ST_TYPE_TIME:  return "TIME";
+    case ST_TYPE_STRING: return "STRING";
+    default: return "?";
+  }
+}
+
+int cli_cmd_show_logic_globals(st_logic_engine_state_t *logic_state) {
+  debug_printf("\n=== GLOBAL_VAR (delt mellem Logic1-4) ===\n\n");
+
+  if (!logic_state) {
+    debug_println("[ERROR] ST Logic ikke initialiseret");
+    return 1;
+  }
+
+  if (logic_state->global_count == 0) {
+    debug_printf("(ingen globale variable deklareret)\n");
+    if (logic_state->global_last_error[0]) {
+      debug_printf("Sidste fejl: %s\n", logic_state->global_last_error);
+    }
+    debug_printf("\n");
+    return 0;
+  }
+
+  st_logic_lock_variables();
+  for (uint8_t i = 0; i < logic_state->global_count; i++) {
+    st_global_var_t *g = &logic_state->globals[i];
+    const char *type_str = cli_datatype_to_string(g->type);
+
+    debug_printf("  [%d] %-20s %-6s = ", i, g->name, type_str);
+    switch (g->type) {
+      case ST_TYPE_BOOL:  debug_printf("%s\n", g->value.bool_val ? "TRUE" : "FALSE"); break;
+      case ST_TYPE_INT:   debug_printf("%d\n", g->value.int_val); break;
+      case ST_TYPE_DINT:  debug_printf("%ld\n", (long)g->value.dint_val); break;
+      case ST_TYPE_DWORD: debug_printf("%lu\n", (unsigned long)g->value.dword_val); break;
+      case ST_TYPE_REAL:  debug_printf("%.3f\n", g->value.real_val); break;
+      case ST_TYPE_TIME:  debug_printf("%ldms\n", (long)g->value.dint_val); break;
+      default: debug_printf("?\n"); break;
+    }
+  }
+  st_logic_unlock_variables();
+  debug_printf("\n  Total: %d/%d globale variable\n\n", logic_state->global_count, ST_MAX_GLOBAL_VARS);
 
   return 0;
 }
@@ -1246,14 +1366,14 @@ int cli_cmd_show_logic_timing(st_logic_engine_state_t *logic_state, uint8_t prog
 
     // Performance analysis
     debug_printf("Performance Analysis:\n");
-    debug_printf("  Target interval:   %ums\n", (unsigned int)logic_state->execution_interval_ms);
+    debug_printf("  Target interval:   %ums\n", (unsigned int)prog->interval_ms);
 
     uint32_t avg_ms = avg_us / 1000;
-    if (avg_ms < logic_state->execution_interval_ms / 4) {
+    if (avg_ms < prog->interval_ms / 4) {
       debug_printf("  Rating:            ✓ EXCELLENT (< 25%% of target)\n");
-    } else if (avg_ms < logic_state->execution_interval_ms / 2) {
+    } else if (avg_ms < prog->interval_ms / 2) {
       debug_printf("  Rating:            ✓ GOOD (< 50%% of target)\n");
-    } else if (avg_ms < logic_state->execution_interval_ms) {
+    } else if (avg_ms < prog->interval_ms) {
       debug_printf("  Rating:            ⚠️  ACCEPTABLE (< 100%% of target)\n");
     } else {
       debug_printf("  Rating:            ❌ POOR (> 100%% of target) - REFACTOR NEEDED!\n");
@@ -1270,7 +1390,7 @@ int cli_cmd_show_logic_timing(st_logic_engine_state_t *logic_state, uint8_t prog
     debug_printf("\n");
 
     // Recommendations
-    if (avg_ms > logic_state->execution_interval_ms) {
+    if (avg_ms > prog->interval_ms) {
       debug_printf("⚠️  RECOMMENDATIONS:\n");
       debug_printf("  - Simplify program logic (reduce loop iterations)\n");
       debug_printf("  - Increase execution interval (set logic interval:20)\n");

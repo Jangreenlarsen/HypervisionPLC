@@ -42,10 +42,20 @@ int cli_cmd_set_logic_debug(st_logic_engine_state_t *logic_state, bool debug);
 
 /**
  * @brief set logic interval:X (v4.1.0)
- * Set global execution interval for all ST Logic programs
- * Allowed values: 10, 20, 25, 50, 75, 100 ms
+ * FEAT-010: now sets the interval for every NORMAL-priority program at once
+ * (HIGH programs are scheduled independently). Allowed values: 2, 5, 10, 20, 25, 50, 75, 100 ms
  */
 int cli_cmd_set_logic_interval(st_logic_engine_state_t *logic_state, uint32_t interval_ms);
+
+/**
+ * @brief FEAT-010: set logic <id> interval <ms> — one program's own interval
+ */
+int cli_cmd_set_logic_program_interval(st_logic_engine_state_t *logic_state, uint8_t program_id, uint32_t interval_ms);
+
+/**
+ * @brief FEAT-010: set logic <id> priority normal|high
+ */
+int cli_cmd_set_logic_priority(st_logic_engine_state_t *logic_state, uint8_t program_id, uint8_t priority);
 
 /**
  * @brief set logic <id> delete
@@ -98,6 +108,12 @@ int cli_cmd_show_logic_programs(st_logic_engine_state_t *logic_state);
  * Show only programs with compilation or runtime errors
  */
 int cli_cmd_show_logic_errors(st_logic_engine_state_t *logic_state);
+
+/**
+ * @brief FEAT-007: show logic globals
+ * Show current GLOBAL_VAR declarations + live values (shared across Logic1-4)
+ */
+int cli_cmd_show_logic_globals(st_logic_engine_state_t *logic_state);
 
 /**
  * @brief show logic <id> code

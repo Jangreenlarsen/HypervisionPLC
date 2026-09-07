@@ -93,9 +93,12 @@ bool st_logic_execute_program(st_logic_engine_state_t *state, uint8_t program_id
   }
 
   // BUG-153 FIX: Update cycle time in stateful storage before execution
+  // FEAT-010: use THIS program's own interval, not the old shared global —
+  // otherwise TON/TOF/TP timers in any program with a different interval
+  // than the (now-legacy) global default would compute elapsed time wrong.
   if (prog->bytecode.stateful) {
     st_stateful_storage_t *stateful = (st_stateful_storage_t*)prog->bytecode.stateful;
-    stateful->cycle_time_ms = state->execution_interval_ms;
+    stateful->cycle_time_ms = prog->interval_ms;
   }
 
   // FEAT-003: Set function registry for user-defined function calls
@@ -107,14 +110,31 @@ bool st_logic_execute_program(st_logic_engine_state_t *state, uint8_t program_id
   uint32_t start_us = micros();
 
   // FEAT-008: Debug-aware execution loop
+  // FEAT-010: HIGH-priority programs get a stricter safety net — a lower
+  // step limit AND a wall-clock ceiling (checked periodically, not every
+  // instruction, to avoid micros() overhead) — so a runaway HIGH program
+  // can never monopolize Core 0 long enough to starve HTTP/SSE/mb_async,
+  // which already live there (see BUGS_INDEX.md FEAT-010).
   bool success = true;
   uint32_t steps = 0;
-  const uint32_t max_steps = 10000;
+  const bool is_high = (prog->priority == ST_LOGIC_PRIORITY_HIGH);
+  const uint32_t max_steps = is_high ? ST_LOGIC_HIGH_MAX_STEPS : 10000;
+  const uint32_t high_start_us = is_high ? start_us : 0;
 
   while (!vm.halted && !vm.error) {
     // Max steps check (safety)
     if (steps >= max_steps) {
       snprintf(vm.error_msg, sizeof(vm.error_msg), "Max steps exceeded (%u)", max_steps);
+      vm.error = 1;
+      success = false;
+      break;
+    }
+
+    // FEAT-010: HIGH-priority wall-clock ceiling
+    if (is_high && (steps % ST_LOGIC_HIGH_CHECK_INTERVAL) == 0 &&
+        (uint32_t)(micros() - high_start_us) > ST_LOGIC_HIGH_WALLCLOCK_US) {
+      snprintf(vm.error_msg, sizeof(vm.error_msg), "HIGH priority time budget exceeded (%uus)",
+               (unsigned)ST_LOGIC_HIGH_WALLCLOCK_US);
       vm.error = 1;
       success = false;
       break;
@@ -202,8 +222,8 @@ bool st_logic_execute_program(st_logic_engine_state_t *state, uint8_t program_id
     if (elapsed_us > prog->max_execution_us) prog->max_execution_us = elapsed_us;
   }
 
-  // Track overruns (execution time > target interval)
-  if (elapsed_ms > state->execution_interval_ms) {
+  // Track overruns (execution time > target interval) — FEAT-010: per-program interval
+  if (elapsed_ms > prog->interval_ms) {
     prog->overrun_count++;
   }
 
@@ -219,6 +239,9 @@ bool st_logic_execute_program(st_logic_engine_state_t *state, uint8_t program_id
   // This prevents division-by-zero or other errors from writing garbage values
   portENTER_CRITICAL(&st_var_spinlock);
   memcpy(prog->bytecode.variables, vm.variables, vm.var_count * sizeof(st_value_t));
+  // FEAT-005: STRING variable text also lives outside the st_value_t union
+  // (only a str_ref handle is copied above) — copy the actual text back too.
+  memcpy(prog->bytecode.string_vars, vm.string_vars, sizeof(prog->bytecode.string_vars));
   portEXIT_CRITICAL(&st_var_spinlock);
 
   // BUG-178 FIX: Write EXPORT variables to IR 220-251 after execution
@@ -246,20 +269,17 @@ bool st_logic_engine_loop(st_logic_engine_state_t *state,
                            uint16_t *holding_regs, uint16_t *input_regs) {
   if (!state || !state->enabled) return true;  // Logic mode disabled
 
-  // FIXED RATE SCHEDULER: Check if enough time has elapsed since last execution
+  // FEAT-010: PER-PROGRAM due-time scheduler (replaces the old single
+  // shared elapsed<interval gate) — each NORMAL program now has its own
+  // interval_ms/last_run_time, checked individually below. HIGH-priority
+  // programs are NOT run here at all — they execute on their own dedicated
+  // Core-0 task (see st_logic_high_task_init() below), decoupled from
+  // loopTask's cadence entirely.
   uint32_t now = millis();
-  uint32_t elapsed = now - state->last_run_time;
-
-  if (elapsed < state->execution_interval_ms) {
-    return true;  // Skip this iteration, too early (throttle execution)
-  }
-
-  // Update timestamp for next cycle
-  state->last_run_time = now;
-
   bool all_success = true;
+  bool any_executed = false;
 
-  // Execute each program in sequence
+  // Execute each due NORMAL program in sequence
   // NOTE: I/O is handled by gpio_mapping_update() in main loop, not here
   uint32_t start_cycle = millis();
 
@@ -267,6 +287,12 @@ bool st_logic_engine_loop(st_logic_engine_state_t *state,
     st_logic_program_config_t *prog = &state->programs[prog_id];
 
     if (!prog->enabled || !prog->compiled) continue;
+    if (prog->priority == ST_LOGIC_PRIORITY_HIGH) continue;  // scheduled separately
+
+    uint32_t elapsed = now - prog->last_run_time;
+    if (elapsed < prog->interval_ms) continue;  // not due yet
+    prog->last_run_time = now;
+    any_executed = true;
 
     // BUG-133 FIX (v2): Reset Modbus request counter PER SLOT, not per cycle.
     // Each program gets its own full quota of max_requests_per_cycle.
@@ -282,6 +308,12 @@ bool st_logic_engine_loop(st_logic_engine_state_t *state,
       // Continue executing other programs despite error
     }
   }
+
+  // FEAT-010: nothing was due this tick — skip cycle-statistics bookkeeping
+  // entirely (previously this whole function was gated so it never even
+  // ran that often; now it's called every loopTask tick, so total_cycles
+  // must only count ticks where something actually executed).
+  if (!any_executed) return true;
 
   // Performance monitoring (v4.1.0): Track global cycle statistics
   uint32_t cycle_time = millis() - start_cycle;
@@ -350,7 +382,10 @@ void st_logic_print_program(st_logic_engine_state_t *state, uint8_t program_id, 
   debug_printf("Enabled: %s\n", prog->enabled ? "YES" : "NO");
   debug_printf("Compiled: %s\n", prog->compiled ? "YES" : "NO");
   debug_printf("Source Code: %d bytes\n", prog->source_size);
-  debug_printf("Execution Interval: %ums\n", (unsigned int)state->execution_interval_ms);
+  // FEAT-010: per-program priority + interval (previously showed the old
+  // shared global — wrong for any program with its own interval/HIGH).
+  debug_printf("Priority: %s\n", prog->priority == ST_LOGIC_PRIORITY_HIGH ? "HIGH" : "NORMAL");
+  debug_printf("Execution Interval: %ums\n", (unsigned int)prog->interval_ms);
 
   // v5.1.0: Show source code only if show_source=1 or 'show logic X st' used
   if (show_source && prog->source_size > 0) {

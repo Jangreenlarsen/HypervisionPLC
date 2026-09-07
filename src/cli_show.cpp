@@ -949,6 +949,7 @@ void cli_cmd_show_config(const char *section) {
         case ST_TYPE_DWORD: debug_print("DWORD"); break;
         case ST_TYPE_REAL: debug_print("REAL"); break;
         case ST_TYPE_TIME: debug_print("TIME"); break;
+        case ST_TYPE_STRING: debug_print("STRING"); break;  // FEAT-005 (not exportable, see parser)
         default: debug_print("???"); break;
       }
 

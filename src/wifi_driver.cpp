@@ -27,6 +27,10 @@
 
 static const char *TAG = "WIFI_DRV";
 
+// BUG-371: gemt saa en senere hostname-aendring (REST/CLI, efter boot) reelt
+// kan anvendes paa den koerende STA-interface — se wifi_driver_set_hostname().
+static esp_netif_t *s_sta_netif = NULL;
+
 /* ============================================================================
  * INTERNAL STATE
  * ============================================================================ */
@@ -194,6 +198,7 @@ int wifi_driver_init(void)
     wifi_state.state = WIFI_STATE_ERROR;
     return -1;
   }
+  s_sta_netif = sta_netif;  // BUG-371: gemt til senere wifi_driver_set_hostname()-kald
 
   // Initialize Wi-Fi with default config
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -441,6 +446,24 @@ int8_t wifi_driver_get_rssi(void)
   }
 
   return wifi_state.rssi;
+}
+
+int wifi_driver_set_hostname(const char *hostname)
+{
+  if (!s_sta_netif) {
+    ESP_LOGW(TAG, "set_hostname: STA netif ikke oprettet endnu");
+    return -1;
+  }
+  if (!hostname || !hostname[0]) {
+    hostname = "modbus-esp32";  // Samme fallback som CLI/telnet allerede bruger
+  }
+  esp_err_t err = esp_netif_set_hostname(s_sta_netif, hostname);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "esp_netif_set_hostname fejlede: %s", esp_err_to_name(err));
+    return -1;
+  }
+  ESP_LOGI(TAG, "Hostname sat til '%s' (traeder i kraft ved naeste DHCP-lease/reconnect)", hostname);
+  return 0;
 }
 
 /* ============================================================================

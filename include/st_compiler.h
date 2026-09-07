@@ -38,6 +38,9 @@ typedef struct {
   uint8_t is_array;           // 1 = array variable
   uint8_t array_size;         // Number of elements
   int16_t array_lower;        // Lower bound (for index offset)
+  // FEAT-009: STRUCT support — mutually exclusive with is_array
+  uint8_t is_struct;          // 1 = STRUCT-typed variable (this is the BASE symbol, i.e. field[0])
+  uint8_t struct_type_index;  // Index into st_compiler_t.struct_types[]
 } st_symbol_t;
 
 /* Symbol table */
@@ -91,6 +94,19 @@ typedef struct {
   uint16_t return_patch_stack[16];    // RETURN jump addresses to backpatch
   uint8_t return_patch_count;         // Number of RETURN patches pending
   uint8_t fb_instance_count;          // Phase 5: FUNCTION_BLOCK instances allocated
+
+  // FEAT-005: STRING literal table, accumulated during AST traversal (same
+  // "accumulate here, copy to bytecode at assembly time" pattern as
+  // symbol_table above — the final st_bytecode_program_t doesn't exist yet
+  // while literals are being compiled).
+  char string_literals[ST_MAX_STRING_LITERALS][ST_MAX_STRING_LEN + 1];
+  uint8_t string_literal_count;
+
+  // FEAT-009: STRUCT type declarations — copied verbatim from st_program_t
+  // at the start of st_compiler_compile() (parsed upfront by the parser,
+  // unlike string_literals above which the COMPILER itself accumulates).
+  st_struct_type_decl_t struct_types[ST_MAX_STRUCT_TYPES];
+  uint8_t struct_type_count;
 } st_compiler_t;
 
 /**
@@ -145,6 +161,16 @@ uint8_t st_compiler_add_symbol(st_compiler_t *compiler, const char *name,
  * @return Variable index, or 0xFF if not found
  */
 uint8_t st_compiler_lookup_symbol(st_compiler_t *compiler, const char *name);
+
+/**
+ * @brief FEAT-005: Intern a STRING literal into the compiler's literal table
+ * (no deduplication — each occurrence gets its own slot, up to
+ * ST_MAX_STRING_LITERALS per program, a deliberately small "ST-Light" cap).
+ * @param compiler Compiler state
+ * @param text Literal text (truncated to ST_MAX_STRING_LEN)
+ * @return Literal index (0..ST_MAX_STRING_LITERALS-1), or 0xFF if the table is full
+ */
+uint8_t st_compiler_intern_string_literal(st_compiler_t *compiler, const char *text);
 
 /**
  * @brief Emit bytecode instruction

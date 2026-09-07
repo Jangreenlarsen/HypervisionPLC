@@ -397,6 +397,23 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
     return node;
   }
 
+  // FEAT-005: STRING literal ('hello') — lexeren tokeniserer den allerede
+  // (ST_TOK_STRING), men ingen parser-gren konsumerede den foer nu. Selve
+  // TEKSTEN gemmes raat i AST-noden (string_text) — compileren interner den
+  // i program->string_literals[] og emitterer ST_OP_PUSH_STRING_LIT.
+  if (parser_match(parser, ST_TOK_STRING)) {
+    st_ast_node_t *node = ast_node_alloc(ST_AST_LITERAL, line);
+    if (!node) {
+      parser_error(parser, "Out of memory");
+      return NULL;
+    }
+    node->data.literal.type = ST_TYPE_STRING;
+    strncpy(node->data.literal.string_text, parser->current_token.value, ST_MAX_STRING_LEN);
+    node->data.literal.string_text[ST_MAX_STRING_LEN] = '\0';
+    parser_advance(parser);
+    return node;
+  }
+
   // Variable or Function Call
   if (parser_match(parser, ST_TOK_IDENT)) {
     char identifier[32];
@@ -584,6 +601,25 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
       node->data.array_access.var_name[31] = '\0';
       node->data.array_access.index_expr = index_expr;
       return node;
+    }
+    // FEAT-009: STRUCT member access (read): point.field
+    else if (parser_match(parser, ST_TOK_DOT)) {
+      parser_advance(parser); // consume '.'
+      if (!parser_match(parser, ST_TOK_IDENT)) {
+        parser_error(parser, "Expected field name after '.'");
+        return NULL;
+      }
+      st_ast_node_t *node = ast_node_alloc(ST_AST_VARIABLE, line);
+      if (!node) {
+        parser_error(parser, "Out of memory");
+        return NULL;
+      }
+      strncpy(node->data.variable.var_name, identifier, 31);
+      node->data.variable.var_name[31] = '\0';
+      strncpy(node->data.variable.field_name, parser->current_token.value, 31);
+      node->data.variable.field_name[31] = '\0';
+      parser_advance(parser); // consume field name
+      return node;
     } else {
       // It's a variable reference
       st_ast_node_t *node = ast_node_alloc(ST_AST_VARIABLE, line);
@@ -594,6 +630,7 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
       }
       strncpy(node->data.variable.var_name, identifier, 31);
       node->data.variable.var_name[31] = '\0';
+      node->data.variable.field_name[0] = '\0';
       return node;
     }
   }
@@ -860,8 +897,24 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
   var_name[31] = '\0';
   parser_advance(parser);
 
+  // FEAT-009: STRUCT field assignment: point.field := expr — checked before
+  // (and mutually exclusive with) array/MB_WRITE syntax below. A struct
+  // field is never itself an array or a remote-write target in this v1
+  // profile, so once '.' is consumed the only valid continuation is ':='.
+  char field_name[32] = {0};
+  if (parser_match(parser, ST_TOK_DOT)) {
+    parser_advance(parser); // consume '.'
+    if (!parser_match(parser, ST_TOK_IDENT)) {
+      parser_error(parser, "Expected field name after '.'");
+      return NULL;
+    }
+    strncpy(field_name, parser->current_token.value, 31);
+    field_name[31] = '\0';
+    parser_advance(parser);
+  }
+
   // FEAT-004: Array element assignment: arr[index] := expr
-  if (parser_match(parser, ST_TOK_LBRACKET)) {
+  if (!field_name[0] && parser_match(parser, ST_TOK_LBRACKET)) {
     parser_advance(parser); // consume '['
 
     st_ast_node_t *index_expr = parser_parse_expression(parser);
@@ -908,7 +961,7 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
   }
 
   // v4.6.0: Check for new remote write syntax: MB_WRITE_XXX(id, addr) := value
-  if (parser_match(parser, ST_TOK_LPAREN)) {
+  if (!field_name[0] && parser_match(parser, ST_TOK_LPAREN)) {
     // Check if this is MB_WRITE_COIL, MB_WRITE_HOLDING, or MB_WRITE_HOLDINGS
     if (strcasecmp(var_name, "MB_WRITE_COIL") == 0 ||
         strcasecmp(var_name, "MB_WRITE_HOLDING") == 0 ||
@@ -1175,6 +1228,8 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
   // BUG-032 FIX: Use strncpy to prevent buffer overflow
   strncpy(node->data.assignment.var_name, var_name, 31);
   node->data.assignment.var_name[31] = '\0';
+  strncpy(node->data.assignment.field_name, field_name, 31);  // FEAT-009: "" unless point.field := expr
+  node->data.assignment.field_name[31] = '\0';
   node->data.assignment.expr = expr;
 
   // Consume optional semicolon
@@ -1821,6 +1876,9 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
       var->array_size = 0;
       var->array_lower = 0;
       var->array_upper = 0;
+      // FEAT-009: STRUCT declaration
+      var->is_struct = 0;
+      var->struct_type_name[0] = '\0';
 
       // Expect data type or ARRAY
       st_datatype_t datatype = ST_TYPE_NONE;
@@ -1928,8 +1986,26 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
       } else if (parser_match(parser, ST_TOK_TIME_KW)) {
         datatype = ST_TYPE_TIME;
         parser_advance(parser);
+      } else if (parser_match(parser, ST_TOK_STRING_KW)) {
+        // FEAT-005: STRING (v7.9.11.0) — fast kapacitet (ST_MAX_STRING_LEN
+        // tegn) for alle strenge, ingen "STRING[N]"-stoerrelsessuffiks i
+        // denne "ST-Light"-profil (se st_types.h's header-kommentar)
+        datatype = ST_TYPE_STRING;
+        parser_advance(parser);
+      } else if (parser_match(parser, ST_TOK_IDENT)) {
+        // FEAT-009: not a built-in keyword — presumed to be a STRUCT type
+        // name declared earlier in this program's own "TYPE ... END_TYPE"
+        // block. Not validated here (the parser doesn't carry that list
+        // into this function) — the COMPILER resolves/validates it during
+        // Phase 1 variable-declaration processing, where the full
+        // struct_types[] list is already available.
+        var->is_struct = 1;
+        strncpy(var->struct_type_name, parser->current_token.value, sizeof(var->struct_type_name) - 1);
+        var->struct_type_name[sizeof(var->struct_type_name) - 1] = '\0';
+        datatype = ST_TYPE_NONE;  // resolved to a real scalar type later, per-field, by the compiler
+        parser_advance(parser);
       } else {
-        parser_error(parser, "Expected data type (BOOL, INT, DINT, DWORD, REAL, TIME, ARRAY)");
+        parser_error(parser, "Expected data type (BOOL, INT, DINT, DWORD, REAL, TIME, STRING, ARRAY, or a STRUCT type name)");
         return false;
       }
 
@@ -1940,6 +2016,20 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
       // Optional EXPORT modifier (v5.1.0 - IR pool export)
       var->is_exported = 0;  // Default: not exported
       if (parser_match(parser, ST_TOK_EXPORT)) {
+        // FEAT-009: a STRUCT variable can't be EXPORTed as a single unit —
+        // there is no one register-mapping for a multi-field aggregate, and
+        // individual fields aren't separately nameable at declaration time.
+        if (var->is_struct) {
+          parser_error(parser, "STRUCT can't be EXPORTed");
+          return false;
+        }
+        // FEAT-005: STRING kan ikke eksporteres til IR-pool'en (220-251) —
+        // den er rene 16-bit Modbus Input Registers, ingen meningsfuld
+        // mapping findes for en variabel-laengde tekststreng.
+        if (datatype == ST_TYPE_STRING) {
+          parser_error(parser, "STRING variables cannot be EXPORTed to the IR pool");
+          return false;
+        }
         var->is_exported = 1;
         parser_advance(parser);
       }
@@ -1975,6 +2065,191 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
       parser_error(parser, "Expected END_VAR to close variable declaration block");
       return false;
     }
+  }
+
+  return true;
+}
+
+/* ============================================================================
+ * FEAT-007: GLOBAL_VAR BLOCK PARSING (standalone, not nested in a PROGRAM)
+ *
+ * Source: "GLOBAL_VAR name: TYPE; ... END_VAR" — deliberately a much
+ * smaller grammar than st_parser_parse_var_declarations above: no
+ * VAR_INPUT/VAR_OUTPUT (globals have no direction), no EXPORT (a global
+ * doesn't belong to any one program's IR pool allocation), no ARRAY, no
+ * STRING (would need its own shared string_vars pool — out of scope for
+ * v1), no initial value (globals always start at zero/false — a fresh
+ * compile of this block resets all current values anyway, see
+ * st_logic_globals_compile).
+ * ============================================================================ */
+bool st_parser_parse_global_var_block(st_parser_t *parser, st_variable_decl_t *variables,
+                                       uint8_t *var_count, uint8_t max_count) {
+  *var_count = 0;
+
+  if (!parser_expect(parser, ST_TOK_GLOBAL_VAR)) {
+    return false;
+  }
+
+  while (!parser_match(parser, ST_TOK_END_VAR) && !parser_match(parser, ST_TOK_EOF)) {
+    if (!parser_match(parser, ST_TOK_IDENT)) {
+      parser_error(parser, "Expected variable name");
+      return false;
+    }
+    if (*var_count >= max_count) {
+      parser_error(parser, "Too many GLOBAL_VAR variables");
+      return false;
+    }
+
+    st_variable_decl_t *var = &variables[(*var_count)++];
+    memset(var, 0, sizeof(*var));
+    strncpy(var->name, parser->current_token.value, sizeof(var->name) - 1);
+    var->name[sizeof(var->name) - 1] = '\0';
+    parser_advance(parser);
+
+    if (!parser_expect(parser, ST_TOK_COLON)) {
+      return false;
+    }
+
+    if (parser_match(parser, ST_TOK_BOOL)) {
+      var->type = ST_TYPE_BOOL;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_INT_KW)) {
+      var->type = ST_TYPE_INT;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_DINT_KW)) {
+      var->type = ST_TYPE_DINT;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_DWORD)) {
+      var->type = ST_TYPE_DWORD;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_REAL_KW)) {
+      var->type = ST_TYPE_REAL;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_TIME_KW)) {
+      var->type = ST_TYPE_TIME;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_STRING_KW)) {
+      parser_error(parser, "STRING variables are not yet supported in GLOBAL_VAR blocks");
+      return false;
+    } else if (parser_match(parser, ST_TOK_ARRAY)) {
+      parser_error(parser, "ARRAY variables are not supported in GLOBAL_VAR blocks");
+      return false;
+    } else {
+      parser_error(parser, "Expected data type (BOOL, INT, DINT, DWORD, REAL, TIME)");
+      return false;
+    }
+
+    if (!parser_expect(parser, ST_TOK_SEMICOLON)) {
+      return false;
+    }
+  }
+
+  if (!parser_expect(parser, ST_TOK_END_VAR)) {
+    return false;
+  }
+
+  return true;
+}
+
+/* ============================================================================
+ * FEAT-009: STRUCT TYPE DECLARATION PARSING
+ *
+ * "TYPE Name : STRUCT field: type; ... END_STRUCT END_TYPE" — parsed BEFORE
+ * a program's own VAR block (see the loop in st_parser_parse_program), so a
+ * struct type is scoped to that one program's source, never shared across
+ * Logic1-4 (unlike GLOBAL_VAR). Scalar fields only: no nested STRUCT
+ * (offsets stay a flat, one-level list), no ARRAY (would need per-field
+ * runtime bookkeeping this v1 skips), no STRING (would need its own shared
+ * string storage per struct instance, out of scope).
+ * ============================================================================ */
+bool st_parser_parse_struct_type_decl(st_parser_t *parser, st_struct_type_decl_t *out_type) {
+  memset(out_type, 0, sizeof(*out_type));
+
+  if (!parser_expect(parser, ST_TOK_TYPE_KW)) {
+    return false;
+  }
+
+  if (!parser_match(parser, ST_TOK_IDENT)) {
+    parser_error(parser, "Expected TYPE name");
+    return false;
+  }
+  strncpy(out_type->name, parser->current_token.value, sizeof(out_type->name) - 1);
+  out_type->name[sizeof(out_type->name) - 1] = '\0';
+  parser_advance(parser);
+
+  if (!parser_expect(parser, ST_TOK_COLON)) {
+    return false;
+  }
+  if (!parser_expect(parser, ST_TOK_STRUCT_KW)) {
+    return false;
+  }
+
+  while (!parser_match(parser, ST_TOK_END_STRUCT) && !parser_match(parser, ST_TOK_EOF)) {
+    if (!parser_match(parser, ST_TOK_IDENT)) {
+      parser_error(parser, "Expected field name in STRUCT declaration");
+      return false;
+    }
+    if (out_type->field_count >= ST_MAX_STRUCT_FIELDS) {
+      parser_error(parser, "Too many STRUCT fields");
+      return false;
+    }
+
+    st_struct_field_decl_t *field = &out_type->fields[out_type->field_count++];
+    strncpy(field->name, parser->current_token.value, sizeof(field->name) - 1);
+    field->name[sizeof(field->name) - 1] = '\0';
+    parser_advance(parser);
+
+    if (!parser_expect(parser, ST_TOK_COLON)) {
+      return false;
+    }
+
+    if (parser_match(parser, ST_TOK_BOOL)) {
+      field->type = ST_TYPE_BOOL;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_INT_KW)) {
+      field->type = ST_TYPE_INT;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_DINT_KW)) {
+      field->type = ST_TYPE_DINT;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_DWORD)) {
+      field->type = ST_TYPE_DWORD;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_REAL_KW)) {
+      field->type = ST_TYPE_REAL;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_TIME_KW)) {
+      field->type = ST_TYPE_TIME;
+      parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_STRING_KW)) {
+      parser_error(parser, "No STRING fields in STRUCT");
+      return false;
+    } else if (parser_match(parser, ST_TOK_ARRAY)) {
+      parser_error(parser, "No ARRAY fields in STRUCT");
+      return false;
+    } else if (parser_match(parser, ST_TOK_IDENT)) {
+      parser_error(parser, "No nested STRUCT fields");
+      return false;
+    } else {
+      parser_error(parser, "Expected field type (BOOL, INT, DINT, DWORD, REAL, TIME)");
+      return false;
+    }
+
+    if (!parser_expect(parser, ST_TOK_SEMICOLON)) {
+      return false;
+    }
+  }
+
+  if (out_type->field_count == 0) {
+    parser_error(parser, "STRUCT has no fields");
+    return false;
+  }
+
+  if (!parser_expect(parser, ST_TOK_END_STRUCT)) {
+    return false;
+  }
+  if (!parser_expect(parser, ST_TOK_END_TYPE)) {
+    return false;
   }
 
   return true;
@@ -2069,8 +2344,11 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
     } else if (parser_match(parser, ST_TOK_TIME_KW)) {
       node->function_def->return_type = ST_TYPE_TIME;
       parser_advance(parser);
+    } else if (parser_match(parser, ST_TOK_STRING_KW)) {
+      node->function_def->return_type = ST_TYPE_STRING;  // FEAT-005
+      parser_advance(parser);
     } else {
-      parser_error(parser, "Expected return type (BOOL, INT, DINT, DWORD, REAL, TIME)");
+      parser_error(parser, "Expected return type (BOOL, INT, DINT, DWORD, REAL, TIME, STRING)");
       st_ast_node_free(node);
       return NULL;
     }
@@ -2159,6 +2437,9 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
       } else if (parser_match(parser, ST_TOK_TIME_KW)) {
         var->type = ST_TYPE_TIME;
         parser_advance(parser);
+      } else if (parser_match(parser, ST_TOK_STRING_KW)) {
+        var->type = ST_TYPE_STRING;  // FEAT-005
+        parser_advance(parser);
       } else {
         parser_error(parser, "Expected data type");
         st_ast_node_free(node);
@@ -2239,6 +2520,30 @@ st_program_t *st_parser_parse_program(st_parser_t *parser) {
 
   bool has_program_keyword = false;
   bool has_begin_keyword = false;
+
+  // FEAT-009: Parse zero or more "TYPE Name : STRUCT ... END_STRUCT END_TYPE"
+  // declarations, BEFORE the PROGRAM keyword — scoped to this one program.
+  while (parser_match(parser, ST_TOK_TYPE_KW)) {
+    if (program->struct_type_count >= ST_MAX_STRUCT_TYPES) {
+      parser_error(parser, "Too many STRUCT types");
+      free(program);
+      return NULL;
+    }
+    st_struct_type_decl_t *out_type = &program->struct_types[program->struct_type_count];
+    if (!st_parser_parse_struct_type_decl(parser, out_type)) {
+      free(program);
+      return NULL;
+    }
+    // Duplicate-name check (same rule the compiler's symbol table enforces locally)
+    for (uint8_t t = 0; t < program->struct_type_count; t++) {
+      if (strcmp(program->struct_types[t].name, out_type->name) == 0) {
+        parser_error(parser, "Duplicate TYPE name");
+        free(program);
+        return NULL;
+      }
+    }
+    program->struct_type_count++;
+  }
 
   // Optional: Parse PROGRAM <identifier>
   if (parser_match(parser, ST_TOK_PROGRAM)) {
