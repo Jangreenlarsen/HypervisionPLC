@@ -921,7 +921,12 @@ static bool st_compiler_emit_store_symbol(st_compiler_t *compiler, uint8_t var_i
   if (sym->is_func_local) {
     return st_compiler_emit_var(compiler, ST_OP_STORE_LOCAL, sym->func_local_index);
   } else if (sym->is_func_param) {
-    return st_compiler_emit_var(compiler, ST_OP_STORE_LOCAL, sym->func_param_index);
+    // BUG-384 FIX: was ST_OP_STORE_LOCAL with the param's index reused as a
+    // LOCAL index — wrote into a different array than LOAD_PARAM reads from,
+    // so a reassigned parameter was invisible to subsequent reads of itself
+    // within the same call, and could silently clobber an unrelated local
+    // variable sharing that same index.
+    return st_compiler_emit_var(compiler, ST_OP_STORE_PARAM, sym->func_param_index);
   }
   return st_compiler_emit_var(compiler, ST_OP_STORE_VAR, var_index);
 }
@@ -1147,29 +1152,67 @@ static bool st_compiler_compile_case(st_compiler_t *compiler, st_ast_node_t *nod
   for (uint8_t i = 0; i < node->data.case_stmt.branch_count; i++) {
     st_case_branch_t *branch = &node->data.case_stmt.branches[i];
 
-    debug_printf("[CASE] Branch %d (value=%d) at PC %d\n", i, branch->value, compiler->bytecode_ptr);
+    debug_printf("[CASE] Branch %d (%d value(s)) at PC %d\n", i, branch->value_count, compiler->bytecode_ptr);
 
-    // Duplicate the expression value on stack for comparison
-    if (!st_compiler_emit(compiler, ST_OP_DUP)) {
-      free(jump_end);
-      return false;
+    // BUG-380: A branch may carry multiple comma-separated labels
+    // ("2, 3, -5:"). For each value except the last, test equality and
+    // JMP_IF_TRUE straight to the matched-body code (short-circuit OR); for
+    // the last value, fall back to the original single-value pattern
+    // (JMP_IF_FALSE to the next branch). Values that don't match fall
+    // through with the expression value still on the stack, ready for the
+    // next value's DUP — identical stack discipline to the single-value case.
+    uint16_t *matched_jumps = NULL;
+    uint8_t matched_jump_count = 0;
+    if (branch->value_count > 1) {
+      matched_jumps = (uint16_t *)malloc(sizeof(uint16_t) * (branch->value_count - 1));
+      if (!matched_jumps) {
+        st_compiler_error(compiler, "Memory allocation failed for CASE multi-value label");
+        free(jump_end);
+        return false;
+      }
     }
 
-    // Push case value and compare
-    if (!st_compiler_emit_int(compiler, ST_OP_PUSH_INT, branch->value)) {
-      free(jump_end);
-      return false;
+    uint16_t jump_next = 0;
+    for (uint8_t v = 0; v < branch->value_count; v++) {
+      bool is_last_value = (v == branch->value_count - 1);
+
+      // Duplicate the expression value on stack for comparison
+      if (!st_compiler_emit(compiler, ST_OP_DUP)) {
+        free(jump_end);
+        free(matched_jumps);
+        return false;
+      }
+
+      // Push this label value and compare
+      if (!st_compiler_emit_int(compiler, ST_OP_PUSH_INT, branch->values[v])) {
+        free(jump_end);
+        free(matched_jumps);
+        return false;
+      }
+
+      if (!st_compiler_emit(compiler, ST_OP_EQ)) {
+        free(jump_end);
+        free(matched_jumps);
+        return false;
+      }
+
+      if (is_last_value) {
+        // Jump to next case if not equal (JMP_IF_FALSE pops the comparison result)
+        jump_next = st_compiler_emit_jump(compiler, ST_OP_JMP_IF_FALSE);
+        debug_printf("[CASE]   JMP_IF_FALSE at PC %d\n", jump_next);
+      } else {
+        // Matched this value already — skip remaining value checks (JMP_IF_TRUE pops the result either way)
+        uint16_t jt = st_compiler_emit_jump(compiler, ST_OP_JMP_IF_TRUE);
+        matched_jumps[matched_jump_count++] = jt;
+      }
     }
 
-    if (!st_compiler_emit(compiler, ST_OP_EQ)) {
-      free(jump_end);
-      return false;
+    // Matched-body label: patch all short-circuit OR jumps here
+    uint16_t matched_addr = st_compiler_current_addr(compiler);
+    for (uint8_t j = 0; j < matched_jump_count; j++) {
+      st_compiler_patch_jump(compiler, matched_jumps[j], matched_addr);
     }
-
-    // Jump to next case if not equal
-    // JMP_IF_FALSE will pop the comparison result
-    uint16_t jump_next = st_compiler_emit_jump(compiler, ST_OP_JMP_IF_FALSE);
-    debug_printf("[CASE]   JMP_IF_FALSE at PC %d\n", jump_next);
+    free(matched_jumps);
 
     // We matched this case - pop the duplicate expression value before executing branch
     if (!st_compiler_emit(compiler, ST_OP_POP)) {
@@ -1326,15 +1369,49 @@ static bool st_compiler_compile_for(st_compiler_t *compiler, st_ast_node_t *node
   }
   // Stack: [end_value, end_value_dup, var]
 
-  // Compare: var > end (exit condition for TO loops)
-  // Stack: [end_dup, var]
-  // LT pops: right=var, left=end_dup → Result: end_dup < var (which is var > end_dup)
+  // BUG-385 FIX: Exit test must be sign-agnostic w.r.t. the BY step — the old
+  // hardcoded "exit if var>end" test made descending loops (e.g. FOR i:=10 TO 1
+  // BY -1) never execute at all, since the very first check (10>1) was already
+  // true. New test: exit when (end - var) * step < 0. This is correct for both
+  // ascending (positive step) and descending (negative step) without needing
+  // compile-time constant detection of the step's sign.
+  // SUB pops right=var, left=end_dup → pushes (end_dup - var) = (end - var)
+  if (!st_compiler_emit(compiler, ST_OP_SUB)) {
+    return false;
+  }
+  // Stack: [end_value, (end - var)]
+
+  // Push step value again (re-evaluated; same double-eval cost as the
+  // increment below — negligible for a typical literal-constant BY clause)
+  if (node->data.for_stmt.step) {
+    if (!st_compiler_compile_expr(compiler, node->data.for_stmt.step)) {
+      return false;
+    }
+  } else {
+    if (!st_compiler_emit_int(compiler, ST_OP_PUSH_INT, 1)) {
+      return false;
+    }
+  }
+  // Stack: [end_value, (end - var), step]
+
+  // MUL is commutative: pushes (end - var) * step
+  if (!st_compiler_emit(compiler, ST_OP_MUL)) {
+    return false;
+  }
+  // Stack: [end_value, (end - var) * step]
+
+  if (!st_compiler_emit_int(compiler, ST_OP_PUSH_INT, 0)) {
+    return false;
+  }
+  // Stack: [end_value, (end - var) * step, 0]
+
+  // LT pops right=0, left=(end-var)*step → pushes ((end-var)*step < 0)
   if (!st_compiler_emit(compiler, ST_OP_LT)) {
     return false;
   }
-  // Stack: [end_value, (var > end)]
+  // Stack: [end_value, ((end-var)*step < 0)]
 
-  // If var > end, exit loop
+  // If (end-var)*step < 0, the loop variable has passed the end bound → exit
   uint16_t jump_exit = st_compiler_emit_jump(compiler, ST_OP_JMP_IF_TRUE);
   // Stack: [end_value]
 
@@ -2237,6 +2314,7 @@ const char *st_opcode_to_string(st_opcode_t opcode) {
     case ST_OP_CALL_USER:       return "CALL_USER";
     case ST_OP_RETURN:          return "RETURN";
     case ST_OP_LOAD_PARAM:      return "LOAD_PARAM";
+    case ST_OP_STORE_PARAM:     return "STORE_PARAM";
     case ST_OP_STORE_LOCAL:     return "STORE_LOCAL";
     case ST_OP_LOAD_LOCAL:      return "LOAD_LOCAL";
     // FEAT-004: Array opcodes

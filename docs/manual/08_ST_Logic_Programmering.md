@@ -77,6 +77,17 @@ Der er en **sikkerhedsgrænse på 10.000 VM-instruktioner pr. scan-cyklus** — 
 | **Hardware-tællere** | `CNT_SETUP CNT_SETUP_ADV CNT_SETUP_CMP CNT_CTRL CNT_ENABLE CNT_VALUE CNT_RAW CNT_FREQ CNT_STATUS` — se [kapitel 9](09_Taellere_og_Timere.md) |
 | **Modbus Master** | `MB_READ_COIL MB_READ_INPUT MB_READ_HOLDING MB_READ_INPUT_REG MB_READ_HOLDINGS MB_WRITE_COIL MB_WRITE_HOLDING MB_WRITE_HOLDINGS MB_SUCCESS MB_ERROR MB_BUSY MB_CACHE` — se §8.7 |
 | **Persistens** | `SAVE LOAD` — gem/genindlæs registergrupper til/fra NVS på tværs af reboot |
+| **Bistabile latches** | `SR(S1, R)`, `RS(S, R1)` |
+| **Signalbehandling** | `SCALE(IN, IN_MIN, IN_MAX, OUT_MIN, OUT_MAX)`, `HYSTERESIS(IN, HIGH, LOW)`, `BLINK(ENABLE, ON_TIME, OFF_TIME)`, `FILTER(IN, TIME_CONSTANT)` |
+
+> **Latches og signalbehandling** — ligesom `TON`/`CTU`/osv. huskes tilstanden internt pr. **kaldested** i koden, ikke i en navngivet variabel, så to kald af samme funktion i samme program er automatisk to uafhængige instanser.
+>
+> - `SR(S1, R)` — bistabil latch med **reset-prioritet**: `R=1` → `Q=0` uanset `S1`; `R=0, S1=1` → `Q=1`; ellers holder `Q` sin forrige værdi.
+> - `RS(S, R1)` — bistabil latch med **set-prioritet**: `S=1` → `Q=1` uanset `R1`; `S=0, R1=1` → `Q=0`; ellers holder `Q` sin forrige værdi. Bemærk navngivningen: `SR` er reset-dominant og `RS` er set-dominant — modsat af hvad man intuitivt ville gætte ud fra navnet.
+> - `SCALE(IN, IN_MIN, IN_MAX, OUT_MIN, OUT_MAX)` → REAL — lineær skalering fra ét interval til et andet. `IN` klippes til `[IN_MIN, IN_MAX]` før skalering. Returnerer `0.0` hvis `IN_MIN=IN_MAX` (undgår division med nul).
+> - `HYSTERESIS(IN, HIGH, LOW)` → BOOL — Schmitt-trigger: slår **til** når `IN > HIGH`, slår **fra** når `IN < LOW`, holder forrige tilstand i dødzonen (`LOW ≤ IN ≤ HIGH`). Ugyldige grænser (`HIGH ≤ LOW`) giver altid `FALSE`.
+> - `BLINK(ENABLE, ON_TIME, OFF_TIME)` → BOOL — periodisk pulsgenerator; `ON_TIME`/`OFF_TIME` er `INT` i millisekunder. Starter i ON-fasen når `ENABLE` går sand. Negative tidsværdier deaktiverer blink (returnerer `FALSE`).
+> - `FILTER(IN, TIME_CONSTANT)` → REAL — 1.-ordens lavpasfilter (eksponentielt glidende gennemsnit), `TIME_CONSTANT` er `INT` i millisekunder, baseret på programmets faktiske scan-cyklustid. `TIME_CONSTANT ≤ 0` slår filtrering fra (værdien passerer uændret igennem).
 
 > **Vigtig afvigelse fra standard IEC 61131-3:** timere og tællere kaldes som **funktioner**, ikke som instansierede funktionsblokke. Der findes **ingen** `blink_timer: TON;`-deklaration i `VAR`-blokken, og **ingen** `.Q`/`.ET`-punktum-adgang — det er den mest almindelige begynderfejl, og parseren fejler på det med det samme (typisk "Expected data type (BOOL, INT, DINT, DWORD, REAL, TIME, ARRAY)" hvis man deklarerer `navn: TON;`).
 >

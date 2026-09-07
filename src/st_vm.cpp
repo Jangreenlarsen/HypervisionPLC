@@ -300,7 +300,45 @@ static st_value_t st_vm_convert_value(st_value_t val, st_datatype_t val_type, st
   else if (val_type == ST_TYPE_BOOL && norm_target == ST_TYPE_REAL) {
     converted_val.real_val = val.bool_val ? 1.0f : 0.0f;
   }
-  // DWORD conversions (if needed, add more cases)
+  // BUG-381: DWORD conversions — previously absent from this table, silently
+  // falling through to a raw union-bit-copy. That happens to be correct for
+  // DWORD<->DINT (same 32-bit width, same union slot), but corrupts
+  // DWORD<->BOOL (bool_val only reads the first byte — a DWORD like 0x100
+  // would wrongly read as FALSE) and DWORD<->REAL (reinterprets bits instead
+  // of converting the numeric value).
+  // DWORD -> INT: clamp to INT16 range (DWORD is unsigned, no negative clamp needed)
+  else if (val_type == ST_TYPE_DWORD && norm_target == ST_TYPE_INT) {
+    uint32_t temp = val.dword_val;
+    converted_val.int_val = (temp > (uint32_t)INT16_MAX) ? INT16_MAX : (int16_t)temp;
+  }
+  // INT -> DWORD: sign-extend to 32-bit, then reinterpret as unsigned (e.g. -1 -> 0xFFFFFFFF)
+  else if (val_type == ST_TYPE_INT && norm_target == ST_TYPE_DWORD) {
+    converted_val.dword_val = (uint32_t)(int32_t)val.int_val;
+  }
+  // DWORD -> DINT / DINT -> DWORD: same 32-bit width, reinterpret bit pattern (matches
+  // the project's established tolerance for silent-wrapping arithmetic, BUG-172)
+  else if (val_type == ST_TYPE_DWORD && norm_target == ST_TYPE_DINT) {
+    converted_val.dint_val = (int32_t)val.dword_val;
+  }
+  else if (val_type == ST_TYPE_DINT && norm_target == ST_TYPE_DWORD) {
+    converted_val.dword_val = (uint32_t)val.dint_val;
+  }
+  // DWORD -> REAL: convert numeric value (unsigned) to float
+  else if (val_type == ST_TYPE_DWORD && norm_target == ST_TYPE_REAL) {
+    converted_val.real_val = (float)val.dword_val;
+  }
+  // REAL -> DWORD: truncate; negative values clamp to 0 (DWORD is unsigned)
+  else if (val_type == ST_TYPE_REAL && norm_target == ST_TYPE_DWORD) {
+    converted_val.dword_val = (val.real_val < 0.0f) ? 0u : (uint32_t)val.real_val;
+  }
+  // DWORD -> BOOL: non-zero = TRUE
+  else if (val_type == ST_TYPE_DWORD && norm_target == ST_TYPE_BOOL) {
+    converted_val.bool_val = (val.dword_val != 0);
+  }
+  // BOOL -> DWORD: TRUE=1, FALSE=0
+  else if (val_type == ST_TYPE_BOOL && norm_target == ST_TYPE_DWORD) {
+    converted_val.dword_val = val.bool_val ? 1u : 0u;
+  }
   else {
     // No conversion needed or unsupported conversion (use value as-is)
     converted_val = val;
@@ -473,29 +511,12 @@ static bool st_vm_exec_store_array(st_vm_t *vm, st_bytecode_instr_t *instr) {
 
   uint8_t var_idx = base + (uint8_t)offset;
 
-  // Type conversion (same as store_var)
+  // BUG-381: Reuse the shared conversion helper (same one STORE_VAR/STORE_GLOBAL
+  // use) instead of a hand-duplicated, incomplete copy of the same rules — the
+  // old inline copy silently skipped several conversion pairs (e.g. BOOL/DWORD,
+  // REAL<->DINT, anything DWORD-related) when storing into an array element.
   st_datatype_t var_type = vm->program->var_types[var_idx];
-  st_value_t converted_val = val;
-  if (val_type != var_type) {
-    if (val_type == ST_TYPE_INT && var_type == ST_TYPE_INT) {
-      // Same type, no conversion
-    } else if (val_type == ST_TYPE_DINT && var_type == ST_TYPE_INT) {
-      int32_t temp = val.dint_val;
-      if (temp > INT16_MAX) temp = INT16_MAX;
-      if (temp < INT16_MIN) temp = INT16_MIN;
-      converted_val.int_val = (int16_t)temp;
-    } else if (val_type == ST_TYPE_INT && var_type == ST_TYPE_DINT) {
-      converted_val.dint_val = (int32_t)val.int_val;
-    } else if (val_type == ST_TYPE_REAL && var_type == ST_TYPE_INT) {
-      int32_t temp = (int32_t)val.real_val;
-      if (temp > INT16_MAX) temp = INT16_MAX;
-      if (temp < INT16_MIN) temp = INT16_MIN;
-      converted_val.int_val = (int16_t)temp;
-    } else if (val_type == ST_TYPE_INT && var_type == ST_TYPE_REAL) {
-      converted_val.real_val = (float)val.int_val;
-    }
-    // For other conversions, use value as-is
-  }
+  st_value_t converted_val = st_vm_convert_value(val, val_type, var_type);
 
   st_vm_set_variable(vm, var_idx, converted_val);
   return !vm->error;
@@ -2371,9 +2392,29 @@ bool st_vm_step(st_vm_t *vm) {
       frame->return_pc = vm->pc;  // Return to next instruction
       frame->param_base = vm->sp - func->param_count;  // Parameters are on stack
       frame->param_count = func->param_count;
-      frame->local_count = 0;  // Will be set by function prologue
       frame->func_index = func_index;
       frame->fb_instance_id = fb_inst_id;  // Phase 5: Track FB instance
+
+      // BUG-383 FIX: Give this call its own local_vars[] window so nested/
+      // recursive calls can't silently clobber the caller's locals at the
+      // same index. vm->local_base only matters while inside a function call
+      // (call_depth>0) — a top-level call starts at 0, and each nested call
+      // advances past however many local slots the CALLING function itself
+      // occupies (func_registry's instance_size doubles as "local variable
+      // count" for every user function, not just FBs — see
+      // st_compiler_compile_function_def()).
+      frame->saved_local_base = (uint8_t)vm->local_base;
+      uint16_t new_local_base = vm->local_base;
+      if (vm->call_depth > 0) {
+        uint8_t caller_func_index = vm->call_stack[vm->call_depth - 1].func_index;
+        new_local_base += vm->func_registry->functions[caller_func_index].instance_size;
+      }
+      if (new_local_base + func->instance_size > 64) {
+        snprintf(vm->error_msg, sizeof(vm->error_msg), "Local variable overflow (nested call too deep)");
+        vm->error = 1;
+        return false;
+      }
+      vm->local_base = new_local_base;
 
       // Phase 5: Load FB instance state into local_vars
       if (fb_inst_id != 0xFF && fb_inst_id < ST_MAX_FB_INSTANCES) {
@@ -2437,6 +2478,11 @@ bool st_vm_step(st_vm_t *vm) {
         inst->initialized = 1;
       }
 
+      // BUG-383 FIX: Restore the caller's local_vars[] window (must happen
+      // after the FB-save block above, which still needs THIS frame's own
+      // local_base to read its locals).
+      vm->local_base = frame->saved_local_base;
+
       // Restore PC
       vm->pc = frame->return_pc;
 
@@ -2471,6 +2517,39 @@ bool st_vm_step(st_vm_t *vm) {
       // Parameters are stored on stack at param_base
       uint8_t stack_index = frame->param_base + param_index;
       st_vm_push_typed(vm, vm->stack[stack_index], vm->type_stack[stack_index]);
+      break;
+    }
+
+    case ST_OP_STORE_PARAM: {
+      // BUG-384 FIX: mirror LOAD_PARAM's addressing so a write to a
+      // parameter is visible to subsequent LOAD_PARAM reads of the same
+      // parameter within this call (previously misrouted to STORE_LOCAL,
+      // landing in an unrelated local_vars[] slot instead).
+      if (vm->call_depth == 0) {
+        snprintf(vm->error_msg, sizeof(vm->error_msg), "STORE_PARAM outside of function");
+        vm->error = 1;
+        return false;
+      }
+
+      uint8_t param_index = (uint8_t)instr->arg.var_index;
+      st_call_frame_t *frame = &vm->call_stack[vm->call_depth - 1];
+
+      if (param_index >= frame->param_count) {
+        snprintf(vm->error_msg, sizeof(vm->error_msg), "Parameter index out of bounds: %d", param_index);
+        vm->error = 1;
+        return false;
+      }
+
+      st_value_t value;
+      st_datatype_t type;
+      if (!st_vm_pop_typed(vm, &value, &type)) {
+        return false;
+      }
+
+      // Parameters are stored on stack at param_base (same slot LOAD_PARAM reads from)
+      uint8_t stack_index = frame->param_base + param_index;
+      vm->stack[stack_index] = value;
+      vm->type_stack[stack_index] = type;
       break;
     }
 

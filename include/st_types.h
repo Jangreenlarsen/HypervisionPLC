@@ -308,8 +308,11 @@ typedef struct {
   st_ast_node_t *else_body; // Statements in ELSE block (NULL if no ELSE)
 } st_if_stmt_t;
 
+#define ST_CASE_MAX_VALUES_PER_BRANCH  8  // BUG-380: max comma-separated labels per branch, e.g. "2, 3, 5:"
+
 typedef struct {
-  int32_t value;              // Case label value
+  int32_t values[ST_CASE_MAX_VALUES_PER_BRANCH]; // Case label value(s) — BUG-380: supports comma-separated multi-value labels
+  uint8_t value_count;        // Number of values in use (>=1)
   st_ast_node_t *body;        // Statements for this case
 } st_case_branch_t;
 
@@ -504,7 +507,14 @@ typedef struct {
   uint16_t return_pc;                   // Return address (PC to jump back to)
   uint16_t param_base;                  // Base index for parameters on value stack
   uint8_t param_count;                  // Number of parameters passed
-  uint8_t local_count;                  // Number of local variables
+  // BUG-383: was "local_count" ("Will be set by function prologue"), but no
+  // prologue ever wrote it — write-only and never read. Repurposed to hold
+  // the CALLER's vm->local_base, so RETURN can restore it. Without this,
+  // vm->local_base never advanced past 0, so every nested/recursive user
+  // function call addressed the SAME flat local_vars[0..63] window as its
+  // caller — a callee's local/param at index N could silently clobber the
+  // caller's own local/param at that same index N.
+  uint8_t saved_local_base;
   uint8_t func_index;                   // Index in function registry (for debugging)
   uint8_t fb_instance_id;              // Phase 5: FB instance ID (0xFF = stateless)
 } st_call_frame_t;
@@ -603,6 +613,13 @@ typedef enum {
   ST_OP_CALL_USER,          // Call user-defined function (int_arg = function index in registry)
   ST_OP_RETURN,             // Return from function (pops return value, restores PC)
   ST_OP_LOAD_PARAM,         // Load function parameter (var_index = param index)
+  // BUG-384: writes to a parameter must land back in the parameter's own
+  // stack slot (frame->param_base + index) — a store here previously used
+  // ST_OP_STORE_LOCAL with the param's index reused as a LOCAL index, which
+  // (a) was invisible to subsequent LOAD_PARAM reads of that same parameter
+  // within the same call, and (b) could silently clobber an unrelated local
+  // variable that happened to share the same numeric index.
+  ST_OP_STORE_PARAM,        // Store to function parameter (var_index = param index)
   ST_OP_STORE_LOCAL,        // Store to local variable (var_index = local index)
   ST_OP_LOAD_LOCAL,         // Load local variable (var_index = local index)
 

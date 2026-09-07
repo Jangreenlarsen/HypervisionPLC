@@ -18,7 +18,10 @@
 
 /* Magic number "STBC" */
 #define ST_BYTECODE_MAGIC   0x53544243
-#define ST_BYTECODE_VERSION 3  // v3: var_names reduced from 32 to 16 bytes
+#define ST_BYTECODE_VERSION 4  // v4 (BUG-384): new ST_OP_STORE_PARAM inserted into st_opcode_t
+                                // shifts the numeric value of every opcode declared after it —
+                                // old cached .bc files must be invalidated and recompiled, not
+                                // reinterpreted with the new encoding. v3: var_names 32->16 bytes
 
 /* Bytecode file header (16 bytes) */
 typedef struct __attribute__((packed)) {

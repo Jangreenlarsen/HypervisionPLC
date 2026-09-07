@@ -1177,6 +1177,9 @@ int cli_cmd_show_logic_bytecode(st_logic_engine_state_t *logic_state, uint8_t pr
       case ST_OP_LOAD_PARAM:
         debug_printf("LOAD_PARAM [%d]", instr->arg.var_index);
         break;
+      case ST_OP_STORE_PARAM:
+        debug_printf("STORE_PARAM [%d]", instr->arg.var_index);
+        break;
       case ST_OP_STORE_LOCAL:
         debug_printf("STORE_LOCAL [%d]", instr->arg.var_index);
         break;

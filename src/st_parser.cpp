@@ -338,7 +338,12 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
 
     if (errno == ERANGE || val > INT32_MAX || val < INT32_MIN) {
       parser_error(parser, "Integer literal overflow (DINT range: -2147483648 to 2147483647)");
-      free(node);
+      // BUG-379: 'node' er en pool-intern pointer (&g_ast_pool[i], ikke noget
+      // malloc() selv har returneret) — rå free() her er undefined behavior,
+      // kan korrumpere heapen. st_ast_node_free() er pool-opmærksom og
+      // frier ALDRIG selve node'en, kun evt. heap-ejede underobjekter (ingen
+      // her, ren literal-node).
+      st_ast_node_free(node);
       return NULL;
     }
 
@@ -368,7 +373,7 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
     float fval = strtof(parser->current_token.value, NULL);
     if (errno == ERANGE) {
       parser_error(parser, "Real literal overflow/underflow");
-      free(node);
+      st_ast_node_free(node);  // BUG-379: se kommentar ved integer-literal-grenen ovenfor
       return NULL;
     }
     node->data.literal.value.real_val = fval;
@@ -389,7 +394,7 @@ static st_ast_node_t *parser_parse_primary(st_parser_t *parser) {
     long val = strtol(parser->current_token.value, NULL, 10);
     if (errno == ERANGE) {
       parser_error(parser, "TIME literal overflow");
-      free(node);
+      st_ast_node_free(node);  // BUG-379: se kommentar ved integer-literal-grenen ovenfor
       return NULL;
     }
     node->data.literal.value.dint_val = (int32_t)val;
@@ -676,7 +681,7 @@ static st_ast_node_t *parser_parse_unary(st_parser_t *parser) {
 
     // BUG-081: Check if operand parsing failed
     if (!node->data.unary_op.operand) {
-      free(node);
+      st_ast_node_free(node);  // BUG-379: se kommentar ved integer-literal-grenen ovenfor
       return NULL;
     }
     return node;
@@ -1396,8 +1401,16 @@ static st_ast_node_t *parser_parse_case_statement(st_parser_t *parser) {
   node->data.case_stmt.branches = (st_case_branch_t *)malloc(16 * sizeof(st_case_branch_t));
   if (!node->data.case_stmt.branches) {
     parser_error(parser, "Out of memory for CASE branches");
-    st_ast_node_free(expr);
-    free(node);  // Don't use st_ast_node_free — branches is NULL
+    // BUG-379: 'node' er en pool-intern pointer — raa free() er undefined
+    // behavior (se kommentaren ved integer-literal-grenen ovenfor for
+    // hvorfor). ÉT kald til st_ast_node_free(node) er nok og korrekt her —
+    // dens CASE-gren frigoer selv node->data.case_stmt.expr rekursivt (som
+    // allerede er sat til 'expr' ovenfor), og branches er NULL (free(NULL)
+    // er altid lovligt, og branch_count=0 saa dens for-loekke over
+    // branches[] aldrig udfoeres). Den tidligere kommentar her ("Don't use
+    // st_ast_node_free") var baseret paa en forkert antagelse — et separat
+    // st_ast_node_free(expr)-kald FOeR dette ville have double-frieet expr.
+    st_ast_node_free(node);
     return NULL;
   }
   memset(node->data.case_stmt.branches, 0, 16 * sizeof(st_case_branch_t));
@@ -1408,14 +1421,41 @@ static st_ast_node_t *parser_parse_case_statement(st_parser_t *parser) {
          !parser_match(parser, ST_TOK_EOF) &&
          node->data.case_stmt.branch_count < 16) {
 
-    // Parse case label (number constant)
-    if (!parser_match(parser, ST_TOK_INT)) {
-      parser_error(parser, "Expected case value (integer constant)");
+    // BUG-380: Parse comma-separated case label(s), each optionally negative
+    // (e.g. "2, 3, -5:"), matching the syntax already used in the project's
+    // own manual example (docs/manual/08_ST_Logic_Programmering.md).
+    uint8_t label_count = 0;
+    int32_t label_values[ST_CASE_MAX_VALUES_PER_BRANCH];
+    bool label_error = false;
+    for (;;) {
+      bool negative = false;
+      if (parser_match(parser, ST_TOK_MINUS)) {
+        negative = true;
+        parser_advance(parser);
+      }
+      if (!parser_match(parser, ST_TOK_INT)) {
+        parser_error(parser, "Expected case value (integer constant)");
+        label_error = true;
+        break;
+      }
+      if (label_count >= ST_CASE_MAX_VALUES_PER_BRANCH) {
+        parser_error(parser, "Too many comma-separated values in one CASE label (max 8)");
+        label_error = true;
+        break;
+      }
+      int32_t val = (int32_t)strtol(parser->current_token.value, NULL, 0);
+      label_values[label_count++] = negative ? -val : val;
+      parser_advance(parser);
+
+      if (parser_match(parser, ST_TOK_COMMA)) {
+        parser_advance(parser);
+        continue;
+      }
       break;
     }
-
-    int32_t case_value = (int32_t)strtol(parser->current_token.value, NULL, 0);
-    parser_advance(parser);
+    if (label_error) {
+      break;  // parser_error() already reported above
+    }
 
     if (!parser_expect(parser, ST_TOK_COLON)) {
       parser_error(parser, "Expected : after case value");
@@ -1427,8 +1467,10 @@ static st_ast_node_t *parser_parse_case_statement(st_parser_t *parser) {
     st_ast_node_t *case_body = st_parser_parse_statements_for_case(parser);
 
     // Store case branch
-    node->data.case_stmt.branches[node->data.case_stmt.branch_count].value = case_value;
-    node->data.case_stmt.branches[node->data.case_stmt.branch_count].body = case_body;
+    st_case_branch_t *new_branch = &node->data.case_stmt.branches[node->data.case_stmt.branch_count];
+    memcpy(new_branch->values, label_values, sizeof(int32_t) * label_count);
+    new_branch->value_count = label_count;
+    new_branch->body = case_body;
     node->data.case_stmt.branch_count++;
   }
 
@@ -1685,7 +1727,7 @@ st_ast_node_t *st_parser_parse_statement(st_parser_t *parser) {
         !parser_match(parser, ST_TOK_EOF)) {
       node->data.return_stmt.expr = parser_parse_expression(parser);
       if (!node->data.return_stmt.expr && parser->error_count > 0) {
-        free(node);
+        st_ast_node_free(node);  // BUG-379: se kommentar ved integer-literal-grenen ovenfor
         return NULL;
       }
     } else {
@@ -1737,6 +1779,18 @@ static st_ast_node_t *st_parser_parse_statements_for_case(st_parser_t *parser) {
     if (parser_match(parser, ST_TOK_INT) &&
         parser->peek_token.type == ST_TOK_COLON) {
       // This is a case label! Stop parsing and return
+      break;
+    }
+
+    // BUG-380 FIX: a negative case label ("-1:") starts with MINUS, not INT,
+    // so the check above never caught it — st_parser_parse_statement() has
+    // no grammar rule for a bare MINUS-led expression-statement (statements
+    // only start with IF/CASE/FOR/WHILE/REPEAT/IDENT/EXIT/RETURN), so it
+    // silently returned NULL with error_count unchanged, and the "skip to
+    // next semicolon" error-recovery below quietly swallowed the entire
+    // negative-labeled branch as garbage. MINUS+INT here can only ever be
+    // the start of a negative label, never real body content.
+    if (parser_match(parser, ST_TOK_MINUS) && parser->peek_token.type == ST_TOK_INT) {
       break;
     }
 
@@ -2302,7 +2356,7 @@ static st_ast_node_t *parser_parse_function_definition(st_parser_t *parser) {
   node->function_def = (st_function_def_t *)malloc(sizeof(st_function_def_t));
   if (!node->function_def) {
     parser_error(parser, "Out of memory for function_def");
-    free(node);
+    st_ast_node_free(node);  // BUG-379: se kommentar ved integer-literal-grenen ovenfor (node->function_def er NULL her, sikkert)
     return NULL;
   }
   memset(node->function_def, 0, sizeof(st_function_def_t));

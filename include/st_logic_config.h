@@ -58,7 +58,9 @@ typedef struct {
   uint16_t execution_count;   // Number of times executed (wraps at 65535)
   uint16_t error_count;       // Number of execution errors (wraps at 65535)
   uint32_t last_execution_us; // Last execution time (microseconds)
-  char last_error[64];        // Last error message (63 chars max)
+  char last_error[128];       // Last error message (127 chars max) — BUG-382: was 64, too small once
+                              // double-wrapped ("Parse error: " + "Parse error at line N: " + message)
+                              // left only ~20-25 usable chars; not NVS-persisted (runtime-only field)
 
   // BUG-005 FIX: Cache variable binding count (performance optimization)
   uint8_t binding_count;      // Number of variable bindings for this program
