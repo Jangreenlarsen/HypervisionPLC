@@ -6,15 +6,17 @@
 
 ## 4.1 Sideoversigt
 
-Webgrænsefladen består af fem sider, alle bag samme login:
+Webgrænsefladen består af syv sider, alle bag samme login og samme topnavigation:
 
 | Side | URL | Formål |
 |------|-----|--------|
-| **Dashboard** | `/` | Live-monitor: system, netværk, Modbus, alarmer, IO, tællere/timere |
+| **Dashboard** | `/` | Live-monitor: system, netværk, Modbus, alarmer, tællere/timere, ST Logic |
 | **ST Logic Editor** | `/editor` | Skriv, kompilér, upload og debug ST-programmer med runtime-monitor |
-| **System** | `/system` | Systemindstillinger (uden for det almindelige `set`-CLI-flow) |
-| **OTA-opdatering** | `/ota` | Upload ny firmware |
 | **Web-CLI** | `/cli` | Fuld CLI-konsol i browseren — samme kommandoer som seriel/telnet |
+| **System** | `/system` | Systemindstillinger (uden for det almindelige `set`-CLI-flow) |
+| **I/O** | `/io` | Konfiguration af Tællere, Timere og GPIO statisk mapping (FEAT-171) |
+| **Logs** | `/logs` | API Audit Log + Hændelseslog i fuld sidebredde, som faner (FEAT-172) — se [§4.2](#42-dashboard--layout-og-faner) |
+| **OTA-opdatering** | `/ota` | Upload ny firmware |
 
 Login sker via HTTP Basic Auth; browseren gemmer credentials i `sessionStorage` for resten af sessionen (går tabt ved lukning af fanen).
 

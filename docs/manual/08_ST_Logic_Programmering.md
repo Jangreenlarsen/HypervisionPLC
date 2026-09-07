@@ -53,10 +53,12 @@ Literaler over `INT`s grænse (>32767) auto-forfremmes til `DINT`. Arrays unders
 IF <betingelse> THEN ... ELSIF <betingelse> THEN ... ELSE ... END_IF;
 CASE <udtryk> OF
   1: ...
-  2, 3: ...
+  2, 3: ...    (* komma-separerede vaerdier, deler samme kode *)
+  -1: ...      (* negative labels understoettet *)
 ELSE ...
 END_CASE;
 FOR i := 0 TO 9 DO ... END_FOR;
+FOR i := 10 TO 1 BY -1 DO ... END_FOR;  (* nedtaelling: BY med negativt step *)
 WHILE <betingelse> DO ... END_WHILE;
 REPEAT ... UNTIL <betingelse> END_REPEAT;
 ```
@@ -297,6 +299,37 @@ CLI: `set logic 1 priority high`, `set logic 1 interval 5`. Det gamle `set logic
 **Skærpet sikkerhedsnet for HIGH:** et HIGH-program der låser sig fast (fx en uendelig løkke) stoppes automatisk efter færre instruktioner OG et kortere tidsbudget end et NORMAL-program (for at aldrig kunne blokere resten af systemet) — programmet markeres fejlet (`error_count` stiger, `last_error` viser årsagen), men enheden som helhed forbliver upåvirket og fuldt responsiv.
 
 **Persistens:** priority/interval gemmes sammen med programmets egen kildekode (samme fil som `enabled`-status) — de overlever reboot ligesom resten af programmet.
+
+## 8.12 Brugerdefinerede FUNCTION'er
+
+Ud over de indbyggede funktioner (§8.5) kan man selv definere en **stateless FUNCTION** direkte i et programs kildekode, før `BEGIN`:
+
+```st
+PROGRAM Eksempel
+VAR
+  x: INT;
+  resultat: INT;
+END_VAR
+
+FUNCTION DOUBLE : INT
+VAR_INPUT
+  val: INT;
+END_VAR
+BEGIN
+  DOUBLE := val * 2;   (* tildel funktionsnavnet for at saette returvaerdien *)
+END_FUNCTION
+
+BEGIN
+  resultat := DOUBLE(x);
+END_PROGRAM
+```
+
+- Parametre angives **positionelt** (`DOUBLE(x)`, ikke `DOUBLE(val := x)`) — den navngivne `:=`/`=>`-syntaks fra §8.7's timer/tæller-eksempler findes kun for de indbyggede funktionsblokke (TON/TOF/TP/CTU/CTD/CTUD), ikke for egne FUNCTION'er.
+- Returværdien sættes ved at tildele til **funktionens eget navn** som en almindelig variabel (`DOUBLE := ...`) — samme mønster som Pascal/Delphi.
+- **`VAR_INPUT`-parametre kan omtildeles i funktionskroppen**, og en efterfølgende læsning af parameteren inden i samme kald ser den nye værdi korrekt (fx en lokal akkumulering før returnering).
+- Kald kan **nestes og rekursion er tilladt** (op til 8 niveauer) — hver funktions egne lokale variable/parametre er isoleret i sit eget navnerum, uafhængigt af den kaldende funktions.
+- **`VAR_OUTPUT`/`VAR_IN_OUT`-parametre accepteres af parseren, men skrives ikke tilbage til kalderens variabel efter returnering** — der findes i dag ingen kalde-syntaks for egne FUNCTION'er der kan modtage en outputbinding (kun de indbyggede FB'er understøtter `=>`). Brug **funktionens egen returværdi** til at levere ét resultat tilbage; skal du levere flere resultater, brug [`GLOBAL_VAR`](#810-delte-variable-mellem-programmer-global_var) i stedet for `VAR_OUTPUT`.
+- `FUNCTION_BLOCK ... END_FUNCTION_BLOCK` (stateful variant, tilstand bevares mellem scan-cyklusser pr. kaldested) findes også i grammatikken, men dens fulde kalde-konventioner (navngivne parametre, `.felt`-adgang til output) er ikke efterprøvet i denne manual — brug indtil videre de indbyggede FB'er (TON/TOF/TP/CTU/CTD/CTUD, §8.5) til stateful logik, og en almindelig stateless `FUNCTION` til beregninger.
 
 ---
 

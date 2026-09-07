@@ -1581,7 +1581,22 @@ static bool st_compiler_compile_repeat(st_compiler_t *compiler, st_ast_node_t *n
 }
 
 bool st_compiler_compile_node(st_compiler_t *compiler, st_ast_node_t *node) {
-  if (!node) return true;  // NULL is OK (empty body)
+  // BUG-386 FIX: this used to compile the REST of the statement list
+  // (node->next) via self-recursion at the bottom of this function — every
+  // sequential statement added one more C-stack frame. A long-enough
+  // sequence (or deep-enough nesting of IF/CASE bodies, each their own
+  // statement list) could overflow the compiling task's stack — observed as
+  // a device panic/reboot (ESP_RST_PANIC) partway through compiling a
+  // real-world ST program with a handful of nested IFs inside a CASE
+  // branch, something no test this session had exercised before. The AST's
+  // own nesting depth is already bounded by the PARSER's
+  // ST_MAX_RECURSION_DEPTH guard, but that guard says nothing about a
+  // STATEMENT LIST's *length*, which this recursion was silently
+  // proportional to. Rewritten to iterate the linked list instead — control
+  // structures (IF/CASE/FOR/etc.) still recurse into their own bodies via
+  // their dedicated compile functions, but a chain of sibling statements no
+  // longer costs one stack frame per statement.
+  while (node) {
 
   // BUG-171 FIX: Track current line for error reporting
   compiler->current_line = node->line;
@@ -1689,9 +1704,7 @@ bool st_compiler_compile_node(st_compiler_t *compiler, st_ast_node_t *node) {
       break;
   }
 
-  // Compile next statement in list
-  if (node->next) {
-    if (!st_compiler_compile_node(compiler, node->next)) return false;
+  node = node->next;  // BUG-386 FIX: iterate to next statement instead of recursing
   }
 
   return true;
