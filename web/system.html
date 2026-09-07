@@ -81,6 +81,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <a href="/editor">ST Editor</a>
 <a href="/cli">CLI</a>
 <a href="/system" class="active">System</a>
+<a href="/io">I/O</a>
 <a href="/logs">Logs</a>
 <button class="save-btn" id="saveBtn" onclick="doGlobalSave()" title="Gem konfiguration til NVS">&#128190; Save</button>
 <div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogout" onclick="doLogout()">Log ud</div></div></div>
@@ -481,9 +482,9 @@ Klik her eller træk en backup-fil hertil
 
 <div style="border-top:1px solid #313244;margin:12px 0;padding-top:12px">
 <div style="font-size:12px;color:#89b4fa;font-weight:600;margin-bottom:6px">Opdater fra GitHub (FEAT-169)</div>
-<p style="font-size:11px;color:#6c7086;margin-bottom:8px">Kun manuelt tjek — enheden taler aldrig ud af sig selv uden dette klik. Kræver internetadgang til api.github.com og objects.githubusercontent.com.</p>
+<p style="font-size:11px;color:#f38ba8;margin-bottom:8px">⚠ Midlertidigt deaktiveret: "Tjek for opdatering" får enheden til at genstarte uventet (BUG-377, under undersøgelse — årsagen sidder dybt i TLS-forbindelsen til GitHub og kræver seriel-konsol-adgang for at diagnosticere færdigt). Brug Manuel upload nedenfor i mellemtiden.</p>
 <div class="btn-row" style="margin-bottom:8px">
-<button class="btn btn-primary btn-sm" id="ghOtaCheckBtn" onclick="checkGithubOta()">Tjek for opdatering</button>
+<button class="btn btn-primary btn-sm" id="ghOtaCheckBtn" onclick="checkGithubOta()" disabled title="Midlertidigt deaktiveret, se BUG-377">Tjek for opdatering (deaktiveret)</button>
 </div>
 <div id="ghOtaResult" style="font-size:12px;color:#a6adc8;display:none;margin-bottom:8px"></div>
 <div class="btn-row" id="ghOtaInstallRow" style="display:none">
@@ -1054,15 +1055,48 @@ function fetchOtaStatus(){
   }).catch(()=>{});
 }
 
-// --- FEAT-169: GitHub Releases OTA (manuelt tjek/installér, ingen baggrundspolling) ---
+// --- FEAT-169/BUG-377: GitHub Releases OTA (manuelt tjek/installér) ---
+// Start+poll-moenster: POST starter, svarer straks; GET poller resultatet.
+// Handleren blokerer IKKE laengere forbindelsen imens enheden taler med
+// GitHub — det holdt-aabne-forbindelses-moenster var den mistaenkte
+// udloeser for et uafklaret device-panic (se BUGS_INDEX.md BUG-377).
+function pollUntilDone(url,onTick,isDone,intervalMs,maxAttempts){
+  return new Promise((resolve,reject)=>{
+    let n=0;
+    const tick=()=>{
+      n++;
+      api(url).then(r=>r.json().then(d=>({ok:r.ok,d}))).then(({ok,d})=>{
+        if(!ok){reject(new Error(d.error||'Fejl'));return}
+        onTick(d);
+        if(isDone(d)){resolve(d);return}
+        if(n>=maxAttempts){reject(new Error('Timeout — intet endeligt svar fra enheden'));return}
+        setTimeout(tick,intervalMs);
+      }).catch(e=>{
+        if(n>=maxAttempts){reject(e);return}
+        setTimeout(tick,intervalMs);
+      });
+    };
+    tick();
+  });
+}
 function checkGithubOta(){
+  // BUG-377: midlertidigt deaktiveret — krascher enheden (under undersøgelse).
+  showAlert('otaAlert','err','GitHub-tjek er midlertidigt deaktiveret (BUG-377 — krascher enheden). Brug Manuel upload i stedet.');
+  return;
   $('ghOtaCheckBtn').disabled=true;
   $('ghOtaResult').style.display='none';
   $('ghOtaInstallRow').style.display='none';
-  api('/api/system/ota/github-check').then(r=>{
+  showAlert('otaAlert','info','Tjekker GitHub for opdateringer...');
+  api('/api/system/ota/github-check',{method:'POST'}).then(r=>{
     if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
     return r.json();
-  }).then(d=>{
+  }).then(()=>pollUntilDone(
+    '/api/system/ota/github-check',
+    ()=>{},
+    d=>d.state==='done',
+    1000, 30
+  )).then(d=>{
+    showAlert('otaAlert','ok','GitHub-tjek gennemført.');
     const sizeKb=d.asset_size?Math.round(d.asset_size/1024)+' KB':'-';
     let msg='Nuværende: '+d.current_version+' — Seneste release: '+(d.latest_version||'-');
     if(d.message)msg+=' ('+d.message+')';
@@ -1081,15 +1115,24 @@ function installGithubOta(){
   askConfirm('Installér firmware fra GitHub','Downloader og installerer den nyeste release. Enheden genstarter automatisk bagefter. Fortsæt?',()=>{
     $('ghOtaInstallBtn').disabled=true;
     $('otaProgress').style.display='block';
-    $('otaFill').style.width='0%';$('otaPct').textContent='Henter...';
+    $('otaFill').style.width='0%';$('otaPct').textContent='Starter...';
     showAlert('otaAlert','info','Henter og installerer firmware fra GitHub — dette kan tage et minuts tid...');
     api('/api/system/ota/github-install',{method:'POST'}).then(r=>{
       if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
       return r.json();
-    }).then(d=>{
+    }).then(()=>pollUntilDone(
+      '/api/system/ota/status',
+      d=>{
+        if(d.total>0){const p=Math.round((d.received||0)*100/d.total);$('otaFill').style.width=p+'%';$('otaPct').textContent=p+'%'}
+        else{$('otaPct').textContent=d.state||'...'}
+      },
+      d=>d.state==='done'||d.state==='error',
+      1000, 100
+    )).then(d=>{
+      if(d.state==='error')throw new Error(d.error||'Ukendt fejl');
       showAlert('otaAlert','ok','OTA færdig! Version: '+(d.new_version||'?')+'. Genstarter...');
       $('otaFill').style.width='100%';$('otaPct').textContent='100%';
-      setTimeout(()=>window.location.reload(),(d.reboot_in_ms||2000)+8000);
+      setTimeout(()=>window.location.reload(),10000);
     }).catch(e=>{
       showAlert('otaAlert','err','GitHub-OTA fejlede: '+e.message);
       $('ghOtaInstallBtn').disabled=false;

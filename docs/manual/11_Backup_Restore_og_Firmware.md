@@ -43,6 +43,8 @@ Firmware kan opdateres over netværket uden at skulle koble USB til igen:
 
 ### 11.3a Opdatering direkte fra GitHub (FEAT-169)
 
+> **⚠ Midlertidigt deaktiveret i web-GUI'et (BUG-377):** "Tjek for opdatering"-knappen får enheden til at genstarte uventet ved brug — årsagen er endnu ikke fundet (seks hypoteser afprøvet og afkræftet: stack, heap, CPU-prioritet, forbindelses-oprydning, forbindelses-levetid, CA-certifikatkæde — se BUGS_INDEX.md BUG-377 for den fulde undersøgelse). Knappen er deaktiveret i GUI'et indtil videre. REST-endpoints'ene nedenfor findes stadig (til fortsat fejlsøgning, fx med seriel-konsol-adgang), men **brug IKKE denne funktion i produktion** — brug Manuel `.bin`-upload (§11.3) i stedet, som er upåvirket.
+
 Som alternativ til manuel `.bin`-upload kan `/system`-sidens OTA-kort hente og installere den nyeste offentliggjorte version direkte fra projektets GitHub Releases:
 
 1. Klik **"Tjek for opdatering"** — enheden slår op mod `api.github.com` og viser nuværende vs. seneste udgivne version.

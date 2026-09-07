@@ -3,101 +3,222 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HyperFusion PLC : Request Audit Log</title>
+<title>HyberFusion PLC Dashboard : Logs</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;height:100vh;display:flex;flex-direction:column;overflow:hidden}
-nav{background:#181825;padding:8px 16px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #313244}
-nav a{color:#89b4fa;text-decoration:none;padding:6px 12px;border-radius:6px;font-size:13px;transition:background .2s}
-nav a:hover{background:#313244}
-nav a.active{background:#89b4fa;color:#1e1e2e;font-weight:600}
-nav .brand{font-weight:700;color:#cba6f7;margin-right:auto;font-size:15px}
-.container{flex:1;padding:24px;overflow-y:auto;max-width:1000px;margin:0 auto;width:100%}
-.card{background:#181825;border:1px solid #313244;border-radius:12px;padding:20px;margin-bottom:16px}
-.card h2{font-size:16px;color:#cba6f7;margin-bottom:12px}
-.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
-.toolbar select{background:#1e1e2e;border:1px solid #45475a;color:#cdd6f4;border-radius:6px;padding:6px 10px;font-size:13px}
+.topnav{background:#11111b;padding:6px 16px;display:flex;gap:8px;border-bottom:2px solid #89b4fa;flex-shrink:0;align-items:center}
+.topnav .brand{font-size:14px;font-weight:700;color:#89b4fa;margin-right:12px}
+.topnav a{padding:5px 14px;font-size:12px;font-weight:600;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s}
+.topnav a:hover{background:#45475a;color:#cdd6f4}
+.topnav a.active{background:#89b4fa;color:#1e1e2e}
+.user-badge{position:relative;display:flex;align-items:center;gap:6px;margin-left:auto}
+.user-btn{padding:4px 10px;font-size:11px;background:#313244;color:#a6adc8;border-radius:4px;cursor:pointer;border:1px solid #45475a;display:flex;align-items:center;gap:5px}
+.user-btn:hover{background:#45475a;color:#cdd6f4}
+.user-btn .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.user-btn .dot-on{background:#a6e3a1}
+.user-btn .dot-off{background:#f38ba8}
+.user-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#181825;border:1px solid #45475a;border-radius:6px;padding:8px 0;min-width:200px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.user-menu.show{display:block}
+.user-menu .um-row{padding:4px 14px;font-size:11px;color:#a6adc8;display:flex;justify-content:space-between}
+.user-menu .um-row .um-val{color:#cdd6f4;font-weight:600}
+.user-menu .um-sep{border-top:1px solid #313244;margin:4px 0}
+.user-menu .um-btn{display:block;width:calc(100% - 16px);margin:4px 8px;padding:5px 10px;font-size:11px;background:#313244;color:#a6adc8;border:none;border-radius:4px;cursor:pointer;text-align:center}
+.user-menu .um-btn:hover{background:#f38ba8;color:#1e1e2e}
+.hdr{background:#181825;padding:10px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #313244;flex-shrink:0}
+.hdr h1{font-size:16px;color:#89b4fa;flex-shrink:0}
+.hdr .info{font-size:11px;color:#6c7086;margin-left:auto}
+.tabs{display:flex;gap:4px;padding:10px 16px 0;flex-shrink:0}
+.tab-btn{padding:8px 18px;font-size:12px;font-weight:600;background:#181825;color:#a6adc8;border:1px solid #313244;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer}
+.tab-btn.active{background:#181825;color:#89b4fa;border-color:#89b4fa}
+.tab-btn:not(.active):hover{color:#cdd6f4;background:#1e1e2e}
+.content{flex:1;overflow-y:auto;padding:16px}
+.card{background:#181825;border:1px solid #313244;border-radius:8px;padding:16px 20px}
+.card h2{font-size:14px;color:#89b4fa;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #313244;display:flex;align-items:center;gap:8px}
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.toolbar select,.toolbar input[type=number]{background:#313244;border:1px solid #45475a;color:#cdd6f4;border-radius:4px;padding:5px 8px;font-size:12px}
 .toolbar .spacer{flex:1}
-.badge{font-size:12px;color:#a6adc8}
-.btn{padding:8px 16px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s}
+.badge{font-size:11px;color:#a6adc8}
+.btn{padding:6px 14px;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;transition:opacity .15s}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 .btn-primary{background:#89b4fa;color:#1e1e2e}
 .btn-danger{background:#f38ba8;color:#1e1e2e}
-table{width:100%;border-collapse:collapse;font-size:12px}
-th{text-align:left;color:#a6adc8;font-weight:600;padding:6px 10px;border-bottom:1px solid #313244;position:sticky;top:0;background:#181825}
-td{padding:6px 10px;border-bottom:1px solid #24243a;font-family:monospace}
-tr:hover td{background:#1e1e33}
-.tbl-wrap{max-height:60vh;overflow-y:auto}
-.method{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700}
+.btn-sm{padding:4px 10px;font-size:11px}
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;color:#89b4fa;font-weight:600;padding:6px 8px;border-bottom:1px solid #313244;position:sticky;top:0;background:#181825}
+.tbl td{padding:5px 8px;border-bottom:1px solid rgba(49,50,68,.5);font-family:'Consolas',monospace}
+.tbl tr:hover{background:rgba(49,50,68,.3)}
+.tbl-wrap{max-height:calc(100vh - 300px);overflow-y:auto}
+.method{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700}
 .method-get{background:#1e2e3e;color:#89b4fa}
 .method-post{background:#1e2e1e;color:#a6e3a1}
 .method-delete{background:#2e1e1e;color:#f38ba8}
 .status-ok{color:#a6e3a1}
 .status-err{color:#f38ba8}
-.empty-msg{color:#6c7086;text-align:center;padding:24px;font-size:13px}
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
-.modal-overlay.show{display:flex}
-.modal{background:#181825;border:1px solid #313244;border-radius:12px;padding:24px;width:340px}
-.modal h3{color:#cba6f7;margin-bottom:12px}
-.modal input{width:100%;padding:8px;margin:4px 0 8px;background:#1e1e2e;border:1px solid #45475a;border-radius:6px;color:#cdd6f4;font-size:14px}
-.modal .btn{width:100%;margin-top:8px}
-footer{background:#181825;border-top:1px solid #313244;padding:6px 16px;font-size:11px;color:#585b70;text-align:center}
+.empty-msg{color:#6c7086;text-align:center;padding:24px;font-size:13px;display:block}
+.confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+.confirm-overlay.show{display:flex}
+.confirm-box{background:#1e1e2e;border:1px solid #313244;border-radius:8px;padding:24px;width:360px;text-align:center}
+.confirm-box h3{color:#f38ba8;font-size:16px;margin-bottom:12px}
+.confirm-box p{font-size:12px;color:#a6adc8;margin-bottom:16px;line-height:1.5}
+.confirm-box .actions{display:flex;gap:8px;justify-content:center}
+.foot{background:#181825;border-top:1px solid #313244;padding:4px 16px;font-size:10px;color:#45475a;flex-shrink:0;display:flex;justify-content:space-between}
+[hidden]{display:none!important}
 </style>
 </head>
 <body>
-<nav>
+
+<!-- Top Navigation -->
+<div class="topnav">
 <span class="brand">HyberFusion PLC</span>
 <a href="/">Monitor</a>
 <a href="/editor">ST Editor</a>
 <a href="/cli">CLI</a>
 <a href="/system">System</a>
+<a href="/io">I/O</a>
 <a href="/logs" class="active">Logs</a>
-</nav>
+<div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogout" onclick="doLogout()">Log ud</div></div></div>
+</div>
 
-<div class="container">
-<div class="card">
-<h2>Request Audit Log (FEAT-033)</h2>
+<!-- Header -->
+<div class="hdr">
+<h1>Logs</h1>
+<span class="info">API Audit Log og System Hændelseslog</span>
+</div>
+
+<!-- Login Modal -->
+<div class="confirm-overlay" id="loginModal">
+<div class="confirm-box" style="text-align:left">
+<h3 style="color:#89b4fa">Login</h3>
+<p>Logs-siden kræver autentificering.</p>
+<div style="margin-bottom:8px"><label style="font-size:12px;color:#a6adc8">Brugernavn</label><br>
+<input type="text" id="authUser" style="width:100%;padding:6px 10px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:13px;margin-top:4px" autocomplete="username"></div>
+<div style="margin-bottom:8px"><label style="font-size:12px;color:#a6adc8">Adgangskode</label><br>
+<input type="password" id="authPass" style="width:100%;padding:6px 10px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:13px;margin-top:4px" autocomplete="current-password"></div>
+<div id="loginErr" style="display:none;color:#f38ba8;font-size:12px;padding:4px 0"></div>
+<div class="actions" style="justify-content:flex-end;margin-top:12px">
+<button class="btn btn-primary" onclick="doLogin()">Forbind</button>
+</div>
+</div>
+</div>
+
+<!-- Confirm Dialog -->
+<div class="confirm-overlay" id="confirmDlg">
+<div class="confirm-box">
+<h3 id="confirmTitle">Bekræft</h3>
+<p id="confirmMsg">Er du sikker?</p>
+<div class="actions">
+<button class="btn btn-primary" onclick="closeConfirm()">Annuller</button>
+<button class="btn btn-danger" id="confirmBtn" onclick="confirmAction()">Bekræft</button>
+</div>
+</div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+<div class="tab-btn active" id="tabBtnAudit" onclick="switchTab('audit')">API Audit Log</div>
+<div class="tab-btn" id="tabBtnSys" onclick="switchTab('sys')">System Hændelseslog</div>
+</div>
+
+<!-- Content -->
+<div class="content">
+
+<!-- Audit Log panel -->
+<div id="panelAudit" class="card">
+<h2>API Audit Log (FEAT-033)</h2>
 <div class="toolbar">
 <select id="limitSel" onchange="fetchLogs()">
 <option value="25">Seneste 25</option>
 <option value="50" selected>Seneste 50</option>
 <option value="100">Seneste 100 (alle)</option>
 </select>
-<button class="btn btn-primary" onclick="fetchLogs()">&#8635; Opdater</button>
-<button class="btn btn-danger" onclick="clearLogs()">Ryd log</button>
+<button class="btn btn-primary btn-sm" onclick="fetchLogs()">&#8635; Opdater</button>
+<button class="btn btn-danger btn-sm" onclick="clearLogs()">Ryd log</button>
 <div class="spacer"></div>
 <span class="badge" id="logBadge">-</span>
 </div>
 <div class="tbl-wrap">
-<table>
+<table class="tbl">
 <thead><tr><th>Tid</th><th>Metode</th><th>Sti</th><th>Status</th><th>IP</th><th>Bruger</th></tr></thead>
-<tbody id="logBody"><tr><td colspan="6" class="empty-msg">Indlaeser...</td></tr></tbody>
+<tbody id="logBody"><tr><td colspan="6" class="empty-msg">Indlæser...</td></tr></tbody>
 </table>
 </div>
 </div>
+
+<!-- System Hændelseslog panel -->
+<div id="panelSys" class="card" hidden>
+<h2>System Hændelseslog <span class="badge" id="syslogBadge">0</span></h2>
+<div class="toolbar">
+<span class="badge" id="syslogInfo">-</span>
+<div class="spacer"></div>
+<select id="syslogCat" onchange="renderSyslog()">
+<option value="any">Alle kategorier</option>
+<option value="event">Hændelser</option>
+<option value="regchange">Registerændringer</option>
+</select>
+<select id="syslogSrc" onchange="renderSyslog()">
+<option value="any">Alle kilder</option>
+<option value="rest">REST API</option>
+<option value="modbus_slave">Modbus (ekstern)</option>
+<option value="system">System</option>
+</select>
+<input type="number" id="syslogLimit" value="100" min="5" max="500" onchange="fetchSyslog()" title="Max antal linjer der hentes og vises" style="width:70px">
+<button class="btn btn-sm" id="syslogToggleBtn" onclick="toggleSyslog()" style="background:#313244;color:#a6adc8">Stop logning</button>
+<button class="btn btn-sm" onclick="exportSyslog()" style="background:#313244;color:#a6adc8">Eksporter CSV</button>
+<button class="btn btn-danger btn-sm" onclick="clearSyslog()">Ryd log</button>
+</div>
+<div class="tbl-wrap" id="syslogBody"><span class="empty-msg">Indlæser...</span></div>
 </div>
 
-<!-- Login Modal -->
-<div class="modal-overlay" id="loginModal">
-<div class="modal">
-<h3>Login</h3>
-<input id="authUser" placeholder="Brugernavn" autocomplete="username">
-<input id="authPass" type="password" placeholder="Adgangskode" autocomplete="current-password">
-<div id="loginErr" style="display:none;color:#f38ba8;font-size:12px;padding:6px 0"></div>
-<button class="btn btn-primary" onclick="doLogin()">Log ind</button>
-</div>
-</div>
+</div><!-- content -->
 
-<footer id="footStatus">Request Audit Log - FEAT-033</footer>
+<div class="foot"><span>HyberFusion PLC Logs</span><span id="footVer"></span></div>
 
 <script>
 let AUTH=sessionStorage.getItem('hfplc_auth')||'';
+let pendingConfirmFn=null;
+function $(id){return document.getElementById(id)}
 
-// BUG-369c: hardt loft paa samtidige forbindelser fra denne side — se
-// dashboard.html's dashFetch()-kommentar for den fulde forklaring
-// (max_open_sockets=3 paa HTTPS-serveren; flere samtidige forsoeg kan
-// udloese en ESP-IDF/mbedTLS-fejl der i vaerste fald leder mod
-// heap-udtoemning).
+// --- Tabs ---
+function switchTab(name){
+  const isAudit=name==='audit';
+  $('panelAudit').hidden=!isAudit;
+  $('panelSys').hidden=isAudit;
+  $('tabBtnAudit').classList.toggle('active',isAudit);
+  $('tabBtnSys').classList.toggle('active',!isAudit);
+  if(isAudit)fetchLogs(); else fetchSyslog();
+}
+
+// --- Auth ---
+function doLogin(){
+  const u=$('authUser').value, p=$('authPass').value;
+  if(!u||!p){$('loginErr').style.display='block';$('loginErr').textContent='Udfyld begge felter';return}
+  const basicAuth='Basic '+btoa(u+':'+p);
+  fetch('/api/login',{method:'POST',headers:{'Authorization':basicAuth}}).then(r=>{
+    if(!r.ok)throw new Error('Auth failed');
+    return r.json();
+  }).then(d=>{
+    if(!d.token)throw new Error('No token');
+    AUTH='Bearer '+d.token;
+    sessionStorage.setItem('hfplc_auth',AUTH);
+    $('loginModal').classList.remove('show');
+    fetchLogs();
+    updateUserBadge();
+  }).catch(()=>{
+    $('loginErr').style.display='block';
+    $('loginErr').textContent='Forkert brugernavn eller adgangskode';
+  });
+}
+$('authPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+if(AUTH){fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){fetchLogs();updateUserBadge();}else{AUTH='';sessionStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}}).catch(()=>{$('loginModal').classList.add('show');});}
+else{$('loginModal').classList.add('show');}
+
+// --- Confirm Dialog ---
+function askConfirm(title,msg,fn){$('confirmTitle').textContent=title;$('confirmMsg').textContent=msg;pendingConfirmFn=fn;$('confirmDlg').classList.add('show');}
+function closeConfirm(){$('confirmDlg').classList.remove('show');pendingConfirmFn=null}
+function confirmAction(){var fn=pendingConfirmFn;closeConfirm();if(fn)fn()}
+
+// BUG-369c-mønster: hårdt loft på samtidige forbindelser.
 let _apiFetchActive=0;
 const _apiFetchQueue=[];
 const API_FETCH_MAX_CONCURRENT=2;
@@ -109,97 +230,179 @@ function _apiFetchPump(){
       .catch(e=>{_apiFetchActive--;_apiFetchPump();job.reject(e);});
   }
 }
-function queuedFetch(url,opts){
-  return new Promise((resolve,reject)=>{
-    _apiFetchQueue.push({url,opts,resolve,reject});
-    _apiFetchPump();
-  });
-}
-
+function queuedFetch(url,opts){return new Promise((resolve,reject)=>{_apiFetchQueue.push({url,opts,resolve,reject});_apiFetchPump();});}
 function api(url,opts={}){
   if(AUTH){if(!opts.headers)opts.headers={};opts.headers['Authorization']=AUTH;}
   return queuedFetch(url,opts).then(r=>{
-    if(r.status===401){AUTH='';sessionStorage.removeItem('hfplc_auth');document.getElementById('loginModal').classList.add('show');throw new Error('Login');}
+    if(r.status===401){AUTH='';sessionStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');throw new Error('Login');}
     return r;
   });
 }
-async function doLogin(){
-  const u=document.getElementById('authUser').value;
-  const p=document.getElementById('authPass').value;
-  const basicAuth='Basic '+btoa(u+':'+p);
-  try{
-    const r=await fetch('/api/login',{method:'POST',headers:{'Authorization':basicAuth}});
-    if(!r.ok){
-      document.getElementById('loginErr').style.display='block';
-      document.getElementById('loginErr').textContent='Forkert brugernavn eller adgangskode';
-      return;
-    }
-    const d=await r.json();
-    if(!d.token){
-      document.getElementById('loginErr').style.display='block';
-      document.getElementById('loginErr').textContent='Login fejlede (intet token)';
-      return;
-    }
-    AUTH='Bearer '+d.token;
-    sessionStorage.setItem('hfplc_auth',AUTH);
-    document.getElementById('loginModal').classList.remove('show');
-    fetchLogs();
-  }catch(e){
-    document.getElementById('loginErr').style.display='block';
-    document.getElementById('loginErr').textContent='Forbindelsesfejl';
-  }
-}
 
+// === User Badge ===
+function toggleUserMenu(){$('userMenu').classList.toggle('show')}
+document.addEventListener('click',function(e){const b=$('userBtn'),m=$('userMenu');if(b&&m&&!b.contains(e.target)&&!m.contains(e.target))m.classList.remove('show')});
+function updateUserBadge(){
+  const auth=sessionStorage.getItem('hfplc_auth');
+  const opts=auth?{headers:{'Authorization':auth}}:{};
+  fetch('/api/user/me',opts).then(r=>r.json()).then(d=>{
+    if(d.authenticated){$('userName').textContent=d.username;$('userDot').className='dot dot-on';$('umUser').textContent=d.username;$('umRoles').textContent=d.roles||'all';$('umPriv').textContent=d.privilege||'rw';$('umMode').textContent=d.mode||'legacy';$('umLogout').style.display='block'}
+    else{$('userName').textContent='Ikke logget ind';$('userDot').className='dot dot-off';$('umLogout').style.display='none'}
+  }).catch(()=>{});
+}
+function doLogout(){if(AUTH){fetch('/api/logout',{method:'POST',headers:{'Authorization':AUTH}}).catch(()=>{})}sessionStorage.removeItem('hfplc_auth');AUTH='';$('userName').textContent='Ikke logget ind';$('userDot').className='dot dot-off';$('userMenu').classList.remove('show');$('loginModal').classList.add('show')}
+
+// ============================================================
+// AUDIT LOG (FEAT-033)
+// ============================================================
 function fmtTime(e){
-  if(e.epoch_s&&e.epoch_s>0){
-    const d=new Date(e.epoch_s*1000);
-    return d.toLocaleTimeString('da-DK');
-  }
+  if(e.epoch_s&&e.epoch_s>0)return new Date(e.epoch_s*1000).toLocaleTimeString('da-DK');
   return 'oppetid '+Math.round(e.timestamp_ms/1000)+'s';
 }
-function methodClass(m){
-  if(m==='GET')return 'method-get';
-  if(m==='DELETE')return 'method-delete';
-  return 'method-post';
-}
-
+function methodClass(m){if(m==='GET')return 'method-get';if(m==='DELETE')return 'method-delete';return 'method-post';}
 function fetchLogs(){
-  const lim=document.getElementById('limitSel').value;
+  const lim=$('limitSel').value;
   api('/api/system/logs?limit='+lim).then(r=>r.json()).then(d=>{
-    document.getElementById('logBadge').textContent=
-      (d.logging?'Aktiv':'Pause')+' — '+d.total+' / '+d.capacity+' poster';
-    const tbody=document.getElementById('logBody');
+    $('logBadge').textContent=(d.logging?'Aktiv':'Pause')+' — '+d.total+' / '+d.capacity+' poster';
+    const tbody=$('logBody');
     if(!d.entries||d.entries.length===0){
       tbody.innerHTML='<tr><td colspan="6" class="empty-msg">Ingen requests logget endnu</td></tr>';
       return;
     }
-    // Nyeste oeverst
     const rows=d.entries.slice().reverse();
     tbody.innerHTML=rows.map(e=>{
       const statusCls=(e.status>=200&&e.status<400)?'status-ok':'status-err';
-      return '<tr>'+
-        '<td>'+fmtTime(e)+'</td>'+
+      return '<tr><td>'+fmtTime(e)+'</td>'+
         '<td><span class="method '+methodClass(e.method)+'">'+e.method+'</span></td>'+
         '<td>'+e.path+'</td>'+
         '<td class="'+statusCls+'">'+e.status+'</td>'+
         '<td>'+e.ip+'</td>'+
-        '<td>'+e.username+'</td>'+
-        '</tr>';
+        '<td>'+e.username+'</td></tr>';
     }).join('');
-  }).catch(()=>{
-    document.getElementById('logBody').innerHTML='<tr><td colspan="6" class="empty-msg">Kunne ikke hente log</td></tr>';
+  }).catch(()=>{$('logBody').innerHTML='<tr><td colspan="6" class="empty-msg">Kunne ikke hente log</td></tr>';});
+}
+function clearLogs(){
+  askConfirm('Ryd Audit Log','Ryd hele API audit-loggen?',()=>{
+    api('/api/system/logs/clear',{method:'POST'}).then(r=>{if(r.ok)fetchLogs();}).catch(()=>{});
   });
 }
 
-function clearLogs(){
-  if(!confirm('Ryd hele audit-loggen?'))return;
-  api('/api/system/logs/clear',{method:'POST'}).then(r=>{
-    if(r.ok)fetchLogs();
-    else alert('Kunne ikke rydde loggen');
-  }).catch(e=>alert('Fejl: '+e.message));
+// ============================================================
+// SYSTEM HÆNDELSESLOG (FEAT-086/089) — portet fra dashboard.html's
+// tidligere lille indlejrede "syslog"-kort til denne fulde side.
+// ============================================================
+let _syslogEntries=[];
+let _syslogLogging=true;
+let _syslogTotal=0;
+const _syslogSrcNames={rest:'REST API',modbus_slave:'Modbus (ekstern)',system:'System'};
+
+function fetchSyslog(){
+  const lim=Math.max(5,parseInt($('syslogLimit').value)||100);
+  api('/api/syslog?limit='+lim).then(r=>r.json()).then(d=>{
+    _syslogEntries=d.entries||[];
+    _syslogLogging=(d.logging!==false);
+    _syslogTotal=d.total||_syslogEntries.length;
+    updateSyslogToggleBtn();
+    renderSyslog();
+  }).catch(()=>{$('syslogBody').innerHTML='<span class="empty-msg">Kunne ikke hente hændelseslog</span>';});
+}
+function updateSyslogToggleBtn(){
+  const b=$('syslogToggleBtn');
+  b.textContent=_syslogLogging?'Stop logning':'Start logning';
+  b.style.color=_syslogLogging?'#a6adc8':'#f9e2af';
+  b.style.borderColor=_syslogLogging?'#45475a':'#f9e2af';
+}
+function toggleSyslog(){
+  const ep=_syslogLogging?'/api/syslog/stop':'/api/syslog/start';
+  api(ep,{method:'POST'}).then(r=>r.json()).then(d=>{
+    _syslogLogging=(d.logging!==false);
+    updateSyslogToggleBtn();
+    renderSyslog();
+  }).catch(()=>{});
+}
+function syslogTimeString(e){
+  if(e.epoch_s&&e.epoch_s>0){
+    const d=new Date(e.epoch_s*1000);
+    const pad=n=>String(n).padStart(2,'0');
+    return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+  }
+  const s=Math.floor(e.timestamp_ms/1000);
+  return String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor((s%3600)/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
+function syslogDetail(e){
+  if(e.category==='regchange'){
+    const kind=e.is_coil?'Coil':'HR';
+    return kind+e.reg_addr+': '+e.old_value+' → '+e.new_value;
+  }
+  return e.message||'';
+}
+function exportSyslog(){
+  api('/api/syslog').then(r=>r.json()).then(d=>{
+    const rows=d.entries||[];
+    if(!rows.length){alert('Loggen er tom');return;}
+    let csv='tid;uptime_ms;epoch_s;kategori;kilde;bruger;ip;register;coil;gammel_vaerdi;ny_vaerdi;besked\n';
+    for(const e of rows){
+      csv+=syslogTimeString(e)+';'+e.timestamp_ms+';'+(e.epoch_s||0)+';'+e.category+';'+e.source+';'
+        +e.username+';'+e.ip+';'+(e.reg_addr===65535?'':e.reg_addr)+';'+e.is_coil+';'
+        +e.old_value+';'+e.new_value+';'+e.message+'\n';
+    }
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');
+    link.href=url;
+    const now=new Date();
+    const pad=n=>String(n).padStart(2,'0');
+    link.download='haendelseslog_'+now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())+'.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }).catch(e=>alert('Eksport fejlede: '+e.message));
+}
+function renderSyslog(){
+  $('syslogBadge').textContent=String(_syslogEntries.length);
+  const el=$('syslogBody');
+  if(!_syslogEntries||_syslogEntries.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen hændelser endnu</span>';
+    $('syslogInfo').textContent='0 hændelser';
+    return;
+  }
+  const catFilter=$('syslogCat').value;
+  const srcFilter=$('syslogSrc').value;
+  const limit=Math.max(5,parseInt($('syslogLimit').value)||100);
+  const filtered=_syslogEntries.filter(e=>{
+    if(catFilter!=='any'&&e.category!==catFilter)return false;
+    if(srcFilter!=='any'&&e.source!==srcFilter)return false;
+    return true;
+  });
+  const tot=_syslogTotal||_syslogEntries.length;
+  $('syslogInfo').textContent=tot+' på enheden, '+filtered.length+' vist'+(_syslogLogging?'':' — LOGNING STOPPET');
+  if(filtered.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen hændelser matcher filter</span>';
+    return;
+  }
+  const recent=filtered.slice(-limit).reverse();
+  let h='<table class="tbl"><thead><tr><th>Tid</th><th>Kategori</th><th>Kilde</th><th>Bruger</th><th>IP</th><th>Detaljer</th></tr></thead><tbody>';
+  for(const e of recent){
+    const catLbl=e.category==='regchange'?'<span style="color:#f9e2af">Reg.ændring</span>':'<span style="color:#89b4fa">Hændelse</span>';
+    const srcLbl=_syslogSrcNames[e.source]||e.source;
+    h+='<tr><td>'+syslogTimeString(e)+'</td><td>'+catLbl+'</td><td>'+srcLbl+'</td><td>'+e.username+'</td><td>'+e.ip+'</td><td>'+syslogDetail(e)+'</td></tr>';
+  }
+  h+='</tbody></table>';
+  el.innerHTML=h;
+}
+function clearSyslog(){
+  askConfirm('Ryd Hændelseslog','Ryd hele system-hændelsesloggen (events + registerændringer)?',()=>{
+    api('/api/syslog/clear',{method:'POST'}).then(()=>fetchSyslog()).catch(()=>{});
+  });
 }
 
-fetchLogs();
+// ============================================================
+// BOOTSTRAP
+// ============================================================
+setInterval(()=>{if(!$('panelAudit').hidden)fetchLogs(); else fetchSyslog();},5000);
+updateUserBadge();
+api('/api/version').then(r=>r.json()).then(d=>{$('footVer').textContent='v'+(d.firmware_version||'-');}).catch(()=>{});
 </script>
 </body>
 </html>

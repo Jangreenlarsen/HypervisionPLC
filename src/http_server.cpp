@@ -24,6 +24,7 @@
 #include "web_ota.h"
 #include "web_cli.h"
 #include "web_logs.h"
+#include "web_io.h"
 #include "rbac.h"
 #include "ota_handler.h"
 #include "constants.h"
@@ -795,16 +796,32 @@ static const httpd_uri_t uri_ota_rollback = {
 };
 // FEAT-169: GitHub Releases-baseret OTA — begge exact routes, ingen wildcard
 // i denne gruppe i forvejen, saa ingen shadowing-risiko (jf. BUG-354/BUG-362a).
-static const httpd_uri_t uri_ota_github_check = {
+// BUG-377: samme URI, to metoder — POST starter (svarer straks), GET poller
+// resultatet. Ingen af dem blokerer laengere forbindelsen (se ota_handler.h).
+static const httpd_uri_t uri_ota_github_check_start = {
+  .uri      = "/api/system/ota/github-check",
+  .method   = HTTP_POST,
+  .handler  = api_handler_ota_github_check_start,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_ota_github_check_poll = {
   .uri      = "/api/system/ota/github-check",
   .method   = HTTP_GET,
-  .handler  = api_handler_ota_github_check,
+  .handler  = api_handler_ota_github_check_poll,
   .user_ctx = NULL
 };
 static const httpd_uri_t uri_ota_github_install = {
   .uri      = "/api/system/ota/github-install",
   .method   = HTTP_POST,
   .handler  = api_handler_ota_github_install,
+  .user_ctx = NULL
+};
+// MIDLERTIDIG DIAGNOSTIK — se ota_handler.cpp's GH_STAGE-kommentar. Fjernes
+// igen naar github-check-crashet er fundet og rettet.
+static const httpd_uri_t uri_ota_github_debug = {
+  .uri      = "/api/system/ota/github-debug",
+  .method   = HTTP_GET,
+  .handler  = api_handler_ota_github_debug,
   .user_ctx = NULL
 };
 static const httpd_uri_t uri_ota_page = {
@@ -827,6 +844,14 @@ static const httpd_uri_t uri_logs_page = {
   .uri      = "/logs",
   .method   = HTTP_GET,
   .handler  = web_logs_handler,
+  .user_ctx = NULL
+};
+
+// FEAT-171: Web I/O Configuration page (Counters/Timers/GPIO)
+static const httpd_uri_t uri_io_page = {
+  .uri      = "/io",
+  .method   = HTTP_GET,
+  .handler  = web_io_handler,
   .user_ctx = NULL
 };
 
@@ -1069,6 +1094,26 @@ int http_server_start(const HttpConfig *config)
     httpd_config.stack_size = 8192;
     httpd_config.uri_match_fn = httpd_uri_match_wildcard;
     httpd_config.lru_purge_enable = true;  // BUG-241: Auto-close idle keep-alive connections to reduce heap fragmentation
+    // BUG-377 fix-forsoeg: default max_open_sockets (7) kombineret med
+    // lru_purge_enable=true betyder at en handler der er lang tid om at svare
+    // (github-check venter op til 20s paa en baggrundstask via semaphore,
+    // mens SELVE httpd-tasken forbliver fri til at acceptere/betjene ANDRE
+    // forbindelser i mellemtiden — bekraeftet ved test: /api/status svarede
+    // fint hele vejen igennem) risikerer at LRU-purge-mekanismen anser vores
+    // egen, stadig-i-brug forbindelse for "least recently used" og lukker
+    // den UNDER haanden mens handleren stadig holder en reference til den,
+    // hvis nok ANDRE forbindelser (dashboard-polling, denne test selv, osv.)
+    // konkurrerer om de faa sokkel-pladser i mellemtiden. Et senere
+    // httpd_resp_sendstr() paa en saadan allerede-lukket/genbrugt forbindelse
+    // kunne forklare det observerede: klienten faar hovederne, aldrig kroppen,
+    // og enheden panic'er kort efter. Fix-forsoeg: giv rigelig ekstra
+    // sokkel-headroom saa vores egen langsomme handler aldrig bliver
+    // purge-kandidat blot fordi andre requests kommer ind imens.
+    // OBS: maa ikke overstige CONFIG_LWIP_MAX_SOCKETS (Arduino-ESP32-corets
+    // default, typisk 10) — ellers fejler httpd_start() helt og HELE web-
+    // GUI'et/API'et er utilgaengeligt. Holdt til 10 (op fra default 7) for at
+    // vaere sikker paa at blive inden for den graense.
+    httpd_config.max_open_sockets = 10;
     // BUG-336c: HTTPD_DEFAULT_CONFIG() leaves core_id at tskNO_AFFINITY,
     // so the scheduler was free to place this task on Core 1 — the same
     // core as loopTask (CLI, incl. `mb scan`). Pin to Core 0 so the two
@@ -1238,11 +1283,14 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_ota_status);
   httpd_register_uri_handler(http_state.server, &uri_ota_rollback);
   httpd_register_uri_handler(http_state.server, &uri_ota_upload);
-  httpd_register_uri_handler(http_state.server, &uri_ota_github_check);
+  httpd_register_uri_handler(http_state.server, &uri_ota_github_check_start);
+  httpd_register_uri_handler(http_state.server, &uri_ota_github_check_poll);
+  httpd_register_uri_handler(http_state.server, &uri_ota_github_debug);
   httpd_register_uri_handler(http_state.server, &uri_ota_github_install);
   httpd_register_uri_handler(http_state.server, &uri_ota_page);
   httpd_register_uri_handler(http_state.server, &uri_cli_page);
   httpd_register_uri_handler(http_state.server, &uri_logs_page);
+  httpd_register_uri_handler(http_state.server, &uri_io_page);
 
   http_state.running = 1;
   ESP_LOGI(TAG, "%s server started on port %d", config->tls_enabled ? "HTTPS" : "HTTP", http_state.active_port);

@@ -52,6 +52,10 @@ Alle 4 tælleres og 4 timeres værdier og styre-/statusbits er tilgængelige som
 
 For hurtig opsætning af almindelige scenarier (pulstælling, flowmåling, pumpecyklustæller m.fl.), se [`../COUNTER_CONFIG_TEMPLATES.md`](../COUNTER_CONFIG_TEMPLATES.md).
 
+## 9.5 Web-GUI (FEAT-171)
+
+Alle 4 tællere og 4 timere kan også konfigureres via web-GUI'en på **`/io`** (link i topnavigationen ved siden af "System") — samme felter som CLI'en, inkl. driftstilstand, register-mapping (vist read-only — auto-tildelt, ikke redigerbar, samme begrænsning som CLI'en har bevidst), compare-tærskler og live-værdier (rå tælling, skaleret værdi, frekvens, kørselsstatus). Start/Stop/Reset-knapper virker direkte mod tælleren/timeren uden at skulle skrive Modbus-registre manuelt. GPIO statisk mapping (§2 — pin↔register/coil-binding, adskilt fra tæller/timer-hardwarebindinger) har sin egen sektion på samme side, med en pin-vælger der kun tilbyder gyldige/ikke-reserverede pins for det aktive board.
+
 ---
 
 [← 8. ST Logic](08_ST_Logic_Programmering.md) · [Indeks](00_INDEKS.md) · Næste: [10. Sikkerhed →](10_Sikkerhed_og_Adgangsstyring.md)

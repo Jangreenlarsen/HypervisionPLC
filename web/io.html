@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HyberFusion PLC Dashboard : I/O</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.topnav{background:#11111b;padding:6px 16px;display:flex;gap:8px;border-bottom:2px solid #89b4fa;flex-shrink:0;align-items:center}
+.topnav .brand{font-size:14px;font-weight:700;color:#89b4fa;margin-right:12px}
+.topnav a{padding:5px 14px;font-size:12px;font-weight:600;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s}
+.topnav a:hover{background:#45475a;color:#cdd6f4}
+.topnav a.active{background:#89b4fa;color:#1e1e2e}
+.user-badge{position:relative;display:flex;align-items:center;gap:6px;margin-left:auto}
+.user-btn{padding:4px 10px;font-size:11px;background:#313244;color:#a6adc8;border-radius:4px;cursor:pointer;border:1px solid #45475a;display:flex;align-items:center;gap:5px}
+.user-btn:hover{background:#45475a;color:#cdd6f4}
+.user-btn .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.user-btn .dot-on{background:#a6e3a1}
+.user-btn .dot-off{background:#f38ba8}
+.user-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#181825;border:1px solid #45475a;border-radius:6px;padding:8px 0;min-width:200px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.user-menu.show{display:block}
+.user-menu .um-row{padding:4px 14px;font-size:11px;color:#a6adc8;display:flex;justify-content:space-between}
+.user-menu .um-row .um-val{color:#cdd6f4;font-weight:600}
+.user-menu .um-sep{border-top:1px solid #313244;margin:4px 0}
+.user-menu .um-btn{display:block;width:calc(100% - 16px);margin:4px 8px;padding:5px 10px;font-size:11px;background:#313244;color:#a6adc8;border:none;border-radius:4px;cursor:pointer;text-align:center}
+.user-menu .um-btn:hover{background:#f38ba8;color:#1e1e2e}
+.hdr{background:#181825;padding:10px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #313244;flex-shrink:0}
+.hdr h1{font-size:16px;color:#89b4fa;flex-shrink:0}
+.hdr .info{font-size:11px;color:#6c7086;margin-left:auto}
+.content{flex:1;overflow-y:auto;padding:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;align-content:start}
+.card{background:#181825;border:1px solid #313244;border-radius:8px;padding:16px 20px}
+.section-hdr{grid-column:1/-1;font-size:12px;font-weight:700;color:#89b4fa;text-transform:uppercase;letter-spacing:.6px;padding:6px 2px;border-bottom:1px solid #313244}
+.section-hdr:not(:first-child){margin-top:8px}
+.card h2{font-size:14px;color:#89b4fa;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #313244;display:flex;align-items:center;gap:8px}
+.card h2 .status-dot{width:8px;height:8px;border-radius:50%;background:#6c7086;flex-shrink:0}
+.card h2 .status-dot.on{background:#a6e3a1}
+.card p{font-size:12px;color:#6c7086;margin-bottom:12px;line-height:1.5}
+.btn{padding:6px 16px;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+.btn-primary{background:#89b4fa;color:#1e1e2e}.btn-primary:hover{background:#74c7ec}
+.btn-success{background:#a6e3a1;color:#1e1e2e}.btn-success:hover{background:#94e2d5}
+.btn-danger{background:#f38ba8;color:#1e1e2e}.btn-danger:hover{background:#eba0ac}
+.btn-warn{background:#fab387;color:#1e1e2e}.btn-warn:hover{background:#f9e2af}
+.btn-sm{padding:4px 12px;font-size:11px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.alert{padding:8px 12px;border-radius:4px;font-size:12px;margin-top:10px;display:none}
+.alert-ok{background:rgba(166,227,161,.15);color:#a6e3a1;border:1px solid rgba(166,227,161,.3)}
+.alert-err{background:rgba(243,139,168,.15);color:#f38ba8;border:1px solid rgba(243,139,168,.3)}
+.alert-warn{background:rgba(250,179,135,.15);color:#fab387;border:1px solid rgba(250,179,135,.3)}
+.alert-info{background:rgba(137,180,250,.15);color:#89b4fa;border:1px solid rgba(137,180,250,.3)}
+.info-grid{display:grid;grid-template-columns:140px 1fr;gap:4px 12px;font-size:12px;margin-top:8px}
+.info-grid .lbl{color:#6c7086}.info-grid .val{color:#cdd6f4;font-weight:600;font-variant-numeric:tabular-nums}
+.tbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.tbl th{text-align:left;padding:6px 8px;color:#89b4fa;border-bottom:1px solid #313244;font-weight:600;background:#181825}
+.tbl td{padding:5px 8px;border-bottom:1px solid rgba(49,50,68,.5)}
+.tbl tr:hover{background:rgba(49,50,68,.3)}
+.confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+.confirm-overlay.show{display:flex}
+.confirm-box{background:#1e1e2e;border:1px solid #313244;border-radius:8px;padding:24px;width:360px;text-align:center}
+.confirm-box h3{color:#f38ba8;font-size:16px;margin-bottom:12px}
+.confirm-box p{font-size:12px;color:#a6adc8;margin-bottom:16px;line-height:1.5}
+.confirm-box .actions{display:flex;gap:8px;justify-content:center}
+.foot{background:#181825;border-top:1px solid #313244;padding:4px 16px;font-size:10px;color:#45475a;flex-shrink:0;display:flex;justify-content:space-between}
+.fld{margin-bottom:8px}
+.fld label{display:block;font-size:11px;color:#a6adc8;margin-bottom:3px}
+.fld input[type=text],.fld input[type=number],.fld select{width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px}
+.fld-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.chk{display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;font-size:12px}
+.subhdr{font-size:12px;color:#89b4fa;font-weight:600;margin:12px 0 6px;padding-top:10px;border-top:1px solid #313244}
+[hidden]{display:none!important}
+@media(max-width:768px){.grid{grid-template-columns:1fr}.topnav{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+
+<!-- Top Navigation -->
+<div class="topnav">
+<span class="brand">HyberFusion PLC</span>
+<a href="/">Monitor</a>
+<a href="/editor">ST Editor</a>
+<a href="/cli">CLI</a>
+<a href="/system">System</a>
+<a href="/io" class="active">I/O</a>
+<a href="/logs">Logs</a>
+<div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogout" onclick="doLogout()">Log ud</div></div></div>
+</div>
+
+<!-- Header -->
+<div class="hdr">
+<h1>I/O Konfiguration</h1>
+<span class="info">Tællere, Timere og GPIO Statisk Mapping (FEAT-171)</span>
+</div>
+
+<!-- Login Modal -->
+<div class="confirm-overlay" id="loginModal">
+<div class="confirm-box" style="text-align:left">
+<h3 style="color:#89b4fa">Login</h3>
+<p>I/O-siden kræver autentificering.</p>
+<div style="margin-bottom:8px"><label style="font-size:12px;color:#a6adc8">Brugernavn</label><br>
+<input type="text" id="authUser" style="width:100%;padding:6px 10px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:13px;margin-top:4px" autocomplete="username"></div>
+<div style="margin-bottom:8px"><label style="font-size:12px;color:#a6adc8">Adgangskode</label><br>
+<input type="password" id="authPass" style="width:100%;padding:6px 10px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:13px;margin-top:4px" autocomplete="current-password"></div>
+<div id="loginErr" style="display:none;color:#f38ba8;font-size:12px;padding:4px 0"></div>
+<div class="actions" style="justify-content:flex-end;margin-top:12px">
+<button class="btn btn-primary" onclick="doLogin()">Forbind</button>
+</div>
+</div>
+</div>
+
+<!-- Confirm Dialog -->
+<div class="confirm-overlay" id="confirmDlg">
+<div class="confirm-box">
+<h3 id="confirmTitle">Bekræft</h3>
+<p id="confirmMsg">Er du sikker?</p>
+<div class="actions">
+<button class="btn btn-primary" onclick="closeConfirm()">Annuller</button>
+<button class="btn btn-danger" id="confirmBtn" onclick="confirmAction()">Bekræft</button>
+</div>
+</div>
+</div>
+
+<!-- Content -->
+<div class="content">
+<div class="grid">
+
+<div class="section-hdr">Tællere (Counters)</div>
+<div id="counterCards"></div>
+
+<div class="section-hdr">Timere (Timers)</div>
+<div id="timerCards"></div>
+
+<div class="section-hdr">GPIO Statisk Mapping</div>
+
+<div class="card">
+<h2>GPIO2 Heartbeat</h2>
+<p>GPIO2 er som udgangspunkt en heartbeat-LED (blinker for at vise enheden lever). Slå til "bruger-tilstand" for i stedet at bruge den som almindelig statisk mapping herunder.</p>
+<label class="chk"><input type="checkbox" id="hbEnabled" onchange="saveHeartbeat()"> Heartbeat-LED aktiveret</label>
+<div class="alert" id="hbAlert"></div>
+</div>
+
+<div class="card" style="grid-column:1/-1">
+<h2>Eksisterende GPIO-mappings</h2>
+<table class="tbl" id="gpioTable">
+<thead><tr><th>Pin</th><th>Retning</th><th>Bundet til</th><th></th></tr></thead>
+<tbody id="gpioBody"><tr><td colspan="4" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
+</table>
+<div class="subhdr">Opret ny mapping</div>
+<div class="fld-row">
+<div class="fld"><label>Pin</label>
+<select id="gpioNewPin">
+<optgroup label="Virtuelle digitale indgange (relæ-board)">
+<option value="101">DI1 (101)</option><option value="102">DI2 (102)</option><option value="103">DI3 (103)</option><option value="104">DI4 (104)</option>
+<option value="105">DI5 (105)</option><option value="106">DI6 (106)</option><option value="107">DI7 (107)</option><option value="108">DI8 (108)</option>
+</optgroup>
+<optgroup label="Virtuelle digitale udgange / relæer">
+<option value="201">DO1 (201)</option><option value="202">DO2 (202)</option><option value="203">DO3 (203)</option><option value="204">DO4 (204)</option>
+<option value="205">DO5 (205)</option><option value="206">DO6 (206)</option><option value="207">DO7 (207)</option><option value="208">DO8 (208)</option>
+</optgroup>
+<optgroup label="Frie fysiske GPIO (ES32D26)">
+<option value="4">GPIO4</option><option value="5">GPIO5 (strapping-pin, undgå hvis muligt)</option>
+<option value="16">GPIO16 (delt med Ethernet hvis monteret)</option><option value="17">GPIO17 (delt med Ethernet hvis monteret)</option>
+<option value="18">GPIO18 (delt med Ethernet hvis monteret)</option><option value="19">GPIO19 (delt med Ethernet hvis monteret)</option>
+</optgroup>
+</select></div>
+<div class="fld"><label>Retning</label>
+<select id="gpioNewDir" onchange="updateGpioNewDirUI()"><option value="input">Input (GPIO → register)</option><option value="output">Output (register → GPIO)</option></select></div>
+</div>
+<div class="fld-row">
+<div class="fld" id="gpioNewRegWrap"><label>Discrete Input-indeks (0-255)</label>
+<input type="number" id="gpioNewReg" min="0" max="255" value="0"></div>
+<div class="fld" id="gpioNewCoilWrap" hidden><label>Coil-indeks (0-255)</label>
+<input type="number" id="gpioNewCoil" min="0" max="255" value="0"></div>
+</div>
+<div class="btn-row"><button class="btn btn-success btn-sm" onclick="createGpioMapping()">Opret mapping</button></div>
+<div class="alert" id="gpioAlert"></div>
+</div>
+
+</div><!-- grid -->
+</div><!-- content -->
+
+<!-- Footer -->
+<div class="foot">
+<span>HyberFusion PLC I/O Konfiguration</span>
+<span id="footVer"></span>
+</div>
+
+<script>
+let AUTH=sessionStorage.getItem('hfplc_auth')||'';
+let pendingConfirmFn=null;
+function $(id){return document.getElementById(id)}
+
+// --- Auth ---
+function doLogin(){
+  const u=$('authUser').value, p=$('authPass').value;
+  if(!u||!p){$('loginErr').style.display='block';$('loginErr').textContent='Udfyld begge felter';return}
+  const basicAuth='Basic '+btoa(u+':'+p);
+  fetch('/api/login',{method:'POST',headers:{'Authorization':basicAuth}}).then(r=>{
+    if(!r.ok)throw new Error('Auth failed');
+    return r.json();
+  }).then(d=>{
+    if(!d.token)throw new Error('No token');
+    AUTH='Bearer '+d.token;
+    sessionStorage.setItem('hfplc_auth',AUTH);
+    $('loginModal').classList.remove('show');
+    loadAll();
+    updateUserBadge();
+  }).catch(()=>{
+    $('loginErr').style.display='block';
+    $('loginErr').textContent='Forkert brugernavn eller adgangskode';
+  });
+}
+$('authPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+if(AUTH){fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){loadAll();updateUserBadge();}else{AUTH='';sessionStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}}).catch(()=>{$('loginModal').classList.add('show');});}
+else{$('loginModal').classList.add('show');}
+
+// --- Confirm Dialog ---
+function askConfirm(title,msg,fn){$('confirmTitle').textContent=title;$('confirmMsg').textContent=msg;pendingConfirmFn=fn;$('confirmDlg').classList.add('show');}
+function closeConfirm(){$('confirmDlg').classList.remove('show');pendingConfirmFn=null}
+function confirmAction(){var fn=pendingConfirmFn;closeConfirm();if(fn)fn()}
+
+// --- Alert helper ---
+function showAlert(id,type,msg){const el=$(id);el.className='alert alert-'+type;el.textContent=msg;el.style.display='block';setTimeout(()=>{el.style.display='none'},8000);}
+
+// BUG-369c-mønster: hårdt loft på samtidige forbindelser.
+let _apiFetchActive=0;
+const _apiFetchQueue=[];
+const API_FETCH_MAX_CONCURRENT=2;
+function _apiFetchPump(){
+  while(_apiFetchActive<API_FETCH_MAX_CONCURRENT && _apiFetchQueue.length>0){
+    const job=_apiFetchQueue.shift();
+    _apiFetchActive++;
+    fetch(job.url,job.opts).then(r=>{_apiFetchActive--;_apiFetchPump();job.resolve(r);})
+      .catch(e=>{_apiFetchActive--;_apiFetchPump();job.reject(e);});
+  }
+}
+function queuedFetch(url,opts){return new Promise((resolve,reject)=>{_apiFetchQueue.push({url,opts,resolve,reject});_apiFetchPump();});}
+function api(url,opts={}){
+  opts.headers=opts.headers||{};
+  opts.headers['Authorization']=AUTH;
+  return queuedFetch(url,opts).then(r=>{if(r.status===401){AUTH='';sessionStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}return r;});
+}
+
+// === User Badge ===
+function toggleUserMenu(){$('userMenu').classList.toggle('show')}
+document.addEventListener('click',function(e){const b=$('userBtn'),m=$('userMenu');if(b&&m&&!b.contains(e.target)&&!m.contains(e.target))m.classList.remove('show')});
+function updateUserBadge(){
+  const auth=sessionStorage.getItem('hfplc_auth');
+  const opts=auth?{headers:{'Authorization':auth}}:{};
+  fetch('/api/user/me',opts).then(r=>r.json()).then(d=>{
+    if(d.authenticated){$('userName').textContent=d.username;$('userDot').className='dot dot-on';$('umUser').textContent=d.username;$('umRoles').textContent=d.roles||'all';$('umPriv').textContent=d.privilege||'rw';$('umMode').textContent=d.mode||'legacy';$('umLogout').style.display='block'}
+    else{$('userName').textContent='Ikke logget ind';$('userDot').className='dot dot-off';$('umLogout').style.display='none'}
+  }).catch(()=>{});
+}
+function doLogout(){if(AUTH){fetch('/api/logout',{method:'POST',headers:{'Authorization':AUTH}}).catch(()=>{})}sessionStorage.removeItem('hfplc_auth');AUTH='';$('userName').textContent='Ikke logget ind';$('userDot').className='dot dot-off';$('userMenu').classList.remove('show');$('loginModal').classList.add('show')}
+
+// ============================================================
+// COUNTERS
+// ============================================================
+const HW_MODES=[['sw','Software (poll discrete input)'],['sw_isr','Software-interrupt (GPIO)'],['hw','Hardware PCNT (GPIO)']];
+const EDGE_TYPES=[['rising','Stigende flanke'],['falling','Faldende flanke'],['both','Begge flanker']];
+
+function counterCardHtml(id){
+  return '<div class="card" style="grid-column:1/-1">'+
+  '<h2><span class="status-dot" id="c'+id+'_dot"></span>Counter '+id+'</h2>'+
+  '<label class="chk"><input type="checkbox" id="c'+id+'_enabled"> Aktiveret</label>'+
+  '<div class="fld-row">'+
+  '<div class="fld"><label>Hardware-tilstand</label><select id="c'+id+'_hwmode" onchange="updateCounterModeUI('+id+')">'+
+  HW_MODES.map(m=>'<option value="'+m[0]+'">'+m[1]+'</option>').join('')+'</select></div>'+
+  '<div class="fld"><label>Flanke</label><select id="c'+id+'_edge">'+EDGE_TYPES.map(m=>'<option value="'+m[0]+'">'+m[1]+'</option>').join('')+'</select></div>'+
+  '</div>'+
+  '<div class="fld cmode" data-counter="'+id+'" data-mode="sw"><label>Discrete Input-indeks (poll)</label><input type="number" id="c'+id+'_pin_sw" min="0" max="255"></div>'+
+  '<div class="fld cmode" data-counter="'+id+'" data-mode="sw_isr"><label>GPIO-pin (interrupt)</label><input type="number" id="c'+id+'_pin_isr" min="0" max="39"></div>'+
+  '<div class="fld cmode" data-counter="'+id+'" data-mode="hw"><label>GPIO-pin (PCNT hardware)</label><input type="number" id="c'+id+'_pin_hw" min="0" max="39"></div>'+
+  '<div class="fld-row">'+
+  '<div class="fld"><label>Prescaler</label><input type="number" id="c'+id+'_prescaler" min="1"></div>'+
+  '<div class="fld"><label>Bit-bredde</label><select id="c'+id+'_bitwidth"><option value="8">8</option><option value="16">16</option><option value="32">32</option><option value="64">64</option></select></div>'+
+  '</div>'+
+  '<div class="fld-row">'+
+  '<div class="fld"><label>Skalafaktor</label><input type="number" id="c'+id+'_scale" step="0.0001"></div>'+
+  '<div class="fld"><label>Retning (visning)</label><select id="c'+id+'_direction"><option value="up">Op</option><option value="down">Ned</option></select></div>'+
+  '</div>'+
+  '<label class="chk"><input type="checkbox" id="c'+id+'_debounce_en" onchange="$(\'c'+id+'_debounce_ms\').disabled=!this.checked"> Debounce</label>'+
+  '<div class="fld"><label>Debounce (ms)</label><input type="number" id="c'+id+'_debounce_ms" min="0"></div>'+
+  '<div class="subhdr">Compare (tærskel-udløser)</div>'+
+  '<label class="chk"><input type="checkbox" id="c'+id+'_cmp_en"> Compare aktiveret</label>'+
+  '<div class="fld-row">'+
+  '<div class="fld"><label>Sammenlign</label><select id="c'+id+'_cmp_mode"><option value="0">&gt;=</option><option value="1">&gt;</option><option value="2">==</option></select></div>'+
+  '<div class="fld"><label>Kilde</label><select id="c'+id+'_cmp_source"><option value="0">Raw</option><option value="1">Prescaled</option><option value="2">Scaled</option></select></div>'+
+  '</div>'+
+  '<div class="fld"><label>Tærskelværdi</label><input type="number" id="c'+id+'_cmp_value" min="0"></div>'+
+  '<label class="chk"><input type="checkbox" id="c'+id+'_reset_on_read"> Nulstil ved læsning</label>'+
+  '<div class="subhdr">Register-mapping (auto-tildelt, read-only)</div>'+
+  '<div class="info-grid">'+
+  '<span class="lbl">Værdi (skaleret)</span><span class="val" id="c'+id+'_reg_value">-</span>'+
+  '<span class="lbl">Raw/prescaled</span><span class="val" id="c'+id+'_reg_raw">-</span>'+
+  '<span class="lbl">Frekvens</span><span class="val" id="c'+id+'_reg_freq">-</span>'+
+  '<span class="lbl">Kontrol</span><span class="val" id="c'+id+'_reg_ctrl">-</span>'+
+  '</div>'+
+  '<div class="subhdr">Live-værdier</div>'+
+  '<div class="info-grid">'+
+  '<span class="lbl">Rå tælling</span><span class="val" id="c'+id+'_live_raw">-</span>'+
+  '<span class="lbl">Skaleret værdi</span><span class="val" id="c'+id+'_live_value">-</span>'+
+  '<span class="lbl">Frekvens (Hz)</span><span class="val" id="c'+id+'_live_freq">-</span>'+
+  '<span class="lbl">Status</span><span class="val" id="c'+id+'_live_status">-</span>'+
+  '</div>'+
+  '<div class="btn-row">'+
+  '<button class="btn btn-success btn-sm" onclick="saveCounter('+id+')">Gem</button>'+
+  '<button class="btn btn-primary btn-sm" onclick="counterAction('+id+',\'start\')">Start</button>'+
+  '<button class="btn btn-warn btn-sm" onclick="counterAction('+id+',\'stop\')">Stop</button>'+
+  '<button class="btn btn-danger btn-sm" onclick="counterAction('+id+',\'reset\')">Reset</button>'+
+  '<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="loadCounter('+id+')">Opdater</button>'+
+  '</div>'+
+  '<div class="alert" id="c'+id+'_alert"></div>'+
+  '</div>';
+}
+
+function updateCounterModeUI(id){
+  const mode=$('c'+id+'_hwmode').value;
+  document.querySelectorAll('.cmode[data-counter="'+id+'"]').forEach(el=>{el.hidden=(el.dataset.mode!==mode);});
+}
+
+function loadCounter(id){
+  api('/api/counters/'+id).then(r=>r.json()).then(d=>{
+    $('c'+id+'_enabled').checked=!!d.enabled;
+    const modeMap={SW:'sw',SW_ISR:'sw_isr',HW_PCNT:'hw',DISABLED:'sw'};
+    $('c'+id+'_hwmode').value=modeMap[d.mode]||'sw';
+    updateCounterModeUI(id);
+    if(d.edge_type!=null)$('c'+id+'_edge').value=['rising','falling','both'][d.edge_type]||'rising';
+    if(d.prescaler!=null)$('c'+id+'_prescaler').value=d.prescaler;
+    if(d.bit_width!=null)$('c'+id+'_bitwidth').value=d.bit_width;
+    if(d.scale_factor!=null)$('c'+id+'_scale').value=d.scale_factor;
+    if(d.direction!=null)$('c'+id+'_direction').value=d.direction===1?'down':'up';
+    $('c'+id+'_debounce_en').checked=!!d.debounce_enabled;
+    $('c'+id+'_debounce_ms').disabled=!d.debounce_enabled;
+    if(d.debounce_ms!=null)$('c'+id+'_debounce_ms').value=d.debounce_ms;
+    if(d.input_dis!=null)$('c'+id+'_pin_sw').value=d.input_dis;
+    if(d.interrupt_pin!=null)$('c'+id+'_pin_isr').value=d.interrupt_pin;
+    if(d.hw_gpio!=null)$('c'+id+'_pin_hw').value=d.hw_gpio;
+    $('c'+id+'_cmp_en').checked=!!d.compare_enabled;
+    if(d.compare_mode!=null)$('c'+id+'_cmp_mode').value=d.compare_mode;
+    if(d.compare_source!=null)$('c'+id+'_cmp_source').value=d.compare_source;
+    if(d.compare_value!=null)$('c'+id+'_cmp_value').value=d.compare_value;
+    $('c'+id+'_reset_on_read').checked=!!d.reset_on_read;
+    $('c'+id+'_reg_value').textContent=d.value_reg!=null?('HR'+d.value_reg):'-';
+    $('c'+id+'_reg_raw').textContent=d.raw_reg!=null?('HR'+d.raw_reg):'-';
+    $('c'+id+'_reg_freq').textContent=d.freq_reg!=null?('HR'+d.freq_reg):'-';
+    $('c'+id+'_reg_ctrl').textContent=d.ctrl_reg!=null?('HR'+d.ctrl_reg):'-';
+    $('c'+id+'_live_raw').textContent=d.raw!=null?d.raw:'-';
+    $('c'+id+'_live_value').textContent=d.value!=null?d.value:'-';
+    $('c'+id+'_live_freq').textContent=d.frequency!=null?d.frequency:'-';
+    const running=!!d.running;
+    $('c'+id+'_dot').className='status-dot'+(running?' on':'');
+    let statusTxt=running?'Kører':'Stoppet';
+    if(d.overflow)statusTxt+=' · Overflow';
+    if(d.compare_triggered)statusTxt+=' · Compare udløst';
+    $('c'+id+'_live_status').textContent=statusTxt;
+  }).catch(()=>showAlert('c'+id+'_alert','err','Kunne ikke hente counter '+id));
+}
+
+function saveCounter(id){
+  const hwmode=$('c'+id+'_hwmode').value;
+  const body={
+    enabled:$('c'+id+'_enabled').checked,
+    hw_mode:hwmode,
+    edge:$('c'+id+'_edge').value,
+    direction:$('c'+id+'_direction').value,
+    prescaler:parseInt($('c'+id+'_prescaler').value)||1,
+    bit_width:parseInt($('c'+id+'_bitwidth').value),
+    scale_factor:parseFloat($('c'+id+'_scale').value)||1,
+    debounce_ms:$('c'+id+'_debounce_en').checked?(parseInt($('c'+id+'_debounce_ms').value)||0):0,
+    compare_enabled:$('c'+id+'_cmp_en').checked,
+    compare_mode:parseInt($('c'+id+'_cmp_mode').value),
+    compare_source:parseInt($('c'+id+'_cmp_source').value),
+    compare_value:parseInt($('c'+id+'_cmp_value').value)||0,
+    reset_on_read:$('c'+id+'_reset_on_read').checked
+  };
+  if(hwmode==='sw')body.input_dis=parseInt($('c'+id+'_pin_sw').value)||0;
+  if(hwmode==='sw_isr')body.interrupt_pin=parseInt($('c'+id+'_pin_isr').value)||0;
+  if(hwmode==='hw')body.hw_gpio=parseInt($('c'+id+'_pin_hw').value)||0;
+  api('/api/counters/'+id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
+    if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+    return r.json();
+  }).then(()=>{showAlert('c'+id+'_alert','ok','Counter '+id+' gemt');loadCounter(id);})
+  .catch(e=>showAlert('c'+id+'_alert','err','Fejl: '+e.message));
+}
+
+function counterAction(id,action){
+  const body=action==='start'?{running:true}:action==='stop'?{running:false}:{reset:true};
+  api('/api/counters/'+id+'/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(()=>{showAlert('c'+id+'_alert','ok','Kommando sendt');setTimeout(()=>loadCounter(id),300);})
+  .catch(e=>showAlert('c'+id+'_alert','err','Fejl: '+e.message));
+}
+
+// ============================================================
+// TIMERS
+// ============================================================
+const TIMER_MODES=[['ONESHOT','Oneshot (3 faser)'],['MONOSTABLE','Monostable (enkelt-puls)'],['ASTABLE','Astable (blink)'],['INPUT_TRIGGERED','Input-triggered']];
+
+function timerCardHtml(id){
+  return '<div class="card" style="grid-column:1/-1">'+
+  '<h2><span class="status-dot" id="t'+id+'_dot"></span>Timer '+id+'</h2>'+
+  '<label class="chk"><input type="checkbox" id="t'+id+'_enabled"> Aktiveret</label>'+
+  '<div class="fld"><label>Mode</label><select id="t'+id+'_mode" onchange="updateTimerModeUI('+id+')">'+
+  TIMER_MODES.map(m=>'<option value="'+m[0]+'">'+m[1]+'</option>').join('')+'</select></div>'+
+
+  '<div class="tmode" data-timer="'+id+'" data-mode="ONESHOT">'+
+  '<div class="fld-row"><div class="fld"><label>Fase 1 varighed (ms)</label><input type="number" id="t'+id+'_p1dur" min="0"></div>'+
+  '<div class="fld"><label>Fase 1 niveau</label><select id="t'+id+'_p1out"><option value="0">Lav</option><option value="1">Høj</option></select></div></div>'+
+  '<div class="fld-row"><div class="fld"><label>Fase 2 varighed (ms)</label><input type="number" id="t'+id+'_p2dur" min="0"></div>'+
+  '<div class="fld"><label>Fase 2 niveau</label><select id="t'+id+'_p2out"><option value="0">Lav</option><option value="1">Høj</option></select></div></div>'+
+  '<div class="fld-row"><div class="fld"><label>Fase 3 varighed (ms)</label><input type="number" id="t'+id+'_p3dur" min="0"></div>'+
+  '<div class="fld"><label>Fase 3 niveau</label><select id="t'+id+'_p3out"><option value="0">Lav</option><option value="1">Høj</option></select></div></div>'+
+  '</div>'+
+
+  '<div class="tmode" data-timer="'+id+'" data-mode="MONOSTABLE">'+
+  '<div class="fld"><label>Pulsvarighed (ms)</label><input type="number" id="t'+id+'_pulsedur" min="0"></div>'+
+  '</div>'+
+
+  '<div class="tmode" data-timer="'+id+'" data-mode="ASTABLE">'+
+  '<div class="fld-row"><div class="fld"><label>ON-varighed (ms)</label><input type="number" id="t'+id+'_ondur" min="0"></div>'+
+  '<div class="fld"><label>OFF-varighed (ms)</label><input type="number" id="t'+id+'_offdur" min="0"></div></div>'+
+  '<div class="fld-row"><div class="fld"><label>ON-niveau</label><select id="t'+id+'_astp1out"><option value="1">Høj</option><option value="0">Lav</option></select></div>'+
+  '<div class="fld"><label>OFF-niveau</label><select id="t'+id+'_astp2out"><option value="0">Lav</option><option value="1">Høj</option></select></div></div>'+
+  '</div>'+
+
+  '<div class="tmode" data-timer="'+id+'" data-mode="INPUT_TRIGGERED">'+
+  '<div class="fld"><label>Coil-indeks (trigger-input, 0-255)</label><input type="number" id="t'+id+'_indis" min="0" max="255"></div>'+
+  '<div class="fld-row"><div class="fld"><label>Forsinkelse (ms)</label><input type="number" id="t'+id+'_delay" min="0"></div>'+
+  '<div class="fld"><label>Triggerkant</label><select id="t'+id+'_trigedge"><option value="1">Stigende</option><option value="0">Faldende</option></select></div></div>'+
+  '<div class="fld"><label>Output-niveau ved trigger</label><select id="t'+id+'_intp1out"><option value="1">Høj</option><option value="0">Lav</option></select></div>'+
+  '</div>'+
+
+  '<div class="fld"><label>Output-coil</label><input type="number" id="t'+id+'_outcoil" min="0" max="65535"></div>'+
+  '<div class="info-grid"><span class="lbl">Kontrolregister</span><span class="val" id="t'+id+'_reg_ctrl">-</span></div>'+
+  '<div class="subhdr">Live-status</div>'+
+  '<div class="info-grid">'+
+  '<span class="lbl">Output</span><span class="val" id="t'+id+'_live_output">-</span>'+
+  '<span class="lbl">Status</span><span class="val" id="t'+id+'_live_status">-</span>'+
+  '</div>'+
+  '<div class="btn-row">'+
+  '<button class="btn btn-success btn-sm" onclick="saveTimer('+id+')">Gem</button>'+
+  '<button class="btn btn-primary btn-sm" onclick="timerAction('+id+',\'start\')">Start</button>'+
+  '<button class="btn btn-warn btn-sm" onclick="timerAction('+id+',\'stop\')">Stop</button>'+
+  '<button class="btn btn-danger btn-sm" onclick="timerAction('+id+',\'reset\')">Reset</button>'+
+  '<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="loadTimer('+id+')">Opdater</button>'+
+  '</div>'+
+  '<div class="alert" id="t'+id+'_alert"></div>'+
+  '</div>';
+}
+
+function updateTimerModeUI(id){
+  const mode=$('t'+id+'_mode').value;
+  document.querySelectorAll('.tmode[data-timer="'+id+'"]').forEach(el=>{el.hidden=(el.dataset.mode!==mode);});
+}
+
+function loadTimer(id){
+  api('/api/timers/'+id).then(r=>r.json()).then(d=>{
+    $('t'+id+'_enabled').checked=!!d.enabled;
+    $('t'+id+'_mode').value=d.mode||'ONESHOT';
+    updateTimerModeUI(id);
+    if(d.phase1_duration_ms!=null)$('t'+id+'_p1dur').value=d.phase1_duration_ms;
+    if(d.phase2_duration_ms!=null)$('t'+id+'_p2dur').value=d.phase2_duration_ms;
+    if(d.phase3_duration_ms!=null)$('t'+id+'_p3dur').value=d.phase3_duration_ms;
+    if(d.pulse_duration_ms!=null)$('t'+id+'_pulsedur').value=d.pulse_duration_ms;
+    if(d.on_duration_ms!=null)$('t'+id+'_ondur').value=d.on_duration_ms;
+    if(d.off_duration_ms!=null)$('t'+id+'_offdur').value=d.off_duration_ms;
+    if(d.input_dis!=null)$('t'+id+'_indis').value=d.input_dis;
+    if(d.delay_ms!=null)$('t'+id+'_delay').value=d.delay_ms;
+    if(d.trigger_edge!=null)$('t'+id+'_trigedge').value=d.trigger_edge?1:0;
+    if(d.output_coil!=null&&d.output_coil!==0xFFFF)$('t'+id+'_outcoil').value=d.output_coil;
+    const p1=d.phase1_output_state?1:0, p2=d.phase2_output_state?1:0, p3=d.phase3_output_state?1:0;
+    if($('t'+id+'_p1out'))$('t'+id+'_p1out').value=p1;
+    if($('t'+id+'_p2out'))$('t'+id+'_p2out').value=p2;
+    if($('t'+id+'_p3out'))$('t'+id+'_p3out').value=p3;
+    if($('t'+id+'_astp1out'))$('t'+id+'_astp1out').value=p1;
+    if($('t'+id+'_astp2out'))$('t'+id+'_astp2out').value=p2;
+    if($('t'+id+'_intp1out'))$('t'+id+'_intp1out').value=p1;
+    $('t'+id+'_reg_ctrl').textContent=d.ctrl_reg!=null?('HR'+d.ctrl_reg):'-';
+    $('t'+id+'_live_output').textContent=d.output!=null?(d.output?'Høj':'Lav'):'-';
+    const running=!!d.running;
+    $('t'+id+'_dot').className='status-dot'+(running?' on':'');
+    $('t'+id+'_live_status').textContent=running?('Kører (fase '+(d.current_phase!=null?d.current_phase:'-')+')'):'Stoppet';
+  }).catch(()=>showAlert('t'+id+'_alert','err','Kunne ikke hente timer '+id));
+}
+
+function saveTimer(id){
+  const mode=$('t'+id+'_mode').value;
+  const body={enabled:$('t'+id+'_enabled').checked,mode:mode};
+  const coilVal=$('t'+id+'_outcoil').value;
+  if(coilVal!=='')body.output_coil=parseInt(coilVal);
+  if(mode==='ONESHOT'){
+    body.phase1_duration_ms=parseInt($('t'+id+'_p1dur').value)||0;
+    body.phase2_duration_ms=parseInt($('t'+id+'_p2dur').value)||0;
+    body.phase3_duration_ms=parseInt($('t'+id+'_p3dur').value)||0;
+    body.phase1_output_state=$('t'+id+'_p1out').value==='1';
+    body.phase2_output_state=$('t'+id+'_p2out').value==='1';
+    body.phase3_output_state=$('t'+id+'_p3out').value==='1';
+  }else if(mode==='MONOSTABLE'){
+    body.pulse_duration_ms=parseInt($('t'+id+'_pulsedur').value)||0;
+  }else if(mode==='ASTABLE'){
+    body.on_duration_ms=parseInt($('t'+id+'_ondur').value)||0;
+    body.off_duration_ms=parseInt($('t'+id+'_offdur').value)||0;
+    body.phase1_output_state=$('t'+id+'_astp1out').value==='1';
+    body.phase2_output_state=$('t'+id+'_astp2out').value==='1';
+  }else if(mode==='INPUT_TRIGGERED'){
+    body.input_dis=parseInt($('t'+id+'_indis').value)||0;
+    body.delay_ms=parseInt($('t'+id+'_delay').value)||0;
+    body.trigger_edge=$('t'+id+'_trigedge').value==='1';
+    body.phase1_output_state=$('t'+id+'_intp1out').value==='1';
+  }
+  api('/api/timers/'+id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
+    if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+    return r.json();
+  }).then(()=>{showAlert('t'+id+'_alert','ok','Timer '+id+' gemt');loadTimer(id);})
+  .catch(e=>showAlert('t'+id+'_alert','err','Fejl: '+e.message));
+}
+
+function timerAction(id,action){
+  const body=action==='start'?{running:true}:action==='stop'?{running:false}:{reset:true};
+  api('/api/timers/'+id+'/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(()=>{showAlert('t'+id+'_alert','ok','Kommando sendt');setTimeout(()=>loadTimer(id),300);})
+  .catch(e=>showAlert('t'+id+'_alert','err','Fejl: '+e.message));
+}
+
+// ============================================================
+// GPIO STATISK MAPPING
+// ============================================================
+function pinLabel(pin){
+  if(pin>=101&&pin<=108)return 'DI'+(pin-100)+' ('+pin+')';
+  if(pin>=201&&pin<=208)return 'DO'+(pin-200)+' ('+pin+')';
+  return 'GPIO'+pin;
+}
+function updateGpioNewDirUI(){
+  const isInput=$('gpioNewDir').value==='input';
+  $('gpioNewRegWrap').hidden=!isInput;
+  $('gpioNewCoilWrap').hidden=isInput;
+}
+function loadGpioMappings(){
+  api('/api/gpio').then(r=>r.json()).then(d=>{
+    const rows=Array.isArray(d.gpios)?d.gpios:[];
+    if(rows.length===0){
+      $('gpioBody').innerHTML='<tr><td colspan="4" style="color:#6c7086;text-align:center">Ingen GPIO-mappings konfigureret</td></tr>';
+      return;
+    }
+    $('gpioBody').innerHTML=rows.map(r=>{
+      const bound=(r.direction==='input')?('DI '+r.register):(r.coil!=null?('Coil '+r.coil):'-');
+      return '<tr><td>'+pinLabel(r.pin)+'</td><td>'+(r.direction||'-')+'</td><td>'+bound+'</td>'+
+        '<td><button class="btn btn-sm btn-danger" onclick="deleteGpioMapping('+r.pin+')">Slet</button></td></tr>';
+    }).join('');
+  }).catch(()=>{$('gpioBody').innerHTML='<tr><td colspan="4" style="color:#6c7086;text-align:center">Kunne ikke hente GPIO-mappings</td></tr>';});
+}
+function createGpioMapping(){
+  const pin=parseInt($('gpioNewPin').value);
+  const dir=$('gpioNewDir').value;
+  const body={direction:dir};
+  if(dir==='input')body.register=parseInt($('gpioNewReg').value)||0;
+  else body.coil=parseInt($('gpioNewCoil').value)||0;
+  api('/api/gpio/'+pin+'/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
+    if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+    return r.json();
+  }).then(()=>{showAlert('gpioAlert','ok','GPIO-mapping oprettet');loadGpioMappings();})
+  .catch(e=>showAlert('gpioAlert','err','Fejl: '+e.message));
+}
+function deleteGpioMapping(pin){
+  askConfirm('Slet GPIO-mapping','Slet mappingen for pin '+pinLabel(pin)+'?',()=>{
+    api('/api/gpio/'+pin,{method:'DELETE'}).then(r=>{
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      return r.json();
+    }).then(()=>{showAlert('gpioAlert','ok','Mapping slettet');loadGpioMappings();})
+    .catch(e=>showAlert('gpioAlert','err','Fejl: '+e.message));
+  });
+}
+function loadHeartbeat(){
+  api('/api/gpio/2/heartbeat').then(r=>r.json()).then(d=>{
+    $('hbEnabled').checked=!d.gpio2_user_mode;
+  }).catch(()=>{});
+}
+function saveHeartbeat(){
+  const enabled=$('hbEnabled').checked;
+  api('/api/gpio/2/heartbeat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:enabled})}).then(r=>{
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(()=>showAlert('hbAlert','ok','GPIO2-tilstand opdateret'))
+  .catch(e=>{loadHeartbeat();showAlert('hbAlert','err','Fejl: '+e.message);});
+}
+
+// ============================================================
+// BOOTSTRAP
+// ============================================================
+function buildCards(){
+  let ch='',th='';
+  for(let i=1;i<=4;i++){ch+=counterCardHtml(i);th+=timerCardHtml(i);}
+  $('counterCards').innerHTML=ch;
+  $('timerCards').innerHTML=th;
+  $('counterCards').style.display='contents';
+  $('timerCards').style.display='contents';
+  for(let i=1;i<=4;i++){updateCounterModeUI(i);updateTimerModeUI(i);}
+  updateGpioNewDirUI();
+}
+function loadAll(){
+  buildCards();
+  for(let i=1;i<=4;i++){loadCounter(i);loadTimer(i);}
+  loadGpioMappings();
+  loadHeartbeat();
+  api('/api/version').then(r=>r.json()).then(d=>{$('footVer').textContent='v'+(d.firmware_version||'-');}).catch(()=>{});
+}
+</script>
+</body>
+</html>

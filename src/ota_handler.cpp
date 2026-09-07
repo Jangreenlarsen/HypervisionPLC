@@ -503,6 +503,20 @@ static struct {
 // ressourceforbrug per fejlslagent forsoeg, i stedet for at laase HELE
 // grebslebrugerfladen.
 
+// MIDLERTIDIG DIAGNOSTIK (fjernes igen naar krasset er fundet): enheden har
+// ingen serial-konsol tilgaengelig lige nu til at faa et rigtigt backtrace
+// naar github-check panic'er (ESP_RST_PANIC, reproduceret 2x via ren API-kald
+// uden GUI involveret). RTC_NOINIT_ATTR-hukommelse overlever en panic-reboot
+// (ryddes KUN ved power-on-reset), saa vi kan laegge et "sidst naaede trin"-
+// breadcrumb ind lige foer hvert risikofyldt undertrin og laese det tilbage
+// EFTER genstarten via /api/system/ota/github-debug for at indsnaevre præcis
+// hvor det dør, uden fysisk adgang til enheden.
+RTC_NOINIT_ATTR static uint32_t g_gh_debug_stage;
+RTC_NOINIT_ATTR static uint32_t g_gh_debug_magic;
+RTC_NOINIT_ATTR static int32_t  g_gh_debug_http_code;
+#define GH_DEBUG_MAGIC 0x67684442u  // "ghDB"
+#define GH_STAGE(n) do { g_gh_debug_magic = GH_DEBUG_MAGIC; g_gh_debug_stage = (n); } while (0)
+
 static SemaphoreHandle_t g_github_check_sem = NULL;
 
 struct GithubCheckResult {
@@ -533,10 +547,12 @@ static GithubCheckResult g_github_check_result;
 // FreeRTOS-task-entry) kalder vTaskDelete().
 static void github_check_do_work(void)
 {
+  GH_STAGE(1);  // funktion startet
   GithubCheckResult *res = &g_github_check_result;
   memset(res, 0, sizeof(*res));
 
   const char *ca = get_github_ca_bundle();
+  GH_STAGE(2);  // CA-bundle hentet/kopieret
   if (!ca) {
     snprintf(res->err, sizeof(res->err), "CA bundle unavailable");
     return;
@@ -545,7 +561,9 @@ static void github_check_do_work(void)
   ESP_LOGI(TAG, "GitHub check (baggrundstask): starter HTTPS GET mod api.github.com, fri heap=%u", (unsigned)ESP.getFreeHeap());
 
   WiFiClientSecure client;
+  GH_STAGE(3);  // WiFiClientSecure konstrueret
   client.setCACert(ca);
+  GH_STAGE(4);  // setCACert() returneret (PEM parset)
   HTTPClient http;
   http.setConnectTimeout(6000);
   http.setTimeout(6000);
@@ -555,27 +573,35 @@ static void github_check_do_work(void)
     snprintf(res->err, sizeof(res->err), "Could not begin HTTPS request");
     return;
   }
+  GH_STAGE(5);  // http.begin() returneret
   // GitHub's API afviser requests uden en User-Agent header
   http.addHeader("User-Agent", "HyberFusion-PLC-OTA");
   http.addHeader("Accept", "application/vnd.github+json");
 
   ESP_LOGI(TAG, "GitHub check: kalder http.GET()...");
+  GH_STAGE(6);  // lige foer selve TLS-handshake+GET (mistænkt hovedkandidat)
   int httpCode = http.GET();
+  GH_STAGE(7);  // http.GET() returneret (TLS-handshake overlevet)
   res->http_code = httpCode;
+  g_gh_debug_http_code = httpCode;
   ESP_LOGI(TAG, "GitHub check: http.GET() returnerede %d, fri heap=%u", httpCode, (unsigned)ESP.getFreeHeap());
   if (httpCode != 200) {
     http.end();
+    GH_STAGE(8);  // http.end() efter fejl-statuskode
     return;
   }
 
   JsonDocument doc;
+  GH_STAGE(9);  // lige foer JSON-parsing (anden mistænkt kandidat)
   DeserializationError jerr = deserializeJson(doc, http.getStream());
+  GH_STAGE(10);  // JSON-parsing returneret
   http.end();
   ESP_LOGI(TAG, "GitHub check: JSON parse %s, fri heap=%u", jerr ? "FEJLEDE" : "OK", (unsigned)ESP.getFreeHeap());
   if (jerr) {
     snprintf(res->err, sizeof(res->err), "Invalid JSON from GitHub");
     return;
   }
+  GH_STAGE(11);  // JSON parset OK, gaar videre til felt-udtraekning
 
   const char *tag = doc["tag_name"] | "";
   const char *published = doc["published_at"] | "";
@@ -596,15 +622,67 @@ static void github_check_do_work(void)
   res->json_ok = true;
 }
 
+// Brugeren rapporterede at enheden crasher (ESP_RST_PANIC) ved "Tjek for
+// opdatering" — reproduceret direkte via API (curl mod
+// /api/system/ota/github-check), altsaa IKKE et GUI-specifikt/samtidigheds-
+// problem (heap var 114KB fri, langt over BUG-366's 48KB-graense, saa det er
+// ikke samme klasse fejl som BUG-366/369). Ingen serial-konsol tilgaengelig
+// til at faa et praecist backtrace. Stakken var 16384 byte — samme
+// stoerrelsesorden som BUG-364 allerede viste er UTILSTRAEKKELIG for BLOT et
+// TLS-haandtryk alene (https_wrapper.c bruger 10240 til det ENE formaal);
+// denne task har OGSAA en fuld HTTPClient+JsonDocument-parsing oveni samme
+// stak. Doblet til 32768 som den mest sandsynlige, evidensbaserede fix —
+// samme "bump med reel margin"-princip som BUG-364/FEAT-010s HIGH-task-
+// stack-fix (RAM har rigelig plads, 251KB+ fri).
+// BUG-377: efter at have udelukket stack-stoerrelse, heap, core-affinitet/
+// prioritet OG socket-headroom som aarsag (alle testet live, krascher
+// identisk hver gang) staar tilbage: krasjet sker KONSEKVENT eengang EFTER
+// vores egen kode er 100% faerdig (RTC-breadcrumbs viser konsekvent det
+// allersidste trin naaet, en triviel `return`), mens klienten kun modtager
+// HTTP-headerne, aldrig selve JSON-kroppen. Faelles for alle test-forsoeg:
+// httpd-HANDLEREN holdt forbindelsen AABEN OG BLOKERET i flere sekunder
+// (semaphore-ventetid paa baggrundstasken) foer den overhovedet begyndte at
+// sende noget svar. I stedet for at blive ved med at gaette paa PRAeCIS
+// hvilken ESP-IDF/lwIP-intern mekanisme der reagerer daarligt paa dette,
+// fjernes selve moensteret: handleren blokerer nu ALDRIG paa forbindelsen.
+// `POST` starter tjekket og svarer STRAKS ("started"), imens klienten
+// POLLER resultatet via `GET` paa samme URI — nøjagtig samme
+// start+poll-moenster som allerede bruges for firmware-download/-flash
+// (ota_state + GET .../ota/status). Semaphoren beholdes (harmløs) i
+// tilfaelde af fremtidig brug, men INGEN handler venter laengere paa den.
+enum { GH_CHECK_IDLE = 0, GH_CHECK_RUNNING = 1, GH_CHECK_DONE = 2 };
+static volatile int g_gh_check_state = GH_CHECK_IDLE;
+
 static void github_check_worker(void *pv)
 {
   (void)pv;
   github_check_do_work();  // alle lokale C++-objekter (client/http/doc) destrueres normalt her
+  GH_STAGE(12);  // do_work() returneret til worker-tasken
+  g_gh_check_state = GH_CHECK_DONE;
   xSemaphoreGive(g_github_check_sem);
+  GH_STAGE(13);  // semaphore givet, lige foer vTaskDelete
   vTaskDelete(NULL);
 }
 
-esp_err_t api_handler_ota_github_check(httpd_req_t *req)
+// MIDLERTIDIG DIAGNOSTIK — se kommentar ved GH_STAGE-makroen ovenfor. Læses
+// EFTER en evt. panic-genstart for at se hvilket trin github-check naaede.
+esp_err_t api_handler_ota_github_debug(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_OTA(req);
+  char buf[160];
+  if (g_gh_debug_magic == GH_DEBUG_MAGIC) {
+    snprintf(buf, sizeof(buf), "{\"valid\":true,\"last_stage\":%u,\"last_http_code\":%d}",
+             (unsigned)g_gh_debug_stage, (int)g_gh_debug_http_code);
+  } else {
+    snprintf(buf, sizeof(buf), "{\"valid\":false,\"note\":\"Ingen breadcrumb siden sidste power-on-reset\"}");
+  }
+  return api_send_json(req, buf);
+}
+
+// POST /api/system/ota/github-check — starter tjekket, svarer STRAKS uden
+// at vente paa noget. Resultatet hentes efterfoelgende via GET (poll).
+esp_err_t api_handler_ota_github_check_start(httpd_req_t *req)
 {
   http_server_stat_request();
   CHECK_AUTH_OTA(req);
@@ -612,13 +690,8 @@ esp_err_t api_handler_ota_github_check(httpd_req_t *req)
   if (ota_state.in_progress) {
     return api_send_error(req, 409, "OTA already in progress");
   }
-
-  // BUG-366: fejl hurtigt og TYDELIGT hvis der slet ikke er en netvaerksrute
-  // ud — reducerer chancen for at havne i BUG-367s DNS-hang-scenarie, men
-  // erstatter IKKE baggrundstask-loesningen nedenfor (link kan vaere oppe men
-  // DNS-serveren stadig uopnaaelig).
-  if (!wifi_driver_is_connected() && !ethernet_driver_is_connected()) {
-    return api_send_error(req, 502, "Ingen WiFi/Ethernet-forbindelse - kan ikke naa GitHub");
+  if (g_gh_check_state == GH_CHECK_RUNNING) {
+    return api_send_error(req, 409, "GitHub-check allerede i gang");
   }
 
   // BUG-366: undgaa et TLS-haandtryk der risikerer at crashe enheden hvis
@@ -632,28 +705,45 @@ esp_err_t api_handler_ota_github_check(httpd_req_t *req)
   }
   xSemaphoreTake(g_github_check_sem, 0);  // dræn evt. gammelt signal fra et timeout'et forsøg
 
-  BaseType_t created = xTaskCreatePinnedToCore(github_check_worker, "gh_check", 16384, NULL, 5, NULL, 0);
+  g_gh_check_state = GH_CHECK_RUNNING;
+  BaseType_t created = xTaskCreatePinnedToCore(github_check_worker, "gh_check", 32768, NULL, 1, NULL, tskNO_AFFINITY);
   if (created != pdPASS) {
+    g_gh_check_state = GH_CHECK_IDLE;
     return api_send_error(req, 500, "Kunne ikke starte GitHub-check baggrundstask");
   }
 
-  // BUG-367: HAARD oevre graense — timer denne ud, returnerer handleren
-  // (og dermed httpd-tasken) STRAKS, uanset om baggrundstasken stadig
-  // haenger (fx i DNS). Se kommentarblok ovenfor for hvorfor dette er
-  // noedvendigt.
-  if (xSemaphoreTake(g_github_check_sem, pdMS_TO_TICKS(20000)) != pdTRUE) {
-    ESP_LOGE(TAG, "GitHub check: TIMEOUT efter 20s - baggrundstask haenger formentlig i DNS-opslag/forbindelse");
-    return api_send_error(req, 504, "GitHub-tjek tog for lang tid (muligt DNS/netvaerksproblem) - proev igen");
+  return api_send_json(req, "{\"status\":\"started\"}");
+}
+
+// GET /api/system/ota/github-check — poller resultatet af det tjek der blev
+// startet via POST ovenfor. Ingen blokerende ventetid overhovedet — svarer
+// altid straks med den aktuelle tilstand.
+esp_err_t api_handler_ota_github_check_poll(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_OTA(req);
+
+  if (g_gh_check_state == GH_CHECK_IDLE) {
+    return api_send_json(req, "{\"state\":\"idle\"}");
+  }
+  if (g_gh_check_state == GH_CHECK_RUNNING) {
+    return api_send_json(req, "{\"state\":\"running\"}");
   }
 
+  GH_STAGE(14);  // klient har afhentet et FAERDIGT resultat (poll-vejen)
   GithubCheckResult *res = &g_github_check_result;
+  g_gh_check_state = GH_CHECK_IDLE;  // resultatet er nu "afhentet" — naeste POST starter et helt nyt tjek
   if (res->err[0]) {
     return api_send_error(req, 502, res->err);
   }
+  GH_STAGE(15);  // intet hard err, tjekker http_code
   if (res->http_code != 200) {
     char msg[96];
     snprintf(msg, sizeof(msg), "GitHub API returned HTTP %d", res->http_code);
-    return api_send_error(req, 502, msg);
+    GH_STAGE(16);  // msg bygget, lige foer api_send_error() for non-200
+    esp_err_t r = api_send_error(req, 502, msg);
+    GH_STAGE(17);  // api_send_error() returneret normalt
+    return r;
   }
   if (!res->tag[0]) {
     return api_send_error(req, 502, "No releases found (repo has no published releases yet)");
@@ -671,6 +761,7 @@ esp_err_t api_handler_ota_github_check(httpd_req_t *req)
   }
 
   JsonDocument resp;
+  resp["state"] = "done";
   resp["available"] = newer;
   resp["current_version"] = PROJECT_VERSION;
   resp["latest_version"] = res->tag;
@@ -932,7 +1023,16 @@ esp_err_t api_handler_ota_github_install(httpd_req_t *req)
   }
   xSemaphoreTake(g_github_install_sem, 0);  // dræn evt. gammelt signal
 
-  BaseType_t created = xTaskCreatePinnedToCore(github_install_worker, "gh_install", 16384, NULL, 5, NULL, 0);
+  // BUG-377: samme aendring som github-check — handleren blokerer IKKE
+  // laengere paa forbindelsen imens baggrundstasken downloader+flasher
+  // (tidligere op til 90s!). Svarer STRAKS "started"; fremdrift/resultat
+  // afhentes udelukkende via den ALLEREDE eksisterende
+  // `GET /api/system/ota/status` (ota_state — samme felter som manuel
+  // .bin-upload allerede rapporterer progress igennem, ingen ny endpoint
+  // noedvendig). Ved succes reboot'er enheden selv (github_install_worker
+  // starter ota_reboot_task); klienten ser det ved at status skifter til
+  // OTA_STATE_DONE og/eller forbindelsen til sidst dropper ved reboot.
+  BaseType_t created = xTaskCreatePinnedToCore(github_install_worker, "gh_install", 32768, NULL, 1, NULL, tskNO_AFFINITY);
   if (created != pdPASS) {
     ota_state.state = OTA_STATE_ERROR;
     ota_state.in_progress = 0;
@@ -940,30 +1040,5 @@ esp_err_t api_handler_ota_github_install(httpd_req_t *req)
     return api_send_error(req, 500, ota_state.error_msg);
   }
 
-  // BUG-367: HAARD oevre graense (90s — rundhaandet ift. en typisk
-  // firmware-stoerrelse over enhver fungerende forbindelse). Timer den ud,
-  // fortsaetter baggrundstasken (begraenset yderligere af dens egen
-  // interne 30s-stalde-detektor i download-loopet ovenfor) — og BLOKERER
-  // IKKE web-serveren mens den goer det, i modsaetning til foer.
-  ESP_LOGI(TAG, "GitHub install: baggrundstask startet, venter (maks 90s)...");
-  if (xSemaphoreTake(g_github_install_sem, pdMS_TO_TICKS(90000)) != pdTRUE) {
-    ESP_LOGE(TAG, "GitHub install: intet svar efter 90s - fortsaetter i baggrunden (se /api/system/ota/status)");
-    return api_send_error(req, 504,
-      "Intet svar efter 90s (langsom forbindelse/DNS?) - installationen forsoeger stadig i baggrunden, enheden genstarter selv hvis den lykkes");
-  }
-
-  if (ota_state.state == OTA_STATE_ERROR) {
-    return api_send_error(req, 500, ota_state.error_msg);
-  }
-
-  char resp[256];
-  int len = snprintf(resp, sizeof(resp),
-    "{\"status\":\"ok\",\"message\":\"GitHub OTA complete, rebooting...\","
-    "\"bytes\":%lu,\"new_version\":\"%s\",\"reboot_in_ms\":%d}",
-    (unsigned long)ota_state.received,
-    ota_state.new_version[0] ? ota_state.new_version : "unknown",
-    OTA_REBOOT_DELAY_MS);
-  httpd_resp_set_type(req, "application/json");
-  httpd_resp_send(req, resp, len);
-  return ESP_OK;
+  return api_send_json(req, "{\"status\":\"started\"}");
 }

@@ -403,11 +403,32 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
   httpd_resp_set_hdr(req, "Connection", "keep-alive");
   httpd_resp_set_hdr(req, "Keep-Alive", "timeout=15, max=100");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-  httpd_resp_set_status(req, status == 404 ? "404 Not Found" :
-                             status == 400 ? "400 Bad Request" :
-                             status == 401 ? "401 Unauthorized" :
-                             status == 403 ? "403 Forbidden" :
-                             status == 500 ? "500 Internal Server Error" : "400 Bad Request");
+  // BUG-376: denne mapning daekkede kun 400/401/403/404/500 — enhver anden
+  // kode (409, 429, 502, 503, 504, som bruges bredt i api_handlers.cpp/
+  // ota_handler.cpp) faldt igennem til "400 Bad Request" paa selve
+  // status-linjen, selvom JSON-brødteksten (bygget separat ovenfor via
+  // `status`-parameteren) korrekt viste den TILTAENKTE kode. Klienten saa
+  // dermed altid HTTP 400 paa ledningen for disse, uanset hvad JSON'en sagde.
+  // static: httpd_resp_set_status() gemmer kun POINTEREN (kopierer ikke
+  // strengen) og forventer den er gyldig frem til selve send-kaldet
+  // (httpd_resp_sendstr() nedenfor) — en stack-lokal buffer ville risikere at
+  // pege paa ugyldig hukommelse paa det tidspunkt. `static` er sikkert her
+  // fordi denne httpd-instans koerer som ÉN enkelt-traadet worker-task
+  // (jf. BUG-367s analyse) — ingen samtidig genindtraeden er mulig.
+  static char status_line[40];
+  const char *status_text =
+    status == 400 ? "Bad Request" :
+    status == 401 ? "Unauthorized" :
+    status == 403 ? "Forbidden" :
+    status == 404 ? "Not Found" :
+    status == 409 ? "Conflict" :
+    status == 429 ? "Too Many Requests" :
+    status == 500 ? "Internal Server Error" :
+    status == 502 ? "Bad Gateway" :
+    status == 503 ? "Service Unavailable" :
+    status == 504 ? "Gateway Timeout" : "Error";
+  snprintf(status_line, sizeof(status_line), "%d %s", status, status_text);
+  httpd_resp_set_status(req, status_line);
 
   // For 401/403, capture client IP and username BEFORE sending response (socket may close after send)
   char fail_ip[16] = {0};
@@ -617,6 +638,7 @@ static const api_route_info_t API_ROUTES[] = {
   {"GET",    "/api/timers",                        "All timers"},
   {"GET",    "/api/timers/{1-4}",                    "Single timer"},
   {"POST",   "/api/timers/{1-4}",                    "Configure timer"},
+  {"POST",   "/api/timers/{1-4}/control",             "Timer control"},
   {"DELETE", "/api/timers/{1-4}",                    "Delete timer"},
   {"GET",    "/api/registers/hr/{addr}",            "Read HR"},
   {"POST",   "/api/registers/hr/{addr}",            "Write HR"},
@@ -998,6 +1020,30 @@ esp_err_t api_handler_counter_single(httpd_req_t *req)
   }
   doc["mode"] = mode_str;
 
+  // FEAT-171: denne handler returnerede hidtil KUN status/live-værdier
+  // (id/enabled/mode/value/raw/frequency/running/overflow/compare_triggered)
+  // — ingen af de faktiske konfigurationsfelter, saa en GUI kunne aldrig
+  // indlaese/vise den gemte konfiguration (kun skrive den blindt via POST).
+  doc["edge_type"] = cfg.edge_type;
+  doc["direction"] = cfg.direction;
+  doc["prescaler"] = cfg.prescaler;
+  doc["bit_width"] = cfg.bit_width;
+  doc["scale_factor"] = cfg.scale_factor;
+  doc["debounce_enabled"] = cfg.debounce_enabled ? true : false;
+  doc["debounce_ms"] = cfg.debounce_ms;
+  doc["input_dis"] = cfg.input_dis;
+  doc["interrupt_pin"] = cfg.interrupt_pin;
+  doc["hw_gpio"] = cfg.hw_gpio;
+  doc["compare_enabled"] = cfg.compare_enabled ? true : false;
+  doc["compare_mode"] = cfg.compare_mode;
+  doc["compare_value"] = cfg.compare_value;
+  doc["compare_source"] = cfg.compare_source;
+  doc["reset_on_read"] = cfg.reset_on_read ? true : false;
+  if (cfg.value_reg != 0xFFFF) doc["value_reg"] = cfg.value_reg;
+  if (cfg.raw_reg != 0xFFFF) doc["raw_reg"] = cfg.raw_reg;
+  if (cfg.freq_reg != 0xFFFF) doc["freq_reg"] = cfg.freq_reg;
+  if (cfg.ctrl_reg != 0xFFFF) doc["ctrl_reg"] = cfg.ctrl_reg;
+
   uint64_t value = counter_engine_get_value(id);
   doc["value"] = value;
 
@@ -1016,7 +1062,11 @@ esp_err_t api_handler_counter_single(httpd_req_t *req)
   // Control register flags
   if (cfg.ctrl_reg != 0xFFFF) {
     uint16_t ctrl = registers_get_holding_register(cfg.ctrl_reg);
-    doc["running"] = (ctrl & 0x04) ? true : false;
+    // FEAT-171: bit2 (0x04) er STOP-KOMMANDOEN (transient, selv-clearer
+    // samme loop-tick, jf. counter_engine.cpp:310-326) — læste derfor
+    // praktisk talt altid false uanset reel tilstand. Den persistente
+    // running-status står i bit7 (0x80, counter_engine.cpp:328-365).
+    doc["running"] = (ctrl & 0x80) ? true : false;
     doc["overflow"] = (ctrl & 0x08) ? true : false;
     doc["compare_triggered"] = (ctrl & 0x10) ? true : false;
   }
@@ -1108,13 +1158,19 @@ esp_err_t api_handler_timer_single(httpd_req_t *req)
     doc["output_coil"] = cfg.output_coil;
     doc["output"] = registers_get_coil(cfg.output_coil) ? true : false;
   }
+  if (cfg.ctrl_reg != 0xFFFF) doc["ctrl_reg"] = cfg.ctrl_reg;
 
   // Mode-specific parameters
+  // FEAT-171: phase*_output_state og trigger_edge manglede her — GUI'en kan
+  // ikke indlæse eksisterende polaritet/triggerkant-konfiguration uden dem.
   switch (cfg.mode) {
     case TIMER_MODE_1_ONESHOT:
       doc["phase1_duration_ms"] = cfg.phase1_duration_ms;
       doc["phase2_duration_ms"] = cfg.phase2_duration_ms;
       doc["phase3_duration_ms"] = cfg.phase3_duration_ms;
+      doc["phase1_output_state"] = cfg.phase1_output_state ? true : false;
+      doc["phase2_output_state"] = cfg.phase2_output_state ? true : false;
+      doc["phase3_output_state"] = cfg.phase3_output_state ? true : false;
       break;
     case TIMER_MODE_2_MONOSTABLE:
       doc["pulse_duration_ms"] = cfg.pulse_duration_ms;
@@ -1122,13 +1178,26 @@ esp_err_t api_handler_timer_single(httpd_req_t *req)
     case TIMER_MODE_3_ASTABLE:
       doc["on_duration_ms"] = cfg.on_duration_ms;
       doc["off_duration_ms"] = cfg.off_duration_ms;
+      doc["phase1_output_state"] = cfg.phase1_output_state ? true : false;
+      doc["phase2_output_state"] = cfg.phase2_output_state ? true : false;
       break;
     case TIMER_MODE_4_INPUT_TRIGGERED:
       doc["input_dis"] = cfg.input_dis;
       doc["delay_ms"] = cfg.delay_ms;
+      doc["trigger_edge"] = cfg.trigger_edge ? true : false;
+      doc["phase1_output_state"] = cfg.phase1_output_state ? true : false;
       break;
     default:
       break;
+  }
+
+  // FEAT-171: runtime-tilstand (is_active/current_phase) fandtes hidtil kun
+  // via Prometheus-metrics, ikke via denne JSON-GET — noedvendig for et
+  // "koerer nu"-statusfelt i GUI'en.
+  uint8_t rt_phase = 0, rt_active = 0;
+  if (timer_engine_get_runtime(id, &rt_phase, &rt_active)) {
+    doc["running"] = rt_active ? true : false;
+    doc["current_phase"] = rt_phase;
   }
 
   char buf[HTTP_JSON_DOC_SIZE];
@@ -3781,6 +3850,14 @@ static esp_err_t api_handler_counter_config_post(httpd_req_t *req)
   if (doc.containsKey("compare_enabled")) cfg.compare_enabled = doc["compare_enabled"].as<bool>() ? 1 : 0;
   if (doc.containsKey("compare_value")) cfg.compare_value = doc["compare_value"].as<uint64_t>();
   if (doc.containsKey("compare_mode")) cfg.compare_mode = doc["compare_mode"].as<uint8_t>();
+  // FEAT-171: fandtes i struct+motor men manglede i denne handler — kun
+  // tilgængelige via fuld backup/restore før. compare_source klampes til de
+  // 3 gyldige værdier (0=raw,1=prescaled,2=scaled) for at matche sanitize().
+  if (doc.containsKey("compare_source")) {
+    uint8_t cs = doc["compare_source"].as<uint8_t>();
+    cfg.compare_source = (cs > 2) ? 1 : cs;
+  }
+  if (doc.containsKey("reset_on_read")) cfg.reset_on_read = doc["reset_on_read"].as<bool>() ? 1 : 0;
 
   // Apply
   counter_config_set(id, &cfg);
@@ -3831,12 +3908,21 @@ static esp_err_t api_handler_counter_control_post(httpd_req_t *req)
 
   uint16_t ctrl_val = registers_get_holding_register(cfg.ctrl_reg);
 
+  // FEAT-171: dette skrev hidtil kun de TRANSIENTE bit1(start)/bit2(stop)-
+  // kommandobits — de faar counteren til rent faktisk at starte/stoppe (jf.
+  // counter_engine_handle_control()), men rører ALDRIG bit7, som er den
+  // ENESTE bit motoren bruger som vedvarende running-status (og som GET
+  // /api/counters/{id}'s "running"-felt læser, jf. BUG-376-rettelsen
+  // ovenfor). Resultat: et REST-startet counter viste for evigt
+  // running:false. Sæt/ryd nu bit7 direkte — motoren tjekker den hver
+  // loop-tick og starter/stopper selv (counter_engine.cpp:328-365),
+  // samme bit som CLI'ens `set counter <id> control running:on` allerede
+  // bruger, saa GET-status nu bliver korrekt uanset hvilken vej der brugtes.
   if (doc.containsKey("running")) {
     if (doc["running"].as<bool>()) {
-      ctrl_val |= 0x0002;  // Start bit
+      ctrl_val |= 0x0080;
     } else {
-      ctrl_val &= ~0x0002;
-      ctrl_val |= 0x0004;  // Stop
+      ctrl_val &= ~0x0080;
     }
   }
   if (doc.containsKey("reset") && doc["reset"].as<bool>()) {
@@ -3886,6 +3972,8 @@ esp_err_t api_handler_counter_delete(httpd_req_t *req)
   return api_send_json(req, buf);
 }
 
+static esp_err_t api_handler_timer_control_post(httpd_req_t *req);
+
 /* ============================================================================
  * POST /api/timers/{id} - Configure timer (GAP-3)
  * ============================================================================ */
@@ -3898,6 +3986,17 @@ esp_err_t api_handler_timer_config_post(httpd_req_t *req)
   int id = api_extract_id_from_uri(req, "/api/timers/");
   if (id < 1 || id > TIMER_COUNT) {
     return api_send_error(req, 400, "Invalid timer ID (must be 1-4)");
+  }
+
+  // FEAT-171: /control er en action-suffix, ikke en del af konfigurations-
+  // body'en — ESP-IDFs wildcard matcher kun i slutningen af URI'en (samme
+  // aarsag som api_handler_counter_single's egen suffix-dispatch), saa
+  // POST /api/timers/{id}/control ramler ind i DENNE handler (den er
+  // registreret paa /api/timers/*) og skal delegeres videre her, FOER det
+  // strenge exact-match-tjek nedenfor ellers ville afvise den som ukendt.
+  size_t uri_len = strlen(uri);
+  if (uri_len >= 8 && strcmp(uri + uri_len - 8, "/control") == 0) {
+    return api_handler_timer_control_post(req);
   }
 
   // Check if URI is exactly /api/timers/{id} (no suffix)
@@ -3953,6 +4052,14 @@ esp_err_t api_handler_timer_config_post(httpd_req_t *req)
   }
   if (doc.containsKey("input_dis")) cfg.input_dis = doc["input_dis"].as<uint8_t>();
   if (doc.containsKey("delay_ms")) cfg.delay_ms = doc["delay_ms"].as<uint32_t>();
+  // FEAT-171: fandtes i struct'en men manglede i denne handler — output-
+  // polaritet og Mode-4-triggerkant kunne før kun sættes via fuld
+  // backup/restore. trigger_level er BEVIDST ikke tilføjet her — bekræftet
+  // aldrig læst af mode_monostable() (timer_engine.cpp), et dødt felt.
+  if (doc.containsKey("phase1_output_state")) cfg.phase1_output_state = doc["phase1_output_state"].as<bool>() ? 1 : 0;
+  if (doc.containsKey("phase2_output_state")) cfg.phase2_output_state = doc["phase2_output_state"].as<bool>() ? 1 : 0;
+  if (doc.containsKey("phase3_output_state")) cfg.phase3_output_state = doc["phase3_output_state"].as<bool>() ? 1 : 0;
+  if (doc.containsKey("trigger_edge")) cfg.trigger_edge = doc["trigger_edge"].as<bool>() ? 1 : 0;
 
   // Apply config
   memcpy(&g_persist_config.timers[id - 1], &cfg, sizeof(TimerConfig));
@@ -3967,6 +4074,76 @@ esp_err_t api_handler_timer_config_post(httpd_req_t *req)
   serializeJson(resp, buf2, sizeof(buf2));
 
   return api_send_json(req, buf2);
+}
+
+/* ============================================================================
+ * POST /api/timers/{id}/control - Start/stop/reset a timer (FEAT-171)
+ *
+ * Timere havde hidtil INGEN REST-vej til at starte/stoppe/nulstille (kun
+ * counters har det, se api_handler_counter_control_post ovenfor) — kun
+ * muligt via CLI eller en raw holding-register-skrivning til ctrl_reg.
+ * Samme body-kontrakt og bit-mønster som counter-varianten, tilpasset
+ * timerens egen ctrl_reg-semantik (bit0=RESET, bit1=START, bit2=STOP, alle
+ * transiente/selv-clearende, jf. timer_engine.cpp:231-276).
+ * ============================================================================ */
+
+static esp_err_t api_handler_timer_control_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  int id = api_extract_id_from_uri(req, "/api/timers/");
+  if (id < 1 || id > TIMER_COUNT) {
+    return api_send_error(req, 400, "Invalid timer ID (must be 1-4)");
+  }
+
+  char content[256];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    return api_send_error(req, 400, "Failed to read request body");
+  }
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, content);
+  if (error) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  TimerConfig cfg;
+  if (!timer_engine_get_config(id, &cfg)) {
+    return api_send_error(req, 404, "Timer not configured");
+  }
+
+  if (cfg.ctrl_reg >= HOLDING_REGS_SIZE) {
+    return api_send_error(req, 500, "Timer has no control register");
+  }
+
+  uint16_t ctrl_val = registers_get_holding_register(cfg.ctrl_reg);
+
+  if (doc.containsKey("running")) {
+    if (doc["running"].as<bool>()) {
+      ctrl_val |= 0x0001;  // Start bit
+    } else {
+      ctrl_val &= ~0x0001;
+      ctrl_val |= 0x0002;  // Stop
+    }
+  }
+  if (doc.containsKey("reset") && doc["reset"].as<bool>()) {
+    ctrl_val |= 0x0004;  // Reset bit
+  }
+
+  registers_set_holding_register(cfg.ctrl_reg, ctrl_val);
+
+  JsonDocument resp;
+  resp["status"] = 200;
+  resp["timer"] = id;
+  resp["message"] = "Timer control updated";
+
+  char buf3[256];
+  serializeJson(resp, buf3, sizeof(buf3));
+
+  return api_send_json(req, buf3);
 }
 
 /* ============================================================================

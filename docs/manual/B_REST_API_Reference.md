@@ -4,7 +4,7 @@
 
 ---
 
-> Denne reference er udtrukket direkte fra kildekoden (`src/http_server.cpp`, `src/api_handlers.cpp`, `src/ota_handler.cpp`) — alle **114** registrerede `httpd_uri_t`-handlers er talt og dokumenteret nedenfor (verificeret via `grep -c "httpd_register_uri_handler" src/http_server.cpp`), plus SSE-serveren som kører uden for hoved-httpd'en. Se [kapitel 7](07_REST_API.md) for grundlæggende brug (auth, rate limiting, eksempler).
+> Denne reference er udtrukket direkte fra kildekoden (`src/http_server.cpp`, `src/api_handlers.cpp`, `src/ota_handler.cpp`) — alle **117** registrerede `httpd_uri_t`-handlers er talt og dokumenteret nedenfor (verificeret via `grep -c "httpd_register_uri_handler" src/http_server.cpp`), plus SSE-serveren som kører uden for hoved-httpd'en. Se [kapitel 7](07_REST_API.md) for grundlæggende brug (auth, rate limiting, eksempler).
 
 ## B.1 Generelt
 
@@ -129,12 +129,12 @@ Register-adresser er faste i denne version (ikke bruger-omkonfigurerbare) — se
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
 | GET | `/api/counters` | CHECK_AUTH | Array: id, enabled, mode(`SW`/`SW_ISR`/`HW_PCNT`), value |
-| GET | `/api/counters/{id}` *(wildcard, 1–4)* | CHECK_AUTH | id, enabled, mode, value, raw, frequency, running, overflow, compare_triggered |
-| POST | `/api/counters/{id}` *(suffix-routing, ingen suffix)* | CHECK_AUTH_WRITE | Fuld config-body: `enabled`, `hw_mode`, `edge`, `direction`, `prescaler`, `bit_width`, `scale_factor`, `value_reg`, `raw_reg`, `freq_reg`, `ctrl_reg`, `start_value`, `hw_gpio`, `interrupt_pin`, `input_dis`, `debounce_ms`, `compare_enabled`, `compare_value`, `compare_mode` |
+| GET | `/api/counters/{id}` *(wildcard, 1–4)* | CHECK_AUTH | **FEAT-171:** nu FULD config (tidligere kun status): edge_type, direction, prescaler, bit_width, scale_factor, debounce_enabled/ms, input_dis, interrupt_pin, hw_gpio, compare_enabled/mode/value/source, reset_on_read, value_reg/raw_reg/freq_reg/ctrl_reg — plus id, enabled, mode, value, raw, frequency, running (**BUG-fix**: læste tidligere den forkerte, transiente bit — se nedenfor), overflow, compare_triggered |
+| POST | `/api/counters/{id}` *(suffix-routing, ingen suffix)* | CHECK_AUTH_WRITE | Fuld config-body: `enabled`, `hw_mode`, `edge`, `direction`, `prescaler`, `bit_width`, `scale_factor`, `value_reg`, `raw_reg`, `freq_reg`, `ctrl_reg`, `start_value`, `hw_gpio`, `interrupt_pin`, `input_dis`, `debounce_ms`, `compare_enabled`, `compare_value`, `compare_mode`, `compare_source`, `reset_on_read` (**FEAT-171:** de to sidste var tidligere kun sættelige via fuld backup/restore) |
 | POST | `/api/counters/{id}/reset` *(suffix)* | CHECK_AUTH_WRITE | Nulstil til start-value |
 | POST | `/api/counters/{id}/start` *(suffix)* | CHECK_AUTH_WRITE | Sæt start-bit (bit1) i ctrl-reg |
 | POST | `/api/counters/{id}/stop` *(suffix)* | CHECK_AUTH_WRITE | Sæt stop-bit (bit2) i ctrl-reg |
-| POST | `/api/counters/{id}/control` *(suffix)* | CHECK_AUTH_WRITE | Body: `{"running":bool,"reset":bool}` |
+| POST | `/api/counters/{id}/control` *(suffix)* | CHECK_AUTH_WRITE | Body: `{"running":bool,"reset":bool}` — **BUG-fix (FEAT-171):** `running` satte tidligere kun de transiente start/stop-kommandobits (bit1/bit2), som fik counteren til at starte/stoppe, men ALDRIG den persistente running-status-bit7 motoren rent faktisk bruger — et REST-startet counter viste derfor for evigt `running:false` i GET. Sætter nu bit7 direkte (samme bit som CLI's `set counter <id> control running:on`) |
 | DELETE | `/api/counters/{id}` | CHECK_AUTH_WRITE | Nulstiller til defaults (disabled) |
 
 ## B.10 Timers
@@ -142,8 +142,9 @@ Register-adresser er faste i denne version (ikke bruger-omkonfigurerbare) — se
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
 | GET | `/api/timers` | CHECK_AUTH | Array: id, enabled, mode, output (coil-state) |
-| GET | `/api/timers/{id}` *(wildcard, 1–4)* | CHECK_AUTH | Fuld config + mode-specifikke felter (phase1-3_ms, pulse_ms, on/off_ms, input_dis, delay_ms) |
-| POST | `/api/timers/{id}` *(kun eksakt match — andre suffixer afvises med 404)* | CHECK_AUTH_WRITE | Body: `enabled`, `mode`(`ONESHOT`/`MONOSTABLE`/`ASTABLE`/`INPUT_TRIGGERED`), `output_coil`, `ctrl_reg`, samt mode-specifikke felter (`on_ms`/`off_ms` accepteres som alias for `on_duration_ms`/`off_duration_ms`) |
+| GET | `/api/timers/{id}` *(wildcard, 1–4)* | CHECK_AUTH | Fuld config + mode-specifikke felter (phase1-3_ms, pulse_ms, on/off_ms, input_dis, delay_ms), **FEAT-171:** nu også `phase1/2/3_output_state`, `trigger_edge` (Mode 4), `ctrl_reg`, og `running`/`current_phase` (live runtime-status, tidligere kun eksponeret via Prometheus-metrics) |
+| POST | `/api/timers/{id}` *(suffix-routing: eksakt match = config, `/control`-suffix delegeres videre — se nedenfor)* | CHECK_AUTH_WRITE | Body: `enabled`, `mode`(`ONESHOT`/`MONOSTABLE`/`ASTABLE`/`INPUT_TRIGGERED`), `output_coil`, `ctrl_reg`, samt mode-specifikke felter (`on_ms`/`off_ms` accepteres som alias for `on_duration_ms`/`off_duration_ms`), **FEAT-171:** nu også `phase1/2/3_output_state`, `trigger_edge` (`trigger_level` er BEVIDST ikke understøttet — bekræftet aldrig læst af motoren) |
+| POST | `/api/timers/{id}/control` *(suffix, FEAT-171)* | CHECK_AUTH_WRITE | Body: `{"running":bool,"reset":bool}` — start/stop/reset en timer via REST (fandtes hidtil kun for counters) |
 | DELETE | `/api/timers/{id}` | CHECK_AUTH_WRITE | Nulstil til disabled |
 
 ## B.11 ST Logic
