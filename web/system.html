@@ -176,6 +176,20 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="alert" id="hostnameAlert"></div>
 </div>
 
+<!-- Netværk: Telnet (GUI-oprydning: flyttet hertil fra "Sikkerhed" — det er en netværkstjeneste, ikke et auth-system) -->
+<div class="card">
+<h2>Telnet</h2>
+<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="telnetEnabled"> Telnet aktiveret</label>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><label style="white-space:nowrap">Port:</label>
+<input type="number" id="telnetPort" min="1" max="65535" style="width:90px;padding:4px 6px;background:#1e1e2e;color:#cdd6f4;border:1px solid #45475a;border-radius:3px"></div>
+<div style="margin-bottom:8px"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Brugernavn (tomt = intet login krævet)</label>
+<input type="text" id="telnetUser" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div style="margin-bottom:8px"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Adgangskode</label>
+<input type="password" id="telnetPass" placeholder="(udfyld for at ændre)" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div class="btn-row"><button class="btn btn-success btn-sm" onclick="saveTelnet()">Gem Telnet</button></div>
+<div class="alert" id="telnetAlert"></div>
+</div>
+
 <div class="section-hdr">Modbus</div>
 
 <!-- Modbus Slave (seriel) -->
@@ -209,7 +223,25 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="alert" id="mbmAlert"></div>
 </div>
 
-<div class="section-hdr">Sikkerhed & Brugere</div>
+<!-- Modbus Transceiver (GUI-oprydning: ny — hidtil kun CLI "set modbus mode"/"set modbus slave|master uart") -->
+<div class="card">
+<h2>Modbus Transceiver</h2>
+<p>RS485-bussen har ét fysisk transceiver-modul — vælg om det bruges som Slave, Master, eller er helt fra (USB-konsol only). Hvis Slave og Master begge peger på samme UART, kan kun ét ad gangen reelt tale på bussen.</p>
+<div style="margin-bottom:8px"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Mode</label>
+<select id="xcvrMode" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px">
+<option value="slave">Slave (enheden svarer på forespørgsler)</option>
+<option value="master">Master (enheden spørger andre enheder, ST Logic-drevet)</option>
+<option value="off">Fra (RS485 deaktiveret)</option>
+</select></div>
+<div class="info-grid" style="grid-template-columns:150px 1fr;margin-bottom:8px">
+<span class="lbl">Slave UART</span><select id="xcvrSlaveUart" style="padding:3px 6px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px"><option value="0">UART0</option><option value="1">UART1</option><option value="2">UART2</option></select>
+<span class="lbl">Master UART</span><select id="xcvrMasterUart" style="padding:3px 6px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px"><option value="0">UART0</option><option value="1">UART1</option><option value="2">UART2</option></select>
+</div>
+<div class="btn-row"><button class="btn btn-success btn-sm" onclick="saveTransceiver()">Gem Transceiver</button></div>
+<div class="alert" id="xcvrAlert"></div>
+</div>
+
+<div class="section-hdr">HTTP & Sikkerhed</div>
 
 <!-- FEAT-166: RBAC Brugerstyring — hidtil kun CLI ("set user"/"set rbac"/"delete user") -->
 <div class="card" style="grid-column:1/-1">
@@ -253,9 +285,14 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 </div>
 
-<!-- HTTP Legacy Auth -->
+<!-- HTTP Server (GUI-oprydning: samlet ét kort — enabled/port/api_enabled fandtes allerede i backend men manglede GUI-felter, var tidligere kun auth-felter her) -->
 <div class="card">
-<h2>HTTP Legacy Auth</h2>
+<h2>HTTP Server</h2>
+<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="httpEnabled"> HTTP-server aktiveret</label>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><label style="white-space:nowrap">Port:</label>
+<input type="number" id="httpPort" min="1" max="65535" style="width:90px;padding:4px 6px;background:#1e1e2e;color:#cdd6f4;border:1px solid #45475a;border-radius:3px"></div>
+<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="httpApiEnabled"> REST API aktiveret (/api/*)</label>
+<div style="border-top:1px solid #313244;margin:12px 0 8px;padding-top:10px;font-size:12px;color:#89b4fa;font-weight:600">Legacy Auth</div>
 <p>Bruges når RBAC (Brugerstyring ovenfor) er deaktiveret — ét fælles brugernavn/kodeord for hele REST API'et og web-GUI'et.</p>
 <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="httpAuthEnabled"> Kræv login</label>
 <div style="margin-bottom:8px"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Brugernavn</label>
@@ -264,20 +301,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <input type="password" id="httpPass" placeholder="(udfyld for at ændre)" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
 <div class="btn-row"><button class="btn btn-success btn-sm" onclick="saveHttpAuth()">Gem</button></div>
 <div class="alert" id="httpAuthAlert"></div>
-</div>
-
-<!-- Telnet -->
-<div class="card">
-<h2>Telnet</h2>
-<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="telnetEnabled"> Telnet aktiveret</label>
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><label style="white-space:nowrap">Port:</label>
-<input type="number" id="telnetPort" min="1" max="65535" style="width:90px;padding:4px 6px;background:#1e1e2e;color:#cdd6f4;border:1px solid #45475a;border-radius:3px"></div>
-<div style="margin-bottom:8px"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Brugernavn (tomt = intet login krævet)</label>
-<input type="text" id="telnetUser" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
-<div style="margin-bottom:8px"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Adgangskode</label>
-<input type="password" id="telnetPass" placeholder="(udfyld for at ændre)" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
-<div class="btn-row"><button class="btn btn-success btn-sm" onclick="saveTelnet()">Gem Telnet</button></div>
-<div class="alert" id="telnetAlert"></div>
 </div>
 
 <!-- HTTPS/TLS -->
@@ -299,6 +322,48 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 <div id="tlsUrlHint" style="font-size:12px;color:#6c7086;margin-bottom:4px"></div>
 <div class="alert" id="tlsAlert"></div>
+</div>
+
+<!-- Rate-Limit (GUI-oprydning: ny — hidtil kun CLI "set rate-limit". IKKE persisteret, matcher CLI's eksisterende opførsel) -->
+<div class="card">
+<h2>Rate-Limit</h2>
+<p>Token-bucket-baseret begrænsning af requests pr. klient-IP (30 i burst, genopfyldes 10/sek). Forhindrer at én klient overbelaster serveren.</p>
+<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="rateLimitEnabled" onchange="saveRateLimit()"> Rate-limit aktiveret</label>
+<p style="font-size:11px;color:#6c7086">Ikke gemt ved genstart — nulstilles til aktiveret ved boot, ligesom CLI's <code>set rate-limit</code>.</p>
+<div class="alert" id="rateLimitAlert"></div>
+</div>
+
+<div class="section-hdr">Realtidsopdateringer</div>
+
+<!-- SSE Server-indstillinger (GUI-oprydning: ny — hidtil kun via fuld config-restore) -->
+<div class="card">
+<h2>SSE Server-indstillinger</h2>
+<p>Server-Sent Events bruges til live opdatering af dashboard/status uden polling. Kræver Gem + Genstart for port-ændring.</p>
+<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="sseEnabled"> SSE aktiveret</label>
+<div class="info-grid" style="grid-template-columns:150px 1fr;margin-bottom:8px">
+<span class="lbl">Port</span><input type="number" id="ssePort" min="1" max="65535" style="padding:3px 6px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px;width:90px">
+<span class="lbl">Max klienter</span><input type="number" id="sseMaxClients" min="1" max="5" style="padding:3px 6px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px;width:70px">
+<span class="lbl">Check-interval (ms)</span><input type="number" id="sseCheckInterval" min="50" max="5000" style="padding:3px 6px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px;width:80px">
+<span class="lbl">Heartbeat (ms)</span><input type="number" id="sseHeartbeat" min="1000" max="60000" style="padding:3px 6px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px;width:80px">
+</div>
+<div class="btn-row"><button class="btn btn-success btn-sm" onclick="saveSseSettings()">Gem SSE-indstillinger</button></div>
+<div class="alert" id="sseSettingsAlert"></div>
+</div>
+
+<!-- SSE Client Management (GUI-oprydning: flyttet hertil fra "Vedligeholdelse" — hører sammen med SSE-serverkonfigurationen ovenfor) -->
+<div class="card" style="grid-column:1/-1">
+<h2>SSE Klienter</h2>
+<p>Server-Sent Events forbindelser. Overvåg og afbryd klienter.</p>
+<div class="btn-row" style="margin-bottom:8px">
+<button class="btn btn-primary btn-sm" onclick="refreshSseClients()">Opdater</button>
+<button class="btn btn-danger btn-sm" onclick="askConfirm('Afbryd alle','Afbryd alle SSE-klienter?',disconnectAllSse)">Afbryd alle</button>
+</div>
+<div id="sseInfo" style="font-size:12px;color:#6c7086;margin-bottom:8px">Indlæser...</div>
+<table class="tbl" id="sseTbl">
+<thead><tr><th>Slot</th><th>IP-adresse</th><th>Bruger</th><th>Topics</th><th>Uptime</th><th></th></tr></thead>
+<tbody id="sseTbody"><tr><td colspan="6" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
+</table>
+<div class="alert" id="sseAlert"></div>
 </div>
 
 <div class="section-hdr">Tid</div>
@@ -324,10 +389,43 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <h2>Analog I/O Kalibrering</h2>
 <p>Kun ES32D26. Scale/offset gælder pr. kanal — bruges til at omregne rå ADC-værdier til det faktiske målte spændings-/strøm-område (kalibrering mod et multimeter).</p>
 <table class="tbl" id="analogTable">
-<thead><tr><th>Kanal</th><th>Aktiveret</th><th>Scale</th><th>Offset</th><th>Nuværende værdi</th><th></th></tr></thead>
-<tbody id="analogBody"><tr><td colspan="6" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
+<thead><tr><th>Kanal</th><th>Aktiveret</th><th>Mode</th><th>Scale</th><th>Offset</th><th>Nuværende værdi</th><th></th></tr></thead>
+<tbody id="analogBody"><tr><td colspan="7" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
 </table>
 <div class="alert" id="analogAlert"></div>
+</div>
+
+<div class="section-hdr">Persistens</div>
+
+<!-- Persist Groups (GUI-oprydning: flyttet hertil fra "Vedligeholdelse", udvidet med opret/tilføj/fjern/slet-UI — REST CRUD fandtes allerede) -->
+<div class="card" style="grid-column:1/-1">
+<h2>Persistente register-grupper</h2>
+<p>Grupper af registre der automatisk gemmes til/gendannes fra NVS flash. Bruges til at bevare register-værdier på tværs af genstart.</p>
+<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="persistEnabled" onchange="savePersistConfig()"> Persistens aktiveret</label>
+<label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="persistAutoLoad" onchange="savePersistConfig()"> Auto-indlæs grupper ved boot</label>
+<div class="btn-row" style="margin-bottom:8px">
+<button class="btn btn-sm btn-primary" onclick="loadPersistGroups()">Opdater</button>
+<button class="btn btn-sm btn-success" onclick="doPersistSave()">Gem alle grupper</button>
+<button class="btn btn-sm btn-warn" onclick="doPersistRestore()">Gendan alle grupper</button>
+</div>
+<table class="tbl" id="persistTable">
+<thead><tr><th>Gruppe</th><th>Antal registre</th><th>Sidst gemt</th><th></th></tr></thead>
+<tbody id="persistBody"><tr><td colspan="4" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
+</table>
+<h3 style="font-size:13px;color:#89b4fa;margin:16px 0 8px;padding-top:12px;border-top:1px solid #313244">Opret gruppe / tilføj-fjern registre</h3>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:10px">
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Gruppenavn (max 15 tegn)</label>
+<input type="text" id="pgName" maxlength="15" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Register-adresse(r) tilføj (kommasepareret)</label>
+<input type="text" id="pgAddRegs" placeholder="f.eks. 0,1,5,10" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Register-adresse(r) fjern (kommasepareret)</label>
+<input type="text" id="pgRemoveRegs" placeholder="f.eks. 5" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+</div>
+<div class="btn-row">
+<button class="btn btn-success btn-sm" onclick="savePersistGroupEdit()">Opret / opdatér gruppe</button>
+<button class="btn btn-danger btn-sm" onclick="deletePersistGroupPrompt()">Slet gruppe</button>
+</div>
+<div class="alert" id="persistAlert"></div>
 </div>
 
 <div class="section-hdr">Backup & Firmware</div>
@@ -416,23 +514,7 @@ Klik her eller traek en firmware .bin fil hertil
 <div class="alert" id="otaAlert"></div>
 </div>
 
-<div class="section-hdr">Vedligeholdelse</div>
-
-<!-- Persist Groups -->
-<div class="card" style="grid-column:1/-1">
-<h2>Persist Grupper</h2>
-<p>Administrer persistente register-grupper der automatisk gemmes/gendannes.</p>
-<div class="btn-row" style="margin-bottom:8px">
-<button class="btn btn-sm btn-primary" onclick="loadPersistGroups()">Opdater</button>
-<button class="btn btn-sm btn-success" onclick="doPersistSave()">Gem alle grupper</button>
-<button class="btn btn-sm btn-warn" onclick="doPersistRestore()">Gendan alle grupper</button>
-</div>
-<table class="tbl" id="persistTable">
-<thead><tr><th>Gruppe</th><th>Start Register</th><th>Antal</th><th>Type</th><th>Auto-save</th></tr></thead>
-<tbody id="persistBody"><tr><td colspan="5" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
-</table>
-<div class="alert" id="persistAlert"></div>
-</div>
+<div class="section-hdr">System</div>
 
 <!-- Factory Defaults -->
 <div class="card">
@@ -453,22 +535,6 @@ Klik her eller traek en firmware .bin fil hertil
 <button class="btn btn-warn" onclick="askConfirm('Genstart','Genstart ESP32 uden at gemme? Ugemte ændringer går tabt.',doReboot)">Genstart uden gem</button>
 </div>
 <div class="alert" id="rebootAlert"></div>
-</div>
-
-<!-- SSE Client Management -->
-<div class="card" style="grid-column:1/-1">
-<h2>SSE Klienter</h2>
-<p>Server-Sent Events forbindelser. Overvåg og afbryd klienter.</p>
-<div class="btn-row" style="margin-bottom:8px">
-<button class="btn btn-primary btn-sm" onclick="refreshSseClients()">Opdater</button>
-<button class="btn btn-danger btn-sm" onclick="askConfirm('Afbryd alle','Afbryd alle SSE-klienter?',disconnectAllSse)">Afbryd alle</button>
-</div>
-<div id="sseInfo" style="font-size:12px;color:#6c7086;margin-bottom:8px">Indlæser...</div>
-<table class="tbl" id="sseTbl">
-<thead><tr><th>Slot</th><th>IP-adresse</th><th>Bruger</th><th>Topics</th><th>Uptime</th><th></th></tr></thead>
-<tbody id="sseTbody"><tr><td colspan="6" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
-</table>
-<div class="alert" id="sseAlert"></div>
 </div>
 
 <!-- System Info -->
@@ -791,34 +857,76 @@ function doTlsPortSave(){
 // --- Persist Groups ---
 function loadPersistGroups(){
   api('/api/persist/groups').then(r=>r.json()).then(data=>{
+    if($('persistEnabled'))$('persistEnabled').checked=!!data.enabled;
+    if($('persistAutoLoad'))$('persistAutoLoad').checked=!!data.auto_load_enabled;
     const tbody=$('persistBody');
-    const groups=data.groups||data||[];
+    const groups=data.groups||[];
     if(!Array.isArray(groups)||groups.length===0){
-      tbody.innerHTML='<tr><td colspan="5" style="color:#6c7086;text-align:center">Ingen persist grupper konfigureret</td></tr>';
+      tbody.innerHTML='<tr><td colspan="4" style="color:#6c7086;text-align:center">Ingen persist grupper konfigureret</td></tr>';
       return;
     }
     tbody.innerHTML='';
     groups.forEach(g=>{
       const tr=document.createElement('tr');
-      tr.innerHTML='<td>'+(g.name||g.id||'-')+'</td><td>'+(g.start!=null?g.start:'-')+'</td><td>'+(g.count||g.length||'-')+'</td><td>'+(g.type||'HR')+'</td><td>'+(g.auto_save?'Ja':'Nej')+'</td>';
+      tr.innerHTML='<td>'+(g.name||'-')+'</td><td>'+(g.reg_count!=null?g.reg_count:'-')+' / '+(g.max_regs||'-')+'</td><td>'+(g.last_save_ms?g.last_save_ms+' ms uptime':'Aldrig')+'</td>'+
+        '<td><button class="btn btn-sm btn-danger" onclick="deletePersistGroup(\''+(g.name||'')+'\')">Slet</button></td>';
       tbody.appendChild(tr);
     });
   }).catch(()=>{
-    $('persistBody').innerHTML='<tr><td colspan="5" style="color:#6c7086;text-align:center">Kunne ikke indlæse persist grupper</td></tr>';
+    $('persistBody').innerHTML='<tr><td colspan="4" style="color:#6c7086;text-align:center">Kunne ikke indlæse persist grupper</td></tr>';
+  });
+}
+function savePersistConfig(){
+  const body={enabled:$('persistEnabled').checked,auto_load_enabled:$('persistAutoLoad').checked};
+  api('/api/persist/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
+    if(r.status===403)throw new Error('Ingen skriveadgang (privilege read)');
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(()=>showAlert('persistAlert','ok','Persistens-indstillinger opdateret.'))
+  .catch(e=>{loadPersistGroups();showAlert('persistAlert','err','Fejl: '+e.message)});
+}
+function savePersistGroupEdit(){
+  const name=$('pgName').value.trim();
+  if(!name){showAlert('persistAlert','err','Angiv et gruppenavn');return}
+  const body={};
+  const addVal=$('pgAddRegs').value.trim();
+  if(addVal)body.registers=addVal.split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
+  const remVal=$('pgRemoveRegs').value.trim();
+  if(remVal)body.remove=remVal.split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
+  api('/api/persist/groups/'+encodeURIComponent(name),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
+    if(r.status===403)throw new Error('Ingen skriveadgang (privilege read)');
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(()=>{$('pgName').value='';$('pgAddRegs').value='';$('pgRemoveRegs').value='';showAlert('persistAlert','ok','Gruppe \''+name+'\' oprettet/opdateret.');loadPersistGroups()})
+  .catch(e=>showAlert('persistAlert','err','Fejl: '+e.message));
+}
+function deletePersistGroupPrompt(){
+  const name=$('pgName').value.trim();
+  if(!name){showAlert('persistAlert','err','Angiv gruppenavnet der skal slettes i feltet ovenfor');return}
+  deletePersistGroup(name);
+}
+function deletePersistGroup(name){
+  askConfirm('Slet persist-gruppe','Slet gruppen \''+name+'\'? Registrene i gruppen bevares, men stopper med at blive gemt/gendannet automatisk.',()=>{
+    api('/api/persist/groups/'+encodeURIComponent(name),{method:'DELETE'}).then(r=>{
+      if(r.status===403)throw new Error('Ingen skriveadgang (privilege read)');
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      return r.json();
+    }).then(()=>{showAlert('persistAlert','ok','Gruppe \''+name+'\' slettet.');loadPersistGroups()})
+    .catch(e=>showAlert('persistAlert','err','Fejl: '+e.message));
   });
 }
 function doPersistSave(){
   api('/api/persist/save',{method:'POST'}).then(r=>{
     if(!r.ok)throw new Error('HTTP '+r.status);
     return r.json();
-  }).then(d=>showAlert('persistAlert','ok','Persist grupper gemt! '+(d.message||'')))
+  }).then(d=>{showAlert('persistAlert','ok','Persist grupper gemt! '+(d.message||''));loadPersistGroups()})
   .catch(e=>showAlert('persistAlert','err','Gem fejlede: '+e.message));
 }
 function doPersistRestore(){
   api('/api/persist/restore',{method:'POST'}).then(r=>{
     if(!r.ok)throw new Error('HTTP '+r.status);
     return r.json();
-  }).then(d=>showAlert('persistAlert','ok','Persist grupper gendannet! '+(d.message||'')))
+  }).then(d=>{showAlert('persistAlert','ok','Persist grupper gendannet! '+(d.message||''));loadPersistGroups()})
   .catch(e=>showAlert('persistAlert','err','Restore fejlede: '+e.message));
 }
 
@@ -996,7 +1104,8 @@ function installGithubOta(){
 // seriel-config, HTTP legacy auth, Telnet, NTP, Analog kalibrering) ===
 function loadAllSettings(){
   loadRbac();loadWifi();loadEthernet();loadHostname();
-  loadModbusSlave();loadModbusMaster();loadHttpAuth();loadTelnet();loadNtp();loadAnalog();
+  loadModbusSlave();loadModbusMaster();loadTransceiver();
+  loadHttpAuth();loadRateLimit();loadSseSettings();loadTelnet();loadNtp();loadAnalog();
 }
 
 // --- RBAC Brugerstyring ---
@@ -1188,24 +1297,94 @@ function saveModbusMaster(){
   .catch(e=>showAlert('mbmAlert','err','Fejl: '+e.message));
 }
 
-// --- HTTP Legacy Auth ---
+// --- Modbus Transceiver ---
+function loadTransceiver(){
+  api('/api/modbus/slave').then(r=>r.json()).then(d=>{
+    const x=d.transceiver||{};
+    $('xcvrMode').value=x.mode||'slave';
+    $('xcvrSlaveUart').value=(x.slave_uart!=null?x.slave_uart:2);
+    $('xcvrMasterUart').value=(x.master_uart!=null?x.master_uart:2);
+  }).catch(()=>{});
+}
+function saveTransceiver(){
+  const body={transceiver:{mode:$('xcvrMode').value,slave_uart:parseInt($('xcvrSlaveUart').value),master_uart:parseInt($('xcvrMasterUart').value)}};
+  api('/api/modbus/slave',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
+    if(r.status===403)throw new Error('Ingen skriveadgang (privilege read)');
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(()=>showAlert('xcvrAlert','warn','Transceiver-config opdateret i RAM. Kræver Save + Genstart for at træde i kraft.'))
+  .catch(e=>showAlert('xcvrAlert','err','Fejl: '+e.message));
+}
+
+// --- HTTP Server + Legacy Auth ---
 function loadHttpAuth(){
   api('/api/config').then(r=>r.json()).then(d=>{
     const h=d.http||{};
+    $('httpEnabled').checked=!!h.enabled;
+    $('httpPort').value=h.port||80;
+    $('httpApiEnabled').checked=!!h.api_enabled;
     $('httpAuthEnabled').checked=!!h.auth_enabled;
     $('httpUser').value=h.username||'';
   }).catch(()=>{});
 }
 function saveHttpAuth(){
-  const body={auth_enabled:$('httpAuthEnabled').checked};
+  const body={
+    enabled:$('httpEnabled').checked,
+    port:parseInt($('httpPort').value)||80,
+    api_enabled:$('httpApiEnabled').checked,
+    auth_enabled:$('httpAuthEnabled').checked
+  };
   if($('httpUser').value)body.username=$('httpUser').value;
   if($('httpPass').value)body.password=$('httpPass').value;
   api('/api/http',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
     if(r.status===403)throw new Error('Ingen skriveadgang (privilege read)');
     if(!r.ok)throw new Error('HTTP '+r.status);
     return r.json();
-  }).then(()=>{$('httpPass').value='';showAlert('httpAuthAlert','warn','HTTP-login opdateret i RAM. Husk Save for at overleve reboot.')})
+  }).then(()=>{$('httpPass').value='';showAlert('httpAuthAlert','warn','HTTP-indstillinger opdateret i RAM. Husk Save for at overleve reboot.')})
   .catch(e=>showAlert('httpAuthAlert','err','Fejl: '+e.message));
+}
+
+// --- Rate-Limit ---
+function loadRateLimit(){
+  api('/api/system/rate-limit').then(r=>r.json()).then(d=>{
+    $('rateLimitEnabled').checked=!!d.enabled;
+  }).catch(()=>{});
+}
+function saveRateLimit(){
+  const body={enabled:$('rateLimitEnabled').checked};
+  api('/api/system/rate-limit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
+    if(r.status===403)throw new Error('Ingen skriveadgang (privilege read)');
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(()=>{showAlert('rateLimitAlert','ok','Rate-limit '+($('rateLimitEnabled').checked?'aktiveret':'deaktiveret')+' (ikke gemt ved reboot).')})
+  .catch(e=>{loadRateLimit();showAlert('rateLimitAlert','err','Fejl: '+e.message)});
+}
+
+// --- SSE Server-indstillinger ---
+function loadSseSettings(){
+  api('/api/config').then(r=>r.json()).then(d=>{
+    const s=d.sse||{};
+    $('sseEnabled').checked=!!s.enabled;
+    $('ssePort').value=s.port||8081;
+    $('sseMaxClients').value=s.max_clients||3;
+    $('sseCheckInterval').value=s.check_interval_ms||200;
+    $('sseHeartbeat').value=s.heartbeat_ms||15000;
+  }).catch(()=>{});
+}
+function saveSseSettings(){
+  const body={sse:{
+    enabled:$('sseEnabled').checked,
+    port:parseInt($('ssePort').value),
+    max_clients:parseInt($('sseMaxClients').value),
+    check_interval_ms:parseInt($('sseCheckInterval').value),
+    heartbeat_ms:parseInt($('sseHeartbeat').value)
+  }};
+  api('/api/http',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
+    if(r.status===403)throw new Error('Ingen skriveadgang (privilege read)');
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(()=>showAlert('sseSettingsAlert','warn','SSE-indstillinger opdateret i RAM. Kræver Save + Genstart for at træde i kraft.'))
+  .catch(e=>showAlert('sseSettingsAlert','err','Fejl: '+e.message));
 }
 
 // --- Telnet ---
@@ -1257,19 +1436,22 @@ function loadAnalog(){
     const rows=[];
     (d.ai_voltage||[]).forEach(c=>rows.push({ch:c.channel,en:c.enabled,sc:c.scale,off:c.offset,val:(c.value/100).toFixed(2)+' V'}));
     (d.ai_current||[]).forEach(c=>rows.push({ch:c.channel,en:c.enabled,sc:c.scale,off:c.offset,val:(c.value/100).toFixed(2)+' mA'}));
-    (d.ao||[]).forEach(c=>rows.push({ch:c.channel,en:c.enabled,sc:c.scale,off:c.offset,val:(c.setpoint/100).toFixed(2)}));
+    (d.ao||[]).forEach(c=>rows.push({ch:c.channel,en:c.enabled,sc:c.scale,off:c.offset,val:(c.setpoint/100).toFixed(2),mode:c.mode}));
     $('analogBody').innerHTML=rows.map(r=>
       '<tr><td>'+r.ch+'</td>'+
       '<td><input type="checkbox" id="an_en_'+r.ch+'" '+(r.en?'checked':'')+'></td>'+
+      '<td>'+(r.mode?('<select id="an_mode_'+r.ch+'" style="padding:3px 5px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px"><option value="voltage"'+(r.mode==='voltage'?' selected':'')+'>Spænding</option><option value="current"'+(r.mode==='current'?' selected':'')+'>Strøm</option></select>'):'-')+'</td>'+
       '<td><input type="number" step="0.0001" id="an_sc_'+r.ch+'" value="'+r.sc+'" style="width:80px;padding:3px 5px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px"></td>'+
       '<td><input type="number" step="0.0001" id="an_of_'+r.ch+'" value="'+r.off+'" style="width:80px;padding:3px 5px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px"></td>'+
       '<td>'+r.val+'</td>'+
       '<td><button class="btn btn-sm btn-success" onclick="saveAnalogChannel(\''+r.ch+'\')">Gem</button></td></tr>'
     ).join('');
-  }).catch(()=>{$('analogBody').innerHTML='<tr><td colspan="6" style="color:#f38ba8;text-align:center">Kunne ikke hente analog-status</td></tr>'});
+  }).catch(()=>{$('analogBody').innerHTML='<tr><td colspan="7" style="color:#f38ba8;text-align:center">Kunne ikke hente analog-status</td></tr>'});
 }
 function saveAnalogChannel(ch){
   const body={channel:ch,enabled:$('an_en_'+ch).checked,scale:parseFloat($('an_sc_'+ch).value),offset:parseFloat($('an_of_'+ch).value)};
+  const modeSel=$('an_mode_'+ch);
+  if(modeSel)body.mode=modeSel.value;
   api('/api/analog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
     if(r.status===403)throw new Error('Ingen skriveadgang (privilege read)');
     if(!r.ok)throw new Error('HTTP '+r.status);

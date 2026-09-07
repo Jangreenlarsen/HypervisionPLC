@@ -4,7 +4,7 @@
 
 ---
 
-> Denne reference er udtrukket direkte fra kildekoden (`src/http_server.cpp`, `src/api_handlers.cpp`, `src/ota_handler.cpp`) — alle **94** registrerede `httpd_uri_t`-handlers er talt og dokumenteret nedenfor (verificeret via `grep -c "httpd_register_uri_handler" src/http_server.cpp`), plus SSE-serveren som kører uden for hoved-httpd'en. Se [kapitel 7](07_REST_API.md) for grundlæggende brug (auth, rate limiting, eksempler).
+> Denne reference er udtrukket direkte fra kildekoden (`src/http_server.cpp`, `src/api_handlers.cpp`, `src/ota_handler.cpp`) — alle **114** registrerede `httpd_uri_t`-handlers er talt og dokumenteret nedenfor (verificeret via `grep -c "httpd_register_uri_handler" src/http_server.cpp`), plus SSE-serveren som kører uden for hoved-httpd'en. Se [kapitel 7](07_REST_API.md) for grundlæggende brug (auth, rate limiting, eksempler).
 
 ## B.1 Generelt
 
@@ -38,6 +38,8 @@ Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 | POST | `/api/system/save` | CHECK_AUTH_WRITE | Gemmer hele config til NVS (inkl. CRC16) |
 | POST | `/api/system/load` | CHECK_AUTH_WRITE | Genindlæser + anvender config fra NVS |
 | POST | `/api/system/defaults` | CHECK_AUTH_WRITE | Nulstiller til fabriksdefaults (kun i RAM, ikke gemt) |
+| GET | `/api/system/rate-limit` | CHECK_AUTH | **FEAT-170.** `{"enabled":bool,"persisted":false}` — status for token-bucket rate-limiteren selv (§B.1). Mirror af CLI's `show rate-limit`. |
+| POST | `/api/system/rate-limit` | CHECK_AUTH_WRITE | **FEAT-170.** Body: `{"enabled":bool}`. Mirror af CLI's `set rate-limit`. Bevidst IKKE persisteret til NVS (nulstilles til aktiveret ved boot), samme opførsel som CLI-kommandoen altid har haft. |
 | GET | `/api/user/me` | *Ingen* (returnerer `authenticated:false` hvis ikke logget ind) | Aktuel brugers auth-status: username, roles, privilege, mode (`legacy`/`rbac`) |
 | POST | `/api/cli` | CHECK_AUTH_ROLE(`cli`) + write-check | Body: `{"command":"<cli-kommando>"}`. Kører kommandoen via samme dispatcher som Serial/Telnet, returnerer `{"output":"..."}`. Blokerer `reboot`/`defaults`. Maks 256 tegn kommando. |
 | GET | `/api/hostname` | CHECK_AUTH | `{"hostname":"..."}` |
@@ -47,8 +49,8 @@ Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
-| GET | `/api/config` | CHECK_AUTH | Stort read-only snapshot: system, modbus_mode, modbus_slave, modbus_master, analog_outputs, network, telnet, http, counters[], timers[], gpio[], st_logic (m. programs[]), modules, persistence |
-| POST | `/api/http` | CHECK_AUTH_WRITE | Body-felter: `enabled`, `port`, `https_port`(BUG-350, dedikeret HTTPS-port, default 443, IKKE samme som `port`), `auth_enabled`, `api_enabled`, `tls_enabled`, `username`, `password`, `priority`(`LOW`/`NORMAL`/`HIGH`). Port/https_port/TLS kræver reboot. |
+| GET | `/api/config` | CHECK_AUTH | Stort read-only snapshot: system, modbus_mode, modbus_slave, modbus_master, analog_outputs, network, telnet, http, **sse** (FEAT-170, se §B.3 POST /api/http), counters[], timers[], gpio[], st_logic (m. programs[]), modules, persistence |
+| POST | `/api/http` | CHECK_AUTH_WRITE | Body-felter: `enabled`, `port`, `https_port`(BUG-350, dedikeret HTTPS-port, default 443, IKKE samme som `port`), `auth_enabled`, `api_enabled`, `tls_enabled`, `username`, `password`, `priority`(`LOW`/`NORMAL`/`HIGH`), samt (**FEAT-170**) et nested `sse` objekt: `{"enabled":bool,"port":N,"max_clients":1-5,"check_interval_ms":50-5000,"heartbeat_ms":1000-60000}` — samme `network.http`-struct som resten af feltlisten. Port/https_port/TLS/sse.port kræver reboot. |
 | GET | `/api/modules` | CHECK_AUTH | `{"counters":bool,"timers":bool,"st_logic":bool}` (modul-flag) |
 | POST | `/api/modules` | CHECK_AUTH_WRITE | Samme felter — slå moduler til/fra |
 | GET | `/api/dashboard/layout` | *Ingen* | `card_order`, `card_tabs`, `card_hidden` (dashboard UI-præference) |
@@ -69,8 +71,8 @@ Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
-| GET | `/api/modbus/slave` *(suffix)* | CHECK_AUTH | config (slave_id, baudrate, parity, stop_bits, inter_frame_delay_ms) + stats |
-| POST | `/api/modbus/slave` | CHECK_AUTH_WRITE | Body: `slave_id`(1-247), `baudrate`, `parity`, `stop_bits`, `inter_frame_delay_ms` |
+| GET | `/api/modbus/slave` *(suffix)* | CHECK_AUTH | config (slave_id, baudrate, parity, stop_bits, inter_frame_delay_ms) + stats + (**FEAT-170**) `transceiver`: `{"mode":"slave"\|"master"\|"off","slave_uart":N,"master_uart":N}` — samme objekt returneres uanset om requesten gik til `/slave` eller `/master` (ét fysisk RS485-transceiver-modul, se FEAT-038) |
+| POST | `/api/modbus/slave` | CHECK_AUTH_WRITE | Body: `slave_id`(1-247), `baudrate`, `parity`, `stop_bits`, `inter_frame_delay_ms`, samt (**FEAT-170**, valgfrit, gælder uanset hvilket sub-endpoint der postes til) nested `transceiver`: `{"mode":"slave"\|"master"\|"off","slave_uart":0-2,"master_uart":0-2}`. Kræver reboot for at træde i kraft. |
 
 ## B.6 Modbus Aktivitetslog (FEAT-149, RAM-only)
 
@@ -118,7 +120,7 @@ Adresseområder: HR/IR 0–255, coils/DI 0–255.
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
 | GET | `/api/analog` | CHECK_AUTH | Alle 10 kanaler: `ai_voltage[]` (vi1-4), `ai_current[]` (ii1-4), `ao[]` (ao1-2). Hver AI-post: `channel`, `enabled`, `adc2` (bool), `wifi_blocked` (bool — sand hvis ADC2-kanal og WiFi tilsluttet), `raw_mv`, `value` (×100 fixed-point, -1 hvis wifi_blocked), `scale`, `offset`, `raw_reg`, `value_reg`. Hver AO-post: `channel`, `enabled`, `mode` (`voltage`/`current`), `setpoint` (×100), `scale`, `offset`, `value_reg` |
-| POST | `/api/analog` | CHECK_AUTH_WRITE | Body: `{"channel":"vi1\|...\|ao2", ...}`. Valgfrie felter: `enabled` (bool, kræver `save`+reboot for at slå register-allokering til), `scale`/`offset` (float, virker straks), `setpoint` (float, **kun AO-kanaler**, skriver direkte til runtime-registret — virker med det samme, ingen `save` nødvendig) |
+| POST | `/api/analog` | CHECK_AUTH_WRITE | Body: `{"channel":"vi1\|...\|ao2", ...}`. Valgfrie felter: `enabled` (bool, kræver `save`+reboot for at slå register-allokering til), `scale`/`offset` (float, virker straks), `setpoint` (float, **kun AO-kanaler**, skriver direkte til runtime-registret — virker med det samme, ingen `save` nødvendig), `mode` (**FEAT-170**, kun `ao1`/`ao2`, `"voltage"`\|`"current"` — tidligere kun tilgængelig via fuld config-restore) |
 
 Register-adresser er faste i denne version (ikke bruger-omkonfigurerbare) — se [§6](06_Modbus_Interface.md) og `MODBUS_REGISTER_MAP.md` for den fulde adresseliste (HR 0-17).
 
@@ -260,6 +262,7 @@ Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevari
 | DELETE | `/api/persist/groups/{navn}` | CHECK_AUTH_WRITE | Sletter gruppen |
 | POST | `/api/persist/save` | CHECK_AUTH_WRITE | Uden body: gem alle grupper. Body: `{"group":"navn"}` eller `{"group_id":N}` for én gruppe. |
 | POST | `/api/persist/restore` | CHECK_AUTH_WRITE | Uden body: gendan alle grupper. Body: `{"group":"navn"}` eller `{"group_id":N}` |
+| POST | `/api/persist/config` | CHECK_AUTH_WRITE | **FEAT-170.** Body: `{"enabled":bool,"auto_load_enabled":bool}` (begge valgfri). Tidligere kun tilgængelige via fuld `/api/system/restore`. Svar: `{"status":200,"enabled":bool,"auto_load_enabled":bool}` |
 
 ## B.18 Metrics / SSE
 

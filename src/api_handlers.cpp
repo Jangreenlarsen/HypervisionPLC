@@ -686,6 +686,8 @@ static const api_route_info_t API_ROUTES[] = {
   {"GET",    "/api/system/watchdog",                "Watchdog status"},
   {"GET",    "/api/system/logs",                   "Request audit log (FEAT-033)"},
   {"POST",   "/api/system/logs/clear",             "Clear request audit log"},
+  {"GET",    "/api/system/rate-limit",             "Rate-limit status (not persisted)"},
+  {"POST",   "/api/system/rate-limit",             "Enable/disable rate-limit (not persisted)"},
   {"GET",    "/api/syslog",                        "System event/reg-change log"},
   {"POST",   "/api/syslog/clear",                  "Clear system log"},
   {"POST",   "/api/syslog/start",                  "Resume system log"},
@@ -715,6 +717,7 @@ static const api_route_info_t API_ROUTES[] = {
   {"DELETE", "/api/persist/groups/{id}",           "Delete persistence group"},
   {"POST",   "/api/persist/save",                  "Save persistence group(s)"},
   {"POST",   "/api/persist/restore",               "Restore persistence group(s)"},
+  {"POST",   "/api/persist/config",                "Set persistence enabled/auto_load_enabled"},
   {"GET",    "/api/dashboard/layout",               "Dashboard layout settings"},
   {"POST",   "/api/dashboard/layout",               "Save dashboard layout settings"},
   {"POST",   "/api/system/ota",                    "Upload firmware (OTA, FEAT-031)"},
@@ -2745,6 +2748,14 @@ esp_err_t api_handler_config_get(httpd_req_t *req)
   else if (g_persist_config.network.http.priority == 2) prio_str = "HIGH";
   http["priority"] = prio_str;
 
+  // ── SSE (FEAT: GUI-oprydning — tidligere kun laesbar via backup) ──
+  JsonObject sse = doc["sse"].to<JsonObject>();
+  sse["enabled"] = g_persist_config.network.http.sse_enabled ? true : false;
+  sse["port"] = g_persist_config.network.http.sse_port;
+  sse["max_clients"] = g_persist_config.network.http.sse_max_clients;
+  sse["check_interval_ms"] = g_persist_config.network.http.sse_check_interval_ms;
+  sse["heartbeat_ms"] = g_persist_config.network.http.sse_heartbeat_ms;
+
   // ── COUNTERS ──
   JsonArray counters = doc["counters"].to<JsonArray>();
   for (int i = 0; i < COUNTER_COUNT; i++) {
@@ -2990,6 +3001,17 @@ esp_err_t api_handler_modbus_get(httpd_req_t *req)
 
   JsonDocument doc;
 
+  // FEAT: GUI-oprydning — hvilken mode/UART selve RS485-transceiveren
+  // bruger (tidligere kun laesbar/saetbar via en fuld config-restore).
+  // Inkluderet i baade /slave og /master-svar, da valget er faelles.
+  JsonObject xcvr = doc["transceiver"].to<JsonObject>();
+  const char *mode_str = "slave";
+  if (g_persist_config.modbus_mode == MODBUS_MODE_MASTER) mode_str = "master";
+  else if (g_persist_config.modbus_mode == MODBUS_MODE_OFF) mode_str = "off";
+  xcvr["mode"] = mode_str;
+  xcvr["slave_uart"] = g_persist_config.modbus_slave_uart;
+  xcvr["master_uart"] = g_persist_config.modbus_master_uart;
+
   if (is_slave) {
     JsonObject cfg = doc["config"].to<JsonObject>();
     cfg["enabled"] = g_persist_config.modbus_slave.enabled ? true : false;
@@ -3154,6 +3176,29 @@ esp_err_t api_handler_modbus_post(httpd_req_t *req)
   DeserializationError error = deserializeJson(doc, content);
   if (error) {
     return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  // FEAT: GUI-oprydning — transceiver mode/UART, tidligere kun saetbar via
+  // en fuld config-restore. Kan sendes med enten /slave- eller
+  // /master-POST'et, da valget er faelles for begge (samme fysiske RS485).
+  if (doc.containsKey("transceiver")) {
+    JsonObject x = doc["transceiver"];
+    if (x.containsKey("mode")) {
+      const char *m = x["mode"].as<const char*>();
+      if (m) {
+        if (strcasecmp(m, "slave") == 0) g_persist_config.modbus_mode = MODBUS_MODE_SLAVE;
+        else if (strcasecmp(m, "master") == 0) g_persist_config.modbus_mode = MODBUS_MODE_MASTER;
+        else if (strcasecmp(m, "off") == 0) g_persist_config.modbus_mode = MODBUS_MODE_OFF;
+      }
+    }
+    if (x.containsKey("slave_uart")) {
+      uint8_t u = x["slave_uart"].as<uint8_t>();
+      if (u <= 2) g_persist_config.modbus_slave_uart = u;
+    }
+    if (x.containsKey("master_uart")) {
+      uint8_t u = x["master_uart"].as<uint8_t>();
+      if (u <= 2) g_persist_config.modbus_master_uart = u;
+    }
   }
 
   if (is_slave) {
@@ -3629,6 +3674,28 @@ esp_err_t api_handler_http_config_post(httpd_req_t *req)
       if (strcmp(prio, "LOW") == 0 || strcmp(prio, "low") == 0) g_persist_config.network.http.priority = 0;
       else if (strcmp(prio, "HIGH") == 0 || strcmp(prio, "high") == 0) g_persist_config.network.http.priority = 2;
       else g_persist_config.network.http.priority = 1;
+    }
+  }
+
+  // FEAT: GUI-oprydning — SSE-serverindstillinger, tidligere kun saetbare
+  // via en fuld config-restore (samme "network.http"-struct som resten af
+  // denne handler, saa ingen ny endpoint noedvendig). Sendes valgfrit som
+  // et indlejret "sse"-objekt: {"sse":{"enabled":true,"port":81,...}}.
+  if (doc.containsKey("sse")) {
+    JsonObject s = doc["sse"];
+    if (s.containsKey("enabled"))           g_persist_config.network.http.sse_enabled           = s["enabled"].as<bool>() ? 1 : 0;
+    if (s.containsKey("port"))              g_persist_config.network.http.sse_port              = s["port"].as<uint16_t>();
+    if (s.containsKey("max_clients")) {
+      uint8_t mc = s["max_clients"].as<uint8_t>();
+      if (mc >= 1 && mc <= 5) g_persist_config.network.http.sse_max_clients = mc;
+    }
+    if (s.containsKey("check_interval_ms")) {
+      uint16_t iv = s["check_interval_ms"].as<uint16_t>();
+      if (iv >= 50 && iv <= 5000) g_persist_config.network.http.sse_check_interval_ms = iv;
+    }
+    if (s.containsKey("heartbeat_ms")) {
+      uint16_t hb = s["heartbeat_ms"].as<uint16_t>();
+      if (hb >= 1000 && hb <= 60000) g_persist_config.network.http.sse_heartbeat_ms = hb;
     }
   }
 
@@ -7765,6 +7832,7 @@ esp_err_t api_handler_analog_post(httpd_req_t *req)
   bool *p_enabled = NULL;
   float *p_scale = NULL;
   float *p_offset = NULL;
+  uint8_t *p_mode = NULL;  // FEAT: GUI-oprydning — kun sat for ao1/ao2
 
   for (int i = 0; i < 4; i++) {
     char name[5];
@@ -7788,6 +7856,7 @@ esp_err_t api_handler_analog_post(httpd_req_t *req)
       p_enabled = &g_persist_config.analog_ao[i].enabled;
       p_scale = &g_persist_config.analog_ao[i].scale;
       p_offset = &g_persist_config.analog_ao[i].offset;
+      p_mode = (i == 0) ? &g_persist_config.ao1_mode : &g_persist_config.ao2_mode;
     }
   }
 
@@ -7798,6 +7867,13 @@ esp_err_t api_handler_analog_post(httpd_req_t *req)
   if (jdoc.containsKey("enabled")) *p_enabled = jdoc["enabled"].as<bool>();
   if (jdoc.containsKey("scale"))   *p_scale   = jdoc["scale"].as<float>();
   if (jdoc.containsKey("offset"))  *p_offset  = jdoc["offset"].as<float>();
+  // FEAT: GUI-oprydning — AO1/AO2 mode (0=voltage/0-10V, 1=current/4-20mA),
+  // tidligere kun saetbar via en fuld config-restore (BUGS_INDEX.md).
+  if (jdoc.containsKey("mode") && p_mode) {
+    const char *m = jdoc["mode"].as<const char*>();
+    if (m && strcasecmp(m, "current") == 0) *p_mode = AO_MODE_CURRENT;
+    else if (m && strcasecmp(m, "voltage") == 0) *p_mode = AO_MODE_VOLTAGE;
+  }
 
   // Setpoint er RUNTIME data (som en counters vaerdi), ikke persisteret config
   // — skriv direkte til holding-registret, virker med det samme paa naeste
@@ -8304,6 +8380,37 @@ esp_err_t api_handler_persist_restore(httpd_req_t *req)
   return api_send_json(req, "{\"status\":200,\"message\":\"Restored\"}");
 }
 
+esp_err_t api_handler_persist_config_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[128];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    return api_send_error(req, 400, "Failed to read request body");
+  }
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  if (doc.containsKey("enabled")) {
+    registers_persist_set_enabled(doc["enabled"].as<bool>());
+  }
+  if (doc.containsKey("auto_load_enabled")) {
+    g_persist_config.persist_regs.auto_load_enabled = doc["auto_load_enabled"].as<bool>() ? 1 : 0;
+  }
+
+  char buf[128];
+  snprintf(buf, sizeof(buf), "{\"status\":200,\"enabled\":%s,\"auto_load_enabled\":%s}",
+    registers_persist_is_enabled() ? "true" : "false",
+    g_persist_config.persist_regs.auto_load_enabled ? "true" : "false");
+  return api_send_json(req, buf);
+}
+
 /* ============================================================================
  * FEAT-028: Request Rate Limiting (v7.0.4)
  *
@@ -8396,6 +8503,44 @@ void http_rate_limit_set_enabled(bool enabled)
 bool http_rate_limit_is_enabled(void)
 {
   return rate_limit_enabled;
+}
+
+/* ============================================================================
+ * FEAT: GUI-oprydning — GET/POST /api/system/rate-limit
+ * Tidligere kun tilgaengelig via CLI ("set rate-limit enable/disable"), og
+ * bevidst IKKE persisteret her heller — matcher CLI'ens eksisterende
+ * runtime-only opfoersel (rate_limit_enabled er en ren static bool, ikke en
+ * del af g_persist_config).
+ * ============================================================================ */
+esp_err_t api_handler_rate_limit_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+  char buf[96];
+  snprintf(buf, sizeof(buf), "{\"enabled\":%s,\"persisted\":false}", http_rate_limit_is_enabled() ? "true" : "false");
+  return api_send_json(req, buf);
+}
+
+esp_err_t api_handler_rate_limit_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[64];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+  if (!doc.containsKey("enabled")) return api_send_error(req, 400, "Missing 'enabled' field");
+
+  bool en = doc["enabled"].as<bool>();
+  http_rate_limit_set_enabled(en);
+
+  char buf[128];
+  snprintf(buf, sizeof(buf), "{\"status\":200,\"enabled\":%s,\"message\":\"Not persisted across reboot\"}", en ? "true" : "false");
+  return api_send_json(req, buf);
 }
 
 /* ============================================================================
@@ -8539,6 +8684,7 @@ static const V1Route v1_routes[] = {
   {"/api/persist/groups",   true,  HTTP_GET,    api_handler_persist_groups_list},
   {"/api/persist/save",     true,  HTTP_POST,   api_handler_persist_save},
   {"/api/persist/restore",  true,  HTTP_POST,   api_handler_persist_restore},
+  {"/api/persist/config",   true,  HTTP_POST,   api_handler_persist_config_post},
   {"/api/user/me",          true,  HTTP_GET,    api_handler_user_me},
   {"/api/cli",              true,  HTTP_POST,   api_handler_cli_exec},
   {"/api/bindings",         true,  HTTP_GET,    api_handler_bindings_list},

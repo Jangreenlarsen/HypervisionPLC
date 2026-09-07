@@ -223,6 +223,21 @@ static const httpd_uri_t uri_schema = {
   .user_ctx = NULL
 };
 
+// FEAT: GUI-oprydning — rate-limit toggle (tidligere kun CLI)
+static const httpd_uri_t uri_rate_limit_get = {
+  .uri      = "/api/system/rate-limit",
+  .method   = HTTP_GET,
+  .handler  = api_handler_rate_limit_get,
+  .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_rate_limit_post = {
+  .uri      = "/api/system/rate-limit",
+  .method   = HTTP_POST,
+  .handler  = api_handler_rate_limit_post,
+  .user_ctx = NULL
+};
+
 static const httpd_uri_t uri_config = {
   .uri      = "/api/config",
   .method   = HTTP_GET,
@@ -914,6 +929,12 @@ static const httpd_uri_t uri_persist_restore = {
   .handler  = api_handler_persist_restore,
   .user_ctx = NULL
 };
+static const httpd_uri_t uri_persist_config = {
+  .uri      = "/api/persist/config",
+  .method   = HTTP_POST,
+  .handler  = api_handler_persist_config_post,
+  .user_ctx = NULL
+};
 
 // FEAT-108: Dashboard layout (GET + POST)
 extern esp_err_t api_handler_dashboard_layout_get(httpd_req_t *req);
@@ -1096,6 +1117,8 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_syslog_post);
   httpd_register_uri_handler(http_state.server, &uri_audit_log_get);
   httpd_register_uri_handler(http_state.server, &uri_audit_log_post);
+  httpd_register_uri_handler(http_state.server, &uri_rate_limit_get);
+  httpd_register_uri_handler(http_state.server, &uri_rate_limit_post);
   httpd_register_uri_handler(http_state.server, &uri_schema);
   // Timers
   httpd_register_uri_handler(http_state.server, &uri_timers);
@@ -1190,6 +1213,7 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_persist_group_delete);
   httpd_register_uri_handler(http_state.server, &uri_persist_save);
   httpd_register_uri_handler(http_state.server, &uri_persist_restore);
+  httpd_register_uri_handler(http_state.server, &uri_persist_config);
   // FEAT-108: Dashboard layout
   httpd_register_uri_handler(http_state.server, &uri_dashboard_layout_get);
   httpd_register_uri_handler(http_state.server, &uri_dashboard_layout_post);
