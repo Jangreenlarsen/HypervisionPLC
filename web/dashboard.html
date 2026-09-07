@@ -273,6 +273,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="row"><span class="lbl">Success</span><span class="val val-ok" id="mmOk">-</span></div>
 <div class="row"><span class="lbl">Timeout fejl</span><span class="val val-err" id="mmTimeout">-</span></div>
 <div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="mmCrc">-</span></div>
+<div class="row"><span class="lbl">Bus busy (kontention)</span><span class="val val-err" id="mmBusBusy">-</span></div>
 <div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="mmRate">-</span></div>
 <div class="row"><span class="lbl">Rate (nu)</span><span class="val val-n" id="mmRateNow">-</span></div>
 <div class="spark-row"><span class="sl">Requests</span><svg id="sparkMbMaster" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
@@ -316,6 +317,17 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 </div>
 
+<!-- FEAT-096: RS-485 Bus Health — samlet bus-niveau-overblik, supplerer de
+     rolle-specifikke Slave/Master-kort ovenfor med tal der kun giver mening
+     for HELE bussen (delt enkelt-transceiver, FEAT-038) -->
+<div class="card" data-card-id="bushealth" data-tab="modbus">
+<h2>RS-485 Bus Health</h2>
+<div class="row"><span class="lbl">Kombineret fejlrate</span><span class="val val-n" id="bhErrorRate">-</span></div>
+<div class="row"><span class="lbl">Bus busy / kontention</span><span class="val val-err" id="bhBusBusy">-</span></div>
+<div class="row"><span class="lbl">Bus-belastning (estimeret)</span><span class="val val-n" id="bhBusyRatio">-</span></div>
+<p style="font-size:9px;color:#6c7086;margin-top:6px">Bus-belastning er et ESTIMAT beregnet ud fra request-rate × antaget gennemsnitlig frame-størrelse (~30 byte) og baudrate — IKKE en direkte målt værdi (ingen byte-niveau-tælling findes i firmwaren i dag). "Bus busy / kontention" er antal gange master ikke kunne opnå UART-mutex'en inden for 2s (samme tal som Modbus Master-kortets "Bus busy"-række).</p>
+</div>
+
 <!-- FEAT-149: Modbus Aktivitetslog (Master + Slave, RAM-only, wire-level) -->
 <div class="card card-wide" data-card-id="mbactivity" data-tab="modbus">
 <h2>Modbus Aktivitetslog <span class="badge badge-off" id="badgeMbActivity">0</span></h2>
@@ -349,6 +361,35 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <input type="number" id="mbActLimit" value="100" min="5" max="500" onchange="fetchMbActivity()" title="Max antal linjer der hentes og vises" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
 </div>
 <div id="mbActivityBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen aktivitet endnu</span></div>
+</div>
+
+<!-- FEAT-099: Trend Recorder — periodisk sampling af vilkårlige registre til
+     commissioning/debugging, RAM-only, CSV-eksport -->
+<div class="card card-wide" data-card-id="trendrec" data-tab="app">
+<h2>Trend Recorder <span class="badge badge-off" id="badgeTrend">0</span></h2>
+<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+<span style="font-size:10px;color:#6c7086" id="trendInfo">-</span>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+<button id="trendToggleBtn" onclick="toggleTrendRecording()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Start</button>
+<button onclick="exportTrendCsv()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Eksporter CSV</button>
+<button onclick="clearTrendData()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Ryd data</button>
+</div>
+</div>
+<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+<select id="trendNewType" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="hr">Holding Reg</option>
+<option value="ir">Input Reg</option>
+<option value="coil">Coil</option>
+<option value="di">Discrete In</option>
+</select>
+<input type="number" id="trendNewAddr" min="0" max="65535" placeholder="Adresse" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:70px">
+<button onclick="addTrendPoint()" style="font-size:10px;padding:3px 10px;background:#89b4fa;color:#1e1e2e;border:none;border-radius:3px;cursor:pointer;font-weight:600">+ Tilføj punkt</button>
+<span style="font-size:10px;color:#6c7086">Interval (ms):</span>
+<input type="number" id="trendInterval" value="5000" min="500" max="60000" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:65px" onchange="saveTrendConfig()">
+</div>
+<div id="trendPointList" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>
+<div id="trendBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen punkter konfigureret endnu</span></div>
+<p style="font-size:9px;color:#6c7086;margin-top:6px">RAM-only — konfiguration og data nulstilles ved genstart. At tilføje/fjerne et punkt eller ændre interval stopper optagelsen og rydder allerede opsamlet data (en rekonfiguration er altid en frisk start).</p>
 </div>
 
 <!-- HTTP API + SSE -->
@@ -670,7 +711,7 @@ let _syslogTotal=0;
 const _syslogSrcNames={rest:'REST API',modbus_slave:'Modbus (ekstern)',system:'System'};
 
 let _activeSubTab='all';
-const _defaultTabs={system:'overview',network:'overview',alarms:'overview',syslog:'overview',modbusslave:'modbus',modbusmaster:'modbus',mbactivity:'modbus',rtutrafik:'modbus',httpapi:'connections',tcpmonitor:'connections',ntp:'connections',counters:'app',timers:'app',stlogic:'app',dio:'app',analogio:'app'};
+const _defaultTabs={system:'overview',network:'overview',alarms:'overview',syslog:'overview',modbusslave:'modbus',modbusmaster:'modbus',mbactivity:'modbus',rtutrafik:'modbus',bushealth:'modbus',httpapi:'connections',tcpmonitor:'connections',ntp:'connections',counters:'app',timers:'app',stlogic:'app',dio:'app',analogio:'app',trendrec:'app'};
 let _customTabs={};   // Overrides from API
 let _hiddenCards={};   // Set of hidden card IDs
 let _customMembers={};   // FEAT-167: kort-id'er tilfoejet til den uafhaengige "Custom"-fane (ved siden af, ikke i stedet for, kortets normale fane)
@@ -957,6 +998,12 @@ function updateDashboard(m){
   $('mmOk').textContent=fmtN(mmO);
   $('mmTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
   $('mmCrc').textContent=fmtN(g(m,'modbus_master_crc_errors_total'));
+  // FEAT-096: modbus_master_bus_busy_errors_total fandtes allerede i
+  // Prometheus-metrics (mutex-timeout paa det delte RS485-transceiver, dvs.
+  // slave og master forsoegte at sende samtidig) men blev aldrig vist nogen
+  // steder i GUI'en — det praktiske "kollisions"-maal for denne
+  // enkelt-transceiver-arkitektur (se FEAT-038).
+  $('mmBusBusy').textContent=fmtN(g(m,'modbus_master_bus_busy_errors_total'));
   $('mmRate').textContent=rate(mmO,mmT);
   const mmEn=g(m,'modbus_master_config_enabled');
   badge($('badgeMaster'),mmEn===1&&mmT>0,mmEn===1?(mmT>0?'Aktiv':'Idle'):'Deaktiveret');
@@ -972,6 +1019,30 @@ function updateDashboard(m){
     drawSparkline('sparkMbMaster',history.mbMaster,'#89b4fa');
     $('mmRateNow').textContent=fmtRate(r);
     $('mmRateMinMax').textContent=histMinMax(history.mbMaster);
+  }
+
+  // FEAT-096: RS-485 Bus Health — kombinerer Slave+Master-tal (samme delte
+  // enkelt-transceiver, FEAT-038) til ét bus-niveau-overblik.
+  {
+    const msErr=(g(m,'modbus_slave_crc_errors_total')||0)+(g(m,'modbus_slave_exceptions_total')||0);
+    const mmErr=(g(m,'modbus_master_timeout_errors_total')||0)+(g(m,'modbus_master_crc_errors_total')||0)+(g(m,'modbus_master_exception_errors_total')||0);
+    const combTotal=(msT||0)+(mmT||0);
+    const combErr=msErr+mmErr;
+    $('bhErrorRate').textContent=combTotal>0?((combErr/combTotal)*100).toFixed(2)+'% ('+combErr+'/'+combTotal+')':'-';
+    $('bhBusBusy').textContent=fmtN(g(m,'modbus_master_bus_busy_errors_total'));
+    // Estimat: (requests/sek × ~30 byte/transaktion × 11 bit/byte) / baudrate.
+    // 30 byte er et groft gennemsnit for en typisk request+response-parring
+    // (fx læs 4-8 holding-registre) — INGEN reel byte-tælling findes i
+    // firmwaren i dag, se kortets egen forklarende tekst.
+    const msRateNow=history.mbSlave.length?history.mbSlave[history.mbSlave.length-1]:0;
+    const mmRateNow=history.mbMaster.length?history.mbMaster[history.mbMaster.length-1]:0;
+    const msBaud=g(m,'modbus_slave_config_baudrate')||9600;
+    const mmBaud=g(m,'modbus_master_config_baudrate')||9600;
+    const AVG_FRAME_BYTES=30, BITS_PER_BYTE=11;
+    const msBusy=msRateNow*AVG_FRAME_BYTES*BITS_PER_BYTE/msBaud;
+    const mmBusy=mmRateNow*AVG_FRAME_BYTES*BITS_PER_BYTE/mmBaud;
+    const busyPct=Math.min(100,(msBusy+mmBusy)*100);
+    $('bhBusyRatio').textContent=(msRateNow>0||mmRateNow>0)?busyPct.toFixed(1)+'%':'-';
   }
 
   // HTTP API
@@ -1896,6 +1967,161 @@ async function clearMbActivity(){
     fetchMbActivity();
   }catch(e){}
 }
+
+// FEAT-099: Trend Recorder — periodisk register-sampling, RAM-only, CSV-eksport
+let _trendPoints=[];       // lokalt spejl af server-config: [{type,addr}]
+let _trendRecording=false;
+let _trendPointTypeNames={hr:'HR',ir:'IR',coil:'Coil',di:'DI'};
+
+function trendPointLabel(p){return _trendPointTypeNames[p.type]+p.addr;}
+
+async function loadTrendConfig(){
+  if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
+  try{
+    const r=await dashFetch('/api/trend/config',{});
+    if(!r.ok)return;
+    const d=await r.json();
+    _trendPoints=d.points||[];
+    _trendRecording=!!d.recording;
+    $('trendInterval').value=d.interval_ms||5000;
+    updateTrendToggleBtn();
+    renderTrendPointList();
+    const badgeEl=$('badgeTrend');
+    if(badgeEl)badge(badgeEl,d.sample_count>0,String(d.sample_count||0));
+    $('trendInfo').textContent=(d.sample_count||0)+' / '+(d.capacity||0)+' samples'+(_trendRecording?'':' — STOPPET');
+    fetchTrendData();
+  }catch(e){}
+}
+function updateTrendToggleBtn(){
+  const b=$('trendToggleBtn');
+  if(!b)return;
+  b.textContent=_trendRecording?'Stop':'Start';
+  b.style.color=_trendRecording?'#f9e2af':'#a6adc8';
+  b.style.borderColor=_trendRecording?'#f9e2af':'#45475a';
+}
+function renderTrendPointList(){
+  const el=$('trendPointList');
+  if(!el)return;
+  if(_trendPoints.length===0){
+    el.innerHTML='<span style="font-size:10px;color:#6c7086">Ingen punkter — tilføj mindst ét ovenfor</span>';
+    return;
+  }
+  el.innerHTML=_trendPoints.map((p,i)=>
+    '<span style="font-size:10px;background:#313244;color:#cdd6f4;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:4px">'+
+    trendPointLabel(p)+
+    '<span style="cursor:pointer;color:#f38ba8" onclick="removeTrendPoint('+i+')">&times;</span></span>'
+  ).join('');
+}
+async function saveTrendConfig(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      interval_ms:parseInt($('trendInterval').value)||5000,
+      points:_trendPoints
+    })};
+    if(auth)opts.headers['Authorization']=auth;
+    const r=await fetch('/api/trend/config',opts);
+    if(!r.ok){const j=await r.json();alert('Fejl: '+(j.error||'ukendt'));return;}
+    loadTrendConfig();
+  }catch(e){alert('Fejl: '+e.message);}
+}
+function addTrendPoint(){
+  if(_trendPoints.length>=8){alert('Max 8 punkter tilladt');return;}
+  const type=$('trendNewType').value;
+  const addr=parseInt($('trendNewAddr').value);
+  if(isNaN(addr)||addr<0||addr>65535){alert('Ugyldig adresse');return;}
+  _trendPoints.push({type:type,addr:addr});
+  $('trendNewAddr').value='';
+  saveTrendConfig();
+}
+function removeTrendPoint(idx){
+  _trendPoints.splice(idx,1);
+  saveTrendConfig();
+}
+async function toggleTrendRecording(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{}};
+    if(auth)opts.headers['Authorization']=auth;
+    const ep=_trendRecording?'/api/trend/stop':'/api/trend/start';
+    const r=await fetch(ep,opts);
+    if(r.ok){
+      const d=await r.json();
+      _trendRecording=!!d.recording;
+      updateTrendToggleBtn();
+    }
+  }catch(e){}
+}
+async function clearTrendData(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts={method:'POST',headers:{}};
+    if(auth)opts.headers['Authorization']=auth;
+    await fetch('/api/trend/clear',opts);
+    loadTrendConfig();
+  }catch(e){}
+}
+let _trendLastData=null;
+async function fetchTrendData(){
+  if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
+  try{
+    const r=await dashFetch('/api/trend/data',{});
+    if(!r.ok)return;
+    _trendLastData=await r.json();
+    renderTrendTable();
+  }catch(e){}
+}
+function renderTrendTable(){
+  const el=$('trendBody');
+  if(!el)return;
+  const d=_trendLastData;
+  if(!d||!d.points||d.points.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen punkter konfigureret endnu</span>';
+    return;
+  }
+  if(!d.samples||d.samples.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen samples endnu — tryk Start</span>';
+    return;
+  }
+  // Nyeste øverst, vis maks 100 rækker i UI (fuld eksport bruger altid alle)
+  const rows=d.samples.slice(-100).reverse();
+  let h='<table class="tbl"><tr><th>Tid</th>';
+  for(const p of d.points)h+='<th>'+trendPointLabel(p)+'</th>';
+  h+='</tr>';
+  for(const s of rows){
+    h+='<tr><td style="font-size:10px">'+fmtUptime(s.t)+'</td>';
+    for(const v of s.v)h+='<td style="font-size:10px">'+v+'</td>';
+    h+='</tr>';
+  }
+  h+='</table>';
+  el.innerHTML=h;
+}
+async function exportTrendCsv(){
+  try{
+    var auth=sessionStorage.getItem('hfplc_auth');
+    var opts=auth?{headers:{'Authorization':auth}}:{};
+    const r=await fetch('/api/trend/data',opts);
+    if(!r.ok){alert('Kunne ikke hente trend-data til eksport');return;}
+    const d=await r.json();
+    if(!d.samples||!d.samples.length){alert('Ingen samples at eksportere');return;}
+    let csv='tid_ms;'+d.points.map(p=>trendPointLabel(p)).join(';')+'\n';
+    for(const s of d.samples){
+      csv+=s.t+';'+s.v.join(';')+'\n';
+    }
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');
+    link.href=url;
+    const now=new Date();
+    const pad=n=>String(n).padStart(2,'0');
+    link.download='trend_'+now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())+'.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }catch(e){alert('Eksport fejlede: '+e.message);}
+}
+
 // FEAT-086/089: Haendelses- og registerandringslog
 async function fetchSyslog(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
@@ -2459,9 +2685,13 @@ function restoreCardOrder(){
 }
 
 // === Dashboard Settings Page ===
-const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',mbactivity:'Modbus Aktivitetslog',syslog:'Hændelseslog',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O',analogio:'Analog I/O'};
+const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',mbactivity:'Modbus Aktivitetslog',syslog:'Hændelseslog',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O',analogio:'Analog I/O',bushealth:'RS-485 Bus Health',trendrec:'Trend Recorder'};
 const _tabNames={overview:'Overblik',modbus:'Modbus',connections:'Forbindelser',app:'Applikation'};
-const _allCardIds=['system','network','alarms','syslog','modbusslave','modbusmaster','mbactivity','rtutrafik','httpapi','tcpmonitor','ntp','counters','timers','stlogic','dio','analogio'];
+// FEAT-096/099: 'bushealth'/'trendrec' TILFØJET SIDST — BUG-365: denne
+// rækkefølge må kun UDVIDES, aldrig omrokeres, da Custom-fane-medlemskab
+// gemmes som indeks heri i brugernes NVS-persisterede layout (se
+// kommentaren nedenfor).
+const _allCardIds=['system','network','alarms','syslog','modbusslave','modbusmaster','mbactivity','rtutrafik','httpapi','tcpmonitor','ntp','counters','timers','stlogic','dio','analogio','bushealth','trendrec'];
 // BUG-365: Custom-fane-medlemsskab gemmes som INDEKS i _allCardIds
 // ("0,4,7,12"), ikke fulde kort-navne ("system,modbusslave,...") — de fulde
 // navne kunne let overstige det 80-byte NVS-felt (dashboard_card_custom) med
@@ -2887,11 +3117,13 @@ function init(){
   setTimeout(fetchNetworkInfo, 600);
   setTimeout(fetchConnections, 720);
   setTimeout(updateUserBadge, 840);
+  setTimeout(loadTrendConfig, 960);
   refreshTimer=setInterval(fetchMetrics,3000);
   setInterval(fetchBindings,15000);
   setInterval(fetchAlarms,5000);
   setInterval(fetchMbActivity,3000);
   setInterval(fetchSyslog,5000);
+  setInterval(loadTrendConfig,5000);
   setInterval(fetchNetworkInfo,10000);
   setInterval(fetchConnections,5000);
   setTimeout(sseConnect, 960);

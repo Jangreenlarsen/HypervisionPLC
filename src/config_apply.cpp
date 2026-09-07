@@ -82,7 +82,7 @@ bool config_apply(const PersistConfig* cfg) {
         debug_print("    GPIO");
         debug_print_uint(map->gpio_pin);
         debug_print(" - COIL:");
-        debug_print_uint(map->coil_reg);
+        debug_print_uint(map->output_reg);
         debug_println("");
       }
     }
@@ -103,7 +103,7 @@ bool config_apply(const PersistConfig* cfg) {
       debug_print_uint(map->st_var_index);
       debug_print("] ");
       debug_print(map->is_input ? "<- HR#" : "-> HR#");
-      debug_print_uint(map->is_input ? map->input_reg : map->coil_reg);
+      debug_print_uint(map->is_input ? map->input_reg : map->output_reg);
 
       if (!program_exists) {
         debug_print(" [WARNING: program not loaded/deleted]");

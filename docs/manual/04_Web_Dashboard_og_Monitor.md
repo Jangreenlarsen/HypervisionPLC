@@ -24,9 +24,9 @@ Dashboardet er organiseret i **kort** (cards), grupperet under faner:
 
 - **Alle** — alle kort samlet
 - **Overblik** — System, Netværk, Alarm Historik, Hændelseslog
-- **Modbus** — Modbus Slave, Modbus Master (+ manuel Read/Write), Modbus Aktivitetslog, RTU-trafik
+- **Modbus** — Modbus Slave, Modbus Master (+ manuel Read/Write), Modbus Aktivitetslog, RTU-trafik, RS-485 Bus Health (FEAT-096)
 - **Forbindelser** — HTTP API/SSE, TCP-forbindelsesmonitor, NTP
-- **Applikation** — Tællere, Timere, ST Logic, Digital I/O
+- **Applikation** — Tællere, Timere, ST Logic, Digital I/O, Trend Recorder (FEAT-099)
 - **Custom (FEAT-167)** — et uafhængigt, brugervalgt kort-sæt, se nedenfor
 
 **Fri kort-placering (FEAT-160):** hvert kort kan flyttes vilkårligt (træk i ☰-håndtaget i kortets titel, eller ved at venstreklikke og holde et vilkårligt sted på kortet — undtagen på knapper/felter/links, FEAT-162) og størrelsesændres frit (træk i hjørne-håndtaget nederst til højre) i et 12-kolonners grid — ikke bare et bred/normal-valg, men fuld 2D-placering ligesom et dashboard-builder-værktøj (Grafana e.l.). Lander man et kort oven i et andet, bytter de plads; overlapper en ny størrelse et nabokort, skubbes det ned. Alle periodiske dataopdateringer sættes på pause, mens et kort aktivt flyttes/resizes (BUG-359), så kortet ikke "snapper" tilbage midt i trækket.
@@ -35,7 +35,7 @@ Dashboardet er organiseret i **kort** (cards), grupperet under faner:
 
 **Custom-fanen (FEAT-167):** på Indstillinger-siden kan hvert kort — uafhængigt af dets normale fane-tildeling — også markeres til at vise sig på en ny "Custom"-fane. Et kort her **forsvinder ikke** fra sin normale fane (fx et Modbus-kort markeret til Custom ses stadig under både "Modbus" og "Custom") — Custom er en ekstra, brugerdefineret samling ved siden af, ikke en omplacering. Custom-fanens layout er uafhængigt af de øvrige faners, ligesom enhver anden fane.
 
-**Mindstestørrelse (BUG-356):** kort med en indbygget rulleflade (Modbus Aktivitetslog, Alarm Historik, Hændelseslog, Modbus manuel Read/Write-resultatet) kan ikke resizes mindre end det de reelt kræver for at vise deres fulde indhold — rammen bliver rød og resize stopper, hvis du prøver at trække under den grænse. Standard-layoutet regner automatisk med denne mindstestørrelse fra starten, så en tabel der endnu ikke har hentet data, ikke låser kortet for lille til når data ankommer.
+**Mindstestørrelse (BUG-356):** kort med en indbygget rulleflade (Modbus Aktivitetslog, Alarm Historik, Hændelseslog, Trend Recorder, Modbus manuel Read/Write-resultatet) kan ikke resizes mindre end det de reelt kræver for at vise deres fulde indhold — rammen bliver rød og resize stopper, hvis du prøver at trække under den grænse. Standard-layoutet regner automatisk med denne mindstestørrelse fra starten, så en tabel der endnu ikke har hentet data, ikke låser kortet for lille til når data ankommer.
 
 **Pause under flyt/resize (BUG-359):** mens et kort aktivt flyttes eller resizes (venstreklik holdt nede), sættes ALLE periodiske dataopdateringer på pause — ellers ville kortet man er ved at placere kunne "snappe" tilbage til sin gamle position midt i trækket, og andre kort kunne hoppe i indhold/størrelse imens. Opdateringerne genoptages automatisk, så snart museknappen slippes.
 
@@ -48,6 +48,10 @@ Dashboardet er organiseret i **kort** (cards), grupperet under faner:
 **Modbus Slave / Modbus Master** — konfiguration og løbende statistik (requests, success rate, fejltyper). Master-kortet indeholder desuden cache-/kø-statistik (hit rate, kø-dybde, prioritets-drops) og en **manuel Read/Write-formular** til hurtige ad-hoc-forespørgsler uden at skulle bruge CLI.
 
 **Modbus Aktivitetslog** — et wire-level-vindue ind i hvad der rent faktisk sker på Modbus-interfacet lige nu: hver transaktion (Master *og* Slave-rolle) med rolle, kilde (ST Logic/CLI/dashboard/ekstern master), slave-ID, function code, adresse, værdi og status. RAM-only (nulstilles ved reboot), fungerer som et levende diagnoseværktøj — se [kapitel 13](13_Fejlfinding.md) for hvordan den bruges til fejlsøgning.
+
+**RS-485 Bus Health (FEAT-096)** — samlet bus-niveau-overblik der supplerer Slave-/Master-kortene: kombineret fejlrate på tværs af begge roller, "bus busy/kontention" (antal gange master ikke kunne opnå UART-mutex'en — en praktisk kollisions-proxy for enkelt-transceiver-arkitekturen, se [§6.1](06_Modbus_Interface.md)), og et **estimeret** bus-belastningstal (request-rate × en antaget gennemsnitlig frame-størrelse ÷ baudrate — IKKE en direkte målt værdi, tydeligt mærket som sådan i kortet, da firmwaren ikke i dag har byte-niveau UART-instrumentering).
+
+**Trend Recorder (FEAT-099)** — optag op til 8 vilkårlige registre (Holding/Input/Coil/Discrete Input, blandet frit) på et konfigurerbart interval (500ms-60s) til en RAM-only ringbuffer (720 samples), og eksportér som CSV til commissioning/dybere offline-analyse i f.eks. Excel. Adskiller sig fra Hændelseslogens registerændrings-sporing ved at sample **periodisk uanset om værdien har ændret sig** — et ægte tidsserie-værktøj, ikke en audit-log. Konfiguration og data er bevidst IKKE persisteret (nulstilles ved reboot) — en rekonfiguration (tilføj/fjern målepunkt, skift interval) stopper og rydder altid eksisterende data, så en "session" altid starter frisk.
 
 Loggen rummer **500 transaktioner** (ringbuffer i PSRAM) og har tre knapper:
 

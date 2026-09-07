@@ -105,8 +105,8 @@ void register_allocator_init(void) {
       }
 
       // Check OUTPUT bindings (only allocate if different from input)
-      if (!map->is_input && map->output_type == 0 && map->coil_reg < ALLOCATOR_SIZE) {
-        register_allocator_allocate(map->coil_reg, REG_OWNER_ST_VAR,
+      if (!map->is_input && map->output_type == 0 && map->output_reg < ALLOCATOR_SIZE) {
+        register_allocator_allocate(map->output_reg, REG_OWNER_ST_VAR,
                                    map->st_program_id + 1, "out");
       }
     }

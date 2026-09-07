@@ -615,7 +615,7 @@ void gpio_mapping_update(void) {
           int level = gpio_driver_read(map->gpio_pin);
           registers_set_discrete_input(map->input_reg, level);
         } else {
-          int state = registers_get_coil(map->coil_reg);
+          int state = registers_get_coil(map->output_reg);  // BUG-011: renamed from coil_reg
           gpio_driver_write(map->gpio_pin, state);
         }
       }

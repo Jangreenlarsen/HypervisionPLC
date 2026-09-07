@@ -862,7 +862,7 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id) {
  *     .st_program_id = 0,
  *     .st_var_index = 2,
  *     .is_input = 0,  // OUTPUT mode
- *     .coil_reg = 100  // Write to HR#100
+ *     .output_reg = 100  // Write to HR#100
  *   };
  *   g_persist_config.var_maps[g_persist_config.var_map_count++] = map;
  *   config_save();
@@ -992,11 +992,11 @@ bool st_logic_delete(st_logic_engine_state_t *state, uint8_t program_id) {
 
       // Free output register/coil if allocated
       if (!map->is_input) {
-        if (map->output_type == 0 && map->coil_reg < ALLOCATOR_SIZE) {
+        if (map->output_type == 0 && map->output_reg < ALLOCATOR_SIZE) {
           // Holding register - free all words
           for (uint8_t w = 0; w < word_count; w++) {
-            if (map->coil_reg + w < ALLOCATOR_SIZE) {
-              register_allocator_free(map->coil_reg + w);
+            if (map->output_reg + w < ALLOCATOR_SIZE) {
+              register_allocator_free(map->output_reg + w);
             }
           }
         }

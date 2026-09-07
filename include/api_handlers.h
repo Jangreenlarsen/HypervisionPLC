@@ -316,6 +316,9 @@ esp_err_t api_handler_syslog_clear(httpd_req_t *req);
 esp_err_t api_handler_syslog_toggle(httpd_req_t *req, bool enable);
 esp_err_t api_handler_syslog_post_dispatch(httpd_req_t *req);
 
+/* FEAT-099: Trend Recorder */
+esp_err_t api_handler_trend_dispatch(httpd_req_t *req);
+
 // FEAT-033: Request Audit Log
 esp_err_t api_handler_audit_log_get(httpd_req_t *req);
 esp_err_t api_handler_audit_log_clear(httpd_req_t *req);

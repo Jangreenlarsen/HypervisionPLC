@@ -155,8 +155,8 @@ static void gpio_mapping_write_outputs(void) {
 
       if (!map->is_input) {
         // OUTPUT mode: Coil → GPIO pin
-        if (map->coil_reg != 65535) {
-          uint8_t value = registers_get_coil(map->coil_reg);
+        if (map->output_reg != 65535) {
+          uint8_t value = registers_get_coil(map->output_reg);
           gpio_write(map->gpio_pin, value);
         }
       }
@@ -182,7 +182,7 @@ static void gpio_mapping_write_outputs(void) {
         st_datatype_t var_type = prog->bytecode.var_types[map->st_var_index];
 
         // Check output_type to determine destination
-        if (map->coil_reg != 65535) {
+        if (map->output_reg != 65535) {
           // output_type: 0 = Holding Register, 1 = Coil
           if (map->output_type == 1) {
             // Output to COIL (BOOL variables)
@@ -193,35 +193,35 @@ static void gpio_mapping_write_outputs(void) {
               // Convert INT/DINT/REAL to BOOL (non-zero = 1)
               coil_value = (prog->bytecode.variables[map->st_var_index].int_val != 0) ? 1 : 0;
             }
-            registers_set_coil(map->coil_reg, coil_value);
+            registers_set_coil(map->output_reg, coil_value);
           }
           else {
             // Output to HOLDING REGISTER (multi-register aware)
             if (var_type == ST_TYPE_BOOL) {
               // BOOL: 1 register
               uint16_t reg_value = prog->bytecode.variables[map->st_var_index].bool_val ? 1 : 0;
-              registers_set_holding_register(map->coil_reg, reg_value);
+              registers_set_holding_register(map->output_reg, reg_value);
             }
             else if (var_type == ST_TYPE_INT) {
               // INT: 16-bit signed, 1 register
               int16_t int_value = prog->bytecode.variables[map->st_var_index].int_val;
-              registers_set_holding_register(map->coil_reg, (uint16_t)int_value);
+              registers_set_holding_register(map->output_reg, (uint16_t)int_value);
             }
             else if (var_type == ST_TYPE_DINT) {
               // BUG-125 FIX: DINT: 32-bit signed, 2 registers (LSW first, MSW second)
               int32_t dint_value = prog->bytecode.variables[map->st_var_index].dint_val;
               uint16_t low_word = (uint16_t)(dint_value & 0xFFFF);
               uint16_t high_word = (uint16_t)((dint_value >> 16) & 0xFFFF);
-              registers_set_holding_register(map->coil_reg, low_word);      // LSW at base
-              registers_set_holding_register(map->coil_reg + 1, high_word); // MSW at base+1
+              registers_set_holding_register(map->output_reg, low_word);      // LSW at base
+              registers_set_holding_register(map->output_reg + 1, high_word); // MSW at base+1
             }
             else if (var_type == ST_TYPE_DWORD) {
               // BUG-125 FIX: DWORD: 32-bit unsigned, 2 registers (LSW first, MSW second)
               uint32_t dword_value = prog->bytecode.variables[map->st_var_index].dword_val;
               uint16_t low_word = (uint16_t)(dword_value & 0xFFFF);
               uint16_t high_word = (uint16_t)((dword_value >> 16) & 0xFFFF);
-              registers_set_holding_register(map->coil_reg, low_word);      // LSW at base
-              registers_set_holding_register(map->coil_reg + 1, high_word); // MSW at base+1
+              registers_set_holding_register(map->output_reg, low_word);      // LSW at base
+              registers_set_holding_register(map->output_reg + 1, high_word); // MSW at base+1
             }
             else if (var_type == ST_TYPE_REAL) {
               // BUG-125 FIX: REAL: 32-bit float, 2 registers (IEEE 754, LSW first, MSW second)
@@ -230,8 +230,8 @@ static void gpio_mapping_write_outputs(void) {
               memcpy(&bits, &real_value, sizeof(float));  // Reinterpret float as bits
               uint16_t low_word = (uint16_t)(bits & 0xFFFF);
               uint16_t high_word = (uint16_t)((bits >> 16) & 0xFFFF);
-              registers_set_holding_register(map->coil_reg, low_word);      // LSW at base
-              registers_set_holding_register(map->coil_reg + 1, high_word); // MSW at base+1
+              registers_set_holding_register(map->output_reg, low_word);      // LSW at base
+              registers_set_holding_register(map->output_reg + 1, high_word); // MSW at base+1
             }
           }
         }

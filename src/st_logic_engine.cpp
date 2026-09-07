@@ -492,11 +492,11 @@ void st_logic_print_program(st_logic_engine_state_t *state, uint8_t program_id, 
         if (map->output_type == 1) {
           // Coil output
           debug_printf("  [%d] %s → Coil#%d (output)\n",
-                 map->st_var_index, var_name, map->coil_reg);
+                 map->st_var_index, var_name, map->output_reg);
         } else {
           // Holding Register output
           debug_printf("  [%d] %s → Reg#%d (output)\n",
-                 map->st_var_index, var_name, map->coil_reg);
+                 map->st_var_index, var_name, map->output_reg);
         }
       }
     }

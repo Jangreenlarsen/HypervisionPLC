@@ -15,6 +15,7 @@
 #include "mb_activity_log.h"
 #include "system_log.h"  // FEAT-089
 #include "registers.h"   // FEAT-089: old-vaerdi-opslag foer dispatch
+#include "types.h"        // FEAT-096: PersistConfig (g_persist_config.modbus_slave-stats)
 #include <Arduino.h>
 
 /* ============================================================================
@@ -163,6 +164,17 @@ void modbus_server_loop(void) {
         } else if (rx_state == MODBUS_RX_ERROR) {
           // RX error - return to idle
           debug_println("Modbus RX error, returning to idle");
+          // FEAT-096: g_persist_config.modbus_slave.{total_requests,
+          // successful_requests,crc_errors,exception_errors} eksisterede i
+          // struct'en (og blev vist i CLI/REST/dashboard) men blev ALDRIG
+          // inkrementeret nogen steder — viste altid 0. Daekker BÅDE ægte
+          // CRC-mismatch og for-kort-frame (modbus_rx.cpp skelner ikke
+          // mellem dem i sin returværdi) — begge er bus-niveau
+          // framing-problemer, relevante for FEAT-096s bus-fejlrate uanset
+          // hvilken specifik slave frame'et var adresseret til (kan ikke
+          // paalideligt afgoeres naar CRC/laengde allerede er ugyldig).
+          extern PersistConfig g_persist_config;
+          g_persist_config.modbus_slave.crc_errors++;
           server_state = MODBUS_STATE_IDLE;
         }
         // Otherwise stay in RX state
@@ -189,6 +201,24 @@ void modbus_server_loop(void) {
         bool success = modbus_dispatch_function_code(&request_frame, &response_frame);
         mb_log_slave_activity(&request_frame, &response_frame, success);
         system_log_modbus_slave_write(&request_frame, success, syslog_old_val);
+
+        // FEAT-096: se kommentar ved MODBUS_RX_ERROR ovenfor — disse felter
+        // var aldrig blevet inkrementeret nogen steder foer. En frame der
+        // naar hertil er allerede CRC-valideret og adresseret til os (eller
+        // broadcast), saa den taeller altid som et modtaget request; success
+        // afgoer om det var en gyldig eller en exception-respons
+        // (modbus_dispatch_function_code() bygger altid en gyldig
+        // exception-response i response_frame ved !success, jf. kommentaren
+        // i mb_log_slave_activity() ovenfor).
+        {
+          extern PersistConfig g_persist_config;
+          g_persist_config.modbus_slave.total_requests++;
+          if (success) {
+            g_persist_config.modbus_slave.successful_requests++;
+          } else {
+            g_persist_config.modbus_slave.exception_errors++;
+          }
+        }
 
         if (success) {
           // Broadcast requests (slave_id == 0) should NOT generate responses

@@ -696,7 +696,7 @@ void cli_cmd_show_config(const char *section) {
         debug_print_uint(map->input_reg);
       } else {
         debug_print("coil ");
-        debug_print_uint(map->coil_reg);
+        debug_print_uint(map->output_reg);
       }
 
       // Check if this register is used by ST Logic variable binding
@@ -712,7 +712,7 @@ void cli_cmd_show_config(const char *section) {
           same_reg = (map->input_reg == st_map->input_reg && map->input_type == st_map->input_type);
         } else if (!map->is_input && !st_map->is_input) {
           // Both output - check if same coil/reg
-          same_reg = (map->coil_reg == st_map->coil_reg && map->output_type == st_map->output_type);
+          same_reg = (map->output_reg == st_map->output_reg && map->output_type == st_map->output_type);
         }
 
         if (same_reg) {
@@ -887,7 +887,7 @@ void cli_cmd_show_config(const char *section) {
           } else {
             debug_print("reg:");   // Holding Register output
           }
-          debug_print_uint(map->coil_reg);
+          debug_print_uint(map->output_reg);
           debug_print(" as output");
         }
         debug_println("");
@@ -1885,7 +1885,7 @@ void cli_cmd_show_config(const char *section) {
       debug_print_uint(map->input_reg);
     } else {
       debug_print(" coil ");
-      debug_print_uint(map->coil_reg);
+      debug_print_uint(map->output_reg);
     }
 
     debug_println("");
@@ -3011,7 +3011,7 @@ void cli_cmd_show_gpio(void) {
         debug_print_uint(map->input_reg);
       } else {
         debug_print("COIL:");
-        debug_print_uint(map->coil_reg);
+        debug_print_uint(map->output_reg);
       }
       debug_print("  [fjern: 'no set gpio ");
       debug_print_uint(map->gpio_pin);
@@ -3115,7 +3115,7 @@ void cli_cmd_show_gpio_pin(uint8_t pin) {
         debug_println("  Function: Physical GPIO input -> Modbus discrete input register");
       } else {
         debug_print("  Modbus Coil: ");
-        debug_print_uint(map->coil_reg);
+        debug_print_uint(map->output_reg);
         debug_println("");
         debug_println("  Function: Modbus coil register -> Physical GPIO output");
       }

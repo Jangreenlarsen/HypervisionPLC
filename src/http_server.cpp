@@ -201,6 +201,22 @@ static const httpd_uri_t uri_syslog_post = {
   .user_ctx = NULL
 };
 
+// FEAT-099: Trend Recorder — GET (/config,/data) og POST (/config,/start,
+// /stop,/clear) begge suffix-dispatchet inde i samme funktion, jf.
+// /api/syslog/*-moensteret ovenfor.
+static const httpd_uri_t uri_trend_get = {
+  .uri      = "/api/trend/*",
+  .method   = HTTP_GET,
+  .handler  = api_handler_trend_dispatch,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_trend_post = {
+  .uri      = "/api/trend/*",
+  .method   = HTTP_POST,
+  .handler  = api_handler_trend_dispatch,
+  .user_ctx = NULL
+};
+
 // FEAT-033: Request Audit Log
 static const httpd_uri_t uri_audit_log_get = {
   .uri      = "/api/system/logs",
@@ -1160,6 +1176,8 @@ int http_server_start(const HttpConfig *config)
   // FEAT-086/089: Haendelses- og registerandringslog
   httpd_register_uri_handler(http_state.server, &uri_syslog_get);
   httpd_register_uri_handler(http_state.server, &uri_syslog_post);
+  httpd_register_uri_handler(http_state.server, &uri_trend_get);
+  httpd_register_uri_handler(http_state.server, &uri_trend_post);
   httpd_register_uri_handler(http_state.server, &uri_audit_log_get);
   httpd_register_uri_handler(http_state.server, &uri_audit_log_post);
   httpd_register_uri_handler(http_state.server, &uri_rate_limit_get);

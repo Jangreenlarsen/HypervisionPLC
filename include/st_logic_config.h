@@ -194,7 +194,7 @@ bool st_logic_compile(st_logic_engine_state_t *state, uint8_t program_id);
  *   1. Create a VariableMapping entry in g_persist_config.var_maps
  *   2. Set source_type = MAPPING_SOURCE_ST_VAR
  *   3. Set st_program_id and st_var_index
- *   4. Set is_input/coil_reg or is_output fields
+ *   4. Set is_input/output_reg or is_output fields
  *   5. Call config_save() to persist
  *
  * The mapping engine will handle all I/O automatically.

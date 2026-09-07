@@ -43,6 +43,7 @@
 #include "ntp_driver.h"        // v7.8.1 - NTP time synchronization
 #include "mb_async.h"          // v7.7.0 - Async Modbus Master background task
 #include "mb_activity_log.h"   // FEAT-149 - Wire-level Modbus activity log
+#include "trend_recorder.h"    // FEAT-099 - Periodic register trend recorder
 #include "system_log.h"        // FEAT-086/089 - Event + register-change log
 #include "api_audit_log.h"     // FEAT-033 - Request audit log
 #include <esp_ota_ops.h>       // v7.5.0 - FEAT-031 OTA boot validation
@@ -120,6 +121,7 @@ void setup() {
   mb_activity_log_init();
   system_log_init();       // FEAT-086/089
   api_audit_log_init();    // FEAT-033
+  trend_recorder_init();   // FEAT-099
   system_log_add_event((uint8_t)SYSLOG_SRC_SYSTEM, NULL, NULL, "Enhed startet (boot)");
 
   // Modbus mode-based initialization (v7.2.0+)
@@ -354,6 +356,7 @@ void loop() {
   // Background feature engines
   counter_engine_loop();
   timer_engine_loop();
+  trend_recorder_loop();   // FEAT-099
 
   // Update DYNAMIC register/coil mappings (counter/timer → registers/coils)
   registers_update_dynamic_registers();

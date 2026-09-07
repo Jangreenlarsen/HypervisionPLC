@@ -595,12 +595,12 @@ int cli_cmd_set_logic_bind(st_logic_engine_state_t *logic_state, uint8_t program
           }
         }
       }
-      if (!map->is_input && map->output_type == 0 && map->coil_reg < ALLOCATOR_SIZE) {
+      if (!map->is_input && map->output_type == 0 && map->output_reg < ALLOCATOR_SIZE) {
         for (uint8_t w = 0; w < old_word_count; w++) {
-          if (map->coil_reg + w < ALLOCATOR_SIZE) {
-            register_allocator_free(map->coil_reg + w);
+          if (map->output_reg + w < ALLOCATOR_SIZE) {
+            register_allocator_free(map->output_reg + w);
             // BUG-026 FIX: Also cleanup any counters using same register (persistent config)
-            cleanup_counters_using_register(map->coil_reg + w);
+            cleanup_counters_using_register(map->output_reg + w);
           }
         }
       }
@@ -680,7 +680,7 @@ int cli_cmd_set_logic_bind(st_logic_engine_state_t *logic_state, uint8_t program
     map_out->st_var_index = var_index;
     map_out->is_input = 0;
     map_out->output_type = output_type;  // Use parameter (0=HR, 1=Coil)
-    map_out->coil_reg = modbus_reg;
+    map_out->output_reg = modbus_reg;
     map_out->word_count = word_count;  // BUG-105
 
     debug_printf("[OK] Logic%d: var[%d] (%s) <-> Modbus HR#%d (2 mappings created)\n",
@@ -710,7 +710,7 @@ int cli_cmd_set_logic_bind(st_logic_engine_state_t *logic_state, uint8_t program
     } else {
       map->is_input = 0;
       map->output_type = output_type;
-      map->coil_reg = modbus_reg;
+      map->output_reg = modbus_reg;
     }
 
     // Print confirmation

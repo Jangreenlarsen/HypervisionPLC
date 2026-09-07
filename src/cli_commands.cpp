@@ -916,7 +916,7 @@ void cli_cmd_set_gpio(uint8_t argc, char* argv[]) {
   g_persist_config.var_maps[found_idx].associated_counter = 0xff;  // No counter in STATIC mode
   g_persist_config.var_maps[found_idx].associated_timer = 0xff;    // No timer in STATIC mode
   g_persist_config.var_maps[found_idx].input_reg = input_index;
-  g_persist_config.var_maps[found_idx].coil_reg = coil_index;
+  g_persist_config.var_maps[found_idx].output_reg = coil_index;
 
   // Initialize GPIO pin direction
   if (is_input) {
@@ -1575,7 +1575,7 @@ void cli_cmd_defaults(void) {
   // Initialize all GPIO mappings as unused
   for (uint8_t i = 0; i < 8; i++) {
     g_persist_config.var_maps[i].input_reg = 65535;
-    g_persist_config.var_maps[i].coil_reg = 65535;
+    g_persist_config.var_maps[i].output_reg = 65535;
     g_persist_config.var_maps[i].associated_counter = 0xff;
     g_persist_config.var_maps[i].associated_timer = 0xff;
     g_persist_config.var_maps[i].input_type = 0;      // Default: Holding Register

@@ -240,7 +240,11 @@ typedef struct __attribute__((packed)) {
   uint8_t input_type;           // 0 = Holding Register (HR), 1 = Discrete Input (DI) - only for INPUT mode
   uint8_t output_type;          // 0 = Holding Register (HR), 1 = Coil - only for OUTPUT mode
   uint16_t input_reg;           // Input register index (65535 if none) - for INPUT mode
-  uint16_t coil_reg;            // Coil/output register index (65535 if none) - for OUTPUT mode (NOTE: also holds reg address if output_type=0)
+  // BUG-011: renamed from "coil_reg" (was misleading — this field holds an
+  // HR address when output_type==0, a coil index only when output_type==1).
+  // JSON wire-format key in backup/restore stays "coil_reg" for backward
+  // compatibility with old backup files (see api_handlers.cpp export/import).
+  uint16_t output_reg;          // Output register/coil index (65535 if none) - for OUTPUT mode, meaning depends on output_type
 
   // BUG-105: Multi-register support for DINT/REAL (32-bit types)
   uint8_t word_count;           // Number of consecutive 16-bit registers (1=INT/BOOL, 2=DINT/REAL/DWORD)

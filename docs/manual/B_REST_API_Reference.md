@@ -4,7 +4,7 @@
 
 ---
 
-> Denne reference er udtrukket direkte fra kildekoden (`src/http_server.cpp`, `src/api_handlers.cpp`, `src/ota_handler.cpp`) — alle **117** registrerede `httpd_uri_t`-handlers er talt og dokumenteret nedenfor (verificeret via `grep -c "httpd_register_uri_handler" src/http_server.cpp`), plus SSE-serveren som kører uden for hoved-httpd'en. Se [kapitel 7](07_REST_API.md) for grundlæggende brug (auth, rate limiting, eksempler).
+> Denne reference er udtrukket direkte fra kildekoden (`src/http_server.cpp`, `src/api_handlers.cpp`, `src/ota_handler.cpp`) — alle **119** registrerede `httpd_uri_t`-handlers er talt og dokumenteret nedenfor (verificeret via `grep -c "httpd_register_uri_handler" src/http_server.cpp`), plus SSE-serveren som kører uden for hoved-httpd'en. Se [kapitel 7](07_REST_API.md) for grundlæggende brug (auth, rate limiting, eksempler).
 
 ## B.1 Generelt
 
@@ -252,6 +252,19 @@ Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevari
 **Hændelser (`event`) logges ved:** config gemt til NVS, reboot (REST/CLI/OTA), login-fejl (401/403), boot. Login-**succes** logges bevidst ikke (stateless Basic Auth ville flode loggen).
 
 **Registerændringer (`regchange`) logges kun for:** REST API-skrivninger (`hr`/`coils`, enkelt + bulk) og Modbus Slave-skrivninger fra en ekstern master (FC05/06/0F/10). CLI-skrivninger og ST Logics periodiske output-binding logges **ikke** i v1 (se BUGS_INDEX.md FEAT-089 for begrundelse).
+
+## B.16b Trend Recorder (FEAT-099)
+
+*RAM/PSRAM-only, IKKE NVS-persisteret — konfiguration og data nulstilles ved reboot. Se [§4.2](04_Web_Dashboard_og_Monitor.md) for GUI-kortet.*
+
+| Metode | URI | Auth | Beskrivelse |
+|---|---|---|---|
+| GET | `/api/trend/config` | CHECK_AUTH | `{"recording":bool,"interval_ms":N,"sample_count":N,"capacity":720,"points":[{"type":"hr\|ir\|coil\|di","addr":N},...]}` |
+| POST | `/api/trend/config` | CHECK_AUTH_WRITE | Body: `{"interval_ms":N,"points":[{"type":"hr\|ir\|coil\|di","addr":N},...]}` — max 8 punkter. Stopper optagelsen og rydder eksisterende samples (en rekonfiguration er altid en frisk start). `interval_ms` klampes til 500-60000 |
+| POST | `/api/trend/start` | CHECK_AUTH_WRITE | Starter sampling med den nuværende konfiguration. Svar: `{"status":"ok","recording":true}` |
+| POST | `/api/trend/stop` | CHECK_AUTH_WRITE | Stopper sampling uden at rydde data. Svar: `{"status":"ok","recording":false}` |
+| POST | `/api/trend/clear` | CHECK_AUTH_WRITE | Rydder samples uden at ændre konfigurationen |
+| GET | `/api/trend/data` | CHECK_AUTH | Fuld sample-dump (chunked afsendelse, samme BUG-332-lektie som `/api/modbus/activity`): `{"points":[...],"samples":[{"t":ms,"v":[værdi pr. punkt i samme rækkefølge som points]},...]}` — bruges både til live tabel-visning og CSV-eksport |
 
 ## B.17 Persistence Groups (FEAT-022)
 

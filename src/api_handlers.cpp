@@ -56,6 +56,7 @@
 #include "rbac.h"
 #include "mb_async.h"
 #include "mb_activity_log.h"
+#include "trend_recorder.h"
 #include "ntp_driver.h"
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
@@ -714,6 +715,12 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/syslog/clear",                  "Clear system log"},
   {"POST",   "/api/syslog/start",                  "Resume system log"},
   {"POST",   "/api/syslog/stop",                   "Pause system log"},
+  {"GET",    "/api/trend/config",                  "Trend recorder config/status"},
+  {"POST",   "/api/trend/config",                  "Configure trend recorder watch list"},
+  {"POST",   "/api/trend/start",                   "Start trend recording"},
+  {"POST",   "/api/trend/stop",                    "Stop trend recording"},
+  {"POST",   "/api/trend/clear",                   "Clear trend samples"},
+  {"GET",    "/api/trend/data",                    "Trend recorder sample dump"},
   {"GET",    "/api/telnet",                        "Telnet config+status"},
   {"POST",   "/api/telnet",                        "Configure Telnet"},
   {"GET",    "/api/hostname",                      "Get hostname"},
@@ -2288,8 +2295,8 @@ esp_err_t api_handler_gpio(httpd_req_t *req)
     gpio["value"] = level ? 1 : 0;
 
     // Show register binding if configured
-    if (m->coil_reg != 0xFFFF) {
-      gpio["coil"] = m->coil_reg;
+    if (m->output_reg != 0xFFFF) {
+      gpio["coil"] = m->output_reg;
     }
     if (m->input_reg != 0xFFFF) {
       gpio["register"] = m->input_reg;
@@ -2329,8 +2336,8 @@ esp_err_t api_handler_gpio_single(httpd_req_t *req)
   if (found) {
     doc["configured"] = true;
     doc["direction"] = found->is_input ? "input" : "output";
-    if (found->coil_reg != 0xFFFF) {
-      doc["coil"] = found->coil_reg;
+    if (found->output_reg != 0xFFFF) {
+      doc["coil"] = found->output_reg;
     }
     if (found->input_reg != 0xFFFF) {
       doc["register"] = found->input_reg;
@@ -2906,7 +2913,7 @@ esp_err_t api_handler_config_get(httpd_req_t *req)
     if (m->is_input) {
       g["register"] = m->input_reg;
     } else {
-      g["coil"] = m->coil_reg;
+      g["coil"] = m->output_reg;
     }
   }
 
@@ -4319,7 +4326,7 @@ esp_err_t api_handler_gpio_config_post(httpd_req_t *req)
     existing->st_program_id = 0xFF;
     existing->st_var_index = 0xFF;
     existing->input_reg = 0xFFFF;
-    existing->coil_reg = 0xFFFF;
+    existing->output_reg = 0xFFFF;
   }
 
   // Update mapping
@@ -4328,7 +4335,7 @@ esp_err_t api_handler_gpio_config_post(httpd_req_t *req)
     existing->input_reg = reg_addr;
     existing->input_type = 0;  // Holding register
   } else {
-    existing->coil_reg = reg_addr;
+    existing->output_reg = reg_addr;
     existing->output_type = 1;  // Coil
   }
   existing->word_count = 1;
@@ -4524,7 +4531,7 @@ esp_err_t api_handler_logic_bind_post(httpd_req_t *req)
     m->is_input = 1;
     m->input_type = input_type;
     m->input_reg = register_addr;
-    m->coil_reg = 0xFFFF;
+    m->output_reg = 0xFFFF;
     m->gpio_pin = 0xFF;
     m->associated_counter = 0xFF;
     m->associated_timer = 0xFF;
@@ -4548,7 +4555,7 @@ esp_err_t api_handler_logic_bind_post(httpd_req_t *req)
     m->st_var_index = var_index;
     m->is_input = 0;
     m->output_type = output_type;
-    m->coil_reg = register_addr;
+    m->output_reg = register_addr;
     m->input_reg = 0xFFFF;
     m->gpio_pin = 0xFF;
     m->associated_counter = 0xFF;
@@ -4930,7 +4937,7 @@ esp_err_t api_handler_bindings_list(httpd_req_t *req)
       b["register_addr"] = m->input_reg;
     } else {
       b["register_type"] = (m->output_type == 0) ? "HR" : "Coil";
-      b["register_addr"] = m->coil_reg;
+      b["register_addr"] = m->output_reg;
     }
   }
 
@@ -5548,7 +5555,7 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   JsonArray var_maps = doc["var_maps"].to<JsonArray>();
   for (int i = 0; i < g_persist_config.var_map_count && i < 32; i++) {
     const VariableMapping *m = &g_persist_config.var_maps[i];
-    if (m->source_type == 0 && m->gpio_pin == 0 && m->input_reg == 0xFFFF && m->coil_reg == 0xFFFF) continue;
+    if (m->source_type == 0 && m->gpio_pin == 0 && m->input_reg == 0xFFFF && m->output_reg == 0xFFFF) continue;
     JsonObject mo = var_maps.add<JsonObject>();
     mo["source_type"] = m->source_type;
     mo["gpio_pin"] = m->gpio_pin;
@@ -5560,7 +5567,9 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
     mo["input_type"] = m->input_type;
     mo["output_type"] = m->output_type;
     mo["input_reg"] = m->input_reg;
-    mo["coil_reg"] = m->coil_reg;
+    // BUG-011: C-feltet er omdøbt til output_reg, men JSON-nøglen holdes
+    // bevidst "coil_reg" for bagudkompatibilitet med eksisterende backup-filer.
+    mo["coil_reg"] = m->output_reg;
     mo["word_count"] = m->word_count;
   }
 
@@ -5598,6 +5607,17 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
       pr["id"] = i;
       pr["name"] = p->name;
       pr["enabled"] = p->enabled ? true : false;
+      // FEAT-010/BUG-378: manglede her — restore kaldte st_logic_delete()
+      // (memset af hele program-structen) uden nogensinde at saette disse
+      // felter tilbage, saa ETHVERT backup/restore-cyklus stille nulstillede
+      // priority til NORMAL og (langt vaerre) interval_ms til 0 — hvilket
+      // faar programmet til at koere paa HVER ENESTE loop-tick i stedet for
+      // det tiltaenkte interval. Opdaget under egen live-test paa 10.1.1.153
+      // (Logic1, brugerens beskyttede program, koerte pludselig med
+      // interval_ms:0 efter en backup+restore-rundtur — rettet manuelt med
+      // det samme, se BUGS_INDEX.md BUG-378 for hele forloebet).
+      pr["priority"] = (p->priority == ST_LOGIC_PRIORITY_HIGH) ? "high" : "normal";
+      pr["interval_ms"] = p->interval_ms;
       const char *src = st_logic_get_source_code(st_state, i);
       if (src && p->source_size > 0) {
         // BUG-FIX: Source pool entries are NOT null-terminated (BUG-212).
@@ -6073,6 +6093,20 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
         if (pr.containsKey("enabled")) {
           st_logic_set_enabled(st, id, pr["enabled"].as<bool>() ? 1 : 0);
         }
+
+        // BUG-378: priority/interval_ms — se eksport-siden ovenfor for hvorfor
+        // dette er kritisk (st_logic_delete() lige ovenfor nulstillede dem
+        // begge, uden dette ville ETHVERT program ende med interval_ms=0
+        // efter restore). Ældre backups uden disse felter falder tilbage til
+        // NORMAL/10ms (samme default som et helt nyt/tomt program får i
+        // st_logic_init()), ikke det farlige 0.
+        char prio_err[64];
+        const char *prio_str = pr["priority"] | "normal";
+        uint8_t prio_val = (strcmp(prio_str, "high") == 0) ? ST_LOGIC_PRIORITY_HIGH : ST_LOGIC_PRIORITY_NORMAL;
+        st_logic_set_program_priority(st, id, prio_val, prio_err, sizeof(prio_err));
+        uint32_t interval_val = pr["interval_ms"] | 10;
+        if (interval_val < ST_LOGIC_INTERVAL_MIN_MS) interval_val = ST_LOGIC_INTERVAL_MIN_MS;
+        st_logic_set_program_interval(st, id, interval_val);
       }
 
       // Save ST Logic to SPIFFS
@@ -6099,7 +6133,9 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
       m->input_type = mo["input_type"] | 0;
       m->output_type = mo["output_type"] | 0;
       m->input_reg = mo["input_reg"] | 0xFFFF;
-      m->coil_reg = mo["coil_reg"] | 0xFFFF;
+      // BUG-011: JSON-nøglen "coil_reg" bevares for bagudkompatibilitet med
+      // gamle backup-filer, selvom C-feltet nu hedder output_reg.
+      m->output_reg = mo["coil_reg"] | 0xFFFF;
       m->word_count = mo["word_count"] | 1;
       g_persist_config.var_map_count++;
     }
@@ -8189,6 +8225,194 @@ esp_err_t api_handler_syslog_post_dispatch(httpd_req_t *req)
   if (strstr(uri, "/start") != NULL) return api_handler_syslog_toggle(req, true);
   if (strstr(uri, "/stop") != NULL)  return api_handler_syslog_toggle(req, false);
   return api_send_error(req, 404, "Ukendt /api/syslog-underrute (brug /clear, /start eller /stop)");
+}
+
+/* ============================================================================
+ * FEAT-099: Trend Recorder API
+ *
+ *   GET  /api/trend/config  — nuvaerende watch-liste, interval, status
+ *   POST /api/trend/config  — saet watch-liste + interval (stopper+rydder)
+ *   POST /api/trend/start   — start optagelse (med eksisterende config)
+ *   POST /api/trend/stop    — stop optagelse (data bevares)
+ *   POST /api/trend/clear   — ryd data (config bevares)
+ *   GET  /api/trend/data    — fuld sample-dump, chunked (samme BUG-332-lektie
+ *                             som /api/modbus/activity — se den kommentar)
+ *
+ * Samme URI-suffix-dispatch-moenster som /api/syslog/* ovenfor.
+ * ============================================================================ */
+
+static const char *trend_reg_type_str(uint8_t t) {
+  switch (t) {
+    case TREND_REG_HR:   return "hr";
+    case TREND_REG_IR:   return "ir";
+    case TREND_REG_COIL: return "coil";
+    case TREND_REG_DI:   return "di";
+    default:             return "?";
+  }
+}
+static bool trend_reg_type_parse(const char *s, uint8_t *out) {
+  if (strcmp(s, "hr") == 0)   { *out = TREND_REG_HR; return true; }
+  if (strcmp(s, "ir") == 0)   { *out = TREND_REG_IR; return true; }
+  if (strcmp(s, "coil") == 0) { *out = TREND_REG_COIL; return true; }
+  if (strcmp(s, "di") == 0)   { *out = TREND_REG_DI; return true; }
+  return false;
+}
+
+esp_err_t api_handler_trend_config_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  trend_point_t points[TREND_MAX_POINTS];
+  uint8_t n = trend_recorder_get_points(points, TREND_MAX_POINTS);
+
+  JsonDocument doc;
+  doc["recording"] = trend_recorder_is_recording();
+  doc["interval_ms"] = trend_recorder_get_interval_ms();
+  doc["sample_count"] = trend_recorder_count();
+  doc["capacity"] = TREND_MAX_SAMPLES;
+  JsonArray pts = doc["points"].to<JsonArray>();
+  for (uint8_t i = 0; i < n; i++) {
+    JsonObject p = pts.add<JsonObject>();
+    p["type"] = trend_reg_type_str(points[i].reg_type);
+    p["addr"] = points[i].addr;
+  }
+
+  char buf[512];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+esp_err_t api_handler_trend_config_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[512];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    return api_send_error(req, 400, "Failed to read request body");
+  }
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+
+  uint16_t interval_ms = doc["interval_ms"] | 5000;
+
+  trend_point_t points[TREND_MAX_POINTS];
+  uint8_t count = 0;
+  if (doc.containsKey("points")) {
+    JsonArray arr = doc["points"];
+    for (JsonObject p : arr) {
+      if (count >= TREND_MAX_POINTS) {
+        return api_send_error(req, 400, "Max 8 punkter tilladt");
+      }
+      const char *type_str = p["type"] | "";
+      uint8_t reg_type;
+      if (!trend_reg_type_parse(type_str, &reg_type)) {
+        return api_send_error(req, 400, "Ugyldig 'type' (skal vaere hr/ir/coil/di)");
+      }
+      points[count].reg_type = reg_type;
+      points[count].addr = p["addr"] | 0;
+      count++;
+    }
+  }
+
+  if (!trend_recorder_configure(points, count, interval_ms)) {
+    return api_send_error(req, 400, "Kunne ikke konfigurere trend recorder");
+  }
+
+  char resp[128];
+  snprintf(resp, sizeof(resp), "{\"status\":\"ok\",\"points\":%u,\"interval_ms\":%u}", count, trend_recorder_get_interval_ms());
+  return api_send_json(req, resp);
+}
+
+esp_err_t api_handler_trend_start(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  trend_recorder_set_recording(true);
+  return api_send_json(req, "{\"status\":\"ok\",\"recording\":true}");
+}
+
+esp_err_t api_handler_trend_stop(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  trend_recorder_set_recording(false);
+  return api_send_json(req, "{\"status\":\"ok\",\"recording\":false}");
+}
+
+esp_err_t api_handler_trend_clear(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  trend_recorder_clear();
+  return api_send_json(req, "{\"status\":\"ok\",\"message\":\"Data ryddet\"}");
+}
+
+esp_err_t api_handler_trend_data_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  trend_point_t points[TREND_MAX_POINTS];
+  uint8_t point_count = trend_recorder_get_points(points, TREND_MAX_POINTS);
+  uint16_t n = trend_recorder_count();
+
+  // FEAT-149/BUG-332-lektie: chunked afsendelse, ikke én stor buffer — se
+  // api_handler_modbus_activity_get()'s kommentar for hvorfor.
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+  char head[256];
+  int pos = snprintf(head, sizeof(head), "{\"points\":[");
+  for (uint8_t i = 0; i < point_count; i++) {
+    pos += snprintf(head + pos, sizeof(head) - pos, "%s{\"type\":\"%s\",\"addr\":%u}",
+                     (i == 0) ? "" : ",", trend_reg_type_str(points[i].reg_type), points[i].addr);
+  }
+  pos += snprintf(head + pos, sizeof(head) - pos, "],\"samples\":[");
+  httpd_resp_send_chunk(req, head, HTTPD_RESP_USE_STRLEN);
+
+  char item[256];
+  for (uint16_t i = 0; i < n; i++) {
+    trend_sample_t s;
+    if (!trend_recorder_get(i, &s)) break;
+
+    int p = snprintf(item, sizeof(item), "%s{\"t\":%lu,\"v\":[", (i == 0) ? "" : ",", (unsigned long)s.timestamp_ms);
+    for (uint8_t k = 0; k < point_count; k++) {
+      p += snprintf(item + p, sizeof(item) - p, "%s%ld", (k == 0) ? "" : ",", (long)s.values[k]);
+    }
+    p += snprintf(item + p, sizeof(item) - p, "]}");
+    httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
+  }
+
+  httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN);
+  httpd_resp_send_chunk(req, NULL, 0);  // end chunked response
+
+  http_server_stat_success();
+  return ESP_OK;
+}
+
+// POST /api/trend/{config|start|stop|clear}, GET /api/trend/{config|data} —
+// samme wildcard-suffix-dispatch-moenster som /api/syslog/* ovenfor.
+esp_err_t api_handler_trend_dispatch(httpd_req_t *req)
+{
+  const char *uri = req->uri;
+  if (req->method == HTTP_GET) {
+    if (strstr(uri, "/config") != NULL) return api_handler_trend_config_get(req);
+    if (strstr(uri, "/data") != NULL)   return api_handler_trend_data_get(req);
+  } else if (req->method == HTTP_POST) {
+    if (strstr(uri, "/config") != NULL) return api_handler_trend_config_post(req);
+    if (strstr(uri, "/start") != NULL)  return api_handler_trend_start(req);
+    if (strstr(uri, "/stop") != NULL)   return api_handler_trend_stop(req);
+    if (strstr(uri, "/clear") != NULL)  return api_handler_trend_clear(req);
+  }
+  return api_send_error(req, 404, "Ukendt /api/trend-underrute (brug /config, /start, /stop, /clear eller /data)");
 }
 
 /* ============================================================================

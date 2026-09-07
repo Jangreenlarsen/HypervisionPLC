@@ -128,7 +128,7 @@ static void config_init_defaults(PersistConfig* cfg) {
   // Initialize all GPIO mappings as unused (reduced to 32 slots for NVS space)
   for (uint8_t i = 0; i < 32; i++) {
     cfg->var_maps[i].input_reg = 65535;
-    cfg->var_maps[i].coil_reg = 65535;
+    cfg->var_maps[i].output_reg = 65535;
     cfg->var_maps[i].associated_counter = 0xff;
     cfg->var_maps[i].associated_timer = 0xff;
     cfg->var_maps[i].source_type = 0xff;  // Mark as unused
@@ -640,8 +640,8 @@ bool config_load_from_nvs(PersistConfig* out) {
       debug_print_uint(map->is_input);
       debug_print(" input_reg=");
       debug_print_uint(map->input_reg);
-      debug_print(" coil_reg=");
-      debug_print_uint(map->coil_reg);
+      debug_print(" output_reg=");
+      debug_print_uint(map->output_reg);
       debug_println("");
     }
   }

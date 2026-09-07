@@ -38,7 +38,7 @@ PersistConfig* config_struct_create_default(void) {
   // Initialize all var_maps as unused (important for CRC stability)
   for (uint8_t i = 0; i < 32; i++) {
     g_persist_config.var_maps[i].input_reg = 65535;
-    g_persist_config.var_maps[i].coil_reg = 65535;
+    g_persist_config.var_maps[i].output_reg = 65535;
     g_persist_config.var_maps[i].associated_counter = 0xff;
     g_persist_config.var_maps[i].associated_timer = 0xff;
     g_persist_config.var_maps[i].source_type = 0xff;
