@@ -276,7 +276,7 @@ curl -u admin:modbus123 -X POST http://192.168.1.100/api/logic/1/priority \
 curl -u admin:modbus123 -X POST http://192.168.1.100/api/logic/1/interval \
      -H "Content-Type: application/json" -d '{"interval_ms": 5}'
 ```
-CLI: `set logic 1 priority high`, `set logic 1 interval 5`. Det gamle `set logic interval <ms>` (uden program-nummer) findes stadig — det sætter nu blot samme interval på alle NORMAL-programmer på én gang.
+CLI: `set logic 1 priority high`, `set logic 1 interval 5`. Det gamle `set logic interval <ms>` (uden program-nummer) findes stadig — det sætter nu blot samme interval på alle NORMAL-programmer på én gang. **Web-GUI**: ST Editor → Settings-fanen → "Program-prioritet & interval"-tabellen (viser og redigerer alle 4 programmer samlet).
 
 **Vigtig begrænsning: et HIGH-program kan ikke bindes til Modbus-registre eller GPIO.** Bindings-tabellen synkroniseres med hovedloopets egen kadence — et HIGH-program der kører på sin egen, uafhængige timer ville læse/skrive bundne variable på uforudsigelige tidspunkter i forhold til den synkronisering. Forsøg på at binde et HIGH-program (eller sætte et allerede bundet program til HIGH) afvises med en klar fejl. Et HIGH-program kan stadig:
 - bruge almindelige lokale variable

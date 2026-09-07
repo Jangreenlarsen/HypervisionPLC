@@ -148,7 +148,7 @@ Register-adresser er faste i denne version (ikke bruger-omkonfigurerbare) — se
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
-| GET | `/api/logic` | CHECK_AUTH | Global status (enabled, interval, total_cycles, heap/pool-resources) + programs[] (id,name,enabled,compiled,source_size,execution_count,error_count) |
+| GET | `/api/logic` | CHECK_AUTH | Global status (enabled, interval, total_cycles, heap/pool-resources) + programs[] (id,name,enabled,compiled,**priority,interval_ms,binding_count** [FEAT-010],source_size,execution_count,error_count) |
 | GET | `/api/logic/{id}` *(wildcard, 1–4)* | CHECK_AUTH | Fuld program-info + variables[] (index,name,type,value) hvis kompileret |
 | GET | `/api/logic/{id}/source` *(suffix)* | CHECK_AUTH | `{"id","name","source","size"}` |
 | POST | `/api/logic/{id}/source` *(suffix)* | CHECK_AUTH_WRITE | Body: `{"source":"<ST-kode>"}` (maks 8KB). Uploader + kompilerer. Svar inkl. `compiled`, `instr_count`, evt. `compile_error` |

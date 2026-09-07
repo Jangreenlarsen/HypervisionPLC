@@ -1475,6 +1475,9 @@ esp_err_t api_handler_logic(httpd_req_t *req)
     p["name"] = prog->name;
     p["enabled"] = prog->enabled ? true : false;
     p["compiled"] = prog->compiled ? true : false;
+    p["priority"] = (prog->priority == ST_LOGIC_PRIORITY_HIGH) ? "HIGH" : "NORMAL";  // FEAT-010
+    p["interval_ms"] = prog->interval_ms;  // FEAT-010
+    p["binding_count"] = prog->binding_count;  // FEAT-010: GUI needs this to explain why priority-change might be rejected
     p["source_size"] = prog->source_size;
     p["execution_count"] = prog->execution_count;
     p["error_count"] = prog->error_count;

@@ -384,6 +384,14 @@ di[addr] — Discrete Input</code>
 <option value="100">100 ms (langsom)</option>
 </select>
 <p style="font-size:11px;color:#6c7086;margin-top:16px">CLI-ækvivalent: <code>set logic interval:X</code> / <code>set logic debug:true|false</code>. Motorens interne trace-debug (bytecode-udskrift til seriel/telnet-konsollen) er ikke medtaget her — den har ingen effekt synlig i web-GUI'et, kun på en tilkoblet CLI-session.</p>
+
+<!-- FEAT-010: per-program prioritet/interval — tidligere kun i CLI/REST -->
+<h3 style="margin-top:24px">Program-prioritet &amp; interval</h3>
+<p style="font-size:11px;color:#6c7086;margin-bottom:12px">Hvert program har nu sin EGEN eksekveringsinterval og prioritet, i stedet for kun det fælles interval ovenfor. <b>HIGH</b> kører på en dedikeret, uafhængig baggrundstask med lav jitter — men kan derfor ikke bindes til Modbus-registre/GPIO (se Bindings-fanen); et program med aktive bindinger kan ikke sættes til HIGH, og et HIGH-program kan ikke bindes.</p>
+<table class="btbl">
+<thead><tr><th>Program</th><th>Prioritet</th><th>Interval (ms)</th><th>Bindinger</th><th></th></tr></thead>
+<tbody id="prioBody"></tbody>
+</table>
 </div>
 </div>
 
@@ -811,6 +819,11 @@ async function loadLogicSettings(){
     const en=cfg?.modules?.st_logic;
     document.getElementById('setEngineEnabled').checked=(en!==false);
   }catch(e){log('error','Kunne ikke hente ST Logic-indstillinger: '+e.message);}
+  try{
+    const d=await api('GET','logic');  // FEAT-010: refresh per-program priority/interval/binding_count
+    if(d.programs)d.programs.forEach((p,i)=>{programs[i]=p;});
+    renderPriorityTable();
+  }catch(e){log('error','Kunne ikke hente program-prioriteter: '+e.message);}
 }
 async function saveInterval(){
   const ms=parseInt(document.getElementById('setInterval').value);
@@ -825,6 +838,52 @@ async function saveEngineEnabled(){
     await api('POST','modules',{st_logic:on});
     log('success','ST Logic-motor '+(on?'aktiveret':'deaktiveret'));
   }catch(e){log('error','Kunne ikke ændre motor-status: '+e.message);}
+}
+
+// === FEAT-010: per-program prioritet/interval (tidligere kun CLI/REST) ===
+function renderPriorityTable(){
+  const tb=document.getElementById('prioBody');
+  if(!tb)return;
+  tb.innerHTML='';
+  for(let i=0;i<4;i++){
+    const p=programs[i];
+    const name=p?(p.name||('Logic'+(i+1))):('Logic'+(i+1));
+    const prio=p?(p.priority||'NORMAL'):'NORMAL';
+    const iv=p?(p.interval_ms||10):10;
+    const bc=p?(p.binding_count||0):0;
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>'+name+'</td>'+
+      '<td><select id="prio'+(i+1)+'" onchange="savePriority('+(i+1)+')">'+
+        '<option value="NORMAL"'+(prio==='NORMAL'?' selected':'')+'>Normal</option>'+
+        '<option value="HIGH"'+(prio==='HIGH'?' selected':'')+'>High</option>'+
+      '</select></td>'+
+      '<td><input type="number" id="iv'+(i+1)+'" min="2" max="60000" value="'+iv+'" style="width:80px;padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4" onchange="saveProgInterval('+(i+1)+')"></td>'+
+      '<td>'+bc+'</td>'+
+      '<td style="font-size:11px;color:#6c7086">'+(bc>0?'(kan ikke sættes til HIGH)':'')+'</td>';
+    tb.appendChild(tr);
+  }
+}
+async function savePriority(id){
+  const val=document.getElementById('prio'+id).value;
+  try{
+    await api('POST','logic/'+id+'/priority',{priority:val.toLowerCase()});
+    if(programs[id-1])programs[id-1].priority=val;
+    log('success','Logic'+id+' prioritet sat til '+val);
+  }catch(e){
+    log('error','Kunne ikke sætte prioritet: '+e.message);
+    await loadAll();  // reset dropdown to actual server state on rejection
+  }
+}
+async function saveProgInterval(id){
+  const ms=parseInt(document.getElementById('iv'+id).value);
+  try{
+    await api('POST','logic/'+id+'/interval',{interval_ms:ms});
+    if(programs[id-1])programs[id-1].interval_ms=ms;
+    log('success','Logic'+id+' interval sat til '+ms+' ms');
+  }catch(e){
+    log('error','Kunne ikke sætte interval: '+e.message);
+    await loadAll();
+  }
 }
 
 // === FEAT-057: Backup Download ===
