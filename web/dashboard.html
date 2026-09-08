@@ -83,6 +83,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .badge-ok{background:#a6e3a1;color:#1e1e2e}
 .badge-err{background:#f38ba8;color:#1e1e2e}
 .badge-off{background:#45475a;color:#a6adc8}
+.subhdr{font-size:11px;font-weight:700;color:#a6adc8;text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
+.subhdr.sep{border-top:1px solid #313244;padding-top:10px;margin-top:14px}
 .row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
 .row .lbl{color:#6c7086}
 .row .val{font-weight:600;font-variant-numeric:tabular-nums}
@@ -448,19 +450,26 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="row"><span class="lbl">Sidste sync</span><span class="val val-n" id="ntpAge">-</span></div>
 </div>
 
-<!-- FEAT-072: Modbus RTU Trafik -->
+<!-- FEAT-072: Modbus RTU Trafik — BUG-391: Slave/Master opdelt i to tydelige
+     sektioner i stedet for sammenblandede raekker (fx tidligere "CRC fejl
+     (slave/master)" som ét kombineret "3 / 5"-felt) -->
 <div class="card" data-card-id="rtutrafik" data-tab="modbus">
 <h2>Modbus RTU Trafik</h2>
-<div class="row"><span class="lbl">Slave rate</span><span class="val val-n" id="rtSlaveRate">-</span></div>
-<div class="row"><span class="lbl">Master rate</span><span class="val val-n" id="rtMasterRate">-</span></div>
-<div class="row"><span class="lbl">Slave success rate</span><span class="val val-n" id="rtSlaveSucc">-</span></div>
-<div class="row"><span class="lbl">Master success rate</span><span class="val val-n" id="rtMasterSucc">-</span></div>
-<div class="row"><span class="lbl">CRC fejl (slave/master)</span><span class="val val-err" id="rtCrcBoth">-</span></div>
-<div class="row"><span class="lbl">Timeouts (master)</span><span class="val val-err" id="rtTimeout">-</span></div>
-<div class="row"><span class="lbl">Exceptions (slave/master)</span><span class="val val-warn" id="rtExcBoth">-</span></div>
-<div class="spark-row"><span class="sl">Slave rate</span><svg id="sparkRtSlave" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="subhdr">Slave (indgående forespørgsler)</div>
+<div class="row"><span class="lbl">Rate</span><span class="val val-n" id="rtSlaveRate">-</span></div>
+<div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="rtSlaveSucc">-</span></div>
+<div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="rtSlaveCrc">-</span></div>
+<div class="row"><span class="lbl">Exceptions</span><span class="val val-warn" id="rtSlaveExc">-</span></div>
+<div class="spark-row"><span class="sl">Rate</span><svg id="sparkRtSlave" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
 <div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="rtSlaveMinMax" style="font-size:10px;color:#6c7086">-</span></div>
-<div class="spark-row"><span class="sl">Master rate</span><svg id="sparkRtMaster" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+
+<div class="subhdr sep">Master (udgående forespørgsler)</div>
+<div class="row"><span class="lbl">Rate</span><span class="val val-n" id="rtMasterRate">-</span></div>
+<div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="rtMasterSucc">-</span></div>
+<div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="rtMasterCrc">-</span></div>
+<div class="row"><span class="lbl">Timeouts</span><span class="val val-err" id="rtTimeout">-</span></div>
+<div class="row"><span class="lbl">Exceptions</span><span class="val val-warn" id="rtMasterExc">-</span></div>
+<div class="spark-row"><span class="sl">Rate</span><svg id="sparkRtMaster" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
 <div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="rtMasterMinMax" style="font-size:10px;color:#6c7086">-</span></div>
 </div>
 
@@ -1200,11 +1209,13 @@ function updateDashboard(m){
     $('rtMasterSucc').textContent=rate(mO,mT);
     const sCrc=g(m,'modbus_slave_crc_errors_total')||0;
     const mCrc=g(m,'modbus_master_crc_errors_total')||0;
-    $('rtCrcBoth').textContent=fmtN(sCrc)+' / '+fmtN(mCrc);
+    $('rtSlaveCrc').textContent=fmtN(sCrc);
+    $('rtMasterCrc').textContent=fmtN(mCrc);
     $('rtTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
     const sExc=g(m,'modbus_slave_exceptions_total')||0;
     const mExc=g(m,'modbus_master_exception_errors_total')||0;
-    $('rtExcBoth').textContent=fmtN(sExc)+' / '+fmtN(mExc);
+    $('rtSlaveExc').textContent=fmtN(sExc);
+    $('rtMasterExc').textContent=fmtN(mExc);
     drawSparkline('sparkRtSlave',history.rtSlave,'#89b4fa');
     drawSparkline('sparkRtMaster',history.rtMaster,'#cba6f7');
   }
