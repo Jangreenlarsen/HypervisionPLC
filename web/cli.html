@@ -6,7 +6,15 @@
 <title>Web CLI</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+/* BUG-390: 100vh on mobile browsers is measured against the LARGEST possible
+   viewport (browser chrome collapsed), not what's actually visible when the
+   address bar is shown — with body's own overflow:hidden below, that pushed
+   this page's bottom-anchored elements (e.g. the CLI's command-prompt row)
+   below the visible screen with no way to scroll down to reach them. 100dvh
+   (dynamic viewport height) tracks the ACTUAL visible viewport as browser
+   chrome shows/hides; kept 100vh first as a fallback for browsers that don't
+   support dvh (the later, supported declaration simply wins). */
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 .topnav{background:#11111b;padding:6px 16px;display:flex;gap:8px;border-bottom:2px solid #89b4fa;flex-shrink:0;align-items:center}
 .topnav .brand{font-size:14px;font-weight:700;color:#89b4fa;margin-right:12px}
 .topnav a{padding:5px 14px;font-size:12px;font-weight:600;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s}
