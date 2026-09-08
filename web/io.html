@@ -99,7 +99,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <h3 style="color:#89b4fa">Login</h3>
 <p>I/O-siden kræver autentificering.</p>
 <div style="margin-bottom:8px"><label style="font-size:12px;color:#a6adc8">Brugernavn</label><br>
-<input type="text" id="authUser" style="width:100%;padding:6px 10px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:13px;margin-top:4px" autocomplete="username"></div>
+<input type="text" id="authUser" style="width:100%;padding:6px 10px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:13px;margin-top:4px" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
 <div style="margin-bottom:8px"><label style="font-size:12px;color:#a6adc8">Adgangskode</label><br>
 <input type="password" id="authPass" style="width:100%;padding:6px 10px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:13px;margin-top:4px" autocomplete="current-password"></div>
 <div id="loginErr" style="display:none;color:#f38ba8;font-size:12px;padding:4px 0"></div>
@@ -187,7 +187,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 
 <script>
-let AUTH=sessionStorage.getItem('hfplc_auth')||'';
+let AUTH=localStorage.getItem('hfplc_auth')||'';
 let pendingConfirmFn=null;
 function $(id){return document.getElementById(id)}
 
@@ -202,7 +202,7 @@ function doLogin(){
   }).then(d=>{
     if(!d.token)throw new Error('No token');
     AUTH='Bearer '+d.token;
-    sessionStorage.setItem('hfplc_auth',AUTH);
+    localStorage.setItem('hfplc_auth',AUTH);
     $('loginModal').classList.remove('show');
     loadAll();
     updateUserBadge();
@@ -212,7 +212,7 @@ function doLogin(){
   });
 }
 $('authPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
-if(AUTH){fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){loadAll();updateUserBadge();}else{AUTH='';sessionStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}}).catch(()=>{$('loginModal').classList.add('show');});}
+if(AUTH){fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){loadAll();updateUserBadge();}else{AUTH='';localStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}}).catch(()=>{$('loginModal').classList.add('show');});}
 else{$('loginModal').classList.add('show');}
 
 // --- Confirm Dialog ---
@@ -239,21 +239,21 @@ function queuedFetch(url,opts){return new Promise((resolve,reject)=>{_apiFetchQu
 function api(url,opts={}){
   opts.headers=opts.headers||{};
   opts.headers['Authorization']=AUTH;
-  return queuedFetch(url,opts).then(r=>{if(r.status===401){AUTH='';sessionStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}return r;});
+  return queuedFetch(url,opts).then(r=>{if(r.status===401){AUTH='';localStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}return r;});
 }
 
 // === User Badge ===
 function toggleUserMenu(){$('userMenu').classList.toggle('show')}
 document.addEventListener('click',function(e){const b=$('userBtn'),m=$('userMenu');if(b&&m&&!b.contains(e.target)&&!m.contains(e.target))m.classList.remove('show')});
 function updateUserBadge(){
-  const auth=sessionStorage.getItem('hfplc_auth');
+  const auth=localStorage.getItem('hfplc_auth');
   const opts=auth?{headers:{'Authorization':auth}}:{};
   fetch('/api/user/me',opts).then(r=>r.json()).then(d=>{
     if(d.authenticated){$('userName').textContent=d.username;$('userDot').className='dot dot-on';$('umUser').textContent=d.username;$('umRoles').textContent=d.roles||'all';$('umPriv').textContent=d.privilege||'rw';$('umMode').textContent=d.mode||'legacy';$('umLogout').style.display='block'}
     else{$('userName').textContent='Ikke logget ind';$('userDot').className='dot dot-off';$('umLogout').style.display='none'}
   }).catch(()=>{});
 }
-function doLogout(){if(AUTH){fetch('/api/logout',{method:'POST',headers:{'Authorization':AUTH}}).catch(()=>{})}sessionStorage.removeItem('hfplc_auth');AUTH='';$('userName').textContent='Ikke logget ind';$('userDot').className='dot dot-off';$('userMenu').classList.remove('show');$('loginModal').classList.add('show')}
+function doLogout(){if(AUTH){fetch('/api/logout',{method:'POST',headers:{'Authorization':AUTH}}).catch(()=>{})}localStorage.removeItem('hfplc_auth');AUTH='';$('userName').textContent='Ikke logget ind';$('userDot').className='dot dot-off';$('userMenu').classList.remove('show');$('loginModal').classList.add('show')}
 
 // ============================================================
 // COUNTERS

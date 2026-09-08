@@ -435,7 +435,23 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
   char fail_ip[16] = {0};
   char fail_user[32] = {0};
   if (status == 401 || status == 403) {
-    if (status == 401) {
+    // BUG-387 FIX: only send the WWW-Authenticate CHALLENGE when the request
+    // carried NO Authorization header at all — a genuinely anonymous hit
+    // (bare curl call, or a browser address-bar visit straight to an API
+    // URL). This header used to be set on EVERY 401, including the web
+    // GUI's own background Bearer-token checks (session validity pings,
+    // e.g. after the device reboots and invalidates all RAM-only session
+    // tokens — see BUG-353) and a wrong-password attempt through the GUI's
+    // own custom login modal (doLogin() in web/*.html, which already sends
+    // its own Basic Authorization header). Browsers show their OWN native
+    // Basic-Auth popup on ANY 401 carrying this header, regardless of
+    // whether the request already included Bearer/Basic credentials — so
+    // the user got a confusing SECOND, native prompt stacked on top of the
+    // page's own custom login modal ("asked for login in two places").
+    // A client that already sent Authorization made its own attempt and
+    // has its own UI for the failure; only the credential-less case
+    // benefits from the browser's native challenge.
+    if (status == 401 && httpd_req_get_hdr_value_len(req, "Authorization") == 0) {
       httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Modbus ESP32\"");
     }
     // Get client IP while socket is still valid

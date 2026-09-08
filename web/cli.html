@@ -60,7 +60,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <p style="font-size:12px;color:#6c7086;margin-bottom:12px">Brug credentials fra CLI: <code>show config http</code></p>
 <div id="loginErr" style="display:none;color:#f38ba8;font-size:12px;padding:6px 0"></div>
 <label>Brugernavn</label>
-<input type="text" id="authUser" placeholder="Brugernavn" autocomplete="username">
+<input type="text" id="authUser" placeholder="Brugernavn" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false">
 <label>Adgangskode</label>
 <input type="password" id="authPass" placeholder="Adgangskode" autocomplete="current-password">
 <div class="actions">
@@ -107,7 +107,7 @@ Tip: Brug piletasterne op/ned for kommandohistorik.
 </div>
 
 <script>
-let AUTH=sessionStorage.getItem('hfplc_auth')||'';
+let AUTH=localStorage.getItem('hfplc_auth')||'';
 let cliHist=[];
 let cliIdx=-1;
 let cmdCount=0;
@@ -159,7 +159,7 @@ async function doLogin(){
         return;
       }
       AUTH='Bearer '+d.token;
-      sessionStorage.setItem('hfplc_auth',AUTH);
+      localStorage.setItem('hfplc_auth',AUTH);
       document.getElementById('loginModal').classList.remove('show');
       init();
       updateUserBadge();
@@ -221,21 +221,27 @@ function cliAppend(text,cls){
 
 // Auto-login if session exists, otherwise show login modal
 if(AUTH){
-  fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){init();updateUserBadge();}else{AUTH='';sessionStorage.removeItem('hfplc_auth');document.getElementById('loginModal').classList.add('show');}}).catch(()=>{document.getElementById('loginModal').classList.add('show');});
+  // BUG-389 FIX: a NETWORK-level failure (connection refused/reset/timeout)
+  // is NOT the same as an actual 401 rejection — previously treated
+  // identically here, forcing a re-login prompt on a mere connectivity
+  // hiccup even when the stored token was still valid. On a network error,
+  // trust the existing token and proceed; a genuinely invalid token still
+  // surfaces correctly via this page's own 401 handling on the next request.
+  fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){init();updateUserBadge();}else{AUTH='';localStorage.removeItem('hfplc_auth');document.getElementById('loginModal').classList.add('show');}}).catch(()=>{init();updateUserBadge();});
 }else{document.getElementById('loginModal').classList.add('show');}
 
 // === User Badge ===
 function toggleUserMenu(){var m=document.getElementById('userMenu');m.classList.toggle('show')}
 document.addEventListener('click',function(e){var b=document.getElementById('userBtn');var m=document.getElementById('userMenu');if(b&&m&&!b.contains(e.target)&&!m.contains(e.target))m.classList.remove('show')});
 function updateUserBadge(){
-var auth=sessionStorage.getItem('hfplc_auth');
+var auth=localStorage.getItem('hfplc_auth');
 var opts=auth?{headers:{'Authorization':auth}}:{};
 fetch('/api/user/me',opts).then(function(r){return r.json()}).then(function(d){
 if(d.authenticated){document.getElementById('userName').textContent=d.username;document.getElementById('userDot').className='dot dot-on';document.getElementById('umUser').textContent=d.username;document.getElementById('umRoles').textContent=d.roles||'all';document.getElementById('umPriv').textContent=d.privilege||'rw';document.getElementById('umMode').textContent=d.mode||'legacy';document.getElementById('umLogout').style.display='block'}
 else{document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('umLogout').style.display='none'}
 }).catch(function(){})
 }
-function doLogout(){if(AUTH){fetch('/api/logout',{method:'POST',headers:{'Authorization':AUTH}}).catch(()=>{})}sessionStorage.removeItem('hfplc_auth');AUTH='';document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('userMenu').classList.remove('show');if(document.getElementById('loginModal'))document.getElementById('loginModal').classList.add('show')}
+function doLogout(){if(AUTH){fetch('/api/logout',{method:'POST',headers:{'Authorization':AUTH}}).catch(()=>{})}localStorage.removeItem('hfplc_auth');AUTH='';document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('userMenu').classList.remove('show');if(document.getElementById('loginModal'))document.getElementById('loginModal').classList.add('show')}
 async function doGlobalSave(){var btn=document.getElementById('saveBtn');btn.classList.add('saving');btn.textContent='\u23F3 Gemmer...';try{var h={method:'POST'};if(AUTH)h.headers={'Authorization':AUTH};var r=await fetch('/api/system/save',h);if(r.ok){btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='\u2705 Gemt!';}else{btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}}catch(e){btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}setTimeout(()=>{btn.className='save-btn';btn.innerHTML='&#128190; Save';},2000);}
 updateUserBadge();
 </script>

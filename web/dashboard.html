@@ -148,7 +148,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <p style="font-size:12px;color:#6c7086;margin-bottom:12px">Log ind for at se brugerinfo</p>
 <div id="loginErr" style="display:none;color:#f38ba8;font-size:12px;padding:6px 0"></div>
 <label>Brugernavn</label>
-<input type="text" id="authUser" placeholder="Brugernavn" autocomplete="username">
+<input type="text" id="authUser" placeholder="Brugernavn" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false">
 <label>Adgangskode</label>
 <input type="password" id="authPass" placeholder="Adgangskode" autocomplete="current-password">
 <div class="actions">
@@ -1099,7 +1099,7 @@ function updateDashboard(m){
   // Fetch interval from /api/logic (less frequent)
   if(!window._stIntervalFetched||(Date.now()-window._stIntervalFetched>15000)){
     window._stIntervalFetched=Date.now();
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
     fetch('/api/logic',opts).then(r=>r.json()).then(d=>{
       if(d.execution_interval_ms!=null)$('stInterval').textContent=d.execution_interval_ms+' ms';
@@ -1159,7 +1159,7 @@ function updateDashboard(m){
   }
   // Fetch NTP config + local time from ESP32 (every 3s via /api/ntp)
   {
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
     fetch('/api/ntp',opts).then(r=>r.json()).then(d=>{
       $('ntpServer').textContent=d.server||'-';
@@ -1603,7 +1603,7 @@ function updateRegisterMap(m){
 async function fetchNetworkInfo(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
     // Hostname
     dashFetch('/api/hostname',opts).then(r=>r.json()).then(d=>{
@@ -1650,7 +1650,7 @@ async function fetchNetworkInfo(){
 async function fetchConnections(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
     let rows=[];
 
@@ -1708,7 +1708,7 @@ async function fetchConnections(){
 async function fetchBindings(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
     const r=await dashFetch('/api/bindings',opts);
     if(r.ok){_stBindings=await r.json();}
@@ -1807,7 +1807,7 @@ function renderAlarms(){
 }
 async function ackAlarms(){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     await fetch('/api/alarms/ack',opts);
@@ -1845,7 +1845,7 @@ function updateMbActToggleBtn(){
 }
 async function toggleMbActivity(){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     const ep=_mbActivityLogging?'/api/modbus/activity/stop':'/api/modbus/activity/start';
@@ -1861,7 +1861,7 @@ async function toggleMbActivity(){
 async function exportMbActivity(){
   try{
     // Hent HELE loggen (uden limit), ikke kun det viste udsnit
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
     const r=await fetch('/api/modbus/activity',opts);
     if(!r.ok){alert('Kunne ikke hente log til eksport');return;}
@@ -1960,7 +1960,7 @@ function renderMbActivity(){
 }
 async function clearMbActivity(){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     await fetch('/api/modbus/activity/clear',opts);
@@ -2014,7 +2014,7 @@ function renderTrendPointList(){
 }
 async function saveTrendConfig(){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       interval_ms:parseInt($('trendInterval').value)||5000,
       points:_trendPoints
@@ -2040,7 +2040,7 @@ function removeTrendPoint(idx){
 }
 async function toggleTrendRecording(){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     const ep=_trendRecording?'/api/trend/stop':'/api/trend/start';
@@ -2054,7 +2054,7 @@ async function toggleTrendRecording(){
 }
 async function clearTrendData(){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     await fetch('/api/trend/clear',opts);
@@ -2098,7 +2098,7 @@ function renderTrendTable(){
 }
 async function exportTrendCsv(){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
     const r=await fetch('/api/trend/data',opts);
     if(!r.ok){alert('Kunne ikke hente trend-data til eksport');return;}
@@ -2146,7 +2146,7 @@ function updateSyslogToggleBtn(){
 }
 async function toggleSyslog(){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     const ep=_syslogLogging?'/api/syslog/stop':'/api/syslog/start';
@@ -2177,7 +2177,7 @@ function syslogDetail(e){
 }
 async function exportSyslog(){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
     const r=await fetch('/api/syslog',opts);
     if(!r.ok){alert('Kunne ikke hente log til eksport');return;}
@@ -2250,7 +2250,7 @@ function renderSyslog(){
 }
 async function clearSyslog(){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     await fetch('/api/syslog/clear',opts);
@@ -2259,7 +2259,7 @@ async function clearSyslog(){
 }
 async function toggleDO(pin){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     // Read current state from last metrics, then toggle
     var opts1=auth?{headers:{'Authorization':auth}}:{};
     const r=await fetch('/api/gpio/'+pin,opts1);
@@ -2284,7 +2284,7 @@ async function setAnalogOutput(ch){
     if(!inp||inp.value==='')return;
     const val=parseFloat(inp.value);
     if(isNaN(val)){alert('Ugyldig vaerdi');return;}
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{'Content-Type':'application/json'}};
     if(auth)opts.headers['Authorization']=auth;
     opts.body=JSON.stringify({channel:ch,setpoint:val});
@@ -2640,7 +2640,7 @@ function saveCardOrder(){
   const ids=[...grid.querySelectorAll('.card[data-card-id]')].map(c=>c.dataset.cardId);
   const order=ids.join(',');
   // Save to ESP32 via API (persisted on next system save)
-  var auth=sessionStorage.getItem('hfplc_auth');
+  var auth=localStorage.getItem('hfplc_auth');
   var opts={method:'POST',headers:{'Content-Type':'application/json'}};
   if(auth)opts.headers['Authorization']=auth;
   opts.body=JSON.stringify({card_order:order});
@@ -2775,7 +2775,7 @@ function saveSettings(){
   });
 
   // Save to ESP32
-  var auth=sessionStorage.getItem('hfplc_auth');
+  var auth=localStorage.getItem('hfplc_auth');
   var opts={method:'POST',headers:{'Content-Type':'application/json'}};
   if(auth)opts.headers['Authorization']=auth;
   opts.body=JSON.stringify({card_tabs:tabs.join(','),card_hidden:hidden.join(','),card_custom:_encodeCardIdxList(_customMembers)});
@@ -2810,7 +2810,7 @@ function resetSettings(){
     c.dataset.tab=_defaultTabs[c.dataset.cardId]||'overview';
   });
   // Save empty to ESP32
-  var auth=sessionStorage.getItem('hfplc_auth');
+  var auth=localStorage.getItem('hfplc_auth');
   var opts={method:'POST',headers:{'Content-Type':'application/json'}};
   if(auth)opts.headers['Authorization']=auth;
   opts.body=JSON.stringify({card_tabs:'',card_hidden:'',card_custom:''});
@@ -2876,7 +2876,7 @@ async function doMbCmd(){
   const label=opFull+' slave='+slave+' addr='+addr;
   result.textContent='> '+label+'\nSender via kø...';
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{'Content-Type':'application/json'}};
     if(auth)opts.headers['Authorization']=auth;
     var body={op:op,type:type,slave:slave,addr:addr};
@@ -2904,7 +2904,7 @@ async function doMbPoll(op,type,slave,addr,label,attempt){
   attempt=attempt||1;
   if(attempt>6)return; // max 3s
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{'Content-Type':'application/json'}};
     if(auth)opts.headers['Authorization']=auth;
     opts.body=JSON.stringify({op:'read',type:type,slave:slave,addr:addr});
@@ -2923,7 +2923,7 @@ async function doMbPoll(op,type,slave,addr,label,attempt){
 }
 
 function resetMasterStats(){
-  var auth=sessionStorage.getItem('hfplc_auth');
+  var auth=localStorage.getItem('hfplc_auth');
   var opts={method:'POST'};
   if(auth)opts.headers={'Authorization':auth};
   fetch('/api/modbus/master/reset-stats',opts).then(r=>{
@@ -3020,7 +3020,7 @@ function sseApplyTimerEvent(d){
 }
 function sseConnect(){
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts=auth?{headers:{'Authorization':auth}}:{};
     fetch('/api/events/status',opts).then(r=>r.json()).then(s=>{
       if(!s||!s.sse_enabled){
@@ -3134,7 +3134,7 @@ init();
 function toggleUserMenu(){var m=document.getElementById('userMenu');m.classList.toggle('show')}
 document.addEventListener('click',function(e){var b=document.getElementById('userBtn');var m=document.getElementById('userMenu');if(b&&m&&!b.contains(e.target)&&!m.contains(e.target))m.classList.remove('show')});
 function updateUserBadge(){
-var auth=sessionStorage.getItem('hfplc_auth');
+var auth=localStorage.getItem('hfplc_auth');
 var opts=auth?{headers:{'Authorization':auth}}:{};
 fetch('/api/user/me',opts).then(function(r){return r.json()}).then(function(d){
 if(d.authenticated){document.getElementById('userName').textContent=d.username;document.getElementById('userDot').className='dot dot-on';document.getElementById('umUser').textContent=d.username;document.getElementById('umRoles').textContent=d.roles||'all';document.getElementById('umPriv').textContent=d.privilege||'rw';document.getElementById('umMode').textContent=d.mode||'legacy';document.getElementById('umLogout').style.display='block';document.getElementById('umLogin').style.display='none'}
@@ -3150,21 +3150,21 @@ var basicAuth='Basic '+btoa(u+':'+p);
 // GET /api/user/me — udsteder nu et session-token vi bruger fremover, saa
 // vi ikke skal gensende brugernavn/kodeord paa hvert request.
 fetch('/api/login',{method:'POST',headers:{'Authorization':basicAuth}}).then(function(r){return r.json()}).then(function(d){
-if(d.authenticated&&d.token){sessionStorage.setItem('hfplc_auth','Bearer '+d.token);document.getElementById('loginModal').classList.remove('show');updateUserBadge()}
+if(d.authenticated&&d.token){localStorage.setItem('hfplc_auth','Bearer '+d.token);document.getElementById('loginModal').classList.remove('show');updateUserBadge()}
 else{document.getElementById('loginErr').style.display='block';document.getElementById('loginErr').textContent='Forkert brugernavn eller adgangskode'}
 }).catch(function(){document.getElementById('loginErr').style.display='block';document.getElementById('loginErr').textContent='Forbindelsesfejl'})
 }
 function doLogout(){
-var auth=sessionStorage.getItem('hfplc_auth');
+var auth=localStorage.getItem('hfplc_auth');
 if(auth){fetch('/api/logout',{method:'POST',headers:{'Authorization':auth}}).catch(function(){})}
-sessionStorage.removeItem('hfplc_auth');document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('umLogout').style.display='none';document.getElementById('umLogin').style.display='block';document.getElementById('userMenu').classList.remove('show')}
+localStorage.removeItem('hfplc_auth');document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('umLogout').style.display='none';document.getElementById('umLogin').style.display='block';document.getElementById('userMenu').classList.remove('show')}
 document.getElementById('authPass').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin()});
 document.getElementById('authUser').addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('authPass').focus()});
 async function doSystemSave(){
   const btn=$('saveBtn');
   btn.classList.add('saving');btn.textContent='\u23F3 Gemmer...';
   try{
-    var auth=sessionStorage.getItem('hfplc_auth');
+    var auth=localStorage.getItem('hfplc_auth');
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     const r=await fetch('/api/system/save',opts);

@@ -94,7 +94,7 @@ footer{background:#181825;border-top:1px solid #313244;padding:6px 16px;font-siz
 <div class="modal-overlay" id="loginModal">
 <div class="modal">
 <h3>Login</h3>
-<input id="authUser" placeholder="Brugernavn" autocomplete="username">
+<input id="authUser" placeholder="Brugernavn" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false">
 <input id="authPass" type="password" placeholder="Adgangskode" autocomplete="current-password">
 <div id="loginErr" style="display:none;color:#f38ba8;font-size:12px;padding:6px 0"></div>
 <button class="btn btn-primary" onclick="doLogin()">Log ind</button>
@@ -104,7 +104,7 @@ footer{background:#181825;border-top:1px solid #313244;padding:6px 16px;font-siz
 <footer id="footStatus">OTA Firmware Update - FEAT-031</footer>
 
 <script>
-let AUTH=sessionStorage.getItem('hfplc_auth')||'';
+let AUTH=localStorage.getItem('hfplc_auth')||'';
 let selectedFile=null;
 let pollTimer=null;
 
@@ -134,7 +134,7 @@ function queuedFetch(url,opts){
 function api(url,opts={}){
   if(AUTH){if(!opts.headers)opts.headers={};opts.headers['Authorization']=AUTH;}
   return queuedFetch(url,opts).then(r=>{
-    if(r.status===401){AUTH='';sessionStorage.removeItem('hfplc_auth');document.getElementById('loginModal').classList.add('show');throw new Error('Login');}
+    if(r.status===401){AUTH='';localStorage.removeItem('hfplc_auth');document.getElementById('loginModal').classList.add('show');throw new Error('Login');}
     return r;
   });
 }
@@ -158,7 +158,7 @@ async function doLogin(){
       return;
     }
     AUTH='Bearer '+d.token;
-    sessionStorage.setItem('hfplc_auth',AUTH);
+    localStorage.setItem('hfplc_auth',AUTH);
     document.getElementById('loginModal').classList.remove('show');
     fetchStatus();
   }catch(e){
@@ -224,7 +224,7 @@ function startUpload(){
         setTimeout(()=>{window.location.reload();},((j.reboot_in_ms||2000)+8000));
       }catch(e){setStatus('ok','OTA faerdig! Genstarter...');setTimeout(()=>window.location.reload(),10000);}
     }else if(xhr.status===401){
-      AUTH='';sessionStorage.removeItem('hfplc_auth');
+      AUTH='';localStorage.removeItem('hfplc_auth');
       document.getElementById('loginModal').classList.add('show');
       setStatus('err','Login kraeves');
       document.getElementById('uploadBtn').disabled=false;
