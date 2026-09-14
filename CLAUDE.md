@@ -72,7 +72,7 @@
 Regardless of user input, Claude Code uses Danish for this project.
 
 ### 2. SECURITY: Working directory boundary
-Only work within: `C:\Projekter\Modbus_server_slave_ESP32\*.*`
+Only work within: `C:\Projekter\HypervisionPLC\*.*`
 
 See [`CLAUDE_SETUP.md`](CLAUDE_SETUP.md) for full rules.
 
@@ -178,7 +178,7 @@ See [`CLAUDE_ARCH.md`](CLAUDE_ARCH.md) for complete file reference.
 
 ```
 ✅ ALLOWED:
-  - Read/write in: C:\Projekter\Modbus_server_slave_ESP32\*.*
+  - Read/write in: C:\Projekter\HypervisionPLC\*.*
   - Git operations (with warnings for destructive ops)
   - Create/delete files and folders
 

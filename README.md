@@ -135,7 +135,7 @@ This repository is developed with heavy Claude Code assistance. [CLAUDE.md](CLAU
 
 ## Support & issues
 
-- **Bugs / feature requests:** [GitHub Issues](https://github.com/Jangreenlarsen/Modbus_server_slave_ESP32/issues)
+- **Bugs / feature requests:** [GitHub Issues](https://github.com/Jangreenlarsen/HypervisionPLC/issues)
 - **Known issues & their status:** [BUGS_INDEX.md](BUGS_INDEX.md)
 - **Serial diagnostics:** `show status`, `show version`, `show debug` over the CLI
 

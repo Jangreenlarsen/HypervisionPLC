@@ -18,7 +18,7 @@
 ## ⚡ Critical Rules (5 seconds)
 
 ✅ **LANGUAGE:** Always respond in Danish
-✅ **WORKING DIR:** Only `C:\Projekter\Modbus_server_slave_ESP32\*.*`
+✅ **WORKING DIR:** Only `C:\Projekter\HypervisionPLC\*.*`
 ✅ **BUGS FIRST:** Check [`BUGS_INDEX.md`](BUGS_INDEX.md) before ANY code change
 ✅ **GIT SAFETY:** Warn before destructive git operations
 ✅ **SEE DETAILS:** Read [`CLAUDE_SETUP.md`](CLAUDE_SETUP.md) for full rules
@@ -165,7 +165,7 @@ Project files:
 
 ```
 ✅ ALLOWED:
-  - Read/write files in: C:\Projekter\Modbus_server_slave_ESP32\*.*
+  - Read/write files in: C:\Projekter\HypervisionPLC\*.*
   - Execute commands there
   - Create/delete files and folders
   - Git operations (with warnings for destructive ops)

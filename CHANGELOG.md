@@ -2064,7 +2064,7 @@ Layer 8: System (heartbeat, version, debug, main)
 
 ## Support & Resources
 
-- **GitHub:** https://github.com/Jangreenlarsen/Modbus_server_slave_ESP32
+- **GitHub:** https://github.com/Jangreenlarsen/HypervisionPLC
 - **Documentation:** `docs/` folder (FEATURE_GUIDE.md, SETUP_GUIDE.md)
 - **Architecture:** CLAUDE.md (project development guide)
 - **Tests:** Test scripts in root (`test_*.py`)

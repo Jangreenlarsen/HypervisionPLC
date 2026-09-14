@@ -11,7 +11,7 @@
 ## Step 1: Clone Repository
 
 ```bash
-git clone https://github.com/Jangreenlarsen/Modbus_server_slave_ESP32.git
+git clone https://github.com/Jangreenlarsen/HypervisionPLC.git
 cd Modbus_server_slave_ESP32
 ```
 

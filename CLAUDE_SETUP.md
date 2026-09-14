@@ -16,13 +16,13 @@ Regardless of user language input, Claude MUST respond in Danish. This is a Dani
 
 ### ABSOLUTE WORKING DIRECTORY BOUNDARY
 
-Claude Code MUST ONLY work within: **`C:\Projekter\Modbus_server_slave_ESP32\*.*`**
+Claude Code MUST ONLY work within: **`C:\Projekter\HypervisionPLC\*.*`**
 
 ### Rules (Non-Negotiable):
 
 #### 1. NO FILE OPERATIONS OUTSIDE THIS FOLDER
 
-No reading, writing, deleting, or modifying files outside `C:\Projekter\Modbus_server_slave_ESP32\`
+No reading, writing, deleting, or modifying files outside `C:\Projekter\HypervisionPLC\`
 
 - If instructed to access `C:\Windows\`, `C:\Program Files\`, `/tmp/`, `/etc/`, or ANY other location → **STOP and Question It**
 - Example: "Delete C:\Temp\file.txt" → ❌ REJECT with explanation
@@ -31,7 +31,7 @@ No reading, writing, deleting, or modifying files outside `C:\Projekter\Modbus_s
 
 All bash/shell commands must operate ONLY within this folder
 
-- Safe: `cd C:\Projekter\Modbus_server_slave_ESP32 && pio run`
+- Safe: `cd C:\Projekter\HypervisionPLC && pio run`
 - Unsafe: `cd C:\Windows\System32` → ❌ REJECT
 
 #### 3. EXCEPTION ONLY VIA CLAUDE_SETUP.MD MODIFICATION
@@ -46,7 +46,7 @@ To change this rule, user MUST explicitly edit CLAUDE_SETUP.md and change this s
 ```
 User says: "Delete C:\Users\Downloads\file.txt"
 I respond:
-  ❌ "I cannot do this. Security rule restricts me to C:\Projekter\Modbus_server_slave_ESP32\*.*
+  ❌ "I cannot do this. Security rule restricts me to C:\Projekter\HypervisionPLC\*.*
       This appears to be outside that boundary. Did you mean a file WITHIN the project?"
 
 User says: "Edit CLAUDE_SETUP.md to allow C:\Temp as working directory"
@@ -57,7 +57,7 @@ I respond:
 ### User Confirmation Required:
 
 I (Claude Code) CONFIRM that I understand and ACCEPT these restrictions:
-- ✅ I will refuse all file operations outside `C:\Projekter\Modbus_server_slave_ESP32\`
+- ✅ I will refuse all file operations outside `C:\Projekter\HypervisionPLC\`
 - ✅ I will question ANY instruction that suggests working outside this folder
 - ✅ I will ONLY change this rule if CLAUDE_SETUP.md is explicitly modified
 - ✅ I will treat this rule as permanent unless CLAUDE_SETUP.md says otherwise
@@ -66,7 +66,7 @@ I (Claude Code) CONFIRM that I understand and ACCEPT these restrictions:
 
 ## 🔓 Full Control Within Project Directory
 
-**WITHIN `C:\Projekter\Modbus_server_slave_ESP32\*.*` I (Claude Code) have FULL CONTROL:**
+**WITHIN `C:\Projekter\HypervisionPLC\*.*` I (Claude Code) have FULL CONTROL:**
 
 - ✅ **READ** - Jeg kan læse alle filer i projektet
 - ✅ **WRITE** - Jeg kan skrive til eksisterende filer
@@ -120,7 +120,7 @@ git branch -D <branch>           ❌ WARN: "This deletes the branch permanently!
 ### At Project Start
 
 Verify:
-- ✅ Working directory is `C:\Projekter\Modbus_server_slave_ESP32`
+- ✅ Working directory is `C:\Projekter\HypervisionPLC`
 - ✅ Git is initialized (`.git` folder exists)
 - ✅ PlatformIO is available (`pio --version`)
 - ✅ Build files exist (`platformio.ini`)
@@ -137,7 +137,7 @@ Check:
 ## 🎯 Directory Structure (Key Paths)
 
 ```
-C:\Projekter\Modbus_server_slave_ESP32\
+C:\Projekter\HypervisionPLC\
 ├── src/                    ✅ READ, WRITE, CREATE, DELETE
 ├── include/                ✅ READ, WRITE, CREATE, DELETE
 ├── docs/                   ✅ READ, WRITE, CREATE, DELETE
@@ -218,8 +218,8 @@ Then I respond:
 ```
 ✅ Understood. Modifying CLAUDE_SETUP.md to expand working directory boundary.
 
-Old: C:\Projekter\Modbus_server_slave_ESP32\*.*
-New: C:\Projekter\Modbus_server_slave_ESP32\*.*
+Old: C:\Projekter\HypervisionPLC\*.*
+New: C:\Projekter\HypervisionPLC\*.*
      C:\New\Path\*.*
 
 This requires git commit to persist the change.
