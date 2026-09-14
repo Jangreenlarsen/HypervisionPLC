@@ -32,6 +32,12 @@ PAGES = [
     ("web/ota.html",       "ota_html_gz",       "generated_web/ota_html_gz.h"),
     ("web/logs.html",      "logs_html_gz",      "generated_web/logs_html_gz.h"),
     ("web/io.html",        "io_html_gz",        "generated_web/io_html_gz.h"),
+    ("web/status.html",    "status_html_gz",    "generated_web/status_html_gz.h"),
+    # FLASH-OPTIMERING v2: CSS-regler/JS-funktioner der var byte-identiske på
+    # tværs af >=2 af siderne ovenfor er udtrukket hertil (se web/common.css/
+    # .js's egne kommentarer) -- serveres separat af web_common.cpp.
+    ("web/common.css",     "common_css_gz",     "generated_web/common_css_gz.h"),
+    ("web/common.js",      "common_js_gz",      "generated_web/common_js_gz.h"),
 ]
 
 total_raw = 0

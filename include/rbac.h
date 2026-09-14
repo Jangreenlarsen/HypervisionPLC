@@ -78,6 +78,26 @@ int rbac_session_token_check(const char *token);
  */
 void rbac_session_token_revoke(const char *token);
 
+/**
+ * FEAT-399 (IP ACL lockout-recovery): immediately invalidate ALL active
+ * session tokens. Used when a "gated" ACL rule change goes live, to force
+ * every client back through a fresh POST /api/login — since RbacSessionToken
+ * has no issued_at timestamp, a token that validates AFTER this call is, by
+ * construction, proof of a login that happened after the new rule took
+ * effect. Same spinlock-protected pattern as rbac_session_token_revoke().
+ */
+void rbac_session_token_revoke_all(void);
+
+/**
+ * BUG-393: extract the "hfplc_session" cookie's value from this request's
+ * Cookie header, if present. Used as a fallback session-token source for
+ * browser clients (which no longer send a manual Authorization header) —
+ * see rbac_check_http(). Never required for Basic/Bearer Authorization
+ * header-based clients (curl/scripts), which are unaffected.
+ * @return true and fills out[] (null-terminated) if the cookie was found.
+ */
+bool rbac_extract_cookie_token(httpd_req_t *req, char *out, size_t out_len);
+
 /* ============================================================================
  * AUTHORIZATION CHECKS
  * ============================================================================ */

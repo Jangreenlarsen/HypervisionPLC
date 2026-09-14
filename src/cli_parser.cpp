@@ -24,12 +24,14 @@
 #include "cli_commands_logic.h"
 #include "cli_commands_modbus_master.h"
 #include "cli_commands_modbus_slave.h"
+#include "cli_commands_modbus_expansion.h"  // FEAT-409
 #include "cli_commands_analog.h"
 #include "mb_async.h"
 #include "st_logic_config.h"
 #include "debug.h"
 #include "gpio_driver.h"
 #include "rbac.h"
+#include "ip_acl.h"
 #include "config_struct.h"
 #include <string.h>
 #include <stdlib.h>
@@ -179,8 +181,15 @@ static const char* normalize_alias(const char* s) {
   // Modbus Master/Slave/Mode commands
   if (str_eq_i(s, "MODBUS-MASTER") || str_eq_i(s, "MB-MASTER")) return "MODBUS-MASTER";
   if (str_eq_i(s, "MODBUS-SLAVE") || str_eq_i(s, "MB-SLAVE")) return "MODBUS-SLAVE";
+  // FEAT-409: Modbus Expansion Board. Bevidst IKKE aliaset til "MB-EXP"/"EXP"
+  // e.l. — kun de to fulde/allerede-etablerede forkortelsesmoenstre
+  // ("MODBUS-X"/"MB-X", jf. MODBUS-MASTER/MB-MASTER ovenfor), for at minimere
+  // risikoen for utilsigtet at genbruge et andet ords forkortelse (samme
+  // lektion som FEAT-408s to normalize_alias-bugs, se BUGS_INDEX.md).
+  if (str_eq_i(s, "MODBUS-EXPANSION") || str_eq_i(s, "MB-EXPANSION")) return "MODBUS-EXPANSION";
   if (str_eq_i(s, "MODBUS")) return "MODBUS";
   if (str_eq_i(s, "MB")) return "MB";
+  if (str_eq_i(s, "MBX")) return "MBX";
   if (str_eq_i(s, "MODE")) return "MODE";
   if (str_eq_i(s, "SLAVE")) return "SLAVE";
   if (str_eq_i(s, "MASTER")) return "MASTER";
@@ -271,6 +280,13 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "ROLES") || str_eq_i(s, "ROLE")) return "ROLES";
   if (str_eq_i(s, "PRIVILEGE") || str_eq_i(s, "PRIV") || str_eq_i(s, "PRI")) return "PRIVILEGE";
 
+  // FEAT-399: IP Access Control List
+  if (str_eq_i(s, "ACL")) return "ACL";
+  if (str_eq_i(s, "RULE")) return "RULE";
+  if (str_eq_i(s, "CONFIRM")) return "CONFIRM";
+  if (str_eq_i(s, "SERVICE") || str_eq_i(s, "SVC")) return "SERVICE";
+  if (str_eq_i(s, "DRAFT")) return "DRAFT";  // FEAT-402: ACL-kladde-tilstand
+
   // Debug subcommands (FEAT-008)
   if (str_eq_i(s, "PAUSE")) return "PAUSE";
   if (str_eq_i(s, "CONTINUE") || str_eq_i(s, "CONT")) return "CONTINUE";
@@ -307,6 +323,7 @@ static void print_show_help(void) {
   debug_println("    show modbus            - Modbus Slave + Master config (samlet)");
   debug_println("    show modbus-slave      - Modbus Slave config");
   debug_println("    show modbus-master     - Modbus Master config");
+  debug_println("    show modbus-expansion [board] - Expansion Board-liste, eller live status for ét board (FEAT-409)");
   debug_println("    show registers         - Holding registers");
   debug_println("    show inputs            - Input registers");
   debug_println("    show coils             - Coil states");
@@ -493,6 +510,37 @@ static void print_modbus_master_help(void) {
   debug_println("Global ST Variables:");
   debug_println("  mb_last_error (INT)  - Last error code (0=OK, 1=TIMEOUT, 2=CRC, 3=EXCEPTION, 4=MAX_REQ, 5=DISABLED)");
   debug_println("  mb_success (BOOL)    - TRUE if last operation succeeded");
+  debug_println("");
+}
+
+static void print_modbus_expansion_help(void) {
+  debug_println("");
+  debug_println("Available 'set/show modbus-expansion' and 'mbx' commands (FEAT-409/410):");
+  debug_println("  set modbus-expansion add <nr> <type> <navn> <ip> <token>  - Tilføj board (nr: 1-8)");
+  debug_println("  set modbus-expansion edit <board> <navn> <ip> [token] [type] - Redigér board");
+  debug_println("  set modbus-expansion remove <board>                       - Fjern board");
+  debug_println("  set modbus-expansion channel <board> <kanal> <mode> <baud> <parity> <stopbits> <timeout_ms> <inter_frame_ms> <on|off>");
+  debug_println("                                             - Push kanal-config atomisk til boardet");
+  debug_println("  show modbus-expansion                     - Liste over konfigurerede boards");
+  debug_println("  show modbus-expansion <board>              - Live status+kanaler fra boardet");
+  debug_println("  show modbus-expansion queue                - Kø/cache-diagnostik for MBX_*-trafikken");
+  debug_println("  mbx <board> status                        - Alias for 'show modbus-expansion <board>'");
+  debug_println("  mbx <board> <kanal> read <fc> <slave> <addr> [qty]     - Diagnostisk læsning");
+  debug_println("  mbx <board> <kanal> write <fc> <slave> <addr> <val...> - Diagnostisk skrivning");
+  debug_println("");
+  debug_println("ST Logic Functions (samme non-blocking cache/kø-mønster som MB_*, se 'set modbus-master ?'):");
+  debug_println("  MBX_READ_COIL(board, kanal, slave_id, address) → BOOL     (async, cached)");
+  debug_println("  MBX_READ_INPUT(board, kanal, slave_id, address) → BOOL    (async, cached)");
+  debug_println("  MBX_READ_HOLDING(board, kanal, slave_id, address) → INT   (async, cached)");
+  debug_println("  MBX_READ_INPUT_REG(board, kanal, slave_id, address) → INT (async, cached)");
+  debug_println("  MBX_WRITE_COIL(board, kanal, slave_id, address, value) → BOOL   (async, queued)");
+  debug_println("  MBX_WRITE_HOLDING(board, kanal, slave_id, address, value) → BOOL (async, queued)");
+  debug_println("  MBX_SUCCESS() → BOOL  - TRUE hvis seneste MBX_*-kald lykkedes");
+  debug_println("  MBX_BUSY() → BOOL     - TRUE hvis expansion-datakøen har ventende forespørgsler");
+  debug_println("  MBX_ERROR() → INT     - Seneste fejlkode (samme mb_error_code_t-tabel som MB_ERROR())");
+  debug_println("");
+  debug_println("  board: 1-8 (nr som vist i 'show modbus-expansion'). kanal: A/B eller 1-8.");
+  debug_println("  v1-afgrænsning: kun enkelt-register-operationer, ingen MBX_READ_HOLDINGS/MBX_WRITE_HOLDINGS (se BUGS_INDEX.md FEAT-410).");
   debug_println("");
 }
 
@@ -833,6 +881,14 @@ bool cli_parser_execute(char* line) {
     } else if (!strcmp(what, "SSE")) {
       cli_cmd_show_sse();
       return true;
+    } else if (!strcmp(what, "ACL")) {
+      // show acl draft — FEAT-402: viser kladdens indhold (IKKE haandhaevet)
+      if (argc >= 3 && !strcmp(normalize_alias(argv[2]), "DRAFT")) {
+        cli_cmd_show_acl_draft();
+      } else {
+        cli_cmd_show_acl();
+      }
+      return true;
     } else if (!strcmp(what, "NTP")) {
       cli_cmd_show_ntp();
       return true;
@@ -862,6 +918,10 @@ bool cli_parser_execute(char* line) {
       return true;
     } else if (!strcmp(what, "MODBUS-SLAVE") || !strcmp(what, "MB-SLAVE")) {
       cli_cmd_show_modbus_slave();
+      return true;
+    } else if (!strcmp(what, "MODBUS-EXPANSION") || !strcmp(what, "MB-EXPANSION")) {
+      // show modbus-expansion [board] - FEAT-409
+      cli_cmd_show_modbus_expansion(argc - 2, argv + 2);
       return true;
     } else if (!strcmp(what, "H-REG")) {
       // show h-reg - Display register configuration
@@ -1011,6 +1071,10 @@ bool cli_parser_execute(char* line) {
     } else if (!strcmp(what, "MODBUS-SLAVE") || !strcmp(what, "MB-SLAVE")) {
       // show modbus-slave - Display Modbus Slave configuration
       cli_cmd_show_modbus_slave();
+      return true;
+    } else if (!strcmp(what, "MODBUS-EXPANSION") || !strcmp(what, "MB-EXPANSION")) {
+      // show modbus-expansion [board] - FEAT-409
+      cli_cmd_show_modbus_expansion(argc - 2, argv + 2);
       return true;
     } else if (!strcmp(what, "USER")) {
       // show user - Display current session info
@@ -1948,6 +2012,41 @@ bool cli_parser_execute(char* line) {
         debug_println("SET MODBUS-MASTER: unknown parameter");
         return false;
       }
+    } else if (!strcmp(what, "MODBUS-EXPANSION") || !strcmp(what, "MB-EXPANSION")) {
+      // set modbus-expansion add|edit|remove|channel ... (FEAT-409)
+      // Subkommandoer bruger bevidst raa strcasecmp (ikke normalize_alias),
+      // samme moenster som "mb"s subcommands (read/write/scan/reset) — undgaar
+      // enhver risiko for alias-kollision med andre normalize_alias-regler
+      // (den type fejl der gav FEAT-408 to selvstaendige bugs, se BUGS_INDEX.md).
+      if (argc < 3) {
+        debug_println("SET MODBUS-EXPANSION: mangler subkommando");
+        debug_println("  set modbus-expansion add <nr> <type> <navn> <ip> <token>  (nr: 1-8, type: modbus_2ch)");
+        debug_println("  set modbus-expansion edit <board> <navn> <ip> [token] [type]");
+        debug_println("  set modbus-expansion remove <board>");
+        debug_println("  set modbus-expansion channel <board> <kanal> <mode> <baud> <parity> <stopbits> <timeout_ms> <inter_frame_ms> <on|off>");
+        debug_println("  set modbus-expansion ?   - Fuld hjælp inkl. MBX_*-ST Logic-funktioner");
+        return false;
+      }
+      const char* sub = argv[2];
+      if (!strcasecmp(sub, "?") || !strcasecmp(sub, "help")) {
+        print_modbus_expansion_help();
+        return true;
+      } else if (!strcasecmp(sub, "add")) {
+        cli_cmd_set_modbus_expansion_add(argc - 3, argv + 3);
+        return true;
+      } else if (!strcasecmp(sub, "edit")) {
+        cli_cmd_set_modbus_expansion_edit(argc - 3, argv + 3);
+        return true;
+      } else if (!strcasecmp(sub, "remove") || !strcasecmp(sub, "rm") || !strcasecmp(sub, "delete")) {
+        cli_cmd_set_modbus_expansion_remove(argc - 3, argv + 3);
+        return true;
+      } else if (!strcasecmp(sub, "channel") || !strcasecmp(sub, "ch")) {
+        cli_cmd_set_modbus_expansion_channel(argc - 3, argv + 3);
+        return true;
+      } else {
+        debug_printf("SET MODBUS-EXPANSION: ukendt subkommando '%s' (brug: add, edit, remove, channel, ?)\n", sub);
+        return false;
+      }
     } else if (!strcmp(what, "MODBUS-SLAVE") || !strcmp(what, "MB-SLAVE")) {
       // Check for help request
       if (argc >= 3) {
@@ -2081,6 +2180,395 @@ bool cli_parser_execute(char* line) {
         debug_println("ERROR: Could not add user (max 8 users)");
       }
       return true;
+
+    } else if (!strcmp(what, "ACL")) {
+      // set acl enable|disable
+      // set acl rule add <ip/cidr> service <svc> action <allow|deny> [disabled]
+      // set acl rule <index> edit <ip/cidr> service <svc> action <allow|deny> [disabled]
+      // set acl rule <index> move <new-index>
+      // set acl rule <index> enable|disable
+      if (argc < 3) {
+        debug_println("Usage: set acl <enable|disable>");
+        debug_println("       set acl rule add <ip/cidr> service <http|telnet|sse|all> action <allow|deny> [disabled]");
+        debug_println("       set acl rule <index> edit <ip/cidr> service <svc> action <allow|deny> [disabled]");
+        debug_println("       set acl rule <index> move <new-index>");
+        debug_println("       set acl rule <index> <enable|disable>");
+        debug_printf("Current: acl %s, %d regel(er)\n",
+          g_persist_config.acl_enabled ? "enabled" : "disabled",
+          g_persist_config.acl_rule_count);
+        return true;
+      }
+
+      const char *sub = normalize_alias(argv[2]);
+
+      // Faelles parser til baade direkte og kladde-varianter af "add"/"edit":
+      // <ip/cidr> service <svc> action <allow|deny> [disabled]. Forventer argv
+      // fra og med IP/CIDR-tokenet, i argv[start_idx].
+      auto parse_rule_fields = [&](int start_idx, uint32_t *net, uint8_t *prefix, uint8_t *svc, uint8_t *action, bool *enabled) -> const char* {
+        if (argc < start_idx + 5) return "for faa argumenter";
+        if (!ip_acl_parse_cidr(argv[start_idx], net, prefix)) return "ugyldig IP/CIDR";
+        if (strcasecmp(argv[start_idx + 1], "service") && strcasecmp(argv[start_idx + 1], "svc")) return "forventede 'service' efter IP/CIDR";
+        if (!ip_acl_parse_service(argv[start_idx + 2], svc)) return "ugyldig service (brug: http|telnet|sse|all)";
+        if (strcasecmp(argv[start_idx + 3], "action")) return "forventede 'action' efter service";
+        if (!ip_acl_parse_action(argv[start_idx + 4], action)) return "ugyldig action (brug: allow|deny)";
+        *enabled = true;
+        if (argc >= start_idx + 6 && !strcasecmp(argv[start_idx + 5], "disabled")) *enabled = false;
+        return NULL;
+      };
+
+      // FEAT-402: kladde-tilstand — helt uden gating/haandhaevelse, kun
+      // ip_acl_draft_apply() kan paavirke live-tilstanden (og gater da paa
+      // praecis samme maade som en direkte mutation ville, som ÉT skridt).
+      if (!strcmp(sub, "DRAFT")) {
+        if (argc < 4) {
+          debug_println("Usage: set acl draft <begin|apply|discard|enable|disable>");
+          debug_println("       set acl draft rule add <ip/cidr> service <svc> action <allow|deny> [disabled]");
+          debug_println("       set acl draft rule <index> edit|move|enable|disable ...");
+          if (ip_acl_draft_is_active()) {
+            debug_printf("Kladde AKTIV: %s, %d regel(er) — vis med 'show acl draft'\n",
+              ip_acl_draft_get_enabled() ? "enabled" : "disabled", ip_acl_draft_get_rule_count());
+          } else {
+            debug_println("Ingen aktiv kladde ('set acl draft begin' for at starte)");
+          }
+          return true;
+        }
+
+        const char *dsub = argv[3];
+
+        if (!strcasecmp(dsub, "begin")) {
+          IpAclResult res = ip_acl_draft_begin();
+          if (res == ACL_ACTION_OK) {
+            debug_println("ACL-kladde startet (kopi af den bekraeftede tilstand) — INTET haandhaevet endnu");
+            debug_println("Byg videre med 'set acl draft rule ...', afslut med 'set acl draft apply' eller 'discard'");
+          } else if (res == ACL_ACTION_ERR_DRAFT_ACTIVE) {
+            debug_println("ERROR: en kladde er allerede aktiv");
+          } else if (res == ACL_ACTION_ERR_PENDING) {
+            debug_println("ERROR: en ACL-aendring afventer allerede bekraeftelse ('confirm acl' eller vent)");
+          } else {
+            debug_println("ERROR: kunne ikke starte kladde");
+          }
+          return true;
+        }
+
+        if (!strcasecmp(dsub, "discard")) {
+          IpAclResult res = ip_acl_draft_discard();
+          if (res == ACL_ACTION_OK) {
+            debug_println("ACL-kladde kasseret — intet blev nogensinde haandhaevet");
+          } else {
+            debug_println("ERROR: ingen aktiv kladde");
+          }
+          return true;
+        }
+
+        if (!strcasecmp(dsub, "apply")) {
+          bool now_pending = false, self_warn = false;
+          IpAclResult res = ip_acl_draft_apply(0, &now_pending, &self_warn);
+          if (res == ACL_ACTION_OK) {
+            if (now_pending) {
+              debug_println("*** Kladden paavirker management (HTTP/Telnet) og AFVENTER BEKRAEFTELSE ***");
+              debug_println("Alle aktive login-sessioner er logget ud — log ind PAA NY og kald 'confirm acl'");
+              debug_println("indenfor 5 minutter, ellers rulles HELE kladden automatisk tilbage.");
+            } else {
+              debug_println("Kladde anvendt og gemt til NVS med det samme (ingen mgmt-relevant aendring)");
+            }
+          } else if (res == ACL_ACTION_ERR_NO_DRAFT) {
+            debug_println("ERROR: ingen aktiv kladde");
+          } else {
+            debug_println("ERROR: kunne ikke anvende kladde");
+          }
+          return true;
+        }
+
+        if (!strcasecmp(dsub, "enable") || !strcasecmp(dsub, "on") || !strcasecmp(dsub, "disable") || !strcasecmp(dsub, "off")) {
+          bool enabled = (!strcasecmp(dsub, "enable") || !strcasecmp(dsub, "on"));
+          IpAclResult res = ip_acl_draft_set_enabled(enabled);
+          if (res == ACL_ACTION_OK) {
+            debug_printf("Kladde: acl %s (ikke haandhaevet foer 'apply')\n", enabled ? "enabled" : "disabled");
+          } else {
+            debug_println("ERROR: ingen aktiv kladde");
+          }
+          return true;
+        }
+
+        if (!strcasecmp(dsub, "rule")) {
+          if (argc < 5) {
+            debug_println("Usage: set acl draft rule add <ip/cidr> service <svc> action <allow|deny> [disabled]");
+            debug_println("       set acl draft rule <index> edit|move|enable|disable ...");
+            return false;
+          }
+
+          if (!strcasecmp(argv[4], "add")) {
+            uint32_t net; uint8_t prefix; uint8_t svc; uint8_t action; bool enabled;
+            const char *err = parse_rule_fields(5, &net, &prefix, &svc, &action, &enabled);
+            if (err) {
+              debug_printf("ERROR: %s\n", err);
+              debug_println("Usage: set acl draft rule add <ip/cidr> service <http|telnet|sse|all> action <allow|deny> [disabled]");
+              return false;
+            }
+            int idx = -1;
+            IpAclResult res = ip_acl_draft_rule_add(net, prefix, svc, action, enabled, &idx);
+            if (res == ACL_ACTION_OK) {
+              char cidr[20];
+              ip_acl_format_cidr(net, prefix, cidr, sizeof(cidr));
+              debug_printf("Kladde-regel #%d tilfoejet: %s %s -> %s (%s)\n",
+                           idx, ip_acl_action_name(action), cidr, ip_acl_service_name(svc),
+                           enabled ? "aktiv" : "deaktiveret");
+            } else if (res == ACL_ACTION_ERR_NO_DRAFT) {
+              debug_println("ERROR: ingen aktiv kladde ('set acl draft begin' foerst)");
+            } else if (res == ACL_ACTION_ERR_FULL) {
+              debug_println("ERROR: kladdens regel-tabel er fuld (max 32)");
+            } else {
+              debug_println("ERROR: ugyldig regel");
+            }
+            return true;
+          }
+
+          char *endptr = NULL;
+          long idx = strtol(argv[4], &endptr, 10);
+          if (endptr == argv[4] || *endptr != '\0') {
+            debug_println("Usage: set acl draft rule add ... | set acl draft rule <index> edit|move|enable|disable ...");
+            return false;
+          }
+          if (argc < 6) {
+            debug_println("Usage: set acl draft rule <index> edit|move|enable|disable ...");
+            return false;
+          }
+
+          if (!strcasecmp(argv[5], "edit")) {
+            uint32_t net; uint8_t prefix; uint8_t svc; uint8_t action; bool enabled;
+            const char *err = parse_rule_fields(6, &net, &prefix, &svc, &action, &enabled);
+            if (err) {
+              debug_printf("ERROR: %s\n", err);
+              debug_println("Usage: set acl draft rule <index> edit <ip/cidr> service <svc> action <allow|deny> [disabled]");
+              return false;
+            }
+            IpAclResult res = ip_acl_draft_rule_edit((int)idx, net, prefix, svc, action, enabled);
+            if (res == ACL_ACTION_OK) {
+              debug_printf("Kladde-regel #%ld redigeret\n", idx);
+            } else if (res == ACL_ACTION_ERR_NO_DRAFT) {
+              debug_println("ERROR: ingen aktiv kladde");
+            } else {
+              debug_printf("ERROR: kladde-regel #%ld findes ikke eller ugyldige felter\n", idx);
+            }
+            return true;
+          }
+
+          if (!strcasecmp(argv[5], "move")) {
+            if (argc < 7) {
+              debug_println("Usage: set acl draft rule <index> move <new-index>");
+              return false;
+            }
+            char *endptr2 = NULL;
+            long to_idx = strtol(argv[6], &endptr2, 10);
+            if (endptr2 == argv[6] || *endptr2 != '\0') {
+              debug_println("Usage: set acl draft rule <index> move <new-index>");
+              return false;
+            }
+            IpAclResult res = ip_acl_draft_rule_move((int)idx, (int)to_idx);
+            if (res == ACL_ACTION_OK) {
+              debug_printf("Kladde-regel flyttet fra #%ld til #%ld\n", idx, to_idx);
+            } else if (res == ACL_ACTION_ERR_NO_DRAFT) {
+              debug_println("ERROR: ingen aktiv kladde");
+            } else {
+              debug_println("ERROR: ugyldigt index");
+            }
+            return true;
+          }
+
+          bool enabled;
+          if (!strcasecmp(argv[5], "enable") || !strcasecmp(argv[5], "on")) enabled = true;
+          else if (!strcasecmp(argv[5], "disable") || !strcasecmp(argv[5], "off")) enabled = false;
+          else {
+            debug_println("ERROR: forventede 'edit', 'move', 'enable' eller 'disable'");
+            return false;
+          }
+          // Kladden har ingen separat set_enabled-pr-regel-funktion — genbrug
+          // edit med de eksisterende felter, kun enabled aendret.
+          AclRule existing;
+          if (!ip_acl_draft_get_rule((uint8_t)idx, &existing)) {
+            debug_printf("ERROR: kladde-regel #%ld findes ikke\n", idx);
+            return true;
+          }
+          IpAclResult res = ip_acl_draft_rule_edit((int)idx, existing.network_addr, existing.prefix_len,
+                                                    existing.service, existing.action, enabled);
+          if (res == ACL_ACTION_OK) {
+            debug_printf("Kladde-regel #%ld %s\n", idx, enabled ? "aktiveret" : "deaktiveret");
+          } else {
+            debug_printf("ERROR: kladde-regel #%ld findes ikke\n", idx);
+          }
+          return true;
+        }
+
+        debug_println("SET ACL DRAFT: unknown argument (brug: begin|apply|discard|enable|disable|rule)");
+        return false;
+      }
+
+      if (!strcmp(sub, "RULE")) {
+        if (argc < 4) {
+          debug_println("Usage: set acl rule add <ip/cidr> service <http|telnet|sse|all> action <allow|deny> [disabled]");
+          debug_println("       set acl rule <index> edit|move|enable|disable ...");
+          return false;
+        }
+
+        if (!strcasecmp(argv[3], "add")) {
+          // set acl rule add <ip/cidr> service <svc> action <allow|deny> [disabled]
+          uint32_t net; uint8_t prefix; uint8_t svc; uint8_t action; bool enabled;
+          const char *err = parse_rule_fields(4, &net, &prefix, &svc, &action, &enabled);
+          if (err) {
+            debug_printf("ERROR: %s\n", err);
+            debug_println("Usage: set acl rule add <ip/cidr> service <http|telnet|sse|all> action <allow|deny> [disabled]");
+            return false;
+          }
+
+          bool now_pending = false;
+          int idx = -1;
+          IpAclResult res = ip_acl_rule_add(net, prefix, svc, action, enabled, &now_pending, &idx);
+          if (res == ACL_ACTION_OK) {
+            char cidr[20];
+            ip_acl_format_cidr(net, prefix, cidr, sizeof(cidr));
+            debug_printf("ACL-regel #%d tilfoejet: %s %s -> %s (%s)\n",
+                         idx, ip_acl_action_name(action),
+                         cidr, ip_acl_service_name(svc), enabled ? "aktiv" : "deaktiveret");
+            if (now_pending) {
+              debug_println("*** Denne aendring paavirker management (HTTP/Telnet) og AFVENTER BEKRAEFTELSE ***");
+              debug_println("Alle aktive login-sessioner er logget ud — log ind PAA NY og kald 'confirm acl'");
+              debug_println("indenfor 5 minutter, ellers rulles aendringen automatisk tilbage.");
+            } else {
+              debug_println("NOTE: gemt til NVS med det samme (aendringen udvider ikke adgangsbegraensninger)");
+            }
+          } else if (res == ACL_ACTION_ERR_PENDING) {
+            debug_println("ERROR: en anden ACL-aendring afventer allerede bekraeftelse ('confirm acl' eller vent)");
+          } else if (res == ACL_ACTION_ERR_FULL) {
+            debug_println("ERROR: regel-tabellen er fuld (max 32)");
+          } else {
+            debug_println("ERROR: ugyldig regel");
+          }
+          return true;
+        } else {
+          // set acl rule <index> edit|move|enable|disable ...
+          char *endptr = NULL;
+          long idx = strtol(argv[3], &endptr, 10);
+          if (endptr == argv[3] || *endptr != '\0') {
+            debug_println("Usage: set acl rule add ... | set acl rule <index> edit|move|enable|disable ...");
+            return false;
+          }
+          if (argc < 5) {
+            debug_println("Usage: set acl rule <index> edit|move|enable|disable ...");
+            return false;
+          }
+
+          const char *action_word = normalize_alias(argv[4]);
+
+          if (!strcasecmp(argv[4], "edit")) {
+            // set acl rule <index> edit <ip/cidr> service <svc> action <allow|deny> [disabled]
+            uint32_t net; uint8_t prefix; uint8_t svc; uint8_t action; bool enabled;
+            const char *err = parse_rule_fields(5, &net, &prefix, &svc, &action, &enabled);
+            if (err) {
+              debug_printf("ERROR: %s\n", err);
+              debug_println("Usage: set acl rule <index> edit <ip/cidr> service <svc> action <allow|deny> [disabled]");
+              return false;
+            }
+            bool now_pending = false;
+            IpAclResult res = ip_acl_rule_edit((int)idx, net, prefix, svc, action, enabled, &now_pending);
+            if (res == ACL_ACTION_OK) {
+              debug_printf("ACL-regel #%ld redigeret\n", idx);
+              if (now_pending) {
+                debug_println("*** Denne aendring paavirker management (HTTP/Telnet) og AFVENTER BEKRAEFTELSE ***");
+                debug_println("Alle aktive login-sessioner er logget ud — log ind PAA NY og kald 'confirm acl'");
+                debug_println("indenfor 5 minutter, ellers rulles aendringen automatisk tilbage.");
+              } else {
+                debug_println("NOTE: gemt til NVS med det samme");
+              }
+            } else if (res == ACL_ACTION_ERR_PENDING) {
+              debug_println("ERROR: en anden ACL-aendring afventer allerede bekraeftelse ('confirm acl' eller vent)");
+            } else {
+              debug_printf("ERROR: regel #%ld findes ikke eller ugyldige felter\n", idx);
+            }
+            return true;
+          }
+
+          if (!strcasecmp(argv[4], "move")) {
+            // set acl rule <index> move <new-index>
+            if (argc < 6) {
+              debug_println("Usage: set acl rule <index> move <new-index>");
+              return false;
+            }
+            char *endptr2 = NULL;
+            long to_idx = strtol(argv[5], &endptr2, 10);
+            if (endptr2 == argv[5] || *endptr2 != '\0') {
+              debug_println("Usage: set acl rule <index> move <new-index>");
+              return false;
+            }
+            bool now_pending = false;
+            IpAclResult res = ip_acl_rule_move((int)idx, (int)to_idx, &now_pending);
+            if (res == ACL_ACTION_OK) {
+              debug_printf("ACL-regel flyttet fra #%ld til #%ld\n", idx, to_idx);
+              if (now_pending) {
+                debug_println("*** Denne flytning paavirker management (HTTP/Telnet) og AFVENTER BEKRAEFTELSE ***");
+                debug_println("Alle aktive login-sessioner er logget ud — log ind PAA NY og kald 'confirm acl'");
+                debug_println("indenfor 5 minutter, ellers rulles aendringen automatisk tilbage.");
+              } else {
+                debug_println("NOTE: gemt til NVS med det samme");
+              }
+            } else if (res == ACL_ACTION_ERR_PENDING) {
+              debug_println("ERROR: en anden ACL-aendring afventer allerede bekraeftelse ('confirm acl' eller vent)");
+            } else {
+              debug_println("ERROR: ugyldigt index");
+            }
+            return true;
+          }
+
+          (void)action_word;
+          // set acl rule <index> enable|disable
+          bool enabled;
+          if (!strcasecmp(argv[4], "enable") || !strcasecmp(argv[4], "on")) enabled = true;
+          else if (!strcasecmp(argv[4], "disable") || !strcasecmp(argv[4], "off")) enabled = false;
+          else {
+            debug_println("ERROR: forventede 'edit', 'move', 'enable' eller 'disable'");
+            return false;
+          }
+
+          bool now_pending = false;
+          IpAclResult res = ip_acl_rule_set_enabled((int)idx, enabled, &now_pending);
+          if (res == ACL_ACTION_OK) {
+            debug_printf("ACL-regel #%ld %s\n", idx, enabled ? "aktiveret" : "deaktiveret");
+            if (now_pending) {
+              debug_println("*** Denne aendring paavirker management (HTTP/Telnet) og AFVENTER BEKRAEFTELSE ***");
+              debug_println("Alle aktive login-sessioner er logget ud — log ind PAA NY og kald 'confirm acl'");
+              debug_println("indenfor 5 minutter, ellers rulles aendringen automatisk tilbage.");
+            }
+          } else if (res == ACL_ACTION_ERR_PENDING) {
+            debug_println("ERROR: en anden ACL-aendring afventer allerede bekraeftelse ('confirm acl' eller vent)");
+          } else {
+            debug_printf("ERROR: regel #%ld findes ikke\n", idx);
+          }
+          return true;
+        }
+      } else if (!strcasecmp(argv[2], "enable") || !strcasecmp(argv[2], "on")) {
+        bool now_pending = false;
+        IpAclResult res = ip_acl_set_enabled(true, &now_pending);
+        if (res == ACL_ACTION_OK) {
+          debug_println("ACL enabled");
+          if (now_pending) {
+            debug_println("*** Denne aendring AFVENTER BEKRAEFTELSE (mindst én HTTP/Telnet-regel er aktiv) ***");
+            debug_println("Alle aktive login-sessioner er logget ud — log ind PAA NY og kald 'confirm acl'");
+            debug_println("indenfor 5 minutter, ellers rulles aendringen automatisk tilbage.");
+          } else {
+            debug_println("NOTE: gemt til NVS med det samme (ingen HTTP/Telnet-regler aktive endnu)");
+          }
+        } else if (res == ACL_ACTION_ERR_PENDING) {
+          debug_println("ERROR: en anden ACL-aendring afventer allerede bekraeftelse ('confirm acl' eller vent)");
+        }
+        return true;
+      } else if (!strcasecmp(argv[2], "disable") || !strcasecmp(argv[2], "off")) {
+        ip_acl_set_enabled(false, NULL);
+        debug_println("ACL disabled (gemt til NVS med det samme)");
+        return true;
+      } else {
+        debug_println("SET ACL: unknown argument (brug: enable|disable|rule)");
+        return false;
+      }
+
     } else {
       debug_println("SET: unknown argument");
       return false;
@@ -2105,8 +2593,57 @@ bool cli_parser_execute(char* line) {
         debug_printf("User '%s' not found\n", argv[2]);
       }
       return true;
+    } else if (!strcmp(dwhat, "ACL")) {
+      // delete acl rule <index>
+      // delete acl draft rule <index>
+      if (argc >= 4 && !strcmp(normalize_alias(argv[2]), "DRAFT")) {
+        if (argc < 5 || strcmp(normalize_alias(argv[3]), "RULE")) {
+          debug_println("Usage: delete acl draft rule <index>");
+          return false;
+        }
+        char *dendptr = NULL;
+        long didx = strtol(argv[4], &dendptr, 10);
+        if (dendptr == argv[4] || *dendptr != '\0') {
+          debug_println("Usage: delete acl draft rule <index>");
+          return false;
+        }
+        IpAclResult dres = ip_acl_draft_rule_delete((int)didx);
+        if (dres == ACL_ACTION_OK) {
+          debug_printf("Kladde-regel #%ld slettet\n", didx);
+        } else if (dres == ACL_ACTION_ERR_NO_DRAFT) {
+          debug_println("ERROR: ingen aktiv kladde");
+        } else {
+          debug_printf("ERROR: kladde-regel #%ld findes ikke\n", didx);
+        }
+        return true;
+      }
+      if (argc < 4 || strcmp(normalize_alias(argv[2]), "RULE")) {
+        debug_println("Usage: delete acl rule <index>");
+        return false;
+      }
+      char *endptr = NULL;
+      long idx = strtol(argv[3], &endptr, 10);
+      if (endptr == argv[3] || *endptr != '\0') {
+        debug_println("Usage: delete acl rule <index>");
+        return false;
+      }
+      bool now_pending = false;
+      IpAclResult res = ip_acl_rule_delete((int)idx, &now_pending);
+      if (res == ACL_ACTION_OK) {
+        debug_printf("ACL-regel #%ld slettet\n", idx);
+        if (now_pending) {
+          debug_println("*** Denne sletning afsloerer en DENY-regel og paavirker dermed management — AFVENTER BEKRAEFTELSE ***");
+          debug_println("Alle aktive login-sessioner er logget ud — log ind PAA NY og kald 'confirm acl'");
+          debug_println("indenfor 5 minutter, ellers rulles aendringen automatisk tilbage.");
+        }
+      } else if (res == ACL_ACTION_ERR_PENDING) {
+        debug_println("ERROR: en anden ACL-aendring afventer allerede bekraeftelse ('confirm acl' eller vent)");
+      } else {
+        debug_printf("ERROR: regel #%ld findes ikke\n", idx);
+      }
+      return true;
     } else {
-      debug_println("DELETE: unknown argument (supported: user)");
+      debug_println("DELETE: unknown argument (supported: user, acl)");
       return false;
     }
 
@@ -2215,6 +2752,24 @@ bool cli_parser_execute(char* line) {
       cli_cmd_load();
       return true;
     }
+
+  } else if (!strcmp(cmd, "CONFIRM")) {
+    // confirm acl — bekraeft en ventende, endnu ikke persisteret ACL-aendring
+    // (FEAT-399 lockout-recovery). At kunne naa hertil overhovedet (autentificeret
+    // CLI-session, opnaaet EFTER en gated ACL-aendring tvang alle sessioner/
+    // Telnet-forbindelsen til at logge ind paa ny) ER selve beviset for at
+    // login/CLI-adgang stadig virker under de nye regler.
+    if (argc >= 2 && !strcmp(normalize_alias(argv[1]), "ACL")) {
+      IpAclResult res = ip_acl_confirm();
+      if (res == ACL_ACTION_OK) {
+        debug_println("ACL-aendring bekraeftet og gemt permanent til NVS.");
+      } else {
+        debug_println("Ingen ACL-aendring afventer bekraeftelse.");
+      }
+      return true;
+    }
+    debug_println("Usage: confirm acl");
+    return false;
 
   } else if (!strcmp(cmd, "CONFIG")) {
     // config save (alias for 'save') OR config load (alias for 'load')
@@ -2351,6 +2906,13 @@ bool cli_parser_execute(char* line) {
     debug_println("  mb scan [start] [end]             - Scan for slaves");
     debug_println("  mb reset backoff|stats|cache      - Reset diagnostik");
     debug_println("  mb ?                              - Detaljeret hjaelp\n");
+
+    debug_println("Modbus Expansion Board (mbx, FEAT-409):");
+    debug_println("  set modbus-expansion add|edit|remove|channel ... - Board-administration");
+    debug_println("  show modbus-expansion [board]     - Liste/live-status");
+    debug_println("  mbx <board> status                - Live status+kanaler fra boardet");
+    debug_println("  mbx <board> <kanal> read <fc> <slave> <addr> [qty] - Diagnostisk laesning");
+    debug_println("  mbx <board> <kanal> write <fc> <slave> <addr> <val...> - Diagnostisk skrivning\n");
 
     debug_println("Network:");
     debug_println("  ping <ip> [count]       - ICMP ping (default 4)");
@@ -2553,6 +3115,36 @@ bool cli_parser_execute(char* line) {
       debug_printf("MB: ukendt kommando '%s' (brug: read, write, scan, reset, help)\n", argv[1]);
       return false;
     }
+
+  } else if (!strcmp(cmd, "MBX")) {
+    // mbx <board> status | mbx <board> <kanal> read/write ... — FEAT-409
+    // Modbus Expansion Board diagnostik/test. Samme "raa strcasecmp paa
+    // subcommands"-moenster som "MB" ovenfor.
+    if (argc < 2) {
+      debug_println("Brug: mbx <board> status");
+      debug_println("      mbx <board> <kanal> read <fc> <slave_id> <address> [quantity]");
+      debug_println("      mbx <board> <kanal> write <fc> <slave_id> <address> <value...>");
+      debug_println("  <board>: index eller navn (se 'show modbus-expansion')");
+      debug_println("  <kanal>: A/B (eller 1-8)");
+      return false;
+    }
+
+    if (argc >= 3 && !strcasecmp(argv[2], "status")) {
+      cli_cmd_mbx_status(1, argv + 1);
+      return true;
+    }
+
+    if (argc >= 4 && !strcasecmp(argv[3], "read")) {
+      cli_cmd_mbx_read(argc - 1, argv + 1);
+      return true;
+    }
+    if (argc >= 4 && !strcasecmp(argv[3], "write")) {
+      cli_cmd_mbx_write(argc - 1, argv + 1);
+      return true;
+    }
+
+    debug_println("MBX: ukendt kommando (brug: status, read, write)");
+    return false;
 
   } else {
     debug_println("Unknown command");

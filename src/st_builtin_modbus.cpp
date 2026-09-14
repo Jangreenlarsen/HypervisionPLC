@@ -23,6 +23,22 @@ bool g_mb_success = false;
 uint8_t g_mb_request_count = 0;
 bool g_mb_cache_enabled = true;  // Default: cache dedup active
 
+// BUG-397e: MB_SUCCESS() means something different after a READ (cache is
+// valid/fresh) than after a WRITE (queued for background send, NOT
+// necessarily executed on the bus yet) -- documented at length in the
+// manual (see §8.9), but still a common source of confusion since it's a
+// single shared flag whose meaning depends entirely on which function you
+// happened to call last. g_mb_success itself is left completely UNCHANGED
+// (still set by every single MB_* call, read or write, exactly as before)
+// for 100% backward compatibility with existing programs (Logic1/ModbusPLC
+// relies on this exact behavior). These two new flags mirror it, split by
+// direction, so MB_READ_OK()/MB_WRITE_QUEUED() give an unambiguous answer
+// regardless of what other MB_* calls happened in between -- unlike
+// MB_SUCCESS(), which must be checked immediately after the specific call
+// you care about.
+bool g_mb_read_success = false;
+bool g_mb_write_queued = false;
+
 // Multi-register buffer for MB_SET_REG/MB_GET_REG/MB_READ_HOLDINGS/MB_WRITE_HOLDINGS
 uint16_t g_mb_multi_reg_buf[MB_MULTI_REG_MAX] = {0};
 
@@ -30,10 +46,15 @@ uint16_t g_mb_multi_reg_buf[MB_MULTI_REG_MAX] = {0};
  * HELPER FUNCTION
  * ============================================================================ */
 
-static bool check_request_limit() {
+// BUG-397e: is_write lets the shared validation helpers below set only the
+// direction-specific flag that actually corresponds to the caller, instead
+// of guessing/clobbering both (which would defeat the whole point of having
+// two independently-trustworthy flags).
+static bool check_request_limit(bool is_write) {
   if (g_mb_request_count >= g_modbus_master_config.max_requests_per_cycle) {
     g_mb_last_error = MB_MAX_REQUESTS_EXCEEDED;
     g_mb_success = false;
+    if (is_write) g_mb_write_queued = false; else g_mb_read_success = false;
     return false;
   }
   g_mb_request_count++;
@@ -44,7 +65,7 @@ static bool check_request_limit() {
  * VALIDATION HELPER
  * ============================================================================ */
 
-static bool validate_slave_addr(int32_t slave_id, int32_t address) {
+static bool validate_slave_addr(int32_t slave_id, int32_t address, bool is_write) {
   // BUGFIX: this used to only check whether the async subsystem was ever
   // initialized (pq_mutex != NULL), NOT whether Modbus Master is currently
   // enabled (g_modbus_master_config.enabled). On boards where mb_async_init()
@@ -59,6 +80,7 @@ static bool validate_slave_addr(int32_t slave_id, int32_t address) {
   if (!g_modbus_master_config.enabled || !mb_async_get_state()->pq_mutex) {
     g_mb_last_error = MB_NOT_ENABLED;
     g_mb_success = false;
+    if (is_write) g_mb_write_queued = false; else g_mb_read_success = false;
     return false;
   }
 
@@ -70,12 +92,14 @@ static bool validate_slave_addr(int32_t slave_id, int32_t address) {
   if (slave_id < 1 || slave_id > 247) {
     g_mb_last_error = MB_INVALID_SLAVE;
     g_mb_success = false;
+    if (is_write) g_mb_write_queued = false; else g_mb_read_success = false;
     return false;
   }
   // BUG-085: Validate address (Modbus valid range: 0-65535)
   if (address < 0 || address > 65535) {
     g_mb_last_error = MB_INVALID_ADDRESS;
     g_mb_success = false;
+    if (is_write) g_mb_write_queued = false; else g_mb_read_success = false;
     return false;
   }
   return true;
@@ -100,8 +124,8 @@ st_value_t st_builtin_mb_read_coil(st_value_t slave_id, st_value_t address) {
   st_value_t result;
   result.bool_val = false;
 
-  if (!check_request_limit()) return result;
-  if (!validate_slave_addr(slave_id.int_val, address.int_val)) return result;
+  if (!check_request_limit(false)) return result;
+  if (!validate_slave_addr(slave_id.int_val, address.int_val, false)) return result;
 
   // Cache lookup
   mb_cache_entry_t *entry = mb_cache_get_or_create(
@@ -110,6 +134,7 @@ st_value_t st_builtin_mb_read_coil(st_value_t slave_id, st_value_t address) {
   if (!entry) {
     g_mb_last_error = MB_MAX_REQUESTS_EXCEEDED;
     g_mb_success = false;
+    g_mb_read_success = false;  // BUG-397e
     return result;
   }
 
@@ -129,6 +154,7 @@ st_value_t st_builtin_mb_read_coil(st_value_t slave_id, st_value_t address) {
   }
 
   g_mb_success = (status == MB_CACHE_VALID && !expired);
+  g_mb_read_success = g_mb_success;  // BUG-397e
   return result;  // Non-blocking!
 }
 
@@ -136,8 +162,8 @@ st_value_t st_builtin_mb_read_input(st_value_t slave_id, st_value_t address) {
   st_value_t result;
   result.bool_val = false;
 
-  if (!check_request_limit()) return result;
-  if (!validate_slave_addr(slave_id.int_val, address.int_val)) return result;
+  if (!check_request_limit(false)) return result;
+  if (!validate_slave_addr(slave_id.int_val, address.int_val, false)) return result;
 
   mb_cache_entry_t *entry = mb_cache_get_or_create(
     (uint8_t)slave_id.int_val, (uint16_t)address.int_val, (uint8_t)MB_REQ_READ_INPUT);
@@ -145,6 +171,7 @@ st_value_t st_builtin_mb_read_input(st_value_t slave_id, st_value_t address) {
   if (!entry) {
     g_mb_last_error = MB_MAX_REQUESTS_EXCEEDED;
     g_mb_success = false;
+    g_mb_read_success = false;  // BUG-397e
     return result;
   }
 
@@ -162,6 +189,7 @@ st_value_t st_builtin_mb_read_input(st_value_t slave_id, st_value_t address) {
   }
 
   g_mb_success = (status == MB_CACHE_VALID && !expired);
+  g_mb_read_success = g_mb_success;  // BUG-397e
   return result;
 }
 
@@ -169,8 +197,8 @@ st_value_t st_builtin_mb_read_holding(st_value_t slave_id, st_value_t address) {
   st_value_t result;
   result.int_val = 0;
 
-  if (!check_request_limit()) return result;
-  if (!validate_slave_addr(slave_id.int_val, address.int_val)) return result;
+  if (!check_request_limit(false)) return result;
+  if (!validate_slave_addr(slave_id.int_val, address.int_val, false)) return result;
 
   mb_cache_entry_t *entry = mb_cache_get_or_create(
     (uint8_t)slave_id.int_val, (uint16_t)address.int_val, (uint8_t)MB_REQ_READ_HOLDING);
@@ -178,6 +206,7 @@ st_value_t st_builtin_mb_read_holding(st_value_t slave_id, st_value_t address) {
   if (!entry) {
     g_mb_last_error = MB_MAX_REQUESTS_EXCEEDED;
     g_mb_success = false;
+    g_mb_read_success = false;  // BUG-397e
     return result;
   }
 
@@ -195,6 +224,7 @@ st_value_t st_builtin_mb_read_holding(st_value_t slave_id, st_value_t address) {
   }
 
   g_mb_success = (status == MB_CACHE_VALID && !expired);
+  g_mb_read_success = g_mb_success;  // BUG-397e
   return result;
 }
 
@@ -202,8 +232,8 @@ st_value_t st_builtin_mb_read_input_reg(st_value_t slave_id, st_value_t address)
   st_value_t result;
   result.int_val = 0;
 
-  if (!check_request_limit()) return result;
-  if (!validate_slave_addr(slave_id.int_val, address.int_val)) return result;
+  if (!check_request_limit(false)) return result;
+  if (!validate_slave_addr(slave_id.int_val, address.int_val, false)) return result;
 
   mb_cache_entry_t *entry = mb_cache_get_or_create(
     (uint8_t)slave_id.int_val, (uint16_t)address.int_val, (uint8_t)MB_REQ_READ_INPUT_REG);
@@ -211,6 +241,7 @@ st_value_t st_builtin_mb_read_input_reg(st_value_t slave_id, st_value_t address)
   if (!entry) {
     g_mb_last_error = MB_MAX_REQUESTS_EXCEEDED;
     g_mb_success = false;
+    g_mb_read_success = false;  // BUG-397e
     return result;
   }
 
@@ -228,6 +259,7 @@ st_value_t st_builtin_mb_read_input_reg(st_value_t slave_id, st_value_t address)
   }
 
   g_mb_success = (status == MB_CACHE_VALID && !expired);
+  g_mb_read_success = g_mb_success;  // BUG-397e
   return result;
 }
 
@@ -239,8 +271,8 @@ st_value_t st_builtin_mb_write_coil(st_value_t slave_id, st_value_t address, st_
   st_value_t result;
   result.bool_val = false;
 
-  if (!check_request_limit()) return result;
-  if (!validate_slave_addr(slave_id.int_val, address.int_val)) return result;
+  if (!check_request_limit(true)) return result;
+  if (!validate_slave_addr(slave_id.int_val, address.int_val, true)) return result;
 
   // Queue write in background
   bool queued = mb_async_queue_write(MB_REQ_WRITE_COIL,
@@ -260,6 +292,7 @@ st_value_t st_builtin_mb_write_coil(st_value_t slave_id, st_value_t address, st_
   }
 
   g_mb_success = queued;
+  g_mb_write_queued = queued;  // BUG-397e
   g_mb_last_error = queued ? MB_OK : MB_MAX_REQUESTS_EXCEEDED;
   result.bool_val = queued;
   return result;
@@ -269,8 +302,8 @@ st_value_t st_builtin_mb_write_holding(st_value_t slave_id, st_value_t address, 
   st_value_t result;
   result.bool_val = false;
 
-  if (!check_request_limit()) return result;
-  if (!validate_slave_addr(slave_id.int_val, address.int_val)) return result;
+  if (!check_request_limit(true)) return result;
+  if (!validate_slave_addr(slave_id.int_val, address.int_val, true)) return result;
 
   // Queue write in background
   bool queued = mb_async_queue_write(MB_REQ_WRITE_HOLDING,
@@ -290,6 +323,7 @@ st_value_t st_builtin_mb_write_holding(st_value_t slave_id, st_value_t address, 
   }
 
   g_mb_success = queued;
+  g_mb_write_queued = queued;  // BUG-397e
   g_mb_last_error = queued ? MB_OK : MB_MAX_REQUESTS_EXCEEDED;
   result.bool_val = queued;
   return result;
@@ -303,13 +337,14 @@ st_value_t st_builtin_mb_read_holdings(st_value_t slave_id, st_value_t address, 
   st_value_t result;
   result.bool_val = false;
 
-  if (!check_request_limit()) return result;
-  if (!validate_slave_addr(slave_id.int_val, address.int_val)) return result;
+  if (!check_request_limit(false)) return result;
+  if (!validate_slave_addr(slave_id.int_val, address.int_val, false)) return result;
 
   int32_t cnt = count.int_val;
   if (cnt < 1 || cnt > 16) {
     g_mb_last_error = MB_INVALID_ADDRESS;
     g_mb_success = false;
+    g_mb_read_success = false;  // BUG-397e
     return result;
   }
 
@@ -317,6 +352,7 @@ st_value_t st_builtin_mb_read_holdings(st_value_t slave_id, st_value_t address, 
   if ((int32_t)address.int_val + cnt - 1 > 65535) {
     g_mb_last_error = MB_INVALID_ADDRESS;
     g_mb_success = false;
+    g_mb_read_success = false;  // BUG-397e
     return result;
   }
 
@@ -324,6 +360,11 @@ st_value_t st_builtin_mb_read_holdings(st_value_t slave_id, st_value_t address, 
     (uint8_t)slave_id.int_val, (uint16_t)address.int_val, (uint8_t)cnt);
 
   g_mb_success = queued;
+  // BUG-397e: MB_READ_HOLDINGS's "success" has always meant "the refresh
+  // was queued", NOT "the array now holds valid cached data" (unlike the
+  // single-register reads above, which check cache validity) -- mirrored
+  // here unchanged, not newly introduced by this fix.
+  g_mb_read_success = queued;
   g_mb_last_error = queued ? MB_OK : MB_MAX_REQUESTS_EXCEEDED;
   result.bool_val = queued;
   return result;
@@ -333,19 +374,21 @@ st_value_t st_builtin_mb_write_holdings(st_value_t slave_id, st_value_t address,
   st_value_t result;
   result.bool_val = false;
 
-  if (!check_request_limit()) return result;
-  if (!validate_slave_addr(slave_id.int_val, address.int_val)) return result;
+  if (!check_request_limit(true)) return result;
+  if (!validate_slave_addr(slave_id.int_val, address.int_val, true)) return result;
 
   int32_t cnt = count.int_val;
   if (cnt < 1 || cnt > 16) {
     g_mb_last_error = MB_INVALID_ADDRESS;
     g_mb_success = false;
+    g_mb_write_queued = false;  // BUG-397e
     return result;
   }
 
   if ((int32_t)address.int_val + cnt - 1 > 65535) {
     g_mb_last_error = MB_INVALID_ADDRESS;
     g_mb_success = false;
+    g_mb_write_queued = false;  // BUG-397e
     return result;
   }
 
@@ -353,6 +396,7 @@ st_value_t st_builtin_mb_write_holdings(st_value_t slave_id, st_value_t address,
     (uint8_t)slave_id.int_val, (uint16_t)address.int_val, (uint8_t)cnt, g_mb_multi_reg_buf);
 
   g_mb_success = queued;
+  g_mb_write_queued = queued;  // BUG-397e
   g_mb_last_error = queued ? MB_OK : MB_MAX_REQUESTS_EXCEEDED;
   result.bool_val = queued;
   return result;
@@ -365,6 +409,23 @@ st_value_t st_builtin_mb_write_holdings(st_value_t slave_id, st_value_t address,
 st_value_t st_builtin_mb_success_func() {
   st_value_t r;
   r.bool_val = g_mb_success;
+  return r;
+}
+
+// BUG-397e: unambiguous alternatives to MB_SUCCESS() — see the comment on
+// g_mb_read_success/g_mb_write_queued above for the full rationale. Correct
+// regardless of what other MB_* calls (of the opposite direction) happened
+// in between, unlike MB_SUCCESS() which only reflects the single most
+// recent call of either kind.
+st_value_t st_builtin_mb_read_ok_func() {
+  st_value_t r;
+  r.bool_val = g_mb_read_success;
+  return r;
+}
+
+st_value_t st_builtin_mb_write_queued_func() {
+  st_value_t r;
+  r.bool_val = g_mb_write_queued;
   return r;
 }
 

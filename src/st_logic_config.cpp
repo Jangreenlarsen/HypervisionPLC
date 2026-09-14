@@ -14,6 +14,7 @@
 #include "st_source_scanner.h"   // Chunked compilation pre-scanner
 #include "st_stateful.h"         // st_stateful_storage_t for chunked compile
 #include "st_builtin_modbus.h"   // FEAT-010: g_mb_request_count/g_mb_cache_enabled for the HIGH task
+#include "st_builtin_modbus_expansion.h"  // FEAT-410: samme reset-disciplin for g_mbx_request_count
 #include "debug.h"
 #include "debug_flags.h"
 #include <string.h>
@@ -1268,6 +1269,7 @@ static void st_logic_high_task_func(void *arg) {
       // — see BUGS_INDEX.md FEAT-010.
       g_mb_request_count = 0;
       g_mb_cache_enabled = true;
+      g_mbx_request_count = 0;  // FEAT-410: samme BUG-133-lektion for MBX_*-familien
 
       st_logic_execute_program(state, prog_id);
     }

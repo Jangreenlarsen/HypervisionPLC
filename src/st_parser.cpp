@@ -139,7 +139,13 @@ static bool ast_pool_init(void) {
 
   // Use largest contiguous free block (not total free heap) to handle fragmentation.
   // Reserve 24KB for compiler (~4KB) + bytecode buffer (~8KB) + function registry (~8KB) + overhead
-  uint32_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  // BUG-409: MALLOC_CAP_8BIT alone also matches PSRAM on boards that have it
+  // (ES32D26) -- but g_ast_pool is allocated via plain malloc() below, which
+  // stays in internal DRAM, so sizing the pool off a PSRAM-inflated "largest
+  // block" would wildly overestimate ideal_nodes against a pool that can't
+  // actually grow that big (the try_sizes fallback loop masked this from ever
+  // crashing, but the pool was never sized as intended).
+  uint32_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
   uint32_t reserve = 24000;
   uint32_t available = (largest_block > reserve) ? (largest_block - reserve) : 0;
   uint16_t ideal_nodes = available / sizeof(st_ast_node_t);
@@ -1899,6 +1905,22 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
            !parser_match(parser, ST_TOK_BEGIN) &&
            !parser_match(parser, ST_TOK_EOF)) {
 
+      // BUG-397d: optional CONST prefix ("CONST name : TYPE := value;").
+      // Only meaningful in plain VAR blocks -- an "input" or "output" that
+      // never changes contradicts what VAR_INPUT/VAR_OUTPUT mean (their
+      // whole point is being overwritten by the scan-cycle's Modbus binding
+      // step), so reject the combination outright rather than silently
+      // accepting a qualifier that would never actually hold.
+      bool decl_is_const = false;
+      if (parser_match(parser, ST_TOK_CONST)) {
+        if (var_type_token != ST_TOK_VAR) {
+          parser_error(parser, "CONST is only valid in a plain VAR block, not VAR_INPUT/VAR_OUTPUT");
+          return false;
+        }
+        decl_is_const = true;
+        parser_advance(parser);
+      }
+
       // Expect identifier
       if (!parser_match(parser, ST_TOK_IDENT)) {
         if (parser_match(parser, ST_TOK_VAR_INPUT) || parser_match(parser, ST_TOK_VAR_OUTPUT)) {
@@ -1917,6 +1939,7 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
       // BUG-032 FIX: Use strncpy to prevent buffer overflow (name is 64 bytes, token is 256)
       strncpy(var->name, parser->current_token.value, 63);
       var->name[63] = '\0';
+      var->is_const = decl_is_const ? 1 : 0;  // BUG-397d
       parser_advance(parser);
 
       // Expect colon
@@ -2089,13 +2112,37 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
       }
 
       // Optional initial value
+      bool has_literal_init = false;
       if (parser_match(parser, ST_TOK_ASSIGN)) {
         parser_advance(parser);
         st_ast_node_t *init_expr = parser_parse_expression(parser);
         if (init_expr && init_expr->type == ST_AST_LITERAL) {
           var->initial_value = init_expr->data.literal.value;
+          has_literal_init = true;
           st_ast_node_free(init_expr);
         }
+      }
+
+      // BUG-397d: CONST ARRAY is rejected -- the existing initial-value
+      // mechanism only ever applies a single literal to an array's BASE
+      // slot (elements [1..N-1] get no initial value at all, a pre-existing
+      // gap unrelated to CONST), so there is no way to give every element a
+      // defined, checkable value at declaration time.
+      if (var->is_const && (var->is_array || var->is_struct)) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "CONST '%s' cannot be an ARRAY or STRUCT (scalar types only)", var->name);
+        parser_error(parser, msg);
+        return false;
+      }
+
+      // BUG-397d: a CONST with no fixed value to hold is meaningless -- it
+      // would just silently start at 0/FALSE like an uninitialized ordinary
+      // variable, with no indication anything is wrong.
+      if (var->is_const && !has_literal_init) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "CONST '%s' requires a literal initial value (CONST x : TYPE := value;)", var->name);
+        parser_error(parser, msg);
+        return false;
       }
 
       // Expect semicolon

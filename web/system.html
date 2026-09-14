@@ -1,82 +1,34 @@
 <!DOCTYPE html>
 <html lang="da">
 <head>
+  <link rel="stylesheet" href="/common.css">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HyberFusion PLC Dashboard : System</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-/* BUG-390: 100vh on mobile browsers is measured against the LARGEST possible
-   viewport (browser chrome collapsed), not what's actually visible when the
-   address bar is shown — with body's own overflow:hidden below, that could
-   push bottom-anchored content below the visible screen with no way to
-   scroll down to reach it. 100dvh (dynamic viewport height) tracks the
-   ACTUAL visible viewport as browser chrome shows/hides; kept 100vh first as
-   a fallback for browsers that don't support dvh (the later, supported
-   declaration simply wins). */
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
-.topnav{background:#11111b;padding:6px 16px;display:flex;gap:8px;border-bottom:2px solid #89b4fa;flex-shrink:0;align-items:center}
 .topnav .brand{font-size:14px;font-weight:700;color:#89b4fa;margin-right:12px}
 .topnav a{padding:5px 14px;font-size:12px;font-weight:600;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s}
-.topnav a:hover{background:#45475a;color:#cdd6f4}
-.topnav a.active{background:#89b4fa;color:#1e1e2e}
-.save-btn{margin-left:auto;padding:4px 12px;font-size:11px;font-weight:600;background:#a6e3a1;color:#1e1e2e;border:none;border-radius:4px;cursor:pointer;transition:all .2s}
-.save-btn:hover{background:#94e2d5}.save-btn.saving{background:#fab387;cursor:wait}.save-btn.saved{background:#a6e3a1}.save-btn.save-err{background:#f38ba8}
 .user-badge{position:relative;display:flex;align-items:center;gap:6px}
-.user-btn{padding:4px 10px;font-size:11px;background:#313244;color:#a6adc8;border-radius:4px;cursor:pointer;border:1px solid #45475a;display:flex;align-items:center;gap:5px}
-.user-btn:hover{background:#45475a;color:#cdd6f4}
-.user-btn .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
-.user-btn .dot-on{background:#a6e3a1}
-.user-btn .dot-off{background:#f38ba8}
-.user-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#181825;border:1px solid #45475a;border-radius:6px;padding:8px 0;min-width:200px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.4)}
-.user-menu.show{display:block}
-.user-menu .um-row{padding:4px 14px;font-size:11px;color:#a6adc8;display:flex;justify-content:space-between}
-.user-menu .um-row .um-val{color:#cdd6f4;font-weight:600}
-.user-menu .um-sep{border-top:1px solid #313244;margin:4px 0}
-.user-menu .um-btn{display:block;width:calc(100% - 16px);margin:4px 8px;padding:5px 10px;font-size:11px;background:#313244;color:#a6adc8;border:none;border-radius:4px;cursor:pointer;text-align:center}
-.user-menu .um-btn:hover{background:#f38ba8;color:#1e1e2e}
 .hdr{background:#181825;padding:10px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #313244;flex-shrink:0}
 .hdr h1{font-size:16px;color:#89b4fa;flex-shrink:0}
 .hdr .info{font-size:11px;color:#6c7086;margin-left:auto}
-.content{flex:1;overflow-y:auto;padding:16px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;align-content:start}
 .card{background:#181825;border:1px solid #313244;border-radius:8px;padding:16px 20px}
-.section-hdr{grid-column:1/-1;font-size:12px;font-weight:700;color:#89b4fa;text-transform:uppercase;letter-spacing:.6px;padding:6px 2px;border-bottom:1px solid #313244}
-.section-hdr:not(:first-child){margin-top:8px}
 .card h2{font-size:14px;color:#89b4fa;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #313244;display:flex;align-items:center;gap:8px}
 .card h2 .icon{font-size:16px}
-.card p{font-size:12px;color:#6c7086;margin-bottom:12px;line-height:1.5}
 .btn{padding:6px 16px;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
-.btn-primary{background:#89b4fa;color:#1e1e2e}.btn-primary:hover{background:#74c7ec}
-.btn-success{background:#a6e3a1;color:#1e1e2e}.btn-success:hover{background:#94e2d5}
-.btn-danger{background:#f38ba8;color:#1e1e2e}.btn-danger:hover{background:#eba0ac}
-.btn-warn{background:#fab387;color:#1e1e2e}.btn-warn:hover{background:#f9e2af}
+.btn-primary{background:#89b4fa;color:#1e1e2e}
 .btn-sm{padding:4px 12px;font-size:11px}
-.btn:disabled{opacity:.4;cursor:not-allowed}
 .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-.alert{padding:8px 12px;border-radius:4px;font-size:12px;margin-top:10px;display:none}
-.alert-ok{background:rgba(166,227,161,.15);color:#a6e3a1;border:1px solid rgba(166,227,161,.3)}
-.alert-err{background:rgba(243,139,168,.15);color:#f38ba8;border:1px solid rgba(243,139,168,.3)}
-.alert-warn{background:rgba(250,179,135,.15);color:#fab387;border:1px solid rgba(250,179,135,.3)}
-.alert-info{background:rgba(137,180,250,.15);color:#89b4fa;border:1px solid rgba(137,180,250,.3)}
 .file-drop{border:2px dashed #45475a;border-radius:6px;padding:20px;text-align:center;color:#6c7086;font-size:12px;cursor:pointer;transition:all .2s;margin-top:8px}
 .file-drop:hover,.file-drop.drag{border-color:#89b4fa;color:#89b4fa;background:rgba(137,180,250,.05)}
 .file-drop input{display:none}
 .info-grid{display:grid;grid-template-columns:140px 1fr;gap:4px 12px;font-size:12px;margin-top:8px}
-.info-grid .lbl{color:#6c7086}.info-grid .val{color:#cdd6f4;font-weight:600;font-variant-numeric:tabular-nums}
 .tbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
 .tbl th{text-align:left;padding:6px 8px;color:#89b4fa;border-bottom:1px solid #313244;font-weight:600;background:#181825}
 .tbl td{padding:5px 8px;border-bottom:1px solid rgba(49,50,68,.5)}
-.tbl tr:hover{background:rgba(49,50,68,.3)}
-.confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
-.confirm-overlay.show{display:flex}
-.confirm-box{background:#1e1e2e;border:1px solid #313244;border-radius:8px;padding:24px;width:360px;text-align:center}
-.confirm-box h3{color:#f38ba8;font-size:16px;margin-bottom:12px}
-.confirm-box p{font-size:12px;color:#a6adc8;margin-bottom:16px;line-height:1.5}
-.confirm-box .actions{display:flex;gap:8px;justify-content:center}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(30,30,46,.3);border-top-color:#1e1e2e;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
-.foot{background:#181825;border-top:1px solid #313244;padding:4px 16px;font-size:10px;color:#45475a;flex-shrink:0;display:flex;justify-content:space-between}
 @media(max-width:768px){.grid{grid-template-columns:1fr}.topnav{flex-wrap:wrap}}
 </style>
 </head>
@@ -85,12 +37,13 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <!-- Top Navigation -->
 <div class="topnav">
 <span class="brand">HyberFusion PLC</span>
-<a href="/">Monitor</a>
+<a href="/dashboard">Monitor</a>
 <a href="/editor">ST Editor</a>
 <a href="/cli">CLI</a>
 <a href="/system" class="active">System</a>
 <a href="/io">I/O</a>
 <a href="/logs">Logs</a>
+<a href="/ota">OTA</a>
 <button class="save-btn" id="saveBtn" onclick="doGlobalSave()" title="Gem konfiguration til NVS">&#128190; Save</button>
 <div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogout" onclick="doLogout()">Log ud</div></div></div>
 </div>
@@ -250,6 +203,70 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="alert" id="xcvrAlert"></div>
 </div>
 
+<!-- FEAT-409: HypervisionPLC Extension Board — management-API-klient. Boardet har
+     ingen egen driftsbrugerflade (kun en engangs seriel provisioning-CLI) — al
+     løbende konfiguration/diagnose sker herfra, "single pane of glass". -->
+<div class="card" style="grid-column:1/-1">
+<h2>Modbus Expansion Boards</h2>
+<p>Eksterne HypervisionPLC Extension Boards (separate ESP32-boards med egne RS485/RS232-kanaler, kanal A+B pr. board). PLC'en taler til hvert board over dets eget REST management-API (Bearer-token) — boardet konfigureres UDELUKKENDE herfra, aldrig via sin egen serielle CLI (den er kun til første netværksopsætning).</p>
+<table class="tbl" id="expBoardsTable">
+<thead><tr><th>Nr</th><th>Navn</th><th>Type</th><th>IP</th><th>Token</th><th>Status</th><th></th></tr></thead>
+<tbody id="expBoardsBody"><tr><td colspan="7" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
+</table>
+<div class="alert" id="expBoardsAlert"></div>
+
+<h3 style="font-size:13px;color:#89b4fa;margin:16px 0 8px;padding-top:12px;border-top:1px solid #313244" id="expFormTitle">Tilføj board</h3>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:10px">
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Board nr (1-8)</label>
+<input type="number" id="expFormNumber" min="1" max="8" placeholder="1" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Type</label>
+<select id="expFormType" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"><option value="">Indlæser...</option></select></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Navn</label>
+<input type="text" id="expFormName" placeholder="Skab 3, RS485-panel" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">IP-adresse</label>
+<input type="text" id="expFormIp" placeholder="10.1.1.50" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Token (fra boardets serielle CLI, kommando "status")</label>
+<input type="text" id="expFormToken" placeholder="Udelad ved redigering for at bevare eksisterende" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+</div>
+<p style="font-size:11px;color:#6c7086;margin-bottom:8px">Board nr er fast — det kan ikke ændres efter tilføjelse (kun navn/IP/token/type). Vælg det så det matcher boardets fysiske mærkning i skabet/panelet.</p>
+<div class="btn-row">
+<button class="btn btn-success btn-sm" id="expFormSubmitBtn" onclick="submitExpBoard()">Tilføj board</button>
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="clearExpForm()">Ny / ryd formular</button>
+</div>
+
+<div id="expChannelsPanel" style="display:none;margin-top:18px;border-top:1px solid #313244;padding-top:12px">
+<h3 style="font-size:13px;color:#89b4fa;margin:0 0 8px" id="expChannelsTitle">Kanaler</h3>
+<div id="expChannelsBody" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px"></div>
+
+<h3 style="font-size:13px;color:#89b4fa;margin:18px 0 8px;padding-top:12px;border-top:1px solid #313244">Test funktions-register (diagnostisk læs/skriv)</h3>
+<p style="font-size:11px;color:#6c7086;margin-bottom:8px">Udfører ÉN Modbus-transaktion direkte mod den valgte kanal — til test/fejlsøgning. PLC'ens egen, høj-frekvente drift bruger Modbus TCP direkte, ikke dette panel.</p>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:10px">
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Kanal</label>
+<select id="expTestChannel" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"><option value="1">A</option><option value="2">B</option></select></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Function code</label>
+<select id="expTestFc" onchange="updateExpTestFields()" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px">
+<option value="3">FC03 - Read Holding Registers</option>
+<option value="4">FC04 - Read Input Registers</option>
+<option value="1">FC01 - Read Coils</option>
+<option value="2">FC02 - Read Discrete Inputs</option>
+<option value="6">FC06 - Write Single Register</option>
+<option value="5">FC05 - Write Single Coil</option>
+<option value="16">FC16 - Write Multiple Registers</option>
+</select></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Slave-ID (1-247)</label>
+<input type="number" id="expTestSlave" min="1" max="247" value="1" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Adresse</label>
+<input type="number" id="expTestAddr" min="0" value="0" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div id="expTestQtyWrap"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Antal (kun læsning)</label>
+<input type="number" id="expTestQty" min="1" max="125" value="1" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div id="expTestValWrap" style="display:none"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Værdi(er) — komma-separeret ved FC16</label>
+<input type="text" id="expTestVal" placeholder="fx 1234 eller 1,2,3" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+</div>
+<div class="btn-row"><button class="btn btn-success btn-sm" onclick="runExpTest()">Kør</button></div>
+<pre id="expTestResult" style="background:#11111b;border:1px solid #313244;border-radius:4px;padding:8px;font-size:11px;color:#a6e3a1;white-space:pre-wrap;word-break:break-all;margin-top:8px;display:none"></pre>
+</div>
+</div>
+
 <div class="section-hdr">HTTP & Sikkerhed</div>
 
 <!-- FEAT-166: RBAC Brugerstyring — hidtil kun CLI ("set user"/"set rbac"/"delete user") -->
@@ -294,6 +311,74 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 </div>
 
+<!-- FEAT-399: IP Access Control List — blokeringsregler pr. IP/CIDR og netvaerkstjeneste -->
+<div class="card" style="grid-column:1/-1">
+<h2>IP Access Control (ACL)</h2>
+<p>Tillad/bloker adgang til HTTP/HTTPS (Web-GUI + REST API + OTA), Telnet eller SSE fra bestemte IP-adresser/subnet (CIDR). Reglerne evalueres i RÆKKEFØLGE — første matchende regel vinder (samme princip som klassiske firewall-ACL'er). Ingen match = tilladt, så en "Bloker"-regel for 0.0.0.0/0 nederst i listen lukker for alt andet der ikke matchede en regel ovenfor. Arbejder som en rigtig firewall: ændringer herunder redigerer en KANDIDAT-konfiguration — intet bliver aktivt før du trykker "Commit ændringer" (kan udløse et bekræftelses-flow via en frisk login, se advarslen nedenfor).</p>
+<div style="display:flex;align-items:center;gap:14px;margin-bottom:8px;flex-wrap:wrap">
+<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+<input type="checkbox" id="aclToggle" onchange="doAclToggle()"> Aktivér IP ACL
+</label>
+</div>
+<div id="aclStatusLine" style="font-size:12px;color:#6c7086;margin-bottom:8px">-</div>
+
+<div id="aclDraftBanner" class="alert" style="display:none;background:#1e2a38;border:1px solid #89b4fa;color:#89b4fa;margin-bottom:10px">
+<strong>Ikke-committede ændringer.</strong> Kandidat-konfigurationen herunder er endnu IKKE aktiv — byg og ombyg regelsættet frit, uden risiko for at logge dig selv ude undervejs. Tryk "Commit ændringer" når du er tilfreds (kan udløse samme bekræftelses-flow som hidtil, men kun ÉN gang for alle ændringer samlet), eller "Fortryd alle" for at forkaste dem og gå tilbage til den aktive konfiguration.
+<div class="btn-row" style="margin-top:8px">
+<button class="btn btn-success btn-sm" onclick="applyAclDraft()">Commit ændringer</button>
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="discardAclDraft()">Fortryd alle</button>
+</div>
+</div>
+
+<div id="aclPendingBanner" class="alert" style="display:none;background:#3a3520;border:1px solid #f9e2af;color:#f9e2af;margin-bottom:10px">
+<strong>Afventer bekraeftelse.</strong> Denne aendring paavirker management-adgang (HTTP/Telnet) og er endnu IKKE gemt permanent — alle sessioner er logget ud. Log ind PAA NY og bekraeft nedenfor for at gemme, ellers rulles den automatisk tilbage om <span id="aclCountdown">-</span>.
+<div class="btn-row" style="margin-top:8px">
+<button class="btn btn-success btn-sm" onclick="confirmAclChange()">Bekraeft nu</button>
+</div>
+</div>
+
+<table class="tbl" id="aclTable">
+<thead><tr><th>#</th><th>Aktion</th><th>CIDR</th><th>Service</th><th>Status</th><th></th></tr></thead>
+<tbody id="aclBody"><tr><td colspan="6" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
+</table>
+<p style="font-size:11px;color:#6c7086;margin:4px 0 0">Regler evalueres oppefra og ned — brug ▲/▼ til at flytte en regel. Intet match ⇒ tilladt.</p>
+<div class="alert" id="aclAlert"></div>
+<h3 style="font-size:13px;color:#89b4fa;margin:16px 0 8px;padding-top:12px;border-top:1px solid #313244" id="aclFormTitle">Tilføj regel</h3>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:10px">
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Aktion</label>
+<select id="aclFormAction" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px">
+<option value="deny">Bloker</option>
+<option value="allow">Tillad</option>
+</select></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">IP/CIDR (fx 192.168.1.0/24)</label>
+<input type="text" id="aclFormCidr" placeholder="192.168.1.0/24" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Service</label>
+<select id="aclFormService" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px">
+<option value="http">HTTP/HTTPS (Web + REST + OTA)</option>
+<option value="telnet">Telnet (CLI)</option>
+<option value="sse">SSE (real-time push)</option>
+<option value="all">Alle tjenester</option>
+</select></div>
+</div>
+<p style="font-size:11px;color:#6c7086;margin-bottom:8px">En "Bloker"-regel for HTTP/Telnet/Alle udløser bekræftelses-flowet ovenfor, hvis den slås aktiv til; det samme gør redigering/sletning af en "Tillad"-regel (den kan afsløre en Bloker-regel længere nede) og flytning af enhver aktiv HTTP/Telnet/Alle-regel.</p>
+<div class="btn-row">
+<button class="btn btn-success btn-sm" id="aclFormSubmitBtn" onclick="submitAclRule()">Tilføj regel</button>
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="clearAclForm()">Ny / ryd formular</button>
+</div>
+</div>
+
+<!-- FEAT-407: hvilke dashboard-kort vises på den offentlige, login-fri statusside ("/") -->
+<div class="card" style="grid-column:1/-1">
+<h2>Offentlig statusside</h2>
+<p>Enheden viser nu et login-frit statusoverblik på "/" (det tidligere Dashboard bor på <a href="/dashboard" style="color:#89b4fa">/dashboard</a> og kræver login). Vælg herunder hvilke af de eksisterende dashboard-kort der skal være synlige på den offentlige side — ansvaret for hvad der er passende at vise uden login ligger hos jer. Intet er valgt som standard.</p>
+<div id="pubCardsGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin:10px 0"></div>
+<div class="btn-row">
+<button class="btn btn-success btn-sm" onclick="savePublicCards()">Gem</button>
+<a class="btn btn-sm" style="background:#45475a;color:#cdd6f4;text-decoration:none" href="/" target="_blank">Vis offentlig side →</a>
+</div>
+<div class="alert" id="pubCardsAlert"></div>
+</div>
+
 <!-- HTTP Server (GUI-oprydning: samlet ét kort — enabled/port/api_enabled fandtes allerede i backend men manglede GUI-felter, var tidligere kun auth-felter her) -->
 <div class="card">
 <h2>HTTP Server</h2>
@@ -304,6 +389,12 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div style="border-top:1px solid #313244;margin:12px 0 8px;padding-top:10px;font-size:12px;color:#89b4fa;font-weight:600">Legacy Auth</div>
 <p>Bruges når RBAC (Brugerstyring ovenfor) er deaktiveret — ét fælles brugernavn/kodeord for hele REST API'et og web-GUI'et.</p>
 <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="httpAuthEnabled"> Kræv login</label>
+<div style="margin-bottom:8px"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Auth-metode (når login kræves)</label>
+<select id="httpAuthMode" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px">
+<option value="bearer">Bearer-token (anbefalet — Basic-Auth afvises)</option>
+<option value="basic">Basic-Auth + Bearer (bagudkompatibel)</option>
+</select>
+<p style="margin-top:4px">"Bearer" lukker helt for at browsere (Firefox m.fl.) kan cache login permanent uden for appens kontrol — men kræver at gamle curl/Node-RED-scripts der bruger <code>-u bruger:pass</code> direkte opdateres til først at hente et token via <code>POST /api/login</code>. Se <a href="B_REST_API_Reference.md" target="_blank">REST API-referencen</a>.</p></div>
 <div style="margin-bottom:8px"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Brugernavn</label>
 <input type="text" id="httpUser" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
 <div style="margin-bottom:8px"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Adgangskode</label>
@@ -576,12 +667,18 @@ Klik her eller traek en firmware .bin fil hertil
 <span id="footVer"></span>
 </div>
 
+<script src="/common.js"></script>
 <script>
-let AUTH=localStorage.getItem('hfplc_auth')||'';
+// BUG-393: login now uses a server-set, HttpOnly session cookie
+// (Set-Cookie from POST /api/login) instead of a Bearer token this page
+// has to remember itself — the browser sends it automatically on every
+// same-origin request. No client-side token state left to lose, which is
+// what made BUG-392/389/389b (all iOS-Safari-specific breakage) possible
+// in the first place.
 let pendingConfirmFn=null;
 let restoreData=null;
 
-function $(id){return document.getElementById(id)}
+
 
 // --- Auth ---
 function doLogin(){
@@ -591,49 +688,34 @@ function doLogin(){
   // BUG-353: POST /api/login (samme Basic Auth-header som foer) udsteder nu
   // et session-token vi bruger fremover, saa vi ikke skal gensende
   // brugernavn/kodeord paa hvert request.
+  // FEAT-399-følgefejl: skeln 403 ("Blocked by IP ACL" — bevidst IKKE
+  // undtaget fra ACL'en, se §10.7.1) fra 401 (reelt forkerte credentials) —
+  // uden dette viste UI'et "forkert kodeord" for en helt anden, forbigående
+  // årsag, og skjulte at auto-rollback (5 min) selv retter det.
   fetch('/api/login',{method:'POST',headers:{'Authorization':basicAuth}}).then(r=>{
-    if(!r.ok)throw new Error('Auth failed');
+    if(r.status===403)throw new Error('acl');
+    if(!r.ok)throw new Error('auth');
     return r.json();
   }).then(d=>{
-    if(!d.token)throw new Error('No token');
-    AUTH='Bearer '+d.token;
-    localStorage.setItem('hfplc_auth',AUTH);
+    if(!d.authenticated)throw new Error('auth');
     $('loginModal').classList.remove('show');
+    // BUG-393b: updateUserBadge() first — see the same reasoning at this
+    // page's page-load bootstrap call further down.
+    updateUserBadge();
     refreshInfo();
     loadPersistGroups();
     fetchOtaStatus();
     refreshSseClients();
-    updateUserBadge();
     refreshTlsStatus();
     loadAllSettings();
-  }).catch(()=>{
+  }).catch(e=>{
     $('loginErr').style.display='block';
-    $('loginErr').textContent='Forkert brugernavn eller adgangskode';
+    $('loginErr').textContent=(e.message==='acl')
+      ? 'Denne IP-adresse er blokeret af IP ACL\'en. Hvis dette skyldes en ny, endnu ubekræftet regel, retter enheden sig selv automatisk inden for 5 minutter (se §10.7.1 i manualen) — prøv igen om lidt, eller log ind fra en anden IP for at bekræfte/fjerne reglen.'
+      : 'Forkert brugernavn eller adgangskode';
   });
 }
 $('authPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
-// Auto-login if session auth exists, otherwise show login modal
-if(AUTH){fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){refreshInfo();loadPersistGroups();fetchOtaStatus();refreshSseClients();updateUserBadge();refreshTlsStatus();loadAllSettings();}else{AUTH='';localStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}}).catch(()=>{$('loginModal').classList.add('show');});}
-else{$('loginModal').classList.add('show');}
-
-// --- Confirm Dialog ---
-function askConfirm(title,msg,fn){
-  $('confirmTitle').textContent=title;
-  $('confirmMsg').textContent=msg;
-  pendingConfirmFn=fn;
-  $('confirmDlg').classList.add('show');
-}
-function closeConfirm(){$('confirmDlg').classList.remove('show');pendingConfirmFn=null}
-function confirmAction(){var fn=pendingConfirmFn;closeConfirm();if(fn)fn()}
-
-// --- Alert helper ---
-function showAlert(id,type,msg){
-  const el=$(id);
-  el.className='alert alert-'+type;
-  el.textContent=msg;
-  el.style.display='block';
-  setTimeout(()=>{el.style.display='none'},8000);
-}
 
 // BUG-369c: loadAllSettings() (og andre steder) fyrer op til 10+ parallelle
 // api()-kald ved side-indlæsning — se dashboard.html's dashFetch()-kommentar
@@ -642,29 +724,54 @@ function showAlert(id,type,msg){
 // ESP-IDF/mbedTLS-fejl der i værste fald leder mod heap-udtømning). Samme
 // simple kø-princip her: et hårdt loft på samtidige forbindelser, delt af
 // ALLE api()-kald fra denne side.
+// BUG-394b: denne blok SKAL staa foer det foerste updateUserBadge()-bootstrap-
+// kald nedenfor. _apiFetchQueue/_apiFetchActive er `let`/`const` (ikke
+// hoisted som funktionserklaeringer), saa et queuedFetch()-kald FOeR denne
+// blok udfoeres rammer midlertidig-dod-zone (TDZ): "Cannot access
+// '_apiFetchQueue' before initialization" — kastet inde i Promise-executoren,
+// hvilket goer det til et rejected promise (ikke en synkron exception), som
+// updateUserBadge()s stille .catch(()=>{}) sluger usynligt. Ramte /system
+// (og /io, /logs — samme fejl der) fordi BUG-393b flyttede updateUserBadge()
+// til FOeRST i bootstrap-raekkefoelgen uden at tjekke at koeens deklarationer
+// stod foer det nye kaldested.
 let _apiFetchActive=0;
 const _apiFetchQueue=[];
 const API_FETCH_MAX_CONCURRENT=2;
-function _apiFetchPump(){
-  while(_apiFetchActive<API_FETCH_MAX_CONCURRENT && _apiFetchQueue.length>0){
-    const job=_apiFetchQueue.shift();
-    _apiFetchActive++;
-    fetch(job.url,job.opts).then(r=>{_apiFetchActive--;_apiFetchPump();job.resolve(r);})
-      .catch(e=>{_apiFetchActive--;_apiFetchPump();job.reject(e);});
-  }
-}
-function queuedFetch(url,opts){
-  return new Promise((resolve,reject)=>{
-    _apiFetchQueue.push({url,opts,resolve,reject});
-    _apiFetchPump();
-  });
-}
+
+
 
 // --- API helper ---
 function api(url,opts={}){
-  opts.headers=opts.headers||{};
-  opts.headers['Authorization']=AUTH;
-  return queuedFetch(url,opts).then(r=>{if(r.status===401){AUTH='';localStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}return r;});
+  return queuedFetch(url,opts).then(r=>{if(r.status===401){$('loginModal').classList.add('show');}return r;});
+}
+
+// BUG-393: used to proactively probe /api/status first (with its own
+// network-vs-401 distinction to get wrong, see BUG-389/389b). Simpler and
+// structurally immune to that bug class: just start loading — if not
+// logged in (or the cookie's session expired), the first real request
+// 401s and api()'s own handling below shows the modal.
+// BUG-393b: updateUserBadge() called FIRST — if any of the calls after it
+// ever throws synchronously, the rest of this line would never run,
+// silently leaving the badge on its default "not logged in" text.
+updateUserBadge();refreshInfo();loadPersistGroups();fetchOtaStatus();refreshSseClients();refreshTlsStatus();loadAllSettings();loadExpBoardTypes().then(loadExpBoards);
+
+// --- Confirm Dialog ---
+function askConfirm(title,msg,fn){
+  $('confirmTitle').textContent=title;
+  $('confirmMsg').textContent=msg;
+  pendingConfirmFn=fn;
+  $('confirmDlg').classList.add('show');
+}
+
+
+
+// --- Alert helper ---
+function showAlert(id,type,msg){
+  const el=$(id);
+  el.className='alert alert-'+type;
+  el.textContent=msg;
+  el.style.display='block';
+  setTimeout(()=>{el.style.display='none'},8000);
 }
 
 // --- System Info ---
@@ -999,7 +1106,6 @@ function startOta(){
   showAlert('otaAlert','info','Uploader firmware...');
   const xhr=new XMLHttpRequest();
   xhr.open('POST','/api/system/ota',true);
-  xhr.setRequestHeader('Authorization',AUTH);
   xhr.setRequestHeader('Content-Type','application/octet-stream');
   xhr.upload.onprogress=function(e){
     if(e.lengthComputable){const p=Math.round(e.loaded*100/e.total);$('otaFill').style.width=p+'%';$('otaPct').textContent=p+'%';}
@@ -1154,7 +1260,7 @@ function installGithubOta(){
 // i forvejen, men ingen GUI (WiFi/Ethernet/Hostname, Modbus Slave/Master
 // seriel-config, HTTP legacy auth, Telnet, NTP, Analog kalibrering) ===
 function loadAllSettings(){
-  loadRbac();loadWifi();loadEthernet();loadHostname();
+  loadRbac();loadAcl();loadPublicCards();loadWifi();loadEthernet();loadHostname();
   loadModbusSlave();loadModbusMaster();loadTransceiver();
   loadHttpAuth();loadRateLimit();loadSseSettings();loadTelnet();loadNtp();loadAnalog();
 }
@@ -1232,6 +1338,446 @@ function deleteRbacUser(username){
       loadRbac();
     }).catch(e=>showAlert('rbacAlert','err','Fejl: '+e.message));
   });
+}
+
+// --- FEAT-409: Modbus Expansion Board management ---
+let expEditingId=null;
+let expCurrentBoardId=null;
+
+let _expTypeLabels={};
+function loadExpBoardTypes(){
+  return api('/api/expansion/board-types').then(r=>r.json()).then(d=>{
+    const sel=$('expFormType');
+    _expTypeLabels={};
+    if(!d.types||d.types.length===0){sel.innerHTML='<option value="">Ingen kendte typer</option>';return}
+    sel.innerHTML=d.types.map(t=>'<option value="'+t.value+'">'+t.label+'</option>').join('');
+    d.types.forEach(t=>{_expTypeLabels[t.value]=t.label});
+  }).catch(()=>{$('expFormType').innerHTML='<option value="">Kunne ikke hente typer</option>'});
+}
+
+function loadExpBoards(){
+  api('/api/expansion/boards').then(r=>r.json()).then(d=>{
+    const tbody=$('expBoardsBody');
+    if(!d.boards||d.boards.length===0){tbody.innerHTML='<tr><td colspan="7" style="color:#6c7086;text-align:center">Ingen boards konfigureret</td></tr>';return}
+    tbody.innerHTML=d.boards.map(b=>{
+      const nameEsc=b.name.replace(/'/g,"\\'");
+      const typeLabel=_expTypeLabels[b.type]||b.type;
+      return '<tr><td>'+b.number+'</td><td>'+b.name+'</td><td style="font-size:11px">'+typeLabel+'</td><td>'+b.ip+'</td><td>'+(b.has_token?'<span style="color:#a6e3a1">Sat</span>':'<span style="color:#f38ba8">Mangler</span>')+
+        '</td><td id="expStatus'+b.id+'" style="color:#6c7086">-</td>'+
+        '<td><button class="btn btn-sm btn-primary" onclick="testExpBoardConnection('+b.id+')">Test forbindelse</button> '+
+        '<button class="btn btn-sm btn-primary" onclick="showExpChannels('+b.id+',\''+nameEsc+'\')">Kanaler</button> '+
+        '<button class="btn btn-sm btn-primary" onclick="editExpBoard('+b.id+','+b.number+',\''+nameEsc+'\',\''+b.ip+'\',\''+b.type+'\')">Redigér</button> '+
+        '<button class="btn btn-sm btn-danger" onclick="deleteExpBoard('+b.id+',\''+nameEsc+'\')">Slet</button></td></tr>';
+    }).join('');
+  }).catch(()=>{$('expBoardsBody').innerHTML='<tr><td colspan="7" style="color:#f38ba8;text-align:center">Kunne ikke hente boards</td></tr>'});
+}
+
+function clearExpForm(){
+  expEditingId=null;
+  $('expFormTitle').textContent='Tilføj board';
+  $('expFormSubmitBtn').textContent='Tilføj board';
+  $('expFormNumber').value='';$('expFormNumber').disabled=false;
+  $('expFormName').value='';$('expFormIp').value='';$('expFormToken').value='';
+  $('expFormToken').placeholder='Kopiér fra boardets serielle CLI (kommando "status")';
+  if($('expFormType').options.length)$('expFormType').selectedIndex=0;
+}
+function editExpBoard(id,number,name,ip,type){
+  expEditingId=id;
+  $('expFormTitle').textContent='Redigér board nr '+number;
+  $('expFormSubmitBtn').textContent='Gem ændringer';
+  $('expFormNumber').value=number;$('expFormNumber').disabled=true;  // Nr er fast efter oprettelse
+  $('expFormName').value=name;$('expFormIp').value=ip;$('expFormToken').value='';
+  $('expFormToken').placeholder='Udelad for at bevare eksisterende token';
+  if($('expFormType').querySelector('option[value="'+type+'"]'))$('expFormType').value=type;
+}
+function submitExpBoard(){
+  const name=$('expFormName').value.trim(), ip=$('expFormIp').value.trim(), token=$('expFormToken').value.trim(), type=$('expFormType').value;
+  if(!name||!ip){showAlert('expBoardsAlert','err','Navn og IP er påkrævet');return}
+  if(expEditingId===null){
+    const number=parseInt($('expFormNumber').value,10);
+    if(!number||number<1||number>8){showAlert('expBoardsAlert','err','Board nr skal være 1-8');return}
+    if(!type){showAlert('expBoardsAlert','err','Vælg en board-type');return}
+    if(!token){showAlert('expBoardsAlert','err','Token er påkrævet ved tilføjelse');return}
+    api('/api/expansion/boards',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({number,type,name,ip,token})})
+      .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+        if(!ok)throw new Error(j.error||'Fejl');
+        showAlert('expBoardsAlert','ok','Board tilføjet — husk "Gem Config"');
+        clearExpForm();loadExpBoards();
+      }).catch(e=>showAlert('expBoardsAlert','err','Fejl: '+e.message));
+  }else{
+    const body={name,ip};if(token)body.token=token;if(type)body.type=type;
+    api('/api/expansion/boards/'+expEditingId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+        if(!ok)throw new Error(j.error||'Fejl');
+        showAlert('expBoardsAlert','ok','Board opdateret — husk "Gem Config"');
+        clearExpForm();loadExpBoards();
+      }).catch(e=>showAlert('expBoardsAlert','err','Fejl: '+e.message));
+  }
+}
+function deleteExpBoard(id,name){
+  askConfirm('Fjern board','Fjern "'+name+'" fra listen? Selve boardet påvirkes ikke — det kan tilføjes igen senere med samme token.',()=>{
+    api('/api/expansion/boards/'+id,{method:'DELETE'}).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+      if(!ok)throw new Error(j.error||'Fejl');
+      showAlert('expBoardsAlert','ok','Board fjernet — husk "Gem Config"');
+      if(expCurrentBoardId===id)$('expChannelsPanel').style.display='none';
+      loadExpBoards();
+    }).catch(e=>showAlert('expBoardsAlert','err','Fejl: '+e.message));
+  });
+}
+
+// Generisk poller for expansion-board-async-kald (status/kanaler/config/read/write
+// deler ét globalt resultat-slot på PLC'en, se expansion_api_client.h).
+function pollExpAction(onDone,tries){
+  tries=tries||0;
+  api('/api/expansion/action-status').then(r=>r.json()).then(d=>{
+    if(!d.valid){onDone({error:'Intet kald fundet'});return}
+    if(d.done){onDone(d);return}
+    if(tries>25){onDone({error:'Timeout — intet svar fra boardet'});return}
+    setTimeout(()=>pollExpAction(onDone,tries+1),400);
+  }).catch(e=>onDone({error:e.message}));
+}
+
+function testExpBoardConnection(id){
+  const cell=$('expStatus'+id);
+  if(cell)cell.textContent='Tester...';
+  api('/api/expansion/boards/'+id+'/status',{method:'POST'}).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+    if(!ok)throw new Error(j.error||'Fejl');
+    pollExpAction(d=>{
+      if(!cell)return;
+      if(d.error||!d.transport_ok){cell.innerHTML='<span style="color:#f38ba8">Ikke tilgængelig</span>';return}
+      const r=d.response||{};
+      cell.innerHTML='<span style="color:#a6e3a1">OK</span> fw '+(r.fw_version||'?')+', kanaler '+(r.active_channels!==undefined?r.active_channels:'?');
+    });
+  }).catch(e=>{if(cell)cell.innerHTML='<span style="color:#f38ba8">Fejl: '+e.message+'</span>'});
+}
+
+function showExpChannels(id,name){
+  expCurrentBoardId=id;
+  $('expChannelsPanel').style.display='block';
+  $('expChannelsTitle').textContent='Kanaler for "'+name+'" (#'+id+')';
+  $('expChannelsBody').innerHTML='<p style="color:#6c7086">Henter kanaler...</p>';
+  api('/api/expansion/boards/'+id+'/channels',{method:'POST'}).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+    if(!ok)throw new Error(j.error||'Fejl');
+    pollExpAction(d=>{
+      if(d.error||!d.transport_ok){$('expChannelsBody').innerHTML='<p style="color:#f38ba8">Kunne ikke hente kanaler: '+(d.error||'boardet svarede ikke')+'</p>';return}
+      renderExpChannels(id,d.response||[]);
+    });
+  }).catch(e=>{$('expChannelsBody').innerHTML='<p style="color:#f38ba8">Fejl: '+e.message+'</p>'});
+}
+
+function renderExpChannels(boardId,channels){
+  if(!Array.isArray(channels)||channels.length===0){$('expChannelsBody').innerHTML='<p style="color:#6c7086">Ingen kanaler rapporteret</p>';return}
+  const chLabel=n=>n===1?'A':(n===2?'B':String(n));
+  $('expChannelsBody').innerHTML=channels.map(c=>{
+    const pre='exp_'+boardId+'_'+c.channel+'_';
+    return '<div style="background:#181825;border:1px solid #313244;border-radius:6px;padding:10px">'+
+      '<div style="font-weight:600;color:#89b4fa;margin-bottom:6px">Kanal '+chLabel(c.channel)+' — <span style="color:'+(c.status==='ok'?'#a6e3a1':(c.status==='disabled'?'#6c7086':'#f38ba8'))+'">'+c.status+'</span></div>'+
+      '<label style="display:flex;align-items:center;gap:6px;margin-bottom:6px;cursor:pointer;font-size:12px"><input type="checkbox" id="'+pre+'en"'+(c.enabled?' checked':'')+'> Aktiveret</label>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;font-size:11px">'+
+      '<div><label style="color:#a6adc8">Mode</label><select id="'+pre+'mode" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"><option value="rs485"'+(c.mode==='rs485'?' selected':'')+'>RS485</option><option value="rs232"'+(c.mode==='rs232'?' selected':'')+'>RS232</option></select></div>'+
+      '<div><label style="color:#a6adc8">Baudrate</label><input type="number" id="'+pre+'baud" value="'+c.baudrate+'" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"></div>'+
+      '<div><label style="color:#a6adc8">Paritet</label><select id="'+pre+'parity" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"><option value="none"'+(c.parity==='none'?' selected':'')+'>None</option><option value="even"'+(c.parity==='even'?' selected':'')+'>Even</option><option value="odd"'+(c.parity==='odd'?' selected':'')+'>Odd</option></select></div>'+
+      '<div><label style="color:#a6adc8">Stopbits</label><input type="number" id="'+pre+'stop" min="1" max="2" value="'+c.stop_bits+'" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"></div>'+
+      '<div><label style="color:#a6adc8">Timeout (ms)</label><input type="number" id="'+pre+'to" value="'+c.timeout_ms+'" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"></div>'+
+      '<div><label style="color:#a6adc8">Inter-frame (ms, 0=auto)</label><input type="number" id="'+pre+'ifd" value="'+c.inter_frame_delay_ms+'" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"></div>'+
+      '</div>'+
+      '<div style="font-size:11px;color:#6c7086;margin-bottom:6px">Total: '+c.total_requests+' · OK: '+c.successful_requests+' · Timeout: '+c.timeout_errors+' · CRC: '+c.crc_errors+' · Exception: '+c.exception_errors+'</div>'+
+      '<button class="btn btn-success btn-sm" onclick="saveExpChannelConfig('+boardId+','+c.channel+')">Gem kanal-config</button>'+
+      '<span id="'+pre+'result" style="font-size:11px;margin-left:8px"></span>'+
+      '</div>';
+  }).join('');
+}
+
+function saveExpChannelConfig(boardId,channel){
+  const pre='exp_'+boardId+'_'+channel+'_';
+  const body={
+    enabled:$(pre+'en').checked,
+    mode:$(pre+'mode').value,
+    baudrate:parseInt($(pre+'baud').value,10),
+    parity:$(pre+'parity').value,
+    stop_bits:parseInt($(pre+'stop').value,10),
+    timeout_ms:parseInt($(pre+'to').value,10),
+    inter_frame_delay_ms:parseInt($(pre+'ifd').value,10)
+  };
+  const resultEl=$(pre+'result');
+  resultEl.textContent='Sender...';resultEl.style.color='#6c7086';
+  api('/api/expansion/boards/'+boardId+'/channels/'+channel,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+      if(!ok)throw new Error(j.error||'Fejl');
+      pollExpAction(d=>{
+        if(d.error||!d.transport_ok){resultEl.textContent='Fejl: '+(d.error||'boardet svarede ikke');resultEl.style.color='#f38ba8';return}
+        if(d.http_status>=200&&d.http_status<300){resultEl.textContent='Gemt på board ✓';resultEl.style.color='#a6e3a1';}
+        else{resultEl.textContent='Boardet afviste (HTTP '+d.http_status+')';resultEl.style.color='#f38ba8';}
+      });
+    }).catch(e=>{resultEl.textContent='Fejl: '+e.message;resultEl.style.color='#f38ba8'});
+}
+
+function updateExpTestFields(){
+  const fc=parseInt($('expTestFc').value,10);
+  const isWrite=(fc===5||fc===6||fc===16);
+  $('expTestQtyWrap').style.display=isWrite?'none':'block';
+  $('expTestValWrap').style.display=isWrite?'block':'none';
+}
+
+function runExpTest(){
+  if(expCurrentBoardId===null){showAlert('expBoardsAlert','err','Vælg et board (klik "Kanaler") først');return}
+  const channel=parseInt($('expTestChannel').value,10);
+  const fc=parseInt($('expTestFc').value,10);
+  const slave_id=parseInt($('expTestSlave').value,10);
+  const address=parseInt($('expTestAddr').value,10);
+  const isWrite=(fc===5||fc===6||fc===16);
+  const resEl=$('expTestResult');
+  resEl.style.display='block';resEl.style.color='#6c7086';resEl.textContent='Kører...';
+
+  let url,body;
+  if(!isWrite){
+    url='/api/expansion/boards/'+expCurrentBoardId+'/channels/'+channel+'/read';
+    body={function_code:fc,slave_id,address,quantity:parseInt($('expTestQty').value,10)||1};
+  }else{
+    url='/api/expansion/boards/'+expCurrentBoardId+'/channels/'+channel+'/write';
+    const raw=$('expTestVal').value.trim();
+    if(fc===16){
+      body={function_code:fc,slave_id,address,values:raw.split(',').map(s=>parseInt(s.trim(),10))};
+    }else if(fc===5){
+      body={function_code:fc,slave_id,address,value:(raw==='1'||raw.toLowerCase()==='on'||raw.toLowerCase()==='true')};
+    }else{
+      body={function_code:fc,slave_id,address,value:parseInt(raw,10)};
+    }
+  }
+
+  api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+      if(!ok)throw new Error(j.error||'Fejl');
+      pollExpAction(d=>{
+        if(d.error){resEl.style.color='#f38ba8';resEl.textContent='Fejl: '+d.error;return}
+        resEl.style.color=(d.transport_ok&&d.response&&d.response.ok!==false)?'#a6e3a1':'#f38ba8';
+        resEl.textContent=JSON.stringify(d.response,null,2);
+      });
+    }).catch(e=>{resEl.style.color='#f38ba8';resEl.textContent='Fejl: '+e.message});
+}
+
+// --- IP Access Control List (FEAT-399, ordnet permit/deny FEAT-401, kladde FEAT-402) ---
+let aclCountdownTimer=null;
+let aclEditingIndex=null;
+let aclRuleCount=0;
+// FEAT-402/FEAT-404: arbejder som en rigtig firewalls candidate-config — man
+// starter ALDRIG eksplicit en "kladde": den foerste mutation (tilfoej/redigér/
+// flyt/slet/til-fra) starter en stille i baggrunden (ensureAclDraft()), og
+// alt herefter laeses/skrives til /api/acl/draft* i stedet for /api/acl*
+// (samme JSON-form paa begge, saa render-koden er faelles) indtil et
+// eksplicit "Commit ændringer" (eller "Fortryd alle"). Kladden haandhaeves
+// ALDRIG i sig selv, saa der er ingen risiko forbundet med at eksperimentere
+// frit her — kun selve commit'et kan (som hidtil) udloese bekraeftelses-flowet.
+let aclDraftActive=false;
+function aclBase(){return aclDraftActive?'/api/acl/draft':'/api/acl'}
+// Starter kladden i baggrunden hvis der ikke allerede er én — kaldes foerst i
+// ALLE mutations-funktioner nedenfor, saa brugeren aldrig selv skal tage
+// stilling til det. Fejler (kaster) kun hvis en REEL pending-confirm allerede
+// er i gang (ERR_PENDING) — samme fejl som hidtil i det tilfaelde.
+function ensureAclDraft(){
+  if(aclDraftActive)return Promise.resolve();
+  return api('/api/acl/draft/begin',{method:'POST'}).then(r=>{
+    if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+    aclDraftActive=true;
+  });
+}
+function loadAcl(){
+  api('/api/acl/draft').then(r=>r.json()).then(dd=>{
+    aclDraftActive=!!dd.active;
+    $('aclDraftBanner').style.display=aclDraftActive?'block':'none';
+    return aclDraftActive?dd:api('/api/acl').then(r=>r.json());
+  }).then(d=>{
+    $('aclToggle').checked=!!d.enabled;
+    $('aclStatusLine').textContent=(d.enabled?'Aktiveret':'Deaktiveret')+' — '+d.rule_count+' regel/regler konfigureret'+(aclDraftActive?' (ikke committet endnu)':'');
+    aclRuleCount=d.rule_count||0;
+
+    if(d.pending_confirm){
+      $('aclPendingBanner').style.display='block';
+      startAclCountdown(d.pending_remaining_ms);
+    }else{
+      $('aclPendingBanner').style.display='none';
+      stopAclCountdown();
+    }
+
+    const tbody=$('aclBody');
+    if(!d.rules||d.rules.length===0){tbody.innerHTML='<tr><td colspan="6" style="color:#6c7086;text-align:center">Ingen regler konfigureret — alt tilladt</td></tr>';return}
+    tbody.innerHTML=d.rules.map(r=>{
+      const actionLabel=(r.action==='allow')?'<span style="color:#a6e3a1">Tillad</span>':'<span style="color:#f38ba8">Bloker</span>';
+      const cidrEsc=r.cidr.replace(/'/g,"\\'");
+      const up=(r.index>0)?'<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4;padding:2px 7px" onclick="moveAclRule('+r.index+','+(r.index-1)+')" title="Flyt op">▲</button>':'';
+      const down=(r.index<aclRuleCount-1)?'<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4;padding:2px 7px" onclick="moveAclRule('+r.index+','+(r.index+1)+')" title="Flyt ned">▼</button>':'';
+      return '<tr><td>'+r.index+' '+up+down+'</td><td>'+actionLabel+'</td><td>'+r.cidr+'</td><td>'+r.service+'</td><td>'+(r.enabled?'Aktiv':'Deaktiveret')+
+        '</td><td><button class="btn btn-sm btn-primary" onclick="editAclRule('+r.index+',\''+r.action+'\',\''+cidrEsc+'\',\''+r.service+'\')">Redigér</button> '+
+        '<button class="btn btn-sm btn-primary" onclick="toggleAclRule('+r.index+','+(!r.enabled)+')">'+(r.enabled?'Deaktivér':'Aktivér')+'</button> '+
+        '<button class="btn btn-sm btn-danger" onclick="deleteAclRule('+r.index+')">Slet</button></td></tr>';
+    }).join('');
+  }).catch(()=>{$('aclBody').innerHTML='<tr><td colspan="6" style="color:#f38ba8;text-align:center">Kunne ikke hente ACL-regler</td></tr>'});
+}
+function discardAclDraft(){
+  askConfirm('Fortryd alle ændringer','Forkast alle ikke-committede ændringer? Den aktive konfiguration forbliver helt uændret.',()=>{
+    api('/api/acl/draft',{method:'DELETE'}).then(r=>{
+      if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+      return r.json();
+    }).then(()=>{
+      showAlert('aclAlert','ok','Ændringer forkastet — den aktive konfiguration er uændret');
+      aclDraftActive=false;
+      clearAclForm();
+      loadAcl();
+    }).catch(e=>showAlert('aclAlert','err','Fejl: '+e.message));
+  });
+}
+function applyAclDraft(){
+  api('/api/acl/draft/apply',{method:'POST'}).then(r=>{
+    if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+    return r.json();
+  }).then(d=>{
+    showAclResult(d,'Ændringer committet');
+    aclDraftActive=false;
+    clearAclForm();
+    loadAcl();
+  }).catch(e=>showAlert('aclAlert','err','Fejl: '+e.message));
+}
+function startAclCountdown(remainingMs){
+  stopAclCountdown();
+  let remaining=Math.max(0,Math.round(remainingMs/1000));
+  const render=()=>{
+    const m=Math.floor(remaining/60),s=remaining%60;
+    $('aclCountdown').textContent=m+':'+(s<10?'0':'')+s;
+  };
+  render();
+  aclCountdownTimer=setInterval(()=>{
+    remaining--;
+    if(remaining<=0){loadAcl();return}
+    render();
+  },1000);
+}
+function stopAclCountdown(){
+  if(aclCountdownTimer){clearInterval(aclCountdownTimer);aclCountdownTimer=null}
+}
+function doAclToggle(){
+  const want=$('aclToggle').checked;
+  ensureAclDraft().then(()=>api(aclBase(),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:want})})).then(r=>r.json()).then(d=>{
+    showAlert('aclAlert','ok',d.message||'ACL-status opdateret i kandidat-konfigurationen — husk at committe');
+    loadAcl();
+  }).catch(e=>{$('aclToggle').checked=!want;showAlert('aclAlert','err','Fejl: '+e.message)});
+}
+function clearAclForm(){
+  aclEditingIndex=null;
+  $('aclFormTitle').textContent='Tilføj regel';
+  $('aclFormSubmitBtn').textContent='Tilføj regel';
+  $('aclFormAction').value='deny';
+  $('aclFormCidr').value='';
+  $('aclFormService').value='http';
+}
+function editAclRule(index,action,cidr,service){
+  aclEditingIndex=index;
+  $('aclFormTitle').textContent='Redigér regel #'+index;
+  $('aclFormSubmitBtn').textContent='Gem ændringer';
+  $('aclFormAction').value=action;
+  $('aclFormCidr').value=cidr;
+  $('aclFormService').value=service;
+  $('aclFormCidr').scrollIntoView({behavior:'smooth',block:'center'});
+}
+// FEAT-399/401-følgefejl: en Bloker-regel der matcher afsenderens EGEN IP
+// for HTTP kan reelt låse en selv ude (bekræftet brugerrapport) —
+// server-svaret kan inkludere "self_match_warning":true, vis det tydeligt
+// FØR man fortsætter med et nyt login (i stedet for først at opdage det der).
+function showAclResult(d,okMsg){
+  if(d.self_match_warning){
+    showAlert('aclAlert','err','⚠ ADVARSEL: denne regel BLOKERER din EGEN nuværende IP for HTTP — du risikerer at logge dig selv ude! '+(d.message||''));
+  }else{
+    showAlert('aclAlert','ok',d.message||okMsg);
+  }
+}
+function submitAclRule(){
+  const action=$('aclFormAction').value;
+  const cidr=$('aclFormCidr').value.trim();
+  const service=$('aclFormService').value;
+  if(!cidr){showAlert('aclAlert','err','IP/CIDR er påkrævet');return}
+  const body=JSON.stringify({cidr:cidr,service:service,action:action,enabled:true});
+  ensureAclDraft().then(()=>{
+    const url=(aclEditingIndex===null)?(aclBase()+'/rules'):(aclBase()+'/rules/'+aclEditingIndex);
+    return api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:body});
+  }).then(r=>{
+    if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+    return r.json();
+  }).then(d=>{
+    showAclResult(d,(aclEditingIndex===null?'Regel tilføjet':'Regel opdateret')+' i kandidat-konfigurationen — husk at committe');
+    clearAclForm();
+    loadAcl();
+  }).catch(e=>showAlert('aclAlert','err','Fejl: '+e.message));
+}
+function toggleAclRule(index,enabled){
+  ensureAclDraft().then(()=>api(aclBase()+'/rules/'+index,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:enabled})})).then(r=>{
+    if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+    return r.json();
+  }).then(d=>{
+    showAclResult(d,'Regel opdateret i kandidat-konfigurationen — husk at committe');
+    loadAcl();
+  }).catch(e=>showAlert('aclAlert','err','Fejl: '+e.message));
+}
+function moveAclRule(fromIndex,toIndex){
+  ensureAclDraft().then(()=>api(aclBase()+'/rules/'+fromIndex+'/move',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to_index:toIndex})})).then(r=>{
+    if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+    return r.json();
+  }).then(d=>{
+    showAlert('aclAlert','ok',d.message||'Regel flyttet i kandidat-konfigurationen — husk at committe');
+    loadAcl();
+  }).catch(e=>showAlert('aclAlert','err','Fejl: '+e.message));
+}
+function deleteAclRule(index){
+  askConfirm('Slet ACL-regel','Slet regel #'+index+' fra kandidat-konfigurationen?',()=>{
+    ensureAclDraft().then(()=>api(aclBase()+'/rules/'+index,{method:'DELETE'})).then(r=>{
+      if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+      return r.json();
+    }).then(d=>{
+      showAlert('aclAlert','ok',d.message||'Regel slettet i kandidat-konfigurationen — husk at committe');
+      if(aclEditingIndex===index)clearAclForm();
+      loadAcl();
+    }).catch(e=>showAlert('aclAlert','err','Fejl: '+e.message));
+  });
+}
+function confirmAclChange(){
+  api('/api/acl/confirm',{method:'POST'}).then(r=>{
+    if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+    return r.json();
+  }).then(d=>{
+    showAlert('aclAlert','ok',d.message||'ACL-ændring bekræftet');
+    loadAcl();
+  }).catch(e=>showAlert('aclAlert','err','Fejl: '+e.message));
+}
+
+// --- FEAT-407: Offentlig statusside (kort-udvalg) ---
+// Kort-ID + label — samme kort som p.t. er portet til web/status.html
+// (se BUGS_INDEX.md FEAT-407 for de resterende, endnu ikke understøttede).
+const PUBLIC_CARD_CATALOG=[
+  {id:'system',label:'System'},{id:'network',label:'Netværk'},
+  {id:'modbusslave',label:'Modbus Slave'},{id:'modbusmaster',label:'Modbus Master'},
+  {id:'bushealth',label:'RS-485 Bus Health'},{id:'mbactivity',label:'Modbus Aktivitetslog'},
+  {id:'httpapi',label:'HTTP API'},
+  {id:'counters',label:'Tællere'},{id:'timers',label:'Timere'},
+  {id:'stlogic',label:'ST Logic'},{id:'ntp',label:'NTP Tid'},
+  {id:'rtutrafik',label:'Modbus RTU Trafik'},{id:'dio',label:'Digital I/O'},
+  {id:'analogio',label:'Analog I/O'}
+];
+function loadPublicCards(){
+  fetch('/api/public-dashboard/cards').then(r=>r.json()).then(d=>{
+    const visible=(d.visible||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const grid=$('pubCardsGrid');
+    grid.innerHTML=PUBLIC_CARD_CATALOG.map(c=>
+      '<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">'
+      +'<input type="checkbox" class="pubCardCb" value="'+c.id+'"'+(visible.includes(c.id)?' checked':'')+'> '+c.label+'</label>'
+    ).join('');
+  }).catch(()=>{$('pubCardsGrid').innerHTML='<span style="color:#f38ba8;font-size:12px">Kunne ikke hente kort-udvalg</span>'});
+}
+function savePublicCards(){
+  const visible=Array.from(document.querySelectorAll('.pubCardCb:checked')).map(cb=>cb.value).join(',');
+  api('/api/public-dashboard/cards',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({visible:visible})}).then(r=>{
+    if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
+    return r.json();
+  }).then(()=>{
+    showAlert('pubCardsAlert','ok','Gemt — synligt på den offentlige side med det samme');
+  }).catch(e=>showAlert('pubCardsAlert','err','Fejl: '+e.message));
 }
 
 // --- WiFi ---
@@ -1375,6 +1921,7 @@ function loadHttpAuth(){
     $('httpPort').value=h.port||80;
     $('httpApiEnabled').checked=!!h.api_enabled;
     $('httpAuthEnabled').checked=!!h.auth_enabled;
+    $('httpAuthMode').value=h.auth_mode||'bearer';
     $('httpUser').value=h.username||'';
   }).catch(()=>{});
 }
@@ -1383,7 +1930,8 @@ function saveHttpAuth(){
     enabled:$('httpEnabled').checked,
     port:parseInt($('httpPort').value)||80,
     api_enabled:$('httpApiEnabled').checked,
-    auth_enabled:$('httpAuthEnabled').checked
+    auth_enabled:$('httpAuthEnabled').checked,
+    auth_mode:$('httpAuthMode').value
   };
   if($('httpUser').value)body.username=$('httpUser').value;
   if($('httpPass').value)body.password=$('httpPass').value;
@@ -1512,17 +2060,24 @@ function saveAnalogChannel(ch){
 }
 
 // === User Badge ===
-function toggleUserMenu(){var m=document.getElementById('userMenu');m.classList.toggle('show')}
+
 document.addEventListener('click',function(e){var b=document.getElementById('userBtn');var m=document.getElementById('userMenu');if(b&&m&&!b.contains(e.target)&&!m.contains(e.target))m.classList.remove('show')});
 function updateUserBadge(){
-var auth=localStorage.getItem('hfplc_auth');
-var opts=auth?{headers:{'Authorization':auth}}:{};
-fetch('/api/user/me',opts).then(function(r){return r.json()}).then(function(d){
+// BUG-393b: route through the same queuedFetch() throttle every other
+// request on this page uses — a plain unqueued fetch() here could exceed
+// the device's max_open_sockets alongside the page's own burst of queued
+// calls and lose the race (BUG-369's original heap-crash class of bug, on
+// this page it just silently left the badge unset instead).
+queuedFetch('/api/user/me',{}).then(function(r){return r.json()}).then(function(d){
 if(d.authenticated){document.getElementById('userName').textContent=d.username;document.getElementById('userDot').className='dot dot-on';document.getElementById('umUser').textContent=d.username;document.getElementById('umRoles').textContent=d.roles||'all';document.getElementById('umPriv').textContent=d.privilege||'rw';document.getElementById('umMode').textContent=d.mode||'legacy';document.getElementById('umLogout').style.display='block'}
 else{document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('umLogout').style.display='none'}
 }).catch(function(){})
 }
-function doLogout(){if(AUTH){fetch('/api/logout',{method:'POST',headers:{'Authorization':AUTH}}).catch(()=>{})}localStorage.removeItem('hfplc_auth');AUTH='';document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('userMenu').classList.remove('show');if(document.getElementById('loginModal'))document.getElementById('loginModal').classList.add('show')}
+function doLogout(){
+// BUG-393: cookie is HttpOnly, always POST unconditionally — server reads
+// it itself and clears it in the response either way. Reload afterward to
+// reliably stop this page's polling and blank any already-rendered data.
+fetch('/api/logout',{method:'POST'}).catch(()=>{}).then(()=>{location.reload();});}
 updateUserBadge();
 </script>
 </body>

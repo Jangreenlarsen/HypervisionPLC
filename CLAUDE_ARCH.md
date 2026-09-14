@@ -111,6 +111,9 @@ Each layer has **ONE responsibility**. No circular dependencies.
 | `modbus_master.cpp/h` | Modbus Master implementation (UART1) |
 | `mb_async.cpp/h` | Async Master: priority queue + cache + FreeRTOS task on Core 0 (v7.7.0) |
 | `mb_activity_log.cpp/h` | Wire-level activity log, Master + Slave, RAM-only ring buffer (FEAT-149) |
+| `modbus_expansion.cpp/h` | Modbus TCP client (MBAP framing) to external expansion boards, port-per-channel connection pool (FEAT-410) |
+| `modbus_expansion_async.cpp/h` | Async engine for the above: priority queue + cache + adaptive backoff, keyed by (board,channel,slave,addr,fc) — close port of `mb_async.cpp` (FEAT-410) |
+| `expansion_api_client.cpp/h` | Management-plane HTTP/REST client to expansion boards (board CRUD, channel config push, diagnostics) — separate from the TCP data-plane above (FEAT-409) |
 
 **Slave Flow (UART0):** idle → RX (receive frame) → process (call FC handler) → TX (send response) → idle
 
@@ -332,6 +335,7 @@ Nye opcodes:
 | `cli_commands_logic.cpp/h` | ST Logic specific commands |
 | `cli_commands_modbus_slave.cpp/h` | Modbus Slave configuration commands (v4.4.1) |
 | `cli_commands_modbus_master.cpp/h` | Modbus Master configuration commands (v4.4.0) |
+| `cli_commands_modbus_expansion.cpp/h` | `set modbus-expansion`/`show modbus-expansion`/`mbx` — expansion board CRUD, diagnostics, queue stats (FEAT-409/410) |
 | `cli_show.cpp/h` | All `show` command implementations + SET display (v4.4.2) |
 | `cli_history.cpp/h` | Command history, arrow key navigation |
 | `cli_shell.cpp/h` | Serial I/O, state machine, main CLI loop |
@@ -381,6 +385,8 @@ Nye opcodes:
 | `st_builtins.cpp/h` | Built-in ST functions (ABS, MIN, MAX, etc.) |
 | `st_builtin_persist.cpp/h` | Persistent ST variable storage |
 | `st_builtin_signal.cpp/h` | Signal processing (SCALE, HYSTERESIS, BLINK, FILTER) v4.8 |
+| `st_builtin_modbus.cpp/h` | `MB_*` — Modbus Master builtins (non-blocking cache-read/queue-write against `mb_async.cpp`) |
+| `st_builtin_modbus_expansion.cpp/h` | `MBX_*` — same pattern as above, against expansion boards via `modbus_expansion_async.cpp` (FEAT-410) |
 | `st_debug.cpp/h` | Debugger: pause, step, breakpoints, variable inspection (v5.3.0) |
 
 ---

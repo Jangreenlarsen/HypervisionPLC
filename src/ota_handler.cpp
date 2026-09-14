@@ -43,6 +43,7 @@
 #include "debug.h"
 #include "system_log.h"  // FEAT-086
 #include "rbac.h"  // SECURITY_INDEX #2: rbac_has_write()
+#include "ip_acl.h"  // FEAT-399
 
 // External functions from http_server.cpp / api_handlers.cpp
 extern void http_server_stat_request(void);
@@ -58,6 +59,9 @@ bool http_rate_limit_check(httpd_req_t *req);
 // checked before the auth decision, not after).
 #define CHECK_AUTH_OTA(req) \
   do { \
+    if (!ip_acl_check_req(req, ACL_SVC_HTTP)) { \
+      return api_send_error(req, 403, "Blocked by IP ACL"); \
+    } \
     if (!g_persist_config.network.http.api_enabled) { \
       return api_send_error(req, 403, "API disabled"); \
     } \

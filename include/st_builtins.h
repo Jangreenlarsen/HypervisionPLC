@@ -113,6 +113,8 @@ typedef enum {
   ST_BUILTIN_MB_BUSY,       // MB_BUSY() → BOOL (requests pending in queue)
   ST_BUILTIN_MB_ERROR,      // MB_ERROR() → INT (last error code)
   ST_BUILTIN_MB_CACHE,      // MB_CACHE(enabled) → BOOL (enable/disable read cache dedup, v7.9.1)
+  ST_BUILTIN_MB_READ_OK,      // MB_READ_OK() → BOOL (BUG-397e: last MB_READ_* only, unaffected by writes)
+  ST_BUILTIN_MB_WRITE_QUEUED, // MB_WRITE_QUEUED() → BOOL (BUG-397e: last MB_WRITE_* only, unaffected by reads)
 
   // Hardware Counter Access (v7.7.2)
   ST_BUILTIN_CNT_SETUP,      // CNT_SETUP(id, hw_mode, edge, dir, prescaler, gpio) → BOOL
@@ -124,6 +126,20 @@ typedef enum {
   ST_BUILTIN_CNT_RAW,        // CNT_RAW(id) → DINT (raw counter value)
   ST_BUILTIN_CNT_FREQ,       // CNT_FREQ(id) → INT (frequency in Hz)
   ST_BUILTIN_CNT_STATUS,     // CNT_STATUS(id) → INT (bitfield: bit0=running, bit1=overflow, bit2=compare_hit)
+
+  // FEAT-410: Modbus Expansion Board (MBX_*) — mirrors MB_* 1:1 med (board,
+  // kanal) som to ekstra, indledende argumenter. Se
+  // st_builtin_modbus_expansion.h for hvorfor multi-register-varianterne
+  // ikke er en del af v1.
+  ST_BUILTIN_MBX_READ_COIL,      // MBX_READ_COIL(board, kanal, slave_id, address) → BOOL
+  ST_BUILTIN_MBX_READ_INPUT,     // MBX_READ_INPUT(board, kanal, slave_id, address) → BOOL
+  ST_BUILTIN_MBX_READ_HOLDING,   // MBX_READ_HOLDING(board, kanal, slave_id, address) → INT
+  ST_BUILTIN_MBX_READ_INPUT_REG, // MBX_READ_INPUT_REG(board, kanal, slave_id, address) → INT
+  ST_BUILTIN_MBX_WRITE_COIL,     // MBX_WRITE_COIL(board, kanal, slave_id, address, value) → BOOL
+  ST_BUILTIN_MBX_WRITE_HOLDING,  // MBX_WRITE_HOLDING(board, kanal, slave_id, address, value) → BOOL
+  ST_BUILTIN_MBX_SUCCESS,        // MBX_SUCCESS() → BOOL
+  ST_BUILTIN_MBX_BUSY,           // MBX_BUSY() → BOOL
+  ST_BUILTIN_MBX_ERROR,          // MBX_ERROR() → INT
 
   ST_BUILTIN_COUNT          // Total number of built-ins
 } st_builtin_func_t;

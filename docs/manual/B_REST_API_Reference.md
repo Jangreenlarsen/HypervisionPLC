@@ -4,7 +4,7 @@
 
 ---
 
-> Denne reference er udtrukket direkte fra kildekoden (`src/http_server.cpp`, `src/api_handlers.cpp`, `src/ota_handler.cpp`) — alle **119** registrerede `httpd_uri_t`-handlers er talt og dokumenteret nedenfor (verificeret via `grep -c "httpd_register_uri_handler" src/http_server.cpp`), plus SSE-serveren som kører uden for hoved-httpd'en. Se [kapitel 7](07_REST_API.md) for grundlæggende brug (auth, rate limiting, eksempler).
+> Denne reference er udtrukket direkte fra kildekoden (`src/http_server.cpp`, `src/api_handlers.cpp`, `src/ota_handler.cpp`) — alle **133** registrerede `httpd_uri_t`-handlers er talt og dokumenteret nedenfor (verificeret via `grep -c "httpd_register_uri_handler" src/http_server.cpp`), plus SSE-serveren som kører uden for hoved-httpd'en. Se [kapitel 7](07_REST_API.md) for grundlæggende brug (auth, rate limiting, eksempler).
 
 ## B.1 Generelt
 
@@ -50,7 +50,7 @@ Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
 | GET | `/api/config` | CHECK_AUTH | Stort read-only snapshot: system, modbus_mode, modbus_slave, modbus_master, analog_outputs, network, telnet, http, **sse** (FEAT-170, se §B.3 POST /api/http), counters[], timers[], gpio[], st_logic (m. programs[]), modules, persistence |
-| POST | `/api/http` | CHECK_AUTH_WRITE | Body-felter: `enabled`, `port`, `https_port`(BUG-350, dedikeret HTTPS-port, default 443, IKKE samme som `port`), `auth_enabled`, `api_enabled`, `tls_enabled`, `username`, `password`, `priority`(`LOW`/`NORMAL`/`HIGH`), samt (**FEAT-170**) et nested `sse` objekt: `{"enabled":bool,"port":N,"max_clients":1-5,"check_interval_ms":50-5000,"heartbeat_ms":1000-60000}` — samme `network.http`-struct som resten af feltlisten. Port/https_port/TLS/sse.port kræver reboot. |
+| POST | `/api/http` | CHECK_AUTH_WRITE | Body-felter: `enabled`, `port`, `https_port`(BUG-350, dedikeret HTTPS-port, default 443, IKKE samme som `port`), `auth_enabled`, `auth_mode`(**FEAT-397h**, `"basic"`\|`"bearer"` — kun meningsfuldt når `auth_enabled=true`; `bearer` afviser Basic-Auth-headere med 401 på alle endpoints undtagen `/api/login`, se [§10.3.1](10_Sikkerhed_og_Adgangsstyring.md#1031-auth-metode-none--basic--bearer-feat-397h-fra-v79420); standard for både fabriksnye og opgraderede enheder fra v7.9.42.0), `api_enabled`, `tls_enabled`, `username`, `password`, `priority`(`LOW`/`NORMAL`/`HIGH`), samt (**FEAT-170**) et nested `sse` objekt: `{"enabled":bool,"port":N,"max_clients":1-5,"check_interval_ms":50-5000,"heartbeat_ms":1000-60000}` — samme `network.http`-struct som resten af feltlisten. Port/https_port/TLS/sse.port kræver reboot. |
 | GET | `/api/modules` | CHECK_AUTH | `{"counters":bool,"timers":bool,"st_logic":bool}` (modul-flag) |
 | POST | `/api/modules` | CHECK_AUTH_WRITE | Samme felter — slå moduler til/fra |
 | GET | `/api/dashboard/layout` | *Ingen* | `card_order`, `card_tabs`, `card_hidden` (dashboard UI-præference) |
@@ -147,6 +147,26 @@ Register-adresser er faste i denne version (ikke bruger-omkonfigurerbare) — se
 | POST | `/api/timers/{id}/control` *(suffix, FEAT-171)* | CHECK_AUTH_WRITE | Body: `{"running":bool,"reset":bool}` — start/stop/reset en timer via REST (fandtes hidtil kun for counters) |
 | DELETE | `/api/timers/{id}` | CHECK_AUTH_WRITE | Nulstil til disabled |
 
+## Modbus Expansion Board (FEAT-409)
+
+PLC-siden af integrationen mod eksterne "HypervisionPLC Extension Boards" (se [kapitel 6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)). Alle disse endpoints er PLC'ens EGNE (brugt af `web/system.html`'s "Modbus Expansion Boards"-kort) — de kalder VIDERE til det pågældende boards eget management-API (Bearer-token, plain HTTP, port 8080) i en baggrundstask, og svarer derfor straks med `{"status":"started"}` for selve netværkskaldet; resultatet hentes efterfølgende via `GET /api/expansion/action-status` (samme "start async, poll bagefter"-mønster som `GET/POST /api/system/ota/github-check`, se B.15).
+
+| Metode | URI | Auth | Beskrivelse |
+|---|---|---|---|
+| GET | `/api/expansion/board-types` | CHECK_AUTH | De kendte, understøttede board-typer: `[{"value","label"},...]` — autoritativ liste, brug ALTID denne fremfor at antage/hardkode `modbus_2ch` er den eneste for evigt |
+| GET | `/api/expansion/boards` | CHECK_AUTH | Liste over konfigurerede boards: `id` (0-baseret internt index), `number` (1-8, brugerstyret "board nr" — `id+1`), `name`, `type`, `ip`, `has_token` (aldrig selve tokenet) |
+| POST | `/api/expansion/boards` | CHECK_AUTH_WRITE | Tilføj board på et eksplicit valgt nummer. Body: `{"number":1-8,"type","name","ip","token"}` — `number` er fast for boardets levetid |
+| PUT | `/api/expansion/boards/{id}` | CHECK_AUTH_WRITE | Redigér board-metadata (IKKE nummeret). Body: `{"name","ip","token","type"}` (`token`/`type` udeladt = bevar eksisterende) |
+| PUT | `/api/expansion/boards/{id}/channels/{n}` | CHECK_AUTH_WRITE | Start atomisk kanal-config-push til boardet. Body: `{"enabled","mode","baudrate","parity","stop_bits","timeout_ms","inter_frame_delay_ms"}` — ALLE felter påkrævet (samme "aldrig delvist"-princip som boardets egen API) |
+| DELETE | `/api/expansion/boards/{id}` | CHECK_AUTH_WRITE | Fjern board fra listen (påvirker ikke selve boardet) |
+| POST | `/api/expansion/boards/{id}/status` | CHECK_AUTH | Start hentning af boardets status (fw-version, oppetid, aktive kanaler) |
+| POST | `/api/expansion/boards/{id}/channels` | CHECK_AUTH | Start hentning af alle kanalers live config+statistik |
+| POST | `/api/expansion/boards/{id}/channels/{n}/read` | CHECK_AUTH | Start diagnostisk Modbus-læsning. Body: `{"function_code","slave_id","address","quantity"}` (FC01-04) |
+| POST | `/api/expansion/boards/{id}/channels/{n}/write` | CHECK_AUTH_WRITE | Start diagnostisk Modbus-skrivning. Body: `{"function_code","slave_id","address","value"}` (FC05/06) eller `{"function_code":16,...,"values":[...]}` |
+| GET | `/api/expansion/action-status` | CHECK_AUTH | Poll resultatet af det seneste startede kald ovenfor (`{"done","transport_ok","http_status","response":{...boardets egen svar-JSON...}}`) — kun ÉT kald ad gangen på tværs af alle boards |
+
+**Bemærk:** kanal-nummer `{n}` er 1-baseret (1=kanal A, 2=kanal B). `{id}` er boardets index som vist i `GET /api/expansion/boards`.
+
 ## B.11 ST Logic
 
 | Metode | URI | Auth | Beskrivelse |
@@ -202,6 +222,22 @@ Register-adresser er faste i denne version (ikke bruger-omkonfigurerbare) — se
 | POST | `/api/rbac` | CHECK_AUTH_WRITE | **FEAT-166.** Body: `{"enabled":bool}` — til/fra for hele RBAC (mirror af `set rbac enable/disable`). Svarer med `"warning"` i stedet for `"message"` hvis der slås til uden nogen brugere konfigureret (samme lockout-advarsel som CLI'en giver). |
 | POST | `/api/rbac/users` | CHECK_AUTH_WRITE | **FEAT-166.** Opret ELLER opdatér (samme brugernavn = opdatér). Body: `{"username":"...","password":"...","roles":"api,cli,editor,monitor","privilege":"read"\|"write"\|"read/write"}`. Password er PÅKRÆVET ved både opret og redigering — der er ingen "kun ret roller"-variant, samme begrænsning som CLI'ens `set user`. Svar: `{"status":200,"index":N,"roles":"...","message":"..."}`. |
 | DELETE | `/api/rbac/users/{username}` | CHECK_AUTH_WRITE | **FEAT-166.** Sletter brugeren. 404 hvis brugernavnet ikke findes. |
+| GET | `/api/acl` | CHECK_AUTH_WRITE | **FEAT-399/401.** `{"enabled":bool,"rule_count":N,"pending_confirm":bool,"pending_remaining_ms":N,"rules":[{"index":0,"cidr":"192.168.1.0/24","service":"http","action":"allow"\|"deny","enabled":bool},...]}` — regler evalueres i `index`-raekkefolge, foerste match vinder (se §10.7). Viser den **effektive** tilstand (den midlertidige, endnu ubekræftede regelliste HVIS en aendring afventer bekraeftelse, ellers den bekraeftede/persisterede). |
+| POST | `/api/acl` | CHECK_AUTH_WRITE | **FEAT-399.** Body: `{"enabled":bool}`. Slaar hele ACL'en til/fra. Til (0→1) kan "gate" (se §10.7.1) hvis mindst én aktiv `http`/`telnet`/`all`-regel findes — svaret indeholder da `"pending_confirm":true` og en advarsel om at bekraefte via `/api/acl/confirm` inden for tidsvinduet. Fra (1→0) sker altid straks. |
+| POST | `/api/acl/rules` | CHECK_AUTH_WRITE | **FEAT-399/401.** Body: `{"cidr":"a.b.c.d/nn","service":"http"\|"telnet"\|"sse"\|"all","action":"allow"\|"deny","enabled":bool}` — tilfoejer en ny regel NEDERST i listen (flyt den med `/move` hvis den skal placeres et andet sted). Gates hvis `service` ∈ {http,telnet,all} OG `enabled:true`, UANSET action. Svaret kan indeholde `"self_match_warning":true` hvis en aktiv **deny**-regel matcher afsenderens egen IP for HTTP. 409 hvis en anden aendring allerede afventer bekraeftelse. |
+| POST | `/api/acl/rules/{index}` | CHECK_AUTH_WRITE | **FEAT-399/401.** Body med KUN `{"enabled":bool}` er et bagudkompatibelt til/fra-toggle (gating: se §10.7.1 — aktivering af en mgmt-regel gates altid, deaktivering kun hvis regelens action er `allow`). Body med `cidr`/`service`/`action` er en FULD redigering af regelen på dens nuværende plads (gates hvis enten den gamle eller den nye tilstand er en aktiv mgmt-regel med action `allow`, eller den nye tilstand slet og ret er en aktiv mgmt-regel). |
+| POST | `/api/acl/rules/{index}/move` | CHECK_AUTH_WRITE | **FEAT-401.** Body: `{"to_index":N}` — flytter regelen til en ny position (resten forskydes). Rækkefølge er semantisk betydningsfuld (§10.7) — gates altid for en aktiv `http`/`telnet`/`all`-regel, uanset retning/action. |
+| DELETE | `/api/acl/rules/{index}` | CHECK_AUTH_WRITE | **FEAT-399/401.** Sletter en regel. Gates KUN hvis regelen er en aktiv `http`/`telnet`/`all`-regel med action `allow` (kan afsløre en `deny`-regel længere nede); en `deny`-regel (eller en deaktiveret/`sse`-regel) kan altid slettes straks. 404 hvis index ikke findes. |
+| POST | `/api/acl/confirm` | CHECK_AUTH_WRITE | **FEAT-399.** Bekraefter en ventende ACL-aendring — kraever et session-token udstedt EFTER aendringen gik i "pending" (alle aeldre tokens revokeres automatisk naar en gated aendring anvendes, se §10.7.1), hvilket i sig selv er beviset for at login stadig virker. Persisterer straks til NVS. 400 hvis intet afventer. |
+| GET | `/api/acl/draft` | CHECK_AUTH_WRITE | **FEAT-402.** `{"active":bool,"enabled":bool,"rule_count":N,"rules":[...]}` — kladdens indhold (samme regel-form som `/api/acl`). `active:false` hvis ingen kladde er startet. ALDRIG haandhaevet, uanset indhold — se [§10.7.2](10_Sikkerhed_og_Adgangsstyring.md#1072-kladde-tilstand-draft-mode-feat-402). |
+| POST | `/api/acl/draft/begin` | CHECK_AUTH_WRITE | **FEAT-402.** Starter en ny kladde som en kopi af den bekraeftede tilstand. 409 hvis en kladde allerede er aktiv, eller hvis en aendring afventer bekraeftelse. |
+| DELETE | `/api/acl/draft` | CHECK_AUTH_WRITE | **FEAT-402.** Kasserer kladden. Ingen af dens aendringer er nogensinde blevet haandhaevet. |
+| POST | `/api/acl/draft` | CHECK_AUTH_WRITE | **FEAT-402.** Body: `{"enabled":bool}` — til/fra-slaar kladdens overordnede ACL-flag (parallel til `POST /api/acl`, men roerer intet haandhaevet foer et efterfoelgende `apply`). |
+| POST | `/api/acl/draft/rules` | CHECK_AUTH_WRITE | **FEAT-402.** Samme body-form som `POST /api/acl/rules` — tilfoejer en regel til kladden. Gater ALDRIG (intet i kladden haandhaeves). |
+| POST | `/api/acl/draft/rules/{index}` | CHECK_AUTH_WRITE | **FEAT-402.** Samme edit-vs-toggle-konvention som `POST /api/acl/rules/{index}`, virker paa kladden. |
+| POST | `/api/acl/draft/rules/{index}/move` | CHECK_AUTH_WRITE | **FEAT-402.** Body: `{"to_index":N}` — flytter en kladde-regel. Gater aldrig. |
+| DELETE | `/api/acl/draft/rules/{index}` | CHECK_AUTH_WRITE | **FEAT-402.** Sletter en kladde-regel. 404 hvis index ikke findes. |
+| POST | `/api/acl/draft/apply` | CHECK_AUTH_WRITE | **FEAT-402.** Anvender HELE kladden atomisk — den ENESTE kladde-operation der kan paavirke haandhaevelsen. Sammenligner kladdens og den bekraeftede tilstands mgmt-relevante regler (`http`/`telnet`/`all`, ikke `sse`); er de uaendrede, persisteres straks (som `/api/acl/rules`s "ingen gate"-sti); er de aendrede, overgaar kladden til PRAECIS samme pending-confirm-flow som en direkte gated mutation (§10.7.1) — samme svarform (`pending_confirm`, `pending_remaining_ms`, `self_match_warning`). Kladden ryddes under begge udfald. |
 
 **Sikkerhedsmodel for RBAC-CRUD-endpoints:** `CHECK_AUTH_WRITE` (skriverettighed) er en BEVIDST parity-beslutning med CLI'ens egen eksisterende model — `rbac_cli_allowed()` lader allerede enhver CLI-rolle+skriverettigheds-bruger oprette/eskalere en admin-konto via `set user`. Se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #18.
 
@@ -301,15 +337,19 @@ Disse serverer statisk HTML/JS **uden nogen server-side auth-kontrol** — sider
 
 | Metode | URI | Beskrivelse |
 |---|---|---|
-| GET | `/` | Web-dashboard (forside) |
+| GET | `/` | Offentlig, login-fri statusside (FEAT-407) — admin-udvalgt subset af dashboard-kortene |
+| GET | `/dashboard` | Web-dashboard/Monitor (kræver login klient-side — FEAT-407 flyttede denne fra `/`) |
 | GET | `/editor` | ST Logic-editor (browser-baseret) |
 | GET | `/system` | Web-baseret systemadministration |
+| GET | `/io` | Tællere/Timere/GPIO statisk mapping (FEAT-171) |
+| GET | `/logs` | API Audit Log + Hændelseslog, fuld sidebredde (FEAT-172) |
 | GET | `/ota` | OTA firmware-upload-side |
 | GET | `/cli` | Standalone Web-CLI-side (bruger `/api/cli`) |
+| GET | `/common.css`, `/common.js` | Delt CSS/JS genbrugt på tværs af siderne ovenfor (FEAT-411, flash-optimering) — ikke en side i sig selv |
 
 ## B.21 Opsummering / verifikation
 
-- `grep -c "httpd_register_uri_handler(http_state.server" src/http_server.cpp` → **109** (FEAT-169 tilføjede GitHub-OTA check/install; FEAT-033/029 tilføjede `/api/system/logs` GET+POST og `/api/schema`) — alle er dokumenteret ovenfor (enten som selvstændig række, eller som *suffix*-delegeret under-endpoint med reference til deres fælles wildcard-registrering). FEAT-007's `/api/logic/globals*` endpoints tilføjer INGEN nye registreringer — de er suffix-delegerede under den allerede-eksisterende `/api/logic/*`-wildcard, ligesom `/source`/`/enable` m.fl.
+- `grep -c "httpd_register_uri_handler(http_state.server" src/http_server.cpp` → **144** pr. seneste optælling (FEAT-411, v7.9.64.0) — dette tal stiger løbende efterhånden som features tilføjes (senest bl.a. FEAT-409/409c/410's `/api/expansion/*`-familie og FEAT-411's `/common.css`/`/common.js`); betragt det som en stikprøve, ikke en fast konstant, og genkør kommandoen selv for den præcise aktuelle værdi. Loftet (`max_uri_handlers`, se `src/http_server.cpp`) er **160** — BUG-403 kræver at dette tal holdes komfortabelt over det faktiske antal, ikke kun lige over. De fleste af tallets endpoints er dokumenteret ovenfor (enten som selvstændig række, eller som *suffix*-delegeret under-endpoint med reference til deres fælles wildcard-registrering). FEAT-007's `/api/logic/globals*` endpoints tilføjer INGEN nye registreringer — de er suffix-delegerede under den allerede-eksisterende `/api/logic/*`-wildcard, ligesom `/source`/`/enable` m.fl.
 - Dertil kommer **1** endpoint der bevidst ikke er en del af hoved-`httpd`'en: `GET /api/events` (dedikeret SSE-portserver).
 - `ota_handler.cpp` bidrager 3 (registreres fra `http_server.cpp`, men implementeres i egen fil).
 

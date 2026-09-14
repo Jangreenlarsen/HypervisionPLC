@@ -49,7 +49,8 @@
  *   pressure_bar := SCALE(adc_raw, 0.0, 4095.0, 0.0, 10.0);
  *   (* Maps 0-4095 ADC to 0-10 bar *)
  *
- * @note Division by zero protection: returns out_min if in_max == in_min
+ * @note Division by zero protection: returns 0.0 if in_max == in_min (BUG-161 FIX,
+ *       see .cpp — this comment previously said "returns out_min", which never matched the implementation
  */
 st_value_t st_builtin_scale(st_value_t in, st_value_t in_min, st_value_t in_max,
                              st_value_t out_min, st_value_t out_max);

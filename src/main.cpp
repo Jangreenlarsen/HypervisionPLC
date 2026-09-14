@@ -34,6 +34,7 @@
 #include "st_logic_engine.h"
 #include "ir_pool_manager.h"  // v5.1.0 - IR pool management
 #include "network_manager.h"
+#include "ip_acl.h"
 #include "wifi_driver.h"       // BUG-371: wifi_driver_set_hostname()
 #include "ethernet_driver.h"   // BUG-371: ethernet_driver_set_hostname()
 #include "watchdog_monitor.h"
@@ -42,6 +43,7 @@
 #include "sse_events.h"        // v7.0.0 - SSE real-time events
 #include "ntp_driver.h"        // v7.8.1 - NTP time synchronization
 #include "mb_async.h"          // v7.7.0 - Async Modbus Master background task
+#include "modbus_expansion_async.h"  // FEAT-410 - Async Modbus Expansion Master background task
 #include "mb_activity_log.h"   // FEAT-149 - Wire-level Modbus activity log
 #include "trend_recorder.h"    // FEAT-099 - Periodic register trend recorder
 #include "system_log.h"        // FEAT-086/089 - Event + register-change log
@@ -162,6 +164,13 @@ void setup() {
     mb_async_init();        // Async Modbus Master background task (v7.7.0)
   }
 #endif
+
+  // FEAT-410: Async Modbus Expansion Master (Modbus TCP mod expansion-boards'
+  // data-plan) — uafhængig af Master #1/mb_async ovenfor, starter altid
+  // (billigt at have kørende idle, matcher mb_async's eget mønster).
+  Serial.print("Ax"); Serial.flush();
+  modbus_expansion_async_init();
+
   Serial.print("H"); Serial.flush();   // Heartbeat
   heartbeat_init();         // LED blink on GPIO2
   Serial.print("S"); Serial.flush();   // SSE
@@ -337,6 +346,11 @@ void loop() {
   // Network subsystem (v3.0+ Wi-Fi auto-reconnect, Telnet server)
   network_manager_loop();
   cli_remote_loop();
+
+  // FEAT-399: IP ACL lockout-recovery — ruller en ventende, ubekraeftet
+  // ACL-aendring automatisk tilbage hvis ACL_PENDING_CONFIRM_TIMEOUT_MS
+  // overskrides. Billigt no-op naar intet afventer.
+  ip_acl_tick();
 
   // Modbus server (primary function - handles FC01-10)
   // On single-transceiver boards: only run if mode == SLAVE

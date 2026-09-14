@@ -26,7 +26,7 @@ Begge roller læser og skriver til det **samme interne register-/coil-lager**, s
 | 0x0F | Write Multiple Coils | ✅ | — |
 | 0x10 | Write Multiple Registers | ✅ | ✅ |
 
-Protokol: **Modbus RTU** over RS-485 (framing, CRC16). Der er **ikke** en implementering af Modbus TCP/MBAP i dette system pr. denne skrivnings tidspunkt — kun RTU over seriel.
+Protokol: **Modbus RTU** over RS-485 (framing, CRC16) for systemets egen Slave/Master-rolle beskrevet i dette afsnit. Systemet er derudover også en **Modbus TCP-klient** (MBAP-framing) mod eksterne Modbus Expansion Boards — se [§6.7](#67-modbus-expansion-boards-feat-409).
 
 **Adgangskontrol på RTU-bussen (bevidst fravalg, ikke en overset mangel):** Modbus RTU har pr. protokol-design ingen adgangskontrol på function-code- eller register-niveau — enhver enhed der fysisk er koblet på RS-485-bussen og kender (eller gætter) et slave-ID kan sende læse-/skrive-forespørgsler, inklusive til systemets egne kontrol-registre (fx `ST_LOGIC_CONTROL_REG_BASE`). Dette er en egenskab ved selve RTU som fysisk lag — samme begrænsning gælder ethvert Modbus RTU-slave-udstyr, ikke kun dette system — og løses i praksis ved **fysisk adgangskontrol til bussen** (hvem har adgang til RS-485-kablingen), ikke i software. Samme ræsonnement gælder ST Logic-programmers Modbus Master-kald (`MB_READ_*`/`MB_WRITE_*`): de kan i dag adressere enhver slave 1-247 på bussen uden en indbygget allowlist — men et ST-program kræver i sig selv allerede skriverettighed til at blive uploadet, og en bruger med den rettighed har allerede tilsvarende bus-adgang via `mb write` i CLI'en, så en allowlist ville ikke reelt begrænse en angriber med den adgang.
 
@@ -85,6 +85,26 @@ show modbus-master                        (status + kø-/cache-statistik)
 ## 6.6 Overvågning af faktisk bustrafik
 
 Både Slave- og Master-siden logges live i **Modbus Aktivitetsloggen** i dashboardet ([§4.2](04_Web_Dashboard_og_Monitor.md)) — et wire-level-vindue der viser hver transaktion uanset hvor den stammer fra (ST Logic, CLI, dashboard, eller en ekstern master der taler til jeres slave). Uvurderligt værktøj når noget "burde virke, men gør ikke" — se [kapitel 13](13_Fejlfinding.md).
+
+## 6.7 Modbus Expansion Boards (FEAT-409)
+
+Et "HypervisionPLC Extension Board" er et separat, fysisk board med sine egne RS485/RS232-kanaler (kanal A + B), som PLC'en administrerer over netværket — al konfiguration og diagnose sker herfra, boardet har ingen egen driftsbrugerflade (kun en engangs seriel opsætning ved installation).
+
+**System-siden → "Modbus Expansion Boards"-kortet:**
+
+- **Tilføj et board**: et fast **board nr (1-8)** du selv vælger (anbefaling: match fysisk mærkning i skabet/panelet — nummeret kan ikke ændres bagefter, kun fjernes og tilføjes igen), en **type** (i dag kun "Modbus Expansion, 2× RS485/RS232" — flere board-typer, fx rene digitale ind-/udgangs-expansion-boards, forventes tilføjet efterhånden som de findes som fysisk hardware), navn (frit valgt label), IP-adresse, og det Bearer-token boardets serielle opsætnings-CLI viser (kommandoen `status` på boardet selv). Tokenet vises aldrig igen af PLC'en efter det er gemt — hav det klar fra boardets egen skærm.
+- **Test forbindelse**: henter boardets live status (firmware-version, oppetid, antal kanaler) — bekræfter at IP og token er korrekte.
+- **Kanaler**: viser og redigerer kanal A/B's konfiguration (mode RS485/RS232, baudrate, paritet, stopbits, timeout) direkte fra boardet — ændringer gemmes atomisk (alle felter i ét kald, aldrig delvist). Statistik (antal forespørgsler/fejl) vises live.
+- **Test funktions-register**: et diagnostisk panel til at afprøve en enkelt Modbus-transaktion (læs/skriv holding-register, coil, osv.) mod en given slave på den valgte kanal — til opsætning/fejlsøgning, ikke til løbende drift.
+
+![System-siden — Modbus Expansion Boards-kortet, med et tilsluttet board](assets/screenshots/system_modbus.png)
+
+**Kontinuerlig datatrafik i ST Logic (FEAT-410):** den løbende, høj-frekvente Modbus-trafik mod feltbusserne bag et expansion-board går via Modbus TCP direkte til boardet (ikke gennem PLC'ens web-UI), og kan læses/skrives fra ST Logic-programmer med `MBX_*`-funktionsfamilien — samme non-blocking cache/kø-mønster som den lokale RS485-bus' `MB_*`-funktioner (se [Appendiks D.5.9b](D_ST_Logic_Funktionsreference.md#d59b-modbus-expansion-board-mbx_-feat-410)), blot med et ekstra `board`- og `kanal`-argument foran. **v1-afgrænsning:** kun enkelt-register-operationer — ingen multi-register array-form (`MBX_READ_HOLDINGS`/`MBX_WRITE_HOLDINGS`) endnu, se BUGS_INDEX.md FEAT-410 for begrundelsen. Kø/cache-diagnostik: `show modbus-expansion queue` (se [Appendiks A](A_CLI_Kommando_Reference.md#modbus-expansion-board-feat-409)).
+
+**Dashboard-badge (Monitor):** Dashboardet ([kapitel 4](04_Web_Dashboard_og_Monitor.md)) har et tilsvarende "Modbus Expansion Boards"-kort med et online/offline-badge pr. board (grøn = online + fw-version/kanaltal, rød = offline, grå = endnu ikke tjekket), plus et samlet "N/M online"-badge i kort-overskriften. Boards tjekkes automatisk hvert 30. sekund, så længe dashboardet er åbent i en browser — luk fanen, og pollingen stopper (enheden selv ringer aldrig ud af sig selv uopfordret).
+
+**CLI:** se [Appendiks A](A_CLI_Kommando_Reference.md#modbus-expansion-board-feat-409) for `set modbus-expansion`/`show modbus-expansion`/`mbx`-kommandoerne.
+**REST API:** se [Appendiks B](B_REST_API_Reference.md#modbus-expansion-board-feat-409).
 
 ---
 

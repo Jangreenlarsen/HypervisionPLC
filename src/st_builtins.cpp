@@ -8,6 +8,7 @@
 #include "st_builtins.h"
 #include "st_builtin_persist.h"
 #include "st_builtin_modbus.h"
+#include "st_builtin_modbus_expansion.h"  // FEAT-410
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -518,6 +519,33 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
       result.int_val = 0;
       break;
 
+    // FEAT-410: Modbus Expansion Board (MBX_*) — 4/5-arg, real dispatch in st_vm.cpp
+    case ST_BUILTIN_MBX_READ_COIL:
+    case ST_BUILTIN_MBX_READ_INPUT:
+    case ST_BUILTIN_MBX_READ_HOLDING:
+    case ST_BUILTIN_MBX_READ_INPUT_REG:
+      // 4-argument function - handled in VM
+      result.int_val = 0;
+      break;
+
+    case ST_BUILTIN_MBX_WRITE_COIL:
+    case ST_BUILTIN_MBX_WRITE_HOLDING:
+      // 5-argument function - handled in VM
+      result.int_val = 0;
+      break;
+
+    case ST_BUILTIN_MBX_SUCCESS:
+      result = st_builtin_mbx_success_func();
+      break;
+
+    case ST_BUILTIN_MBX_BUSY:
+      result = st_builtin_mbx_busy_func();
+      break;
+
+    case ST_BUILTIN_MBX_ERROR:
+      result = st_builtin_mbx_error_func();
+      break;
+
     // Async Modbus Status (v7.7.0 — 0-arg)
     case ST_BUILTIN_MB_SUCCESS:
       result = st_builtin_mb_success_func();
@@ -534,6 +562,15 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
     case ST_BUILTIN_MB_CACHE:
       // 1-arg — handled in st_builtin_call (arg1 = enabled BOOL)
       result = st_builtin_mb_cache_func(arg1);
+      break;
+
+    // BUG-397e: unambiguous MB_SUCCESS() alternatives (0-arg)
+    case ST_BUILTIN_MB_READ_OK:
+      result = st_builtin_mb_read_ok_func();
+      break;
+
+    case ST_BUILTIN_MB_WRITE_QUEUED:
+      result = st_builtin_mb_write_queued_func();
       break;
 
     // Hardware Counter Access (v7.7.2) - multi-arg functions handled in VM
@@ -616,6 +653,17 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_BUSY:       return "MB_BUSY";
     case ST_BUILTIN_MB_ERROR:      return "MB_ERROR";
     case ST_BUILTIN_MB_CACHE:      return "MB_CACHE";
+    case ST_BUILTIN_MB_READ_OK:    return "MB_READ_OK";
+    case ST_BUILTIN_MB_WRITE_QUEUED: return "MB_WRITE_QUEUED";
+    case ST_BUILTIN_MBX_READ_COIL:      return "MBX_READ_COIL";
+    case ST_BUILTIN_MBX_READ_INPUT:     return "MBX_READ_INPUT";
+    case ST_BUILTIN_MBX_READ_HOLDING:   return "MBX_READ_HOLDING";
+    case ST_BUILTIN_MBX_READ_INPUT_REG: return "MBX_READ_INPUT_REG";
+    case ST_BUILTIN_MBX_WRITE_COIL:     return "MBX_WRITE_COIL";
+    case ST_BUILTIN_MBX_WRITE_HOLDING:  return "MBX_WRITE_HOLDING";
+    case ST_BUILTIN_MBX_SUCCESS:        return "MBX_SUCCESS";
+    case ST_BUILTIN_MBX_BUSY:           return "MBX_BUSY";
+    case ST_BUILTIN_MBX_ERROR:          return "MBX_ERROR";
     case ST_BUILTIN_CNT_SETUP:     return "CNT_SETUP";
     case ST_BUILTIN_CNT_SETUP_ADV: return "CNT_SETUP_ADV";
     case ST_BUILTIN_CNT_SETUP_CMP: return "CNT_SETUP_CMP";
@@ -731,7 +779,24 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_SUCCESS:    // MB_SUCCESS()
     case ST_BUILTIN_MB_BUSY:       // MB_BUSY()
     case ST_BUILTIN_MB_ERROR:      // MB_ERROR()
+    case ST_BUILTIN_MB_READ_OK:    // MB_READ_OK() — BUG-397e
+    case ST_BUILTIN_MB_WRITE_QUEUED: // MB_WRITE_QUEUED() — BUG-397e
+    case ST_BUILTIN_MBX_SUCCESS:   // MBX_SUCCESS() — FEAT-410
+    case ST_BUILTIN_MBX_BUSY:      // MBX_BUSY() — FEAT-410
+    case ST_BUILTIN_MBX_ERROR:     // MBX_ERROR() — FEAT-410
       return 0;
+
+    // FEAT-410: Modbus Expansion Board — 4-arg reads (board, kanal, slave, addr)
+    case ST_BUILTIN_MBX_READ_COIL:
+    case ST_BUILTIN_MBX_READ_INPUT:
+    case ST_BUILTIN_MBX_READ_HOLDING:
+    case ST_BUILTIN_MBX_READ_INPUT_REG:
+      return 4;
+
+    // FEAT-410: Modbus Expansion Board — 5-arg writes (board, kanal, slave, addr, value)
+    case ST_BUILTIN_MBX_WRITE_COIL:
+    case ST_BUILTIN_MBX_WRITE_HOLDING:
+      return 5;
 
     // 1-argument Modbus control (v7.9.1)
     case ST_BUILTIN_MB_CACHE:      // MB_CACHE(enabled)
@@ -809,6 +874,14 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_SUCCESS:        // MB_SUCCESS → BOOL
     case ST_BUILTIN_MB_BUSY:           // MB_BUSY → BOOL
     case ST_BUILTIN_MB_CACHE:          // MB_CACHE → BOOL (previous state)
+    case ST_BUILTIN_MB_READ_OK:        // MB_READ_OK → BOOL — BUG-397e
+    case ST_BUILTIN_MB_WRITE_QUEUED:   // MB_WRITE_QUEUED → BOOL — BUG-397e
+    case ST_BUILTIN_MBX_READ_COIL:     // MBX_READ_COIL → BOOL — FEAT-410
+    case ST_BUILTIN_MBX_READ_INPUT:    // MBX_READ_INPUT → BOOL — FEAT-410
+    case ST_BUILTIN_MBX_WRITE_COIL:    // MBX_WRITE_COIL → BOOL — FEAT-410
+    case ST_BUILTIN_MBX_WRITE_HOLDING: // MBX_WRITE_HOLDING → BOOL — FEAT-410
+    case ST_BUILTIN_MBX_SUCCESS:       // MBX_SUCCESS → BOOL — FEAT-410
+    case ST_BUILTIN_MBX_BUSY:          // MBX_BUSY → BOOL — FEAT-410
       return ST_TYPE_BOOL;
 
     // Returns DINT
@@ -841,6 +914,8 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_PERSIST_LOAD:
     case ST_BUILTIN_MB_READ_HOLDING:   // MB_READ_HOLDING → INT
     case ST_BUILTIN_MB_READ_INPUT_REG: // MB_READ_INPUT_REG → INT
+    case ST_BUILTIN_MBX_READ_HOLDING:   // MBX_READ_HOLDING → INT — FEAT-410
+    case ST_BUILTIN_MBX_READ_INPUT_REG: // MBX_READ_INPUT_REG → INT — FEAT-410
     case ST_BUILTIN_BIT_SET:           // BIT_SET → INT
     case ST_BUILTIN_BIT_CLR:           // BIT_CLR → INT
     case ST_BUILTIN_CNT_FREQ:          // CNT_FREQ → INT (Hz)

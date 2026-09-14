@@ -901,8 +901,10 @@ void cli_cmd_set_gpio(uint8_t argc, char* argv[]) {
 
   if (found_idx == 0xff) {
     // Create new mapping
-    if (g_persist_config.var_map_count >= 32) {
-      debug_println("SET GPIO: max GPIO mappings reached (32)");
+    if (g_persist_config.var_map_count >= MAX_VAR_MAPPINGS) {
+      debug_print("SET GPIO: max GPIO mappings reached (");
+      debug_print_uint(MAX_VAR_MAPPINGS);
+      debug_println(")");
       return;
     }
     found_idx = g_persist_config.var_map_count;
@@ -1004,7 +1006,7 @@ void cli_cmd_save(void) {
     // --- Variable Mappings ---
     uint8_t gpio_maps = 0, st_maps = 0;
     uint8_t safe_var_map_count = g_persist_config.var_map_count;
-    if (safe_var_map_count > 32) safe_var_map_count = 32;
+    if (safe_var_map_count > MAX_VAR_MAPPINGS) safe_var_map_count = MAX_VAR_MAPPINGS;
     for (uint8_t i = 0; i < safe_var_map_count; i++) {
       if (g_persist_config.var_maps[i].source_type == MAPPING_SOURCE_GPIO) gpio_maps++;
       else if (g_persist_config.var_maps[i].source_type == MAPPING_SOURCE_ST_VAR) st_maps++;
@@ -1024,10 +1026,11 @@ void cli_cmd_save(void) {
                  g_persist_config.network.ethernet.dhcp_enabled ? "on" : "off");
 
     // --- HTTP & SSE ---
-    debug_printf("  [HTTP] %s  port=%d  auth=%s  tls=%s\n",
+    debug_printf("  [HTTP] %s  port=%d  auth=%s  auth-mode=%s  tls=%s\n",
                  g_persist_config.network.http.enabled ? "on" : "off",
                  g_persist_config.network.http.port,
                  g_persist_config.network.http.auth_enabled ? "on" : "off",
+                 (g_persist_config.http_auth_mode == HTTP_AUTH_MODE_BEARER) ? "bearer" : "basic",
                  g_persist_config.network.http.tls_enabled ? "on" : "off");
     debug_printf("  [SSE] %s  max-clients=%d\n",
                  g_persist_config.network.http.sse_enabled ? "on" : "off",
@@ -1086,7 +1089,7 @@ void cli_cmd_load(void) {
     // Count active GPIO/ST variable mappings (source_type != 0xff means active)
     uint8_t active_mappings = 0;
     uint8_t safe_var_map_count = g_persist_config.var_map_count;
-    if (safe_var_map_count > 32) safe_var_map_count = 32;  // BUG-140 style clamp
+    if (safe_var_map_count > MAX_VAR_MAPPINGS) safe_var_map_count = MAX_VAR_MAPPINGS;  // BUG-140 style clamp
     for (uint8_t i = 0; i < safe_var_map_count; i++) {
       if (g_persist_config.var_maps[i].source_type != 0xff) {
         active_mappings++;
@@ -2422,6 +2425,19 @@ void cli_cmd_set_http(uint8_t argc, char* argv[]) {
       debug_println("HTTP Basic Auth disabled");
     } else {
       debug_println("SET HTTP AUTH: invalid value (use: on|off)");
+    }
+
+  } else if (!strcmp(option, "auth-mode")) {
+    // FEAT-397h: which credential scheme is accepted once auth is required
+    // (see `set http auth on|off` above for the separate none/required toggle).
+    if (!strcmp(value, "basic") || !strcmp(value, "BASIC")) {
+      g_persist_config.http_auth_mode = HTTP_AUTH_MODE_BASIC;
+      debug_println("HTTP auth mode set to BASIC (Basic-Auth + Bearer/cookie both accepted)");
+    } else if (!strcmp(value, "bearer") || !strcmp(value, "BEARER")) {
+      g_persist_config.http_auth_mode = HTTP_AUTH_MODE_BEARER;
+      debug_println("HTTP auth mode set to BEARER (Basic-Auth rejected on all endpoints except /api/login)");
+    } else {
+      debug_println("SET HTTP AUTH-MODE: invalid value (use: basic|bearer)");
     }
 
   } else if (!strcmp(option, "username") || !strcmp(option, "user")) {

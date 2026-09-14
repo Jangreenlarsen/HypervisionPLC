@@ -616,8 +616,8 @@ int cli_cmd_set_logic_bind(st_logic_engine_state_t *logic_state, uint8_t program
 
   // Step 2: Check if we have space for new mapping(s)
   uint8_t mappings_needed = (is_input && is_output) ? 2 : 1;
-  if (g_persist_config.var_map_count + mappings_needed > 64) {
-    debug_printf("ERROR: Maximum variable mappings (64) would be exceeded (need %d more)\n", mappings_needed);
+  if (g_persist_config.var_map_count + mappings_needed > MAX_VAR_MAPPINGS) {
+    debug_printf("ERROR: Maximum variable mappings (%d) would be exceeded (need %d more)\n", MAX_VAR_MAPPINGS, mappings_needed);
     return -1;
   }
 

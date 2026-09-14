@@ -287,6 +287,17 @@ const NetworkState* network_manager_get_state(void)
   return &network_mgr.state;
 }
 
+void network_manager_disconnect_telnet_client(void)
+{
+  // FEAT-399 (IP ACL lockout-recovery): tvinger en igangvaerende Telnet-klient
+  // til at genforbinde+logge ind paa ny, naar en Telnet-paavirkende ACL-regel
+  // gaar i "pending"-tilstand — samme bevis-krav som revoke-alle goer for
+  // HTTP-sessioner (se rbac_session_token_revoke_all()).
+  if (!network_mgr.telnet_server || !network_mgr.telnet_server->tcp_server) return;
+  if (!telnet_server_client_connected(network_mgr.telnet_server)) return;
+  tcp_server_disconnect_client(network_mgr.telnet_server->tcp_server, 0);
+}
+
 uint8_t network_manager_get_telnet_client_info(uint32_t *ip_out, uint32_t *uptime_s, char *username)
 {
   if (!network_mgr.telnet_server) return 0;

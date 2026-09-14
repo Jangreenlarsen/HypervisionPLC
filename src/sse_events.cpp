@@ -28,6 +28,7 @@
 
 #include "sse_events.h"
 #include "constants.h"
+#include "ip_acl.h"
 #include "types.h"
 #include "registers.h"
 #include "counter_engine.h"
@@ -719,6 +720,14 @@ static void sse_accept_task(void *arg)
       continue;
     }
 
+    // FEAT-399: IP ACL — afvist foer noget som helst andet arbejde (socket-
+    // opsaetning, task-spawn). client_addr.sin_addr er allerede udfyldt af
+    // selve accept()-kaldet, intet ekstra getpeername() noedvendigt.
+    if (!ip_acl_check(client_addr.sin_addr.s_addr, ACL_SVC_SSE)) {
+      close(client_fd);
+      continue;
+    }
+
     // Rate limit: prevent rapid reconnect storms (e.g., Node-RED auto-reconnect)
     // Check heap before allocating task resources
     if (esp_get_free_heap_size() < 10000) {
@@ -816,9 +825,15 @@ static void sse_accept_task(void *arg)
       sse_user_idx = sse_check_auth(auth_value);
     }
     if (sse_user_idx < 0) {
+      // BUG-396b: WWW-Authenticate fjernet, samme begrundelse som BUG-395 —
+      // headeren kan faa en browser til at cache et Basic-Auth-credential
+      // permanent i sin egen native login-mekanisme, hvilket omgaar cookie-
+      // logout fuldstaendigt (se api_handlers.cpp's api_send_error() for
+      // den fulde forklaring). Denne raa SSE-401-sti blev overset ved
+      // BUG-395, da rbac_check_sse() bevidst var udenfor scope for selve
+      // BUG-393-cookie-migreringen.
       const char *resp = "HTTP/1.1 401 Unauthorized\r\n"
         "Content-Type: application/json\r\n"
-        "WWW-Authenticate: Basic realm=\"Modbus ESP32\"\r\n"
         "Connection: close\r\n\r\n"
         "{\"error\":\"Authentication required (use ?token= or Basic Auth)\",\"status\":401}";
       send(client_fd, resp, strlen(resp), 0);
@@ -946,7 +961,7 @@ esp_err_t api_handler_sse_status(httpd_req_t *req)
   if (caller_uid < 0) {
     httpd_resp_set_status(req, "401 Unauthorized");
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Modbus ESP32\"");
+    // BUG-396b: WWW-Authenticate fjernet, se begrundelse laengere nede i denne fil / BUG-395.
     httpd_resp_sendstr(req, "{\"error\":\"Authentication required\",\"status\":401}");
     return ESP_OK;
   }
@@ -992,7 +1007,7 @@ esp_err_t api_handler_sse_clients(httpd_req_t *req)
   if (!http_server_check_auth(req)) {
     httpd_resp_set_status(req, "401 Unauthorized");
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Modbus ESP32\"");
+    // BUG-396b: WWW-Authenticate fjernet, se begrundelse laengere nede i denne fil / BUG-395.
     httpd_resp_sendstr(req, "{\"error\":\"Authentication required\",\"status\":401}");
     return ESP_OK;
   }
@@ -1059,7 +1074,7 @@ esp_err_t api_handler_sse_disconnect(httpd_req_t *req)
   if (!http_server_check_auth(req)) {
     httpd_resp_set_status(req, "401 Unauthorized");
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Modbus ESP32\"");
+    // BUG-396b: WWW-Authenticate fjernet, se begrundelse laengere nede i denne fil / BUG-395.
     httpd_resp_sendstr(req, "{\"error\":\"Authentication required\",\"status\":401}");
     return ESP_OK;
   }

@@ -13,7 +13,7 @@
 
 ## 7.2 Autentificering
 
-De fleste endpoints kræver **HTTP Basic Auth** (samme brugerdatabase som webdashboardet — se [kapitel 10](10_Sikkerhed_og_Adgangsstyring.md) for RBAC/roller). Tre niveauer bruges internt:
+De fleste endpoints kræver login (samme brugerdatabase som webdashboardet — se [kapitel 10](10_Sikkerhed_og_Adgangsstyring.md) for RBAC/roller). Tre niveauer bruges internt:
 
 | Niveau | Betydning |
 |--------|-----------|
@@ -21,22 +21,40 @@ De fleste endpoints kræver **HTTP Basic Auth** (samme brugerdatabase som webdas
 | Auth krævet (læs) | Gyldigt login, enhver rolle — bruges til de fleste `GET`-endpoints |
 | Auth + skriverettighed | Gyldigt login **og** write-privilegie på kontoen — bruges til alle `POST`/`DELETE`-endpoints der ændrer noget |
 
-**Eksempel (curl):**
+**Hvilke credential-typer der reelt accepteres afhænger af enhedens `auth_mode`** (`none`/`basic`/`bearer`, se [§10.3.1](10_Sikkerhed_og_Adgangsstyring.md#1031-auth-metode-none--basic--bearer-feat-397h-fra-v79420)) — **`bearer` er standard fra v7.9.42.0**, både for fabriksnye og opgraderede enheder:
+
+**`bearer`-tilstand (standard) — login først, brug tokenet som Bearer:**
+```bash
+# 1) Login (POST /api/login accepterer ALTID Basic-encodede credentials, uanset auth_mode)
+TOKEN=$(curl -s -u admin:modbus123 -X POST http://192.168.1.100/api/login | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+
+# 2) Brug tokenet som Bearer på almindelige endpoints — direkte -u Basic-Auth her giver 401 i bearer-tilstand
+curl -H "Authorization: Bearer $TOKEN" http://192.168.1.100/api/status
+```
+```python
+import requests
+r = requests.post("http://192.168.1.100/api/login", auth=("admin", "modbus123"))
+token = r.json()["token"]
+r = requests.get("http://192.168.1.100/api/status", headers={"Authorization": f"Bearer {token}"})
+print(r.json())
+```
+```javascript
+// Node-RED / JavaScript
+const loginResp = await fetch('http://192.168.1.100/api/login', {
+  method: 'POST',
+  headers: { Authorization: 'Basic ' + Buffer.from('admin:modbus123').toString('base64') }
+});
+const { token } = await loginResp.json();
+fetch('http://192.168.1.100/api/status', { headers: { Authorization: `Bearer ${token}` } });
+```
+Tokenet er kortlivet (glidende 30-minutters inaktivitets-timeout, [§10.3](10_Sikkerhed_og_Adgangsstyring.md#103-standard-credentials-skal-aendres)) — genhent ved en 401 midt i en langvarig integration.
+
+**`basic`-tilstand (ældre/valgfri adfærd) — direkte Basic-Auth på hvert kald, intet login-trin nødvendigt:**
 ```bash
 curl -u admin:modbus123 http://192.168.1.100/api/status
 ```
-
-**Eksempel (Python):**
 ```python
-import requests
 r = requests.get("http://192.168.1.100/api/status", auth=("admin", "modbus123"))
-print(r.json())
-```
-
-**Eksempel (Node-RED / JavaScript, Basic Auth-header manuelt):**
-```javascript
-const auth = 'Basic ' + Buffer.from('admin:modbus123').toString('base64');
-fetch('http://192.168.1.100/api/status', { headers: { Authorization: auth } });
 ```
 
 > Skift `admin`/`modbus123` til jeres egne credentials — se [§3.6](03_Installation_og_Foerste_Opstart.md#haerdning-efter-installation). Send **aldrig** produktions-credentials over almindelig HTTP på et utillidsfuldt netværk; brug HTTPS ([kapitel 10](10_Sikkerhed_og_Adgangsstyring.md)).
@@ -55,6 +73,7 @@ Fuld liste med metode, auth-krav og beskrivelse: [**Appendiks B: REST API-refere
 | Registre & Coils | `/api/registers`, `/api/coils`, `/api/gpio/{pin}` | Direkte læs/skriv-adgang til register-lageret |
 | Modbus Slave/Master | `/api/modbus/slave`, `/api/modbus/master`, `/api/modbus/master/rw` | Konfiguration + manuel Master-adgang |
 | Modbus Aktivitetslog | `/api/modbus/activity` | Wire-level trafiklog (se [§4.2](04_Web_Dashboard_og_Monitor.md)) |
+| Modbus Expansion Board | `/api/expansion/boards`, `/api/expansion/boards/{id}/channels/{n}/read` | CRUD + diagnostisk læs/skriv mod eksterne expansion-boards (se [§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)) |
 | ST Logic | `/api/logic`, `/api/logic/{id}/source`, `/api/logic/{id}/debug` | Programmer, kildekode, debugger, bindings |
 | Tællere/Timere | `/api/counters`, `/api/timers` | Status og styring |
 | Netværk | `/api/wifi`, `/api/ethernet`, `/api/ntp` | Netværkskonfiguration |

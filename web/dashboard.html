@@ -1,52 +1,21 @@
 <!DOCTYPE html>
 <html lang="da">
 <head>
+  <link rel="stylesheet" href="/common.css">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Monitor Dashboard</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-/* BUG-390: 100vh on mobile browsers is measured against the LARGEST possible
-   viewport (browser chrome collapsed), not what's actually visible when the
-   address bar is shown — with body's own overflow:hidden below, that could
-   push bottom-anchored content below the visible screen with no way to
-   scroll down to reach it. 100dvh (dynamic viewport height) tracks the
-   ACTUAL visible viewport as browser chrome shows/hides; kept 100vh first as
-   a fallback for browsers that don't support dvh (the later, supported
-   declaration simply wins). */
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
-.topnav{background:#11111b;padding:6px 16px;display:flex;gap:8px;border-bottom:2px solid #89b4fa;flex-shrink:0;align-items:center}
 .topnav .brand{font-size:14px;font-weight:700;color:#89b4fa;margin-right:12px}
 .topnav a{padding:5px 14px;font-size:12px;font-weight:600;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s}
-.topnav a:hover{background:#45475a;color:#cdd6f4}
-.topnav a.active{background:#89b4fa;color:#1e1e2e}
-.save-btn{margin-left:auto;padding:4px 12px;font-size:11px;font-weight:600;background:#a6e3a1;color:#1e1e2e;border:none;border-radius:4px;cursor:pointer;transition:all .2s}
-.save-btn:hover{background:#94e2d5}
-.save-btn.saving{background:#fab387;cursor:wait}
-.save-btn.saved{background:#a6e3a1}
-.save-btn.save-err{background:#f38ba8}
 .user-badge{position:relative;display:flex;align-items:center;gap:6px}
-.user-btn{padding:4px 10px;font-size:11px;background:#313244;color:#a6adc8;border-radius:4px;cursor:pointer;border:1px solid #45475a;display:flex;align-items:center;gap:5px}
-.user-btn:hover{background:#45475a;color:#cdd6f4}
-.user-btn .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
-.user-btn .dot-on{background:#a6e3a1}
-.user-btn .dot-off{background:#f38ba8}
-.user-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#181825;border:1px solid #45475a;border-radius:6px;padding:8px 0;min-width:200px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.4)}
-.user-menu.show{display:block}
-.user-menu .um-row{padding:4px 14px;font-size:11px;color:#a6adc8;display:flex;justify-content:space-between}
-.user-menu .um-row .um-val{color:#cdd6f4;font-weight:600}
-.user-menu .um-sep{border-top:1px solid #313244;margin:4px 0}
-.user-menu .um-btn{display:block;width:calc(100% - 16px);margin:4px 8px;padding:5px 10px;font-size:11px;background:#313244;color:#a6adc8;border:none;border-radius:4px;cursor:pointer;text-align:center}
-.user-menu .um-btn:hover{background:#f38ba8;color:#1e1e2e}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center}
-.modal-bg.show{display:flex}
 .modal{background:#1e1e2e;border:1px solid #45475a;border-radius:8px;padding:24px;width:320px;max-width:90vw}
 .modal h2{color:#89b4fa;font-size:16px;margin:0 0 8px}
 .modal label{display:block;color:#a6adc8;font-size:11px;margin:8px 0 3px}
 .modal input{width:100%;padding:6px 8px;background:#181825;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:13px;box-sizing:border-box}
 .modal .actions{margin-top:14px;text-align:right}
 .btn-primary{padding:6px 16px;background:#89b4fa;color:#1e1e2e;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600}
-.btn-primary:hover{background:#74c7ec}
 .hdr{background:#181825;padding:10px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #313244;flex-shrink:0}
 .hdr h1{font-size:16px;color:#89b4fa;flex-shrink:0}
 .hdr .nav{margin-left:16px;display:flex;gap:6px}
@@ -59,8 +28,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .sub-tabs button{padding:3px 12px;font-size:11px;font-weight:600;background:#313244;color:#a6adc8;border:1px solid transparent;border-radius:4px;cursor:pointer;transition:all .15s}
 .sub-tabs button:hover{background:#45475a;color:#cdd6f4}
 .sub-tabs button.active{background:#1e1e2e;color:#89b4fa;border-color:#89b4fa}
-.alarm-bar{background:#f38ba8;color:#1e1e2e;padding:4px 16px;font-size:12px;font-weight:600;display:none;align-items:center;justify-content:space-between;flex-shrink:0;animation:pulse 1.5s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
 /* FEAT-160: fast 12-kolonners grid — hvert kort placeres med en inline
    grid-column/grid-row (fra gridLayout{}) i stedet for browser-auto-placering.
    .card-wide-klassen (stadig i HTML'en paa mbactivity/alarms/syslog) bruges
@@ -79,19 +46,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .resize-handle{position:absolute;right:2px;bottom:2px;width:14px;height:14px;cursor:nwse-resize;opacity:.35;user-select:none;background:linear-gradient(135deg,transparent 0 50%,#6c7086 50%,#6c7086 60%,transparent 60% 70%,#6c7086 70% 80%,transparent 80%)}
 .resize-handle:hover{opacity:.9}
 .card h2{font-size:13px;color:#89b4fa;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #313244;display:flex;align-items:center;gap:6px}
-.card h2 .badge{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:400}
-.badge-ok{background:#a6e3a1;color:#1e1e2e}
 .badge-err{background:#f38ba8;color:#1e1e2e}
-.badge-off{background:#45475a;color:#a6adc8}
 .subhdr{font-size:11px;font-weight:700;color:#a6adc8;text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
-.subhdr.sep{border-top:1px solid #313244;padding-top:10px;margin-top:14px}
-.row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
-.row .lbl{color:#6c7086}
-.row .val{font-weight:600;font-variant-numeric:tabular-nums}
-.val-ok{color:#a6e3a1}.val-err{color:#f38ba8}.val-warn{color:#fab387}.val-n{color:#cdd6f4}
-.bar-wrap{height:6px;background:#313244;border-radius:3px;margin-top:4px;overflow:hidden}
-.bar-fill{height:100%;border-radius:3px;transition:width .5s}
-.bar-ok{background:#a6e3a1}.bar-warn{background:#fab387}.bar-err{background:#f38ba8}
 .tbl{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
 .tbl th{text-align:left;padding:4px 6px;color:#89b4fa;border-bottom:1px solid #313244;font-weight:600}
 .tbl td{padding:3px 6px;border-bottom:1px solid rgba(49,50,68,.5)}
@@ -100,16 +56,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
    box-shadow i stedet for border-bottom, da border-collapse:collapse ellers
    lader kanten scrolle væk sammen med indholdet. */
 #mbActivityBody .tbl th,#alarmBody .tbl th{position:sticky;top:0;background:#181825;z-index:2;box-shadow:inset 0 -1px 0 #313244}
-.tbl tr:hover{background:rgba(49,50,68,.3)}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle}
-.dot-g{background:#a6e3a1}.dot-r{background:#f38ba8}.dot-y{background:#fab387}.dot-off{background:#45475a}
 .empty-msg{color:#6c7086;font-size:11px;padding:8px 0}
-.spark-row{display:flex;align-items:center;gap:8px;margin-top:4px}
 /* Trend-graf-SVG'erne har en fast 200x24 viewBox (koordinatsystemet
    drawSparkline() tegner i), men skal VISUELT fylde resten af raekken —
    ellers skalerer graferne ikke med, naar man goer kortet bredere. */
 .spark-row svg{flex:1;width:100%;height:24px;min-width:0;display:block}
-.spark-row .sl{font-size:10px;color:#6c7086;min-width:70px}
 .regview{display:grid;grid-template-columns:repeat(16,1fr);gap:1px;font-size:9px;font-family:monospace}
 .regview .rc{padding:2px;text-align:center;background:#313244;border-radius:2px;min-height:20px;display:flex;align-items:center;justify-content:center;cursor:default}
 .regview .rc:hover{background:#45475a}
@@ -123,11 +74,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .rm-st{background:#1e5f3a;color:#a6e3a1}
 .rm-manual{background:#5f3a1e;color:#fab387}
 .rm-free{background:#313244;color:#585b70}
-.dio-led{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:36px}
 .dio-led .led{width:18px;height:18px;border-radius:50%;border:2px solid #45475a;transition:all .3s}
-.dio-led .led-on{background:#a6e3a1;border-color:#a6e3a1;box-shadow:0 0 6px #a6e3a1}
-.dio-led .led-off{background:#313244;border-color:#45475a}
-.dio-led .led-lbl{font-size:9px;color:#6c7086}
 .dio-led .led-out{cursor:pointer}
 .dio-led .led-out:hover{border-color:#89b4fa}
 .sev-crit{color:#f38ba8;font-weight:600}
@@ -135,7 +82,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .sev-info{color:#a6adc8}
 .page-view{display:none;flex:1;overflow-y:auto;padding:16px}
 .page-view.active{display:block}
-.foot{background:#181825;border-top:1px solid #313244;padding:4px 16px;font-size:10px;color:#45475a;flex-shrink:0;display:flex;justify-content:space-between}
 .regmap-sticky{position:sticky;top:0;z-index:10;background:#1e1e2e;padding:12px 16px;border-bottom:2px solid #313244;box-shadow:0 2px 8px rgba(0,0,0,.4)}
 .regmap-sticky .tbl{max-height:168px;overflow-y:auto;display:block}
 .regmap-sticky .tbl thead,.regmap-sticky .tbl tbody{display:table;width:100%;table-layout:fixed}
@@ -170,12 +116,13 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <!-- Top Navigation -->
 <div class="topnav">
 <span class="brand">HyberFusion PLC</span>
-<a href="/" class="active">Monitor</a>
+<a href="/dashboard" class="active">Monitor</a>
 <a href="/editor">ST Editor</a>
 <a href="/cli">CLI</a>
 <a href="/system">System</a>
 <a href="/io">I/O</a>
 <a href="/logs">Logs</a>
+<a href="/ota">OTA</a>
 <button class="save-btn" id="saveBtn" onclick="doSystemSave()" title="Gem konfiguration til NVS">&#128190; Save</button>
 <div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogin" onclick="showLogin()">Log ind</div><div class="um-btn" id="umLogout" onclick="doLogout()" style="display:none">Log ud</div></div></div>
 </div>
@@ -325,6 +272,18 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <pre id="mbResult" style="font-size:10px;background:#11111b;color:#a6adc8;padding:4px 6px;border-radius:3px;max-height:100px;overflow-y:auto;margin:0;white-space:pre-wrap;font-family:'Cascadia Code',monospace;user-select:text;cursor:text">(klar)</pre>
 </div>
 </div>
+</div>
+
+<!-- FEAT-409: Modbus Expansion Boards — online/offline-status for eksterne
+     HypervisionPLC Extension Boards. Badge/status opdateres af en periodisk,
+     browser-drevet check (samme dashFetch()-koe/BUG-369-forsigtighed som
+     resten af siden) — IKKE en autonom baggrundspolling i selve firmwaren
+     (se SECURITY_INDEX.md #20: al udgaaende trafik mod et board er stadig
+     udloest af en klient-forespoergsel, blot en gentaget en fremfor kun
+     manuel-ét-klik). -->
+<div class="card" data-card-id="modbusexpansion" data-tab="modbus">
+<h2>Modbus Expansion Boards <span class="badge badge-off" id="badgeExpansion">-</span></h2>
+<div id="expDashList"><span class="empty-msg">Indlæser...</span></div>
 </div>
 
 <!-- FEAT-096: RS-485 Bus Health — samlet bus-niveau-overblik, supplerer de
@@ -652,7 +611,21 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <span id="footVer"></span>
 </div>
 
+<script src="/common.js"></script>
 <script>
+// BUG-393: login now uses a server-set, HttpOnly session cookie
+// (Set-Cookie from POST /api/login) instead of a Bearer token this page
+// has to remember itself — the browser sends it automatically on every
+// same-origin request, so there is no client-side token state left that
+// iOS Safari can lose/throw on (BUG-392, BUG-389, BUG-389b were all
+// consequences of that old model). authGet() now always returns '' so
+// this page's many `var auth=authGet(); ...if(auth)opts.headers...`
+// call sites naturally stop attaching a (no longer needed) Authorization
+// header, without having to touch each one individually. authSet()/
+// authClear() are no-op stubs kept only so doLogin() doesn't need editing.
+function authGet(){return '';}
+function authSet(v){}
+function authClear(){}
 let refreshTimer=null;
 const HIST_MAX=120; // 120 samples, typisk ~3-5s/poll (varierer, se _dtSec) = ca. 6-10 min
 let history={heap:[],mbSlave:[],mbMaster:[],rtSlave:[],rtMaster:[],fragPct:[],rssi:[],analog:{}};
@@ -686,19 +659,86 @@ let _dragOrResizeActive=false;
 let _dashFetchActive=0;
 const _dashFetchQueue=[];
 const DASH_FETCH_MAX_CONCURRENT=2;
-function _dashFetchPump(){
-  while(_dashFetchActive<DASH_FETCH_MAX_CONCURRENT && _dashFetchQueue.length>0){
-    const job=_dashFetchQueue.shift();
-    _dashFetchActive++;
-    fetch(job.url,job.opts).then(r=>{_dashFetchActive--;_dashFetchPump();job.resolve(r);})
-      .catch(e=>{_dashFetchActive--;_dashFetchPump();job.reject(e);});
-  }
+
+
+
+// FEAT-409: Modbus Expansion Board online/offline-status. Boardenes management-
+// API-kald er RELATIVT dyre (en ægte netværks-roundtrip til en anden enhed,
+// op til få sekunder ved timeout) og PLC-siden understøtter kun ÉT kald ad
+// gangen (globalt resultat-slot, se expansion_api_client.h) — derfor tjekkes
+// boards SEKVENTIELT, ét ad gangen, ikke parallelt som fetchNetworkInfo()s
+// fire samtidige kald. _expCycleRunning forhindrer at en ny 30s-tick starter
+// en ny runde oven i en der (for mange/langsomme boards) endnu ikke er færdig.
+let _expBoardList=[];
+let _expCycleRunning=false;
+
+function fetchExpansionList(){
+  if(_expCycleRunning)return;
+  _expCycleRunning=true;
+  dashFetch('/api/expansion/boards',{}).then(r=>r.json()).then(d=>{
+    const list=$('expDashList');
+    if(!d.boards||d.boards.length===0){
+      list.innerHTML='<span class="empty-msg">Ingen boards konfigureret (se System-siden)</span>';
+      badge($('badgeExpansion'),false,'Ingen');
+      _expBoardList=[];
+      _expCycleRunning=false;
+      return;
+    }
+    _expBoardList=d.boards;
+    list.innerHTML=d.boards.map(b=>'<div class="row"><span class="lbl">#'+b.number+' '+b.name+'</span><span class="val val-n" id="expDashBoard'+b.id+'">Tjekker...</span></div>').join('');
+    _expCheckSequential(0);
+  }).catch(()=>{_expCycleRunning=false});
 }
-function dashFetch(url,opts){
-  return new Promise((resolve,reject)=>{
-    _dashFetchQueue.push({url,opts,resolve,reject});
-    _dashFetchPump();
+
+function _expCheckSequential(idx){
+  if(idx>=_expBoardList.length){
+    const total=_expBoardList.length;
+    let onlineCount=0;
+    _expBoardList.forEach(b=>{const el=$('expDashBoard'+b.id);if(el&&el.dataset.online==='1')onlineCount++});
+    badge($('badgeExpansion'),onlineCount===total&&total>0,onlineCount+'/'+total+' online');
+    _expCycleRunning=false;
+    return;
+  }
+  const board=_expBoardList[idx];
+  const el=$('expDashBoard'+board.id);
+  dashFetch('/api/expansion/boards/'+board.id+'/status',{method:'POST'}).then(r=>{
+    if(!r.ok){
+      // 409 = et andet expansion-board-kald var i gang (fx en admin der lige
+      // brugte "Test forbindelse" på System-siden) — ikke en reel fejl på
+      // BOARDET, så vis en neutral status i stedet for "Offline".
+      if(el){el.textContent='Optaget — prøv igen om lidt';el.className='val val-n';el.dataset.online='0'}
+      _expCheckSequential(idx+1);
+      return;
+    }
+    _expPollResult(el,()=>_expCheckSequential(idx+1));
+  }).catch(()=>{
+    if(el){el.textContent='Fejl';el.className='val val-err';el.dataset.online='0'}
+    _expCheckSequential(idx+1);
   });
+}
+
+function _expPollResult(el,cb,tries){
+  tries=tries||0;
+  dashFetch('/api/expansion/action-status',{}).then(r=>r.json()).then(d=>{
+    if(!d.valid){cb();return}
+    if(!d.done){
+      if(tries>15){if(el){el.textContent='Timeout';el.className='val val-err';el.dataset.online='0'}cb();return}
+      setTimeout(()=>_expPollResult(el,cb,tries+1),300);
+      return;
+    }
+    if(el){
+      if(d.transport_ok&&d.response){
+        el.textContent='Online — fw '+(d.response.fw_version||'?')+' · '+(d.response.active_channels!==undefined?d.response.active_channels:'?')+' kanaler';
+        el.className='val val-ok';
+        el.dataset.online='1';
+      }else{
+        el.textContent='Offline';
+        el.className='val val-err';
+        el.dataset.online='0';
+      }
+    }
+    cb();
+  }).catch(()=>{cb()});
 }
 // FEAT-075: Cached state from Prometheus (used by fetchConnections)
 let _tcpTelOn=false,_tcpTelIp='',_tcpTelUser='',_tcpTelUp=0;
@@ -728,7 +768,7 @@ let _syslogTotal=0;
 const _syslogSrcNames={rest:'REST API',modbus_slave:'Modbus (ekstern)',system:'System'};
 
 let _activeSubTab='all';
-const _defaultTabs={system:'overview',network:'overview',alarms:'overview',syslog:'overview',modbusslave:'modbus',modbusmaster:'modbus',mbactivity:'modbus',rtutrafik:'modbus',bushealth:'modbus',httpapi:'connections',tcpmonitor:'connections',ntp:'connections',counters:'app',timers:'app',stlogic:'app',dio:'app',analogio:'app',trendrec:'app'};
+const _defaultTabs={system:'overview',network:'overview',alarms:'overview',syslog:'overview',modbusslave:'modbus',modbusmaster:'modbus',mbactivity:'modbus',rtutrafik:'modbus',bushealth:'modbus',modbusexpansion:'modbus',httpapi:'connections',tcpmonitor:'connections',ntp:'connections',counters:'app',timers:'app',stlogic:'app',dio:'app',analogio:'app',trendrec:'app'};
 let _customTabs={};   // Overrides from API
 let _hiddenCards={};   // Set of hidden card IDs
 let _customMembers={};   // FEAT-167: kort-id'er tilfoejet til den uafhaengige "Custom"-fane (ved siden af, ikke i stedet for, kortets normale fane)
@@ -780,123 +820,41 @@ function applySubTab(){
   applyGridLayout();
 }
 
-function parsePrometheus(text){
-  const m={};
-  for(const line of text.split('\n')){
-    if(!line||line.startsWith('#'))continue;
-    const match=line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\{?([^}]*)\}?\s+(.+)$/);
-    if(match){
-      const name=match[1],lblStr=match[2],value=parseFloat(match[3]);
-      const labels={};
-      if(lblStr){const re=/(\w+)="([^"]*)"/g;let lm;while((lm=re.exec(lblStr))!==null)labels[lm[1]]=lm[2]}
-      if(!m[name])m[name]=[];
-      m[name].push({labels,value});
-    }
-  }
-  return m;
-}
 
-function g(m,name,labels){
-  const entries=m[name];
-  if(!entries)return null;
-  if(!labels)return entries[0]?.value??null;
-  const e=entries.find(e=>Object.entries(labels).every(([k,v])=>e.labels[k]===v));
-  return e?.value??null;
-}
-function gAll(m,name){return m[name]||[]}
+
+
+
 
 // FEAT-080/087: mirrorer watchdog_get_reset_reason_str() i watchdog_monitor.cpp
 // (ESP_RST_* enum-vaerdier er faste i ESP-IDF, samme raekkefoelge begge steder)
 const _resetReasons=['Unknown','Power-on','Ekstern reset','Software reset','Panic/Exception',
   'Interrupt watchdog','Task watchdog','Andet watchdog','Deep sleep','Brownout','SDIO reset'];
-function fmtResetReason(v){return(v!=null&&v>=0&&v<_resetReasons.length)?_resetReasons[v]:'-'}
-function fmtUp(s){
-  if(s==null)return'-';
-  const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),mn=Math.floor((s%3600)/60),sc=Math.floor(s%60);
-  let r='';if(d>0)r+=d+'d ';
-  r+=String(h).padStart(2,'0')+':'+String(mn).padStart(2,'0')+':'+String(sc).padStart(2,'0');
-  return r;
-}
-function fmtKB(b){return b!=null?(b/1024).toFixed(1)+' KB':'-'}
-function fmtN(v){return v!=null?v.toLocaleString('da-DK'):'-'}
-function rate(ok,total){return total>0?(ok/total*100).toFixed(1)+'%':'N/A'}
+
+
+
+
+
 // FEAT-163: request-rate-historik — reelt req/s (delta / faktisk forloebet
 // tid siden sidste poll, IKKE en antaget fast poll-periode) samt min/max
 // over den synlige sparkline-historik. `hist` forventes at indeholde req/s-
 // vaerdier (ikke raa delta-per-poll), saa min/max er sammenlignelige selvom
 // poll-intervallet varierer (3s/5s, browser-throttling af baggrundsfaner osv.)
-function fmtRate(v){return v!=null?v.toFixed(1)+'/s':'-'}
-function histMinMax(hist){
-  if(!hist||hist.length===0)return'-';
-  let mn=Infinity,mx=-Infinity;
-  for(const v of hist){if(v<mn)mn=v;if(v>mx)mx=v;}
-  return 'min '+fmtRate(mn)+' / max '+fmtRate(mx);
-}
-function dot(el,on){el.className='dot '+(on?'dot-g':'dot-r')}
-function badge(el,on,lbl){el.textContent=lbl||'';el.className='badge '+(on?'badge-ok':'badge-off')}
-function $(id){return document.getElementById(id)}
+
+
+
+
+
 
 // === Sparkline SVG ===
-function drawSparkline(svgId,data,color){
-  const svg=$(svgId);
-  if(!svg||!data.length)return;
-  const w=200,h=24;
-  const mn=Math.min(...data),mx=Math.max(...data);
-  const range=mx-mn||1;
-  const pts=data.map((v,i)=>{
-    const x=(i/(Math.max(data.length-1,1)))*w;
-    const y=h-((v-mn)/range)*(h-2)-1;
-    return x.toFixed(1)+','+y.toFixed(1);
-  }).join(' ');
-  svg.innerHTML='<polyline fill="none" stroke="'+(color||'#89b4fa')+'" stroke-width="1.5" points="'+pts+'"/>';
-}
+
 
 // === Alarm System ===
 // FEAT-158: addAlarm() sammenligner mod et evt. gemt afstemnings-snapshot
 // (alarmAck[key]) — lowerIsWorse afgør hvilken retning der taeller som
 // "blevet vaerre" (heap: lavere er vaerre; taellere: hoejere er vaerre).
-function addAlarm(key,value,text,lowerIsWorse){
-  alarmCurrentValues[key]=value;
-  const acked=alarmAck[key];
-  if(acked!=null){
-    const stillAcked=lowerIsWorse?(value>=acked):(value<=acked);
-    if(stillAcked)return;
-  }
-  alarms.push(text);
-}
-function checkAlarms(m){
-  lastMetricsRaw=m;
-  alarms=[];
-  alarmCurrentValues={};
-  const heap=g(m,'esp32_heap_free_bytes');
-  if(heap!=null&&heap<30000)addAlarm('heap',heap,'Heap kritisk lav: '+fmtKB(heap),true);
-  const heapMin=g(m,'esp32_heap_min_free_bytes');
-  if(heapMin!=null&&heapMin<20000)addAlarm('heapMin',heapMin,'Heap minimum nået: '+fmtKB(heapMin),true);
-  const msCrc=g(m,'modbus_slave_crc_errors_total');
-  if(msCrc!=null&&msCrc>100)addAlarm('msCrc',msCrc,'Modbus Slave CRC fejl: '+fmtN(msCrc),false);
-  const mmTo=g(m,'modbus_master_timeout_errors_total');
-  if(mmTo!=null&&mmTo>50)addAlarm('mmTo',mmTo,'Modbus Master timeouts: '+fmtN(mmTo),false);
-  const stOvr=g(m,'st_logic_cycle_overruns');
-  const stCyc=g(m,'st_logic_total_cycles');
-  const stOvrPct=(stCyc!=null&&stCyc>100)?(stOvr/stCyc*100):0;
-  if(stOvr!=null&&stOvrPct>5)addAlarm('stOvr',stOvr,'ST Logic overruns: '+fmtN(stOvr)+' ('+stOvrPct.toFixed(1)+'%)',false);
-  const authFail=g(m,'http_auth_failures_total');
-  if(authFail!=null&&authFail>20)addAlarm('authFail',authFail,'HTTP auth failures: '+fmtN(authFail),false);
 
-  const bar=$('alarmBar');
-  if(alarms.length){
-    bar.style.display='flex';
-    bar.innerHTML='<span>ALARM: '+alarms.join(' | ')+'</span>'
-      +'<button onclick="ackAlarmBar()" title="Afstem — skjul indtil det bliver værre" style="background:#1e1e2e;color:#f38ba8;border:none;border-radius:3px;padding:2px 10px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;margin-left:12px">Afstem ✕</button>';
-  }else{
-    bar.style.display='none';
-  }
-}
-function ackAlarmBar(){
-  for(const k in alarmCurrentValues){alarmAck[k]=alarmCurrentValues[k];}
-  try{sessionStorage.setItem('hfplc_alarm_ack',JSON.stringify(alarmAck));}catch(e){}
-  if(lastMetricsRaw)checkAlarms(lastMetricsRaw);
-}
+
+
 
 function updateDashboard(m){
   // FEAT-163: faktisk forloebet tid siden sidste poll, brugt til alle
@@ -1116,7 +1074,7 @@ function updateDashboard(m){
   // Fetch interval from /api/logic (less frequent)
   if(!window._stIntervalFetched||(Date.now()-window._stIntervalFetched>15000)){
     window._stIntervalFetched=Date.now();
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts=auth?{headers:{'Authorization':auth}}:{};
     fetch('/api/logic',opts).then(r=>r.json()).then(d=>{
       if(d.execution_interval_ms!=null)$('stInterval').textContent=d.execution_interval_ms+' ms';
@@ -1176,7 +1134,7 @@ function updateDashboard(m){
   }
   // Fetch NTP config + local time from ESP32 (every 3s via /api/ntp)
   {
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts=auth?{headers:{'Authorization':auth}}:{};
     fetch('/api/ntp',opts).then(r=>r.json()).then(d=>{
       $('ntpServer').textContent=d.server||'-';
@@ -1390,18 +1348,7 @@ function updateDashboard(m){
     // Tabellen genopbygges hver polling (innerHTML) — <svg>-elementerne
     // findes derfor IKKE endnu når HTML-strengen bygges. drawSparkline()
     // kaldes i en separat løkke NEDENFOR, efter innerHTML er sat.
-    function analogRows(list,unit){
-      let h='<table class="tbl"><tr><th>Kanal</th><th>Værdi</th><th>Min/Maks/Snit</th><th>Trend</th></tr>';
-      for(const d of list){
-        const ch=d.labels.channel;
-        const hv=history.analog[ch]||[d.value/100];
-        const mn=Math.min(...hv),mx=Math.max(...hv),avg=hv.reduce((a,b)=>a+b,0)/hv.length;
-        h+='<tr><td>'+ch.toUpperCase()+'</td><td>'+(d.value/100).toFixed(2)+' '+unit+'</td>'
-          +'<td style="font-size:9px;color:#6c7086">'+mn.toFixed(2)+' / '+mx.toFixed(2)+' / '+avg.toFixed(2)+'</td>'
-          +'<td><svg id="spark_'+ch+'" width="80" height="20" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></td></tr>';
-      }
-      return h+'</table>';
-    }
+    
     if(aiv.length>0){
       $('analogVIn').innerHTML=analogRows(aiv,'V');
       for(const d of aiv)drawSparkline('spark_'+d.labels.channel,history.analog[d.labels.channel],'#89b4fa');
@@ -1622,7 +1569,7 @@ function updateRegisterMap(m){
 async function fetchNetworkInfo(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts=auth?{headers:{'Authorization':auth}}:{};
     // Hostname
     dashFetch('/api/hostname',opts).then(r=>r.json()).then(d=>{
@@ -1669,7 +1616,7 @@ async function fetchNetworkInfo(){
 async function fetchConnections(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts=auth?{headers:{'Authorization':auth}}:{};
     let rows=[];
 
@@ -1727,7 +1674,7 @@ async function fetchConnections(){
 async function fetchBindings(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts=auth?{headers:{'Authorization':auth}}:{};
     const r=await dashFetch('/api/bindings',opts);
     if(r.ok){_stBindings=await r.json();}
@@ -1826,7 +1773,7 @@ function renderAlarms(){
 }
 async function ackAlarms(){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     await fetch('/api/alarms/ack',opts);
@@ -1864,7 +1811,7 @@ function updateMbActToggleBtn(){
 }
 async function toggleMbActivity(){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     const ep=_mbActivityLogging?'/api/modbus/activity/stop':'/api/modbus/activity/start';
@@ -1880,7 +1827,7 @@ async function toggleMbActivity(){
 async function exportMbActivity(){
   try{
     // Hent HELE loggen (uden limit), ikke kun det viste udsnit
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts=auth?{headers:{'Authorization':auth}}:{};
     const r=await fetch('/api/modbus/activity',opts);
     if(!r.ok){alert('Kunne ikke hente log til eksport');return;}
@@ -1910,15 +1857,7 @@ async function exportMbActivity(){
 }
 // FEAT-153: vis rigtig vaegur-tid naar NTP er synkroniseret (epoch_s>0),
 // ellers uptime siden boot — det er stadig bedre end ingenting foer sync.
-function mbActTimeString(a){
-  if(a.epoch_s&&a.epoch_s>0){
-    const d=new Date(a.epoch_s*1000);
-    const pad=n=>String(n).padStart(2,'0');
-    return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
-  }
-  const s=Math.floor(a.timestamp_ms/1000);
-  return String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor((s%3600)/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
-}
+
 function renderMbActivity(){
   const badgeEl=$('badgeMbActivity');
   if(badgeEl)badge(badgeEl,_mbActivityLog.length>0,String(_mbActivityLog.length));
@@ -1979,7 +1918,7 @@ function renderMbActivity(){
 }
 async function clearMbActivity(){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     await fetch('/api/modbus/activity/clear',opts);
@@ -2033,7 +1972,7 @@ function renderTrendPointList(){
 }
 async function saveTrendConfig(){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       interval_ms:parseInt($('trendInterval').value)||5000,
       points:_trendPoints
@@ -2059,7 +1998,7 @@ function removeTrendPoint(idx){
 }
 async function toggleTrendRecording(){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     const ep=_trendRecording?'/api/trend/stop':'/api/trend/start';
@@ -2073,7 +2012,7 @@ async function toggleTrendRecording(){
 }
 async function clearTrendData(){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     await fetch('/api/trend/clear',opts);
@@ -2117,7 +2056,7 @@ function renderTrendTable(){
 }
 async function exportTrendCsv(){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts=auth?{headers:{'Authorization':auth}}:{};
     const r=await fetch('/api/trend/data',opts);
     if(!r.ok){alert('Kunne ikke hente trend-data til eksport');return;}
@@ -2165,7 +2104,7 @@ function updateSyslogToggleBtn(){
 }
 async function toggleSyslog(){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     const ep=_syslogLogging?'/api/syslog/stop':'/api/syslog/start';
@@ -2178,25 +2117,11 @@ async function toggleSyslog(){
     }
   }catch(e){}
 }
-function syslogTimeString(e){
-  if(e.epoch_s&&e.epoch_s>0){
-    const d=new Date(e.epoch_s*1000);
-    const pad=n=>String(n).padStart(2,'0');
-    return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
-  }
-  const s=Math.floor(e.timestamp_ms/1000);
-  return String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor((s%3600)/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
-}
-function syslogDetail(e){
-  if(e.category==='regchange'){
-    const kind=e.is_coil?'Coil':'HR';
-    return kind+e.reg_addr+': '+e.old_value+' → '+e.new_value;
-  }
-  return e.message||'';
-}
+
+
 async function exportSyslog(){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts=auth?{headers:{'Authorization':auth}}:{};
     const r=await fetch('/api/syslog',opts);
     if(!r.ok){alert('Kunne ikke hente log til eksport');return;}
@@ -2269,7 +2194,7 @@ function renderSyslog(){
 }
 async function clearSyslog(){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     await fetch('/api/syslog/clear',opts);
@@ -2278,7 +2203,7 @@ async function clearSyslog(){
 }
 async function toggleDO(pin){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     // Read current state from last metrics, then toggle
     var opts1=auth?{headers:{'Authorization':auth}}:{};
     const r=await fetch('/api/gpio/'+pin,opts1);
@@ -2303,7 +2228,7 @@ async function setAnalogOutput(ch){
     if(!inp||inp.value==='')return;
     const val=parseFloat(inp.value);
     if(isNaN(val)){alert('Ugyldig vaerdi');return;}
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{'Content-Type':'application/json'}};
     if(auth)opts.headers['Authorization']=auth;
     opts.body=JSON.stringify({channel:ch,setpoint:val});
@@ -2435,22 +2360,64 @@ function naturalCardHeightPx(card){
 function naturalCardRows(card){
   return Math.max(GRID_MIN_H,Math.ceil((naturalCardHeightPx(card)+_RG)/(_RH+_RG)));
 }
+// BUG-411: "Auto-organisér" tidligere gav hvert ikke-brede kort en BLIND
+// halv-bredde (w:6) uden hensyn til om kortets indhold overhovedet fyldte
+// det — de fleste simple info-kort (System, NTP, Modbus Slave, osv.) endte
+// dermed unødigt "opsvulmet" ud over halvdelen af viewport'et, med masser
+// af dødt, tomt rum. Højde havde allerede et rigtigt, indholds-baseret
+// minimum (naturalCardRows/naturalCardHeightPx, se ovenfor) — bredde havde
+// det ALDRIG (kun et fast globalt gulv, GRID_MIN_W=2, uafhængigt af hvad
+// kortet reelt indeholder). naturalCardCols() lukker samme hul for bredde:
+// binærsøg efter den SMALLESTE kolonne-span kortet kan have uden at dets
+// eget indhold begynder at løbe over (scrollWidth > clientWidth) — samme
+// "spørg browseren hvad den reelt har brug for"-princip som højde-målingen,
+// blot via overløbs-detektion i stedet for scrollHeight (grid-kolonner har,
+// modsat rækker, ingen implicit "vokser opad"-mekanisme at måle direkte på).
+function naturalCardCols(card){
+  const prevCol=card.style.gridColumn;
+  function fitsAt(w){
+    card.style.gridColumn='1 / span '+w;
+    return card.scrollWidth<=card.clientWidth+1; // +1: sub-pixel rounding slack
+  }
+  let lo=GRID_MIN_W,hi=GRID_COLS;
+  if(!fitsAt(hi)){card.style.gridColumn=prevCol;return GRID_COLS;} // even full width overflows (e.g. a wide table) — give it all 12
+  while(lo<hi){
+    const mid=Math.floor((lo+hi)/2);
+    if(fitsAt(mid))hi=mid;else lo=mid+1;
+  }
+  card.style.gridColumn=prevCol;
+  return lo;
+}
 function computeDefaultLayout(cards){
-  const colHeights=[0,0];
+  // Hylde-pakning (som tekstombrydning): kort placeres fra venstre mod højre
+  // i deres EGEN naturlige minimums-bredde, og ombrydes til en ny "hylde"
+  // (række) når de ikke er plads nok tilbage — i stedet for den tidligere
+  // faste 2-spors halv/hel-bredde-opdeling, som efterlod kort enten for
+  // brede (halv-bredde-kort med lidt indhold) eller ikke reelt tætpakkede.
+  // Brede kort (.card-wide) får stadig altid deres egen fulde række.
+  let curX=0,curY=0,shelfH=0;
   const layout={};
   cards.forEach(card=>{
     const id=card.dataset.cardId;
     const wide=card.classList.contains('card-wide');
+    const w=wide?GRID_COLS:naturalCardCols(card);
+    // Anvend den lige udregnede bredde FØR højden måles — et kort kan
+    // ombryde sit indhold (og dermed have brug for mere højde) ved en
+    // smallere bredde end det tilfældigvis havde i forvejen (BUG-360's
+    // lektion: mål altid ved den bredde kortet REELT ender med at få).
+    const prevCol=card.style.gridColumn;
+    card.style.gridColumn='1 / span '+w;
     const h=naturalCardRows(card);
+    card.style.gridColumn=prevCol;
     if(wide){
-      const y=Math.max(colHeights[0],colHeights[1]);
-      layout[id]={x:0,y,w:12,h};
-      colHeights[0]=colHeights[1]=y+h;
+      if(curX>0){curY+=shelfH;curX=0;shelfH=0;}
+      layout[id]={x:0,y:curY,w:GRID_COLS,h};
+      curY+=h;shelfH=0;
     }else{
-      const track=colHeights[0]<=colHeights[1]?0:1;
-      const y=colHeights[track];
-      layout[id]={x:track*6,y,w:6,h};
-      colHeights[track]=y+h;
+      if(curX+w>GRID_COLS){curY+=shelfH;curX=0;shelfH=0;}
+      layout[id]={x:curX,y:curY,w,h};
+      curX+=w;
+      shelfH=Math.max(shelfH,h);
     }
   });
   return layout;
@@ -2503,6 +2470,19 @@ function applyGridLayout(){
           // naa 10x+ for store over tid) — men lad bevidst store, brugervalgte
           // kort (op til 4x det reelt noedvendige) vaere helt i fred.
           p.h=minRows;healed=true;
+        }
+        // BUG-411: samme selvhelbredelse for BREDDE — allerede-gemte layouts
+        // fra FØR denne rettelse kan have et w der enten er for smalt (reelt
+        // indhold ville løbe over) eller unødigt bredt (den gamle blinde
+        // halv/hel-bredde-standard), begge dele rettes her på samme måde som
+        // højde ovenfor. .card-wide ignoreres — de skal altid have w:12.
+        if(!c.classList.contains('card-wide')){
+          const minCols=naturalCardCols(c);
+          if(p.w<minCols){
+            p.w=minCols;healed=true;
+          }else if(p.w>minCols*4){
+            p.w=minCols;healed=true;
+          }
         }
       });
       if(healed)saveGridLayoutToStorage();
@@ -2584,17 +2564,26 @@ function initCardResize(card){
     // viser reelt indhold — modsat den for-tidlige maaling ved side-indlæsning
     // som forårsagede BUG-hvor-scroll-forsvandt) — resize kan ikke gaa under
     // dette, saa man kan ikke laengere saette et kort for lille til sit eget indhold.
+    // BUG-411: samme reelle minimum indført for BREDDE (naturalCardCols) —
+    // resize kunne tidligere presses helt ned til den faste, indholds-blinde
+    // GRID_MIN_W=2 uden nogensinde at vise "for lille"-rammen (rød), selvom
+    // kortets eget indhold reelt begyndte at løbe over ved den bredde.
+    // Målt ÉN gang her (ved mousedown), ikke pr. mousemove — begge målinger
+    // koster nogle synkrone reflows (naturalCardCols binærsøger), hvilket er
+    // fint én gang, men ville være en reflow-storm i et mousemove-hot-loop.
     const minRows=naturalCardRows(card);
+    const minCols=naturalCardCols(card);
     card.classList.add('resizing');
     _dragOrResizeActive=true;
     function onMove(ev){
       const m=_gridMetrics();
       const dw=Math.round((ev.clientX-startX)/m.unit);
       const dh=Math.round((ev.clientY-startY)/m.rowUnit);
-      const nw=Math.max(GRID_MIN_W,Math.min(GRID_COLS-startPos.x,startPos.w+dw));
+      const wantedW=startPos.w+dw;
       const wantedH=startPos.h+dh;
+      const nw=Math.max(minCols,Math.min(GRID_COLS-startPos.x,wantedW));
       const nh=Math.max(minRows,wantedH);
-      card.classList.toggle('at-min-size',wantedH<minRows);
+      card.classList.toggle('at-min-size',wantedH<minRows||wantedW<minCols);
       card.style.gridColumn=(startPos.x+1)+' / span '+nw;
       card.style.gridRow=(startPos.y+1)+' / span '+nh;
       card._pendingSize={x:startPos.x,y:startPos.y,w:nw,h:nh};
@@ -2659,7 +2648,7 @@ function saveCardOrder(){
   const ids=[...grid.querySelectorAll('.card[data-card-id]')].map(c=>c.dataset.cardId);
   const order=ids.join(',');
   // Save to ESP32 via API (persisted on next system save)
-  var auth=localStorage.getItem('hfplc_auth');
+  var auth=authGet();
   var opts={method:'POST',headers:{'Content-Type':'application/json'}};
   if(auth)opts.headers['Authorization']=auth;
   opts.body=JSON.stringify({card_order:order});
@@ -2704,13 +2693,13 @@ function restoreCardOrder(){
 }
 
 // === Dashboard Settings Page ===
-const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',mbactivity:'Modbus Aktivitetslog',syslog:'Hændelseslog',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O',analogio:'Analog I/O',bushealth:'RS-485 Bus Health',trendrec:'Trend Recorder'};
+const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',mbactivity:'Modbus Aktivitetslog',syslog:'Hændelseslog',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O',analogio:'Analog I/O',bushealth:'RS-485 Bus Health',trendrec:'Trend Recorder',modbusexpansion:'Modbus Expansion Boards'};
 const _tabNames={overview:'Overblik',modbus:'Modbus',connections:'Forbindelser',app:'Applikation'};
 // FEAT-096/099: 'bushealth'/'trendrec' TILFØJET SIDST — BUG-365: denne
 // rækkefølge må kun UDVIDES, aldrig omrokeres, da Custom-fane-medlemskab
 // gemmes som indeks heri i brugernes NVS-persisterede layout (se
 // kommentaren nedenfor).
-const _allCardIds=['system','network','alarms','syslog','modbusslave','modbusmaster','mbactivity','rtutrafik','httpapi','tcpmonitor','ntp','counters','timers','stlogic','dio','analogio','bushealth','trendrec'];
+const _allCardIds=['system','network','alarms','syslog','modbusslave','modbusmaster','mbactivity','rtutrafik','httpapi','tcpmonitor','ntp','counters','timers','stlogic','dio','analogio','bushealth','trendrec','modbusexpansion'];
 // BUG-365: Custom-fane-medlemsskab gemmes som INDEKS i _allCardIds
 // ("0,4,7,12"), ikke fulde kort-navne ("system,modbusslave,...") — de fulde
 // navne kunne let overstige det 80-byte NVS-felt (dashboard_card_custom) med
@@ -2794,7 +2783,7 @@ function saveSettings(){
   });
 
   // Save to ESP32
-  var auth=localStorage.getItem('hfplc_auth');
+  var auth=authGet();
   var opts={method:'POST',headers:{'Content-Type':'application/json'}};
   if(auth)opts.headers['Authorization']=auth;
   opts.body=JSON.stringify({card_tabs:tabs.join(','),card_hidden:hidden.join(','),card_custom:_encodeCardIdxList(_customMembers)});
@@ -2829,7 +2818,7 @@ function resetSettings(){
     c.dataset.tab=_defaultTabs[c.dataset.cardId]||'overview';
   });
   // Save empty to ESP32
-  var auth=localStorage.getItem('hfplc_auth');
+  var auth=authGet();
   var opts={method:'POST',headers:{'Content-Type':'application/json'}};
   if(auth)opts.headers['Authorization']=auth;
   opts.body=JSON.stringify({card_tabs:'',card_hidden:'',card_custom:''});
@@ -2895,7 +2884,7 @@ async function doMbCmd(){
   const label=opFull+' slave='+slave+' addr='+addr;
   result.textContent='> '+label+'\nSender via kø...';
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{'Content-Type':'application/json'}};
     if(auth)opts.headers['Authorization']=auth;
     var body={op:op,type:type,slave:slave,addr:addr};
@@ -2923,7 +2912,7 @@ async function doMbPoll(op,type,slave,addr,label,attempt){
   attempt=attempt||1;
   if(attempt>6)return; // max 3s
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{'Content-Type':'application/json'}};
     if(auth)opts.headers['Authorization']=auth;
     opts.body=JSON.stringify({op:'read',type:type,slave:slave,addr:addr});
@@ -2942,7 +2931,7 @@ async function doMbPoll(op,type,slave,addr,label,attempt){
 }
 
 function resetMasterStats(){
-  var auth=localStorage.getItem('hfplc_auth');
+  var auth=authGet();
   var opts={method:'POST'};
   if(auth)opts.headers={'Authorization':auth};
   fetch('/api/modbus/master/reset-stats',opts).then(r=>{
@@ -3039,7 +3028,7 @@ function sseApplyTimerEvent(d){
 }
 function sseConnect(){
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts=auth?{headers:{'Authorization':auth}}:{};
     fetch('/api/events/status',opts).then(r=>r.json()).then(s=>{
       if(!s||!s.sse_enabled){
@@ -3137,6 +3126,7 @@ function init(){
   setTimeout(fetchConnections, 720);
   setTimeout(updateUserBadge, 840);
   setTimeout(loadTrendConfig, 960);
+  setTimeout(fetchExpansionList, 1080);
   refreshTimer=setInterval(fetchMetrics,3000);
   setInterval(fetchBindings,15000);
   setInterval(fetchAlarms,5000);
@@ -3145,19 +3135,35 @@ function init(){
   setInterval(loadTrendConfig,5000);
   setInterval(fetchNetworkInfo,10000);
   setInterval(fetchConnections,5000);
+  // FEAT-409: 30s, ikke 3-15s som resten — hvert board-tjek er en ægte
+  // netværks-roundtrip til en anden fysisk enhed (op til få sekunder ved
+  // timeout), markant dyrere end de øvrige, lokale polls på denne side.
+  setInterval(fetchExpansionList,30000);
   setTimeout(sseConnect, 960);
 }
 init();
 
 // === User Badge ===
-function toggleUserMenu(){var m=document.getElementById('userMenu');m.classList.toggle('show')}
+
 document.addEventListener('click',function(e){var b=document.getElementById('userBtn');var m=document.getElementById('userMenu');if(b&&m&&!b.contains(e.target)&&!m.contains(e.target))m.classList.remove('show')});
+// BUG-406: Dashboard var den ENESTE side der aldrig promptede for login —
+// alle andre sider (System/Editor/CLI/Logs/OTA) deler en fælles api()-
+// wrapper der popper loginModal op med det samme ved et 401-svar, men
+// Dashboard henter sin data via /api/metrics (bevidst auth-fri, til
+// Prometheus-scraping, se BUG-400), som ALDRIG 401'er — så det naturlige
+// trigger de andre sider er bygget omkring findes reelt ikke her.
+// updateUserBadge() henter i forvejen login-status via /api/user/me (som
+// IKKE 401'er, men korrekt svarer {"authenticated":false}) for selve
+// badge-teksten — den manglende brik var blot at reagere paa det svar ved
+// ogsaa at vise loginModal, praecis som de andre sider goer automatisk.
 function updateUserBadge(){
-var auth=localStorage.getItem('hfplc_auth');
-var opts=auth?{headers:{'Authorization':auth}}:{};
-fetch('/api/user/me',opts).then(function(r){return r.json()}).then(function(d){
+// BUG-393b: route through the same dashFetch() throttle every other
+// request on this page uses — a plain unqueued fetch() here could exceed
+// the device's max_open_sockets alongside init()'s own staggered burst
+// (BUG-369's original heap-crash class of bug).
+dashFetch('/api/user/me',{}).then(function(r){return r.json()}).then(function(d){
 if(d.authenticated){document.getElementById('userName').textContent=d.username;document.getElementById('userDot').className='dot dot-on';document.getElementById('umUser').textContent=d.username;document.getElementById('umRoles').textContent=d.roles||'all';document.getElementById('umPriv').textContent=d.privilege||'rw';document.getElementById('umMode').textContent=d.mode||'legacy';document.getElementById('umLogout').style.display='block';document.getElementById('umLogin').style.display='none'}
-else{document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('umLogout').style.display='none';document.getElementById('umLogin').style.display='block'}
+else{document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('umLogout').style.display='none';document.getElementById('umLogin').style.display='block';showLogin()}
 }).catch(function(){})
 }
 function showLogin(){document.getElementById('userMenu').classList.remove('show');document.getElementById('loginModal').classList.add('show')}
@@ -3168,22 +3174,32 @@ var basicAuth='Basic '+btoa(u+':'+p);
 // BUG-353: POST /api/login (samme Basic Auth-header som foer) i stedet for
 // GET /api/user/me — udsteder nu et session-token vi bruger fremover, saa
 // vi ikke skal gensende brugernavn/kodeord paa hvert request.
-fetch('/api/login',{method:'POST',headers:{'Authorization':basicAuth}}).then(function(r){return r.json()}).then(function(d){
-if(d.authenticated&&d.token){localStorage.setItem('hfplc_auth','Bearer '+d.token);document.getElementById('loginModal').classList.remove('show');updateUserBadge()}
+// FEAT-399-følgefejl: skeln 403 ("Blocked by IP ACL", se §10.7.1) fra
+// forkerte credentials — ellers viser UI'et vildledende "forkert kodeord"
+// for en helt anden, forbigående årsag som auto-ruller tilbage af sig selv.
+fetch('/api/login',{method:'POST',headers:{'Authorization':basicAuth}}).then(function(r){if(r.status===403)throw new Error('acl');return r.json()}).then(function(d){
+if(d.authenticated&&d.token){authSet('Bearer '+d.token);document.getElementById('loginModal').classList.remove('show');updateUserBadge()}
 else{document.getElementById('loginErr').style.display='block';document.getElementById('loginErr').textContent='Forkert brugernavn eller adgangskode'}
-}).catch(function(){document.getElementById('loginErr').style.display='block';document.getElementById('loginErr').textContent='Forbindelsesfejl'})
+}).catch(function(e){document.getElementById('loginErr').style.display='block';document.getElementById('loginErr').textContent=(e&&e.message==='acl')?'Denne IP-adresse er blokeret af IP ACL\'en. Enheden retter en ny, ubekræftet regel automatisk inden for 5 minutter — prøv igen om lidt.':'Forbindelsesfejl'})
 }
 function doLogout(){
-var auth=localStorage.getItem('hfplc_auth');
-if(auth){fetch('/api/logout',{method:'POST',headers:{'Authorization':auth}}).catch(function(){})}
-localStorage.removeItem('hfplc_auth');document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('umLogout').style.display='none';document.getElementById('umLogin').style.display='block';document.getElementById('userMenu').classList.remove('show')}
+// BUG-393: the session cookie is HttpOnly (JS can't see whether one
+// exists), so always POST /api/logout unconditionally — the server reads
+// the cookie itself and clears it in the response regardless of whether
+// there was one. Reload afterward instead of trying to reset the UI by
+// hand: this page has ~8 setInterval() polling loops (several of which
+// don't even keep their own timer handle to clearInterval() later) and a
+// full screen of already-rendered data — a reload is the only way to
+// reliably stop ALL of that and blank the screen, fixing the separately
+// reported "old data stays visible after logout" bug in one move.
+fetch('/api/logout',{method:'POST'}).catch(function(){}).then(function(){location.reload();});}
 document.getElementById('authPass').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin()});
 document.getElementById('authUser').addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('authPass').focus()});
 async function doSystemSave(){
   const btn=$('saveBtn');
   btn.classList.add('saving');btn.textContent='\u23F3 Gemmer...';
   try{
-    var auth=localStorage.getItem('hfplc_auth');
+    var auth=authGet();
     var opts={method:'POST',headers:{}};
     if(auth)opts.headers['Authorization']=auth;
     const r=await fetch('/api/system/save',opts);

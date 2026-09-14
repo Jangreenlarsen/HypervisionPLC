@@ -648,6 +648,19 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "MB_BUSY") == 0) func_id = ST_BUILTIN_MB_BUSY;
       else if (strcasecmp(node->data.function_call.func_name, "MB_ERROR") == 0) func_id = ST_BUILTIN_MB_ERROR;
       else if (strcasecmp(node->data.function_call.func_name, "MB_CACHE") == 0) func_id = ST_BUILTIN_MB_CACHE;
+      // BUG-397e: unambiguous MB_SUCCESS() alternatives
+      else if (strcasecmp(node->data.function_call.func_name, "MB_READ_OK") == 0) func_id = ST_BUILTIN_MB_READ_OK;
+      else if (strcasecmp(node->data.function_call.func_name, "MB_WRITE_QUEUED") == 0) func_id = ST_BUILTIN_MB_WRITE_QUEUED;
+      // FEAT-410: Modbus Expansion Board (MBX_*)
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_READ_COIL") == 0) func_id = ST_BUILTIN_MBX_READ_COIL;
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_READ_INPUT") == 0) func_id = ST_BUILTIN_MBX_READ_INPUT;
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_READ_HOLDING") == 0) func_id = ST_BUILTIN_MBX_READ_HOLDING;
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_READ_INPUT_REG") == 0) func_id = ST_BUILTIN_MBX_READ_INPUT_REG;
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_WRITE_COIL") == 0) func_id = ST_BUILTIN_MBX_WRITE_COIL;
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_WRITE_HOLDING") == 0) func_id = ST_BUILTIN_MBX_WRITE_HOLDING;
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_SUCCESS") == 0) func_id = ST_BUILTIN_MBX_SUCCESS;
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_BUSY") == 0) func_id = ST_BUILTIN_MBX_BUSY;
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_ERROR") == 0) func_id = ST_BUILTIN_MBX_ERROR;
       // v7.7.2: Hardware Counter Access
       else if (strcasecmp(node->data.function_call.func_name, "CNT_SETUP") == 0) func_id = ST_BUILTIN_CNT_SETUP;
       else if (strcasecmp(node->data.function_call.func_name, "CNT_SETUP_ADV") == 0) func_id = ST_BUILTIN_CNT_SETUP_ADV;
@@ -822,6 +835,16 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
           if (target_var == 0xFF) {
             char msg[128];
             snprintf(msg, sizeof(msg), "Unknown variable in output binding: %s", binding->var_name);
+            st_compiler_error(compiler, msg);
+            return false;
+          }
+          // BUG-397d: FB output bindings (Q=>var, ET=>var, ...) are yet
+          // another direct-store path that bypasses
+          // st_compiler_compile_assignment() entirely -- needs the same
+          // CONST check.
+          if (compiler->symbol_table.symbols[target_var].is_const) {
+            char msg[128];
+            snprintf(msg, sizeof(msg), "Cannot use CONST variable '%s' as an output binding target", binding->var_name);
             st_compiler_error(compiler, msg);
             return false;
           }
@@ -1010,6 +1033,18 @@ static bool st_compiler_compile_assignment(st_compiler_t *compiler, st_ast_node_
       return false;
     }
     return st_compiler_emit_var(compiler, ST_OP_STORE_GLOBAL, var_index);
+  }
+
+  // BUG-397d: CONST enforcement — a CONST variable's own symbol (never a
+  // STRUCT field's, since CONST+STRUCT is rejected by the parser) rejects
+  // every `:=` target resolution, whether written as a plain scalar
+  // assignment or (impossible in practice, since CONST+ARRAY is also
+  // rejected) an indexed one.
+  if (compiler->symbol_table.symbols[var_index].is_const) {
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Cannot assign to CONST variable '%s'", node->data.assignment.var_name);
+    st_compiler_error(compiler, msg);
+    return false;
   }
 
   // FEAT-009: STRUCT field assignment already resolved to the field's
@@ -1323,6 +1358,17 @@ static bool st_compiler_compile_for(st_compiler_t *compiler, st_ast_node_t *node
   if (var_index == 0xFF) {
     char msg[128];
     snprintf(msg, sizeof(msg), "Unknown loop variable: %s", node->data.for_stmt.var_name);
+    st_compiler_error(compiler, msg);
+    return false;
+  }
+
+  // BUG-397d: a FOR loop assigns to its counter every iteration (bypasses
+  // st_compiler_compile_assignment() entirely, straight to
+  // st_compiler_emit_store_symbol() below) -- CONST enforcement needs its
+  // own check here too.
+  if (compiler->symbol_table.symbols[var_index].is_const) {
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Cannot use CONST variable '%s' as a FOR loop counter", node->data.for_stmt.var_name);
     st_compiler_error(compiler, msg);
     return false;
   }
@@ -1980,8 +2026,21 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
       // v7.7.1: Carry initial value from VAR declaration to symbol table
       st_symbol_t *sym = &compiler->symbol_table.symbols[index];
       sym->initial_value = var->initial_value;
-      // Check if non-zero initial value was declared
-      sym->has_initial_value = (var->initial_value.int_val != 0) ? 1 : 0;
+      // BUG-397f FIX: this used to check only .int_val (the union's 16-bit
+      // INT field) regardless of the variable's ACTUAL type -- so e.g.
+      // `x: REAL := 1.5;` silently initialized to 0.0 at runtime, because
+      // 1.5's IEEE754 bit pattern (0x3FC00000) happens to have zero in its
+      // low 16 bits. Any literal whose relevant bit pattern has zero there
+      // (many common REAL values: 1.0, 1.5, 2.0, 10.0, ...; also DINT/DWORD
+      // values that are exact multiples of 65536) was affected, silently.
+      // memcmp against a zeroed instance checks the ENTIRE stored value
+      // regardless of type, matching the flag's actual intent ("was a
+      // non-zero initial value declared") precisely instead of by accident.
+      {
+        st_value_t zero = {0};
+        sym->has_initial_value = (memcmp(&var->initial_value, &zero, sizeof(st_value_t)) != 0) ? 1 : 0;
+      }
+      sym->is_const = var->is_const;  // BUG-397d
     }
   }
 

@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <link rel="stylesheet" href="/common.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HyberFusion PLC — Status</title>
+<style>
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
+.topnav .brand{font-size:14px;font-weight:700;color:#89b4fa}
+.topnav a{margin-left:auto;padding:5px 14px;font-size:12px;font-weight:600;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s}
+.hdr{background:#181825;padding:10px 16px;border-bottom:1px solid #313244;flex-shrink:0;display:flex;align-items:center;gap:12px}
+.hdr h1{font-size:16px;color:#89b4fa}
+.hdr .info{font-size:11px;color:#6c7086;margin-left:auto}
+.grid{flex:1;display:flex;flex-wrap:wrap;gap:12px;padding:16px;align-content:start}
+.card{background:#181825;border:1px solid #313244;border-radius:8px;padding:14px 16px;width:340px;flex-grow:1;max-width:480px}
+.card-wide{max-width:900px}
+.card h2{font-size:13px;color:#89b4fa;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #313244;display:flex;align-items:center;gap:6px}
+.subhdr{font-size:11px;font-weight:700;color:#a6adc8;text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
+.tbl{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
+.tbl th{text-align:left;padding:4px 6px;color:#89b4fa;border-bottom:1px solid #313244;font-weight:600}
+.tbl td{padding:3px 6px;border-bottom:1px solid rgba(49,50,68,.5)}
+.empty-msg{color:#6c7086;font-size:11px;padding:8px 0}
+.spark-row svg{flex:1;width:100%;height:24px;min-width:0;display:block}
+.dio-led .led{width:18px;height:18px;border-radius:50%;border:2px solid #45475a}
+@media(max-width:480px){.card{width:100%;max-width:none}}
+</style>
+</head>
+<body>
+
+<div class="topnav">
+<span class="brand">HyberFusion PLC</span>
+<a href="/dashboard">Log ind for fuld adgang →</a>
+</div>
+
+<div class="hdr">
+<h1>Status</h1>
+<span class="info" id="hdrInfo"></span>
+</div>
+
+<div class="alarm-bar" id="alarmBar"></div>
+
+<div class="grid" id="grid">
+
+<div class="card" data-card-id="system">
+<h2>System</h2>
+<div class="row"><span class="lbl">Firmware</span><span class="val val-n" id="mFirmware">-</span></div>
+<div class="row"><span class="lbl">Uptime</span><span class="val val-n" id="mUptime">-</span></div>
+<div class="row"><span class="lbl">Heap fri</span><span class="val val-n" id="mHeapFree">-</span></div>
+<div class="row"><span class="lbl">Heap min</span><span class="val val-n" id="mHeapMin">-</span></div>
+<div class="bar-wrap"><div class="bar-fill bar-ok" id="heapBar" style="width:0%"></div></div>
+<div class="row" style="margin-top:2px"><span class="lbl">PSRAM</span><span class="val val-n" id="mPsram">-</span></div>
+<div class="row"><span class="lbl">SPIFFS</span><span class="val val-n" id="mSpiffs">-</span></div>
+<div class="bar-wrap"><div class="bar-fill bar-ok" id="spiffsBar" style="width:0%"></div></div>
+<div class="row" style="margin-top:2px"><span class="lbl">NVS entries</span><span class="val val-n" id="mNvs">-</span></div>
+<div class="bar-wrap"><div class="bar-fill bar-ok" id="nvsBar" style="width:0%"></div></div>
+<div class="row"><span class="lbl">Largest block</span><span class="val val-n" id="cpuLargestBlock">-</span></div>
+<div class="row"><span class="lbl">Fragmentering</span><span class="val val-n" id="cpuFragPct">-</span></div>
+<div class="bar-wrap"><div class="bar-fill bar-ok" id="fragBar" style="width:0%"></div></div>
+<div class="spark-row"><span class="sl">Frag. trend</span><svg id="sparkFrag" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl">Aktive tasks</span><span class="val val-n" id="cpuTaskCount">-</span></div>
+<div id="cpuTaskBody"></div>
+<div class="spark-row"><span class="sl">Heap trend</span><svg id="sparkHeap" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row" style="margin-top:2px;border-top:1px solid #313244;padding-top:4px"><span class="lbl">Reboots</span><span class="val val-n" id="mRebootCount">-</span></div>
+<div class="row"><span class="lbl">Sidste reset</span><span class="val val-n" id="mResetReason" style="font-size:11px">-</span></div>
+</div>
+
+<div class="card" data-card-id="network">
+<h2>Netværk</h2>
+<div style="border-top:1px solid #313244;margin-top:4px;padding-top:4px">
+<div class="row"><span class="lbl"><span class="dot dot-off" id="dotWifi"></span> WiFi</span><span class="val val-n" id="mWifi">-</span></div>
+<div class="spark-row"><span class="sl">RSSI trend</span><svg id="sparkRssi" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+</div>
+<div style="border-top:1px solid #313244;margin-top:4px;padding-top:4px">
+<div class="row"><span class="lbl"><span class="dot dot-off" id="dotEth"></span> Ethernet</span><span class="val val-n" id="mEth">-</span></div>
+</div>
+<div style="border-top:1px solid #313244;margin-top:4px;padding-top:4px">
+<div class="row"><span class="lbl"><span class="dot dot-off" id="dotTelnet"></span> Telnet</span><span class="val val-n" id="mTelnet">-</span></div>
+<div class="row"><span class="lbl">WiFi reconnects</span><span class="val val-n" id="mWifiRetries">-</span></div>
+</div>
+</div>
+
+<div class="card" data-card-id="modbusslave">
+<h2>Modbus Slave <span class="badge badge-off" id="badgeSlave">-</span></h2>
+<div class="row"><span class="lbl">Interface</span><span class="val val-n" id="msConfigInfo" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="msTotal">-</span></div>
+<div class="row"><span class="lbl">Success</span><span class="val val-ok" id="msOk">-</span></div>
+<div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="msCrc">-</span></div>
+<div class="row"><span class="lbl">Exceptions</span><span class="val val-err" id="msExc">-</span></div>
+<div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="msRate">-</span></div>
+<div class="row"><span class="lbl">Rate (nu)</span><span class="val val-n" id="msRateNow">-</span></div>
+<div class="spark-row"><span class="sl">Requests</span><svg id="sparkMbSlave" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="msRateMinMax" style="font-size:10px;color:#6c7086">-</span></div>
+</div>
+
+<div class="card" data-card-id="modbusmaster">
+<h2>Modbus Master <span class="badge badge-off" id="badgeMaster">-</span></h2>
+<div class="row"><span class="lbl">Interface</span><span class="val val-n" id="mmConfigInfo" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl">Statistik siden</span><span class="val val-n" id="mmStatsSince" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="mmTotal">-</span></div>
+<div class="row"><span class="lbl">Success</span><span class="val val-ok" id="mmOk">-</span></div>
+<div class="row"><span class="lbl">Timeout fejl</span><span class="val val-err" id="mmTimeout">-</span></div>
+<div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="mmCrc">-</span></div>
+<div class="row"><span class="lbl">Bus busy (kontention)</span><span class="val val-err" id="mmBusBusy">-</span></div>
+<div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="mmRate">-</span></div>
+<div class="row"><span class="lbl">Rate (nu)</span><span class="val val-n" id="mmRateNow">-</span></div>
+<div class="spark-row"><span class="sl">Requests</span><svg id="sparkMbMaster" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="mmRateMinMax" style="font-size:10px;color:#6c7086">-</span></div>
+<div style="border-top:1px solid #313244;margin-top:6px;padding-top:6px">
+<div class="row"><span class="lbl">Cache entries</span><span class="val val-n" id="mcEntries">-</span></div>
+<div class="row"><span class="lbl">Cache hits/misses</span><span class="val val-n" id="mcHitMiss">-</span></div>
+<div class="row"><span class="lbl">Hit rate</span><span class="val val-n" id="mcHitRate">-</span></div>
+<div class="row"><span class="lbl">Cache utilization</span><span class="val val-n" id="mcUtil">-</span></div>
+<div class="row"><span class="lbl">Queue depth</span><span class="val val-n" id="mcQueueDepth">-</span></div>
+<div class="row"><span class="lbl">Queue HWM</span><span class="val val-n" id="mcQueueHwm">-</span></div>
+<div class="row"><span class="lbl">Queue full drops</span><span class="val val-err" id="mcQueueFull">-</span></div>
+<div class="row"><span class="lbl">Priority drops</span><span class="val val-warn" id="mcPrioDrop">-</span></div>
+<div class="row"><span class="lbl">Cache TTL</span><span class="val val-n" id="mcTtl">-</span></div>
+<div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
+<div id="mcBackoff" style="margin-top:6px"></div>
+</div>
+</div>
+
+<div class="card" data-card-id="bushealth">
+<h2>RS-485 Bus Health</h2>
+<div class="row"><span class="lbl">Kombineret fejlrate</span><span class="val val-n" id="bhErrorRate">-</span></div>
+<div class="row"><span class="lbl">Bus busy / kontention</span><span class="val val-err" id="bhBusBusy">-</span></div>
+<div class="row"><span class="lbl">Bus-belastning (estimeret)</span><span class="val val-n" id="bhBusyRatio">-</span></div>
+</div>
+
+<div class="card" data-card-id="httpapi">
+<h2>HTTP API</h2>
+<div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="htTotal">-</span></div>
+<div class="row"><span class="lbl">Success (2xx)</span><span class="val val-ok" id="htOk">-</span></div>
+<div class="row"><span class="lbl">Client fejl (4xx)</span><span class="val val-err" id="ht4xx">-</span></div>
+<div class="row"><span class="lbl">Server fejl (5xx)</span><span class="val val-err" id="ht5xx">-</span></div>
+<div class="row"><span class="lbl">Auth failures</span><span class="val val-warn" id="htAuth">-</span></div>
+<div style="border-top:1px solid #313244;margin-top:6px;padding-top:6px">
+<div class="row"><span class="lbl"><span class="dot dot-off" id="dotSse"></span> SSE Server</span><span class="val val-n" id="mSse">-</span></div>
+</div>
+</div>
+
+<div class="card" data-card-id="counters">
+<h2>Tællere</h2>
+<div id="cntBody"><span class="empty-msg">Ingen aktive tællere</span></div>
+</div>
+
+<div class="card" data-card-id="timers">
+<h2>Timere</h2>
+<div id="tmrBody"><span class="empty-msg">Ingen aktive timere</span></div>
+</div>
+
+<div class="card" data-card-id="stlogic">
+<h2>ST Logic <span class="badge badge-off" id="badgeLogic">-</span></h2>
+<div class="row"><span class="lbl">Total cycles</span><span class="val val-n" id="stCycles">-</span></div>
+<div class="row"><span class="lbl">Overruns</span><span class="val val-n" id="stOverruns">-</span></div>
+<div id="stBody"><span class="empty-msg">Ingen aktive programmer</span></div>
+</div>
+
+<div class="card" data-card-id="ntp">
+<h2>NTP Tid <span class="badge badge-off" id="badgeNtp">-</span></h2>
+<div class="row"><span class="lbl">Lokal tid</span><span class="val val-n" id="ntpTime" style="font-size:14px;color:#89b4fa">-</span></div>
+<div class="row"><span class="lbl">Antal syncs</span><span class="val val-n" id="ntpSyncs">-</span></div>
+<div class="row"><span class="lbl">Sidste sync</span><span class="val val-n" id="ntpAge">-</span></div>
+</div>
+
+<div class="card" data-card-id="rtutrafik">
+<h2>Modbus RTU Trafik</h2>
+<div class="subhdr">Slave (indgående forespørgsler)</div>
+<div class="row"><span class="lbl">Rate</span><span class="val val-n" id="rtSlaveRate">-</span></div>
+<div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="rtSlaveSucc">-</span></div>
+<div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="rtSlaveCrc">-</span></div>
+<div class="row"><span class="lbl">Exceptions</span><span class="val val-warn" id="rtSlaveExc">-</span></div>
+<div class="spark-row"><span class="sl">Rate</span><svg id="sparkRtSlave" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="rtSlaveMinMax" style="font-size:10px;color:#6c7086">-</span></div>
+<div class="subhdr sep">Master (udgående forespørgsler)</div>
+<div class="row"><span class="lbl">Rate</span><span class="val val-n" id="rtMasterRate">-</span></div>
+<div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="rtMasterSucc">-</span></div>
+<div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="rtMasterCrc">-</span></div>
+<div class="row"><span class="lbl">Timeouts</span><span class="val val-err" id="rtTimeout">-</span></div>
+<div class="row"><span class="lbl">Exceptions</span><span class="val val-warn" id="rtMasterExc">-</span></div>
+<div class="spark-row"><span class="sl">Rate</span><svg id="sparkRtMaster" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="rtMasterMinMax" style="font-size:10px;color:#6c7086">-</span></div>
+</div>
+
+<div class="card card-wide" data-card-id="mbactivity">
+<h2>Modbus Aktivitetslog <span class="badge badge-off" id="badgeMbActivity">0</span></h2>
+<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+<span style="font-size:10px;color:#6c7086" id="mbActivityInfo">-</span>
+<button onclick="exportMbActivity()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Eksporter CSV</button>
+</div>
+<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+<select id="mbActRole" onchange="renderMbActivity()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">Master + Slave</option>
+<option value="master">Kun Master</option>
+<option value="slave">Kun Slave</option>
+</select>
+<select id="mbActSrc" onchange="renderMbActivity()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">Alle kilder</option>
+<option value="st_logic">ST Logic</option>
+<option value="cli">CLI</option>
+<option value="dashboard">Dashboard</option>
+<option value="external">Ekstern master</option>
+</select>
+<select id="mbActStatus" onchange="renderMbActivity()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="any">OK + Fejlede</option>
+<option value="ok">Kun OK</option>
+<option value="failed">Kun fejlede</option>
+</select>
+<input type="number" id="mbActSlave" min="0" max="247" placeholder="Slave adr" title="Filtrér på slave-adresse (tom = alle)" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:70px" oninput="renderMbActivity()">
+<input type="number" id="mbActLimit" value="100" min="5" max="500" onchange="fetchMbActivity()" title="Max antal linjer der hentes og vises" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
+</div>
+<div id="mbActivityBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen aktivitet endnu</span></div>
+</div>
+
+<div class="card" data-card-id="dio" id="cardDio">
+<h2>Digital I/O</h2>
+<div style="margin-bottom:8px">
+<div style="font-size:10px;color:#89b4fa;margin-bottom:4px;font-weight:600">Inputs (IN1-IN8)</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap" id="dioInputs"><span class="empty-msg">Ikke tilgængelig</span></div>
+</div>
+<div>
+<div style="font-size:10px;color:#cba6f7;margin-bottom:4px;font-weight:600">Outputs (CH1-CH8)</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap" id="dioOutputs"><span class="empty-msg">Ikke tilgængelig</span></div>
+</div>
+</div>
+
+<div class="card" data-card-id="analogio" id="cardAnalogIo">
+<h2>Analog I/O</h2>
+<div style="margin-bottom:8px">
+<div style="font-size:10px;color:#89b4fa;margin-bottom:4px;font-weight:600">Spænding (Vi1-Vi4, 0-10V)</div>
+<div id="analogVIn" style="font-size:11px"><span class="empty-msg">Ingen kanaler aktiveret</span></div>
+</div>
+<div style="margin-bottom:8px">
+<div style="font-size:10px;color:#f9e2af;margin-bottom:4px;font-weight:600">Strøm (Ii1-Ii4, 4-20mA)</div>
+<div id="analogIIn" style="font-size:11px"><span class="empty-msg">Ingen kanaler aktiveret</span></div>
+</div>
+<div>
+<div style="font-size:10px;color:#cba6f7;margin-bottom:4px;font-weight:600">Udgange (AO1-AO2, DAC)</div>
+<div id="analogOut" style="font-size:11px"><span class="empty-msg">Ingen kanaler aktiveret</span></div>
+</div>
+</div>
+
+</div>
+
+<div class="foot"><span id="footRefresh">-</span><span>HyberFusion PLC — offentlig statusside (ingen login krævet)</span></div>
+
+<script src="/common.js"></script>
+<script>
+// FEAT-407: offentlig, login-fri statusside — read-only kopi af udvalgte
+// kort/funktioner fra web/dashboard.html (samme etablerede "hver side er
+// selvstændig, ingen delte JS-moduler"-konvention som resten af projektet).
+// Henter fra /api/metrics/public (samme metrics som /api/metrics, MINUS
+// register-dumpet, se api_handler_metrics_public() i api_handlers.cpp) —
+// INGEN write-kontroller er portet med (alt der ville POST/DELETE er
+// bevidst udeladt, da denne side ikke har noget login-flow overhovedet).
+const HIST_MAX=120;
+let history={heap:[],mbSlave:[],mbMaster:[],rtSlave:[],rtMaster:[],fragPct:[],rssi:[],analog:{}};
+let prevMbSlave=null,prevMbMaster=null;
+let prevSlaveTotal=null,prevMasterTotal=null;
+let _lastPollTs=null;
+let _dashFetchActive=0;
+const _dashFetchQueue=[];
+const DASH_FETCH_MAX_CONCURRENT=2;
+
+
+let alarms=[];
+let alarmAck={};
+try{alarmAck=JSON.parse(sessionStorage.getItem('hfplc_alarm_ack')||'{}');}catch(e){alarmAck={};}
+let alarmCurrentValues={};
+let lastMetricsRaw=null;
+
+const MB_CACHE_MAX=32;
+const MB_QUEUE_MAX=32;
+
+// FEAT-407: Modbus Aktivitetslog — /api/modbus/activity er ALLEREDE auth-fri
+// i dag (kun CHECK_API_ENABLED, ingen CHECK_AUTH — bekræftet ved gennemgang),
+// saa INGEN backend-aendring var noedvendig for at tilfoeje dette kort.
+// Skriveaktioner (start/stop logning, ryd log) er BEVIDST IKKE portet —
+// kun laesning/filtrering af allerede-hentet data.
+let _mbActivityLog=[];
+let _mbActivityLogging=true;
+let _mbActivityTotal=0;
+const _mbFcNames={1:'Read Coil',2:'Read Discrete',3:'Read Holding',4:'Read Input Reg',5:'Write Coil',6:'Write Holding',15:'Write Coils',16:'Write Holdings'};
+const _mbSrcNames={st_logic:'ST Logic',cli:'CLI',dashboard:'Dashboard',external:'Ekstern master',unknown:'-'};
+async function fetchMbActivity(){
+  try{
+    const lim=Math.max(5,parseInt($('mbActLimit')?$('mbActLimit').value:100)||100);
+    const r=await dashFetch('/api/modbus/activity?limit='+lim,{});
+    if(!r.ok)return;
+    const d=await r.json();
+    _mbActivityLog=Array.isArray(d)?d:(d.entries||[]);
+    if(!Array.isArray(d)){
+      _mbActivityLogging=(d.logging!==false);
+      _mbActivityTotal=d.total||_mbActivityLog.length;
+    }
+    renderMbActivity();
+  }catch(e){}
+}
+
+function renderMbActivity(){
+  const badgeEl=$('badgeMbActivity');
+  if(badgeEl)badge(badgeEl,_mbActivityLog.length>0,String(_mbActivityLog.length));
+  const el=$('mbActivityBody');
+  if(!el)return;
+  if(!_mbActivityLog||_mbActivityLog.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen aktivitet endnu</span>';
+    if($('mbActivityInfo'))$('mbActivityInfo').textContent='0 transaktioner';
+    return;
+  }
+  const roleFilter=$('mbActRole')?$('mbActRole').value:'any';
+  const srcFilter=$('mbActSrc')?$('mbActSrc').value:'any';
+  const statusFilter=$('mbActStatus')?$('mbActStatus').value:'any';
+  const slaveFilterStr=$('mbActSlave')?$('mbActSlave').value.trim():'';
+  const slaveFilter=slaveFilterStr===''?null:parseInt(slaveFilterStr);
+  const limit=Math.max(5,parseInt($('mbActLimit')?$('mbActLimit').value:100)||100);
+  const filtered=_mbActivityLog.filter(a=>{
+    if(roleFilter!=='any'&&a.role!==roleFilter)return false;
+    if(srcFilter!=='any'&&a.source!==srcFilter)return false;
+    if(statusFilter==='ok'&&!a.success)return false;
+    if(statusFilter==='failed'&&a.success)return false;
+    if(slaveFilter!==null&&!isNaN(slaveFilter)&&a.slave_id!==slaveFilter)return false;
+    return true;
+  });
+  if($('mbActivityInfo')){
+    const tot=_mbActivityTotal||_mbActivityLog.length;
+    $('mbActivityInfo').textContent=tot+' på enheden, '+filtered.length+' vist'
+      +(_mbActivityLogging?'':' — LOGNING STOPPET');
+  }
+  if(filtered.length===0){
+    el.innerHTML='<span class="empty-msg">Ingen transaktioner matcher filter</span>';
+    return;
+  }
+  const recent=filtered.slice(-limit).reverse();
+  let h='<table class="tbl"><tr><th>Tid</th><th>Rolle</th><th>Kilde</th><th>Slave</th><th>FC</th><th>Adresse</th><th>Antal</th><th>Værdi</th><th>Status</th></tr>';
+  for(const a of recent){
+    const timeStr=mbActTimeString(a);
+    const roleLbl=a.role==='master'?'<span style="color:#89b4fa">Master</span>':'<span style="color:#f9e2af">Slave</span>';
+    const srcLbl=_mbSrcNames[a.source]||a.source;
+    const fcLbl=_mbFcNames[a.fc]||('FC'+a.fc);
+    const statusLbl=a.success?'<span class="val-ok">OK</span>':'<span class="val-err" title="Fejlkode '+a.error+'">FEJL('+a.error+')</span>';
+    h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
+    h+='<td style="font-size:10px">'+roleLbl+'</td>';
+    h+='<td style="font-size:10px">'+srcLbl+'</td>';
+    h+='<td style="font-size:10px">'+a.slave_id+'</td>';
+    h+='<td style="font-size:10px" title="FC'+a.fc+'">'+fcLbl+'</td>';
+    h+='<td style="font-size:10px">'+a.address+'</td>';
+    h+='<td style="font-size:10px">'+a.count+'</td>';
+    h+='<td style="font-size:10px">'+(a.count>1?'-':a.value)+'</td>';
+    h+='<td style="font-size:10px">'+statusLbl+'</td></tr>';
+  }
+  h+='</table>';
+  el.innerHTML=h;
+}
+async function exportMbActivity(){
+  try{
+    const r=await fetch('/api/modbus/activity',{});
+    if(!r.ok){alert('Kunne ikke hente log til eksport');return;}
+    const d=await r.json();
+    const rows=Array.isArray(d)?d:(d.entries||[]);
+    if(!rows.length){alert('Loggen er tom');return;}
+    let csv='tid;uptime_ms;epoch_s;rolle;kilde;slave;fc;fc_navn;adresse;antal;vaerdi;status;fejlkode\n';
+    for(const a of rows){
+      csv+=mbActTimeString(a)+';'+a.timestamp_ms+';'+(a.epoch_s||0)+';'+a.role+';'+a.source+';'
+        +a.slave_id+';'+a.fc+';'+(_mbFcNames[a.fc]||('FC'+a.fc))+';'+a.address+';'+a.count+';'
+        +(a.count>1?'':a.value)+';'+(a.success?'OK':'FEJL')+';'+a.error+'\n';
+    }
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');
+    link.href=url;
+    const now=new Date();
+    const pad=n=>String(n).padStart(2,'0');
+    link.download='modbus_log_'+now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())
+      +'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())+'.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }catch(e){alert('Eksport fejlede: '+e);}
+}
+
+
+
+
+const _resetReasons=['Unknown','Power-on','Ekstern reset','Software reset','Panic/Exception',
+  'Interrupt watchdog','Task watchdog','Andet watchdog','Deep sleep','Brownout','SDIO reset'];
+
+
+
+
+
+
+
+
+
+
+
+
+
+// === Alarm-bjælke (metrics-udledt, IKKE Alarm Historik-kortet — det kortet
+// er bevidst IKKE med på denne side, se BUGS_INDEX.md FEAT-407/SECURITY_INDEX #12) ===
+
+
+
+
+function updateDashboard(m){
+  const _nowTs=Date.now();
+  const _dtSec=_lastPollTs!=null?Math.max(0.25,(_nowTs-_lastPollTs)/1000):null;
+  _lastPollTs=_nowTs;
+  // System
+  {const fi=gAll(m,'firmware_info');if(fi.length>0){const v=fi[0].labels.version||'?';const b=fi[0].labels.build||'?';$('mFirmware').textContent='v'+v+'.'+b;}}
+  $('mUptime').textContent=fmtUp(g(m,'esp32_uptime_seconds'));
+  $('mRebootCount').textContent=fmtN(g(m,'watchdog_reboot_count'));
+  $('mResetReason').textContent=fmtResetReason(g(m,'watchdog_reset_reason'));
+  const heapFree=g(m,'esp32_heap_free_bytes');
+  const heapMin=g(m,'esp32_heap_min_free_bytes');
+  $('mHeapFree').textContent=fmtKB(heapFree);
+  $('mHeapMin').textContent=fmtKB(heapMin);
+  if(heapFree!=null){
+    const pct=Math.min(100,heapFree/200000*100);
+    const bar=$('heapBar');
+    bar.style.width=pct.toFixed(0)+'%';
+    bar.className='bar-fill '+(pct>40?'bar-ok':pct>20?'bar-warn':'bar-err');
+    history.heap.push(heapFree/1024);
+    if(history.heap.length>HIST_MAX)history.heap.shift();
+    drawSparkline('sparkHeap',history.heap,'#a6e3a1');
+  }
+  const psram=g(m,'esp32_psram_total_bytes');
+  const psramFree=g(m,'esp32_psram_free_bytes');
+  $('mPsram').textContent=(psram!=null&&psram>0)?(fmtKB(psramFree)+' / '+fmtKB(psram)):'Ikke tilgængelig';
+  {
+    const spTotal=g(m,'spiffs_total_bytes'),spUsed=g(m,'spiffs_used_bytes');
+    if(spTotal!=null&&spTotal>0){
+      $('mSpiffs').textContent=fmtKB(spUsed)+' / '+fmtKB(spTotal);
+      const pct=Math.min(100,(spUsed/spTotal)*100);
+      const bar=$('spiffsBar');
+      bar.style.width=pct.toFixed(0)+'%';
+      bar.className='bar-fill '+(pct<70?'bar-ok':pct<90?'bar-warn':'bar-err');
+    }else{$('mSpiffs').textContent='Ikke tilgængelig';}
+  }
+  {
+    const nvsUsed=g(m,'nvs_used_entries'),nvsTotal=g(m,'nvs_total_entries');
+    if(nvsTotal!=null&&nvsTotal>0){
+      $('mNvs').textContent=fmtN(nvsUsed)+' / '+fmtN(nvsTotal);
+      const pct=Math.min(100,(nvsUsed/nvsTotal)*100);
+      const bar=$('nvsBar');
+      bar.style.width=pct.toFixed(0)+'%';
+      bar.className='bar-fill '+(pct<70?'bar-ok':pct<90?'bar-warn':'bar-err');
+    }else{$('mNvs').textContent='Ikke tilgængelig';}
+  }
+
+  // Network
+  const wifiOn=g(m,'wifi_connected')===1;
+  dot($('dotWifi'),wifiOn);
+  const rssi=g(m,'wifi_rssi_dbm');
+  $('mWifi').textContent=wifiOn?(rssi!=null?'RSSI '+rssi+' dBm':'Forbundet'):'Ikke forbundet';
+  if(wifiOn&&rssi!=null){
+    history.rssi.push(rssi);
+    if(history.rssi.length>HIST_MAX)history.rssi.shift();
+    drawSparkline('sparkRssi',history.rssi,'#89b4fa');
+  }
+  const ethOn=g(m,'ethernet_connected')===1;
+  dot($('dotEth'),ethOn);
+  $('mEth').textContent=ethOn?'Forbundet':'Ikke forbundet';
+  const telOn=g(m,'telnet_connected')===1;
+  dot($('dotTelnet'),telOn);
+  $('mTelnet').textContent=telOn?'Forbundet':'Ikke forbundet';
+  const sseAct=g(m,'sse_clients_active');
+  dot($('dotSse'),sseAct!=null&&sseAct>0);
+  $('mSse').textContent=(sseAct!=null&&sseAct>0)?'Aktiv ('+fmtN(sseAct)+')':'Ingen klienter';
+  $('mWifiRetries').textContent=fmtN(g(m,'wifi_reconnect_retries'));
+
+  // Modbus Slave
+  const msT=g(m,'modbus_slave_requests_total');
+  const msO=g(m,'modbus_slave_success_total');
+  $('msTotal').textContent=fmtN(msT);
+  $('msOk').textContent=fmtN(msO);
+  $('msCrc').textContent=fmtN(g(m,'modbus_slave_crc_errors_total'));
+  $('msExc').textContent=fmtN(g(m,'modbus_slave_exceptions_total'));
+  $('msRate').textContent=rate(msO,msT);
+  const msEn=g(m,'modbus_slave_config_enabled');
+  badge($('badgeSlave'),msEn===1&&msT>0,msEn===1?(msT>0?'Aktiv':'Idle'):'Deaktiveret');
+  {const baud=g(m,'modbus_slave_config_baudrate');const par=g(m,'modbus_slave_config_parity');const sb=g(m,'modbus_slave_config_stopbits');const sid=g(m,'modbus_slave_config_id');
+  if(baud!=null){const pStr=par===1?'Even':par===2?'Odd':'None';const bK=baud>=1000?(baud/1000)+'K':baud;$('msConfigInfo').textContent=msEn===1?'ID:'+sid+' Baud:'+bK+' Data:8 Parity:'+pStr+' Stop:'+sb:'deaktiveret';}}
+  if(msT!=null){
+    const delta=prevMbSlave!=null?msT-prevMbSlave:0;
+    prevMbSlave=msT;
+    const r=(_dtSec!=null)?delta/_dtSec:0;
+    history.mbSlave.push(r);
+    if(history.mbSlave.length>HIST_MAX)history.mbSlave.shift();
+    drawSparkline('sparkMbSlave',history.mbSlave,'#89b4fa');
+    $('msRateNow').textContent=fmtRate(r);
+    $('msRateMinMax').textContent=histMinMax(history.mbSlave);
+  }
+
+  // Modbus Master
+  const mmT=g(m,'modbus_master_requests_total');
+  const mmO=g(m,'modbus_master_success_total');
+  {const ageMs=g(m,'modbus_master_stats_age_ms');
+  $('mmStatsSince').textContent=ageMs!=null?fmtUp(ageMs/1000)+' siden':'-';}
+  $('mmTotal').textContent=fmtN(mmT);
+  $('mmOk').textContent=fmtN(mmO);
+  $('mmTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
+  $('mmCrc').textContent=fmtN(g(m,'modbus_master_crc_errors_total'));
+  $('mmBusBusy').textContent=fmtN(g(m,'modbus_master_bus_busy_errors_total'));
+  $('mmRate').textContent=rate(mmO,mmT);
+  const mmEn=g(m,'modbus_master_config_enabled');
+  badge($('badgeMaster'),mmEn===1&&mmT>0,mmEn===1?(mmT>0?'Aktiv':'Idle'):'Deaktiveret');
+  {const baud=g(m,'modbus_master_config_baudrate');const par=g(m,'modbus_master_config_parity');const sb=g(m,'modbus_master_config_stopbits');
+  if(baud!=null){const pStr=par===1?'Even':par===2?'Odd':'None';const bK=baud>=1000?(baud/1000)+'K':baud;$('mmConfigInfo').textContent=mmEn===1?'Baud:'+bK+' Data:8 Parity:'+pStr+' Stop:'+sb:'deaktiveret';}}
+  if(mmT!=null){
+    const delta=prevMbMaster!=null?mmT-prevMbMaster:0;
+    prevMbMaster=mmT;
+    const r=(_dtSec!=null)?delta/_dtSec:0;
+    history.mbMaster.push(r);
+    if(history.mbMaster.length>HIST_MAX)history.mbMaster.shift();
+    drawSparkline('sparkMbMaster',history.mbMaster,'#89b4fa');
+    $('mmRateNow').textContent=fmtRate(r);
+    $('mmRateMinMax').textContent=histMinMax(history.mbMaster);
+  }
+
+  // RS-485 Bus Health
+  {
+    const msErr=(g(m,'modbus_slave_crc_errors_total')||0)+(g(m,'modbus_slave_exceptions_total')||0);
+    const mmErr=(g(m,'modbus_master_timeout_errors_total')||0)+(g(m,'modbus_master_crc_errors_total')||0)+(g(m,'modbus_master_exception_errors_total')||0);
+    const combTotal=(msT||0)+(mmT||0);
+    const combErr=msErr+mmErr;
+    $('bhErrorRate').textContent=combTotal>0?((combErr/combTotal)*100).toFixed(2)+'% ('+combErr+'/'+combTotal+')':'-';
+    $('bhBusBusy').textContent=fmtN(g(m,'modbus_master_bus_busy_errors_total'));
+    const msRateNow=history.mbSlave.length?history.mbSlave[history.mbSlave.length-1]:0;
+    const mmRateNow=history.mbMaster.length?history.mbMaster[history.mbMaster.length-1]:0;
+    const msBaud=g(m,'modbus_slave_config_baudrate')||9600;
+    const mmBaud=g(m,'modbus_master_config_baudrate')||9600;
+    const AVG_FRAME_BYTES=30, BITS_PER_BYTE=11;
+    const msBusy=msRateNow*AVG_FRAME_BYTES*BITS_PER_BYTE/msBaud;
+    const mmBusy=mmRateNow*AVG_FRAME_BYTES*BITS_PER_BYTE/mmBaud;
+    const busyPct=Math.min(100,(msBusy+mmBusy)*100);
+    $('bhBusyRatio').textContent=(msRateNow>0||mmRateNow>0)?busyPct.toFixed(1)+'%':'-';
+  }
+
+  // HTTP API
+  $('htTotal').textContent=fmtN(g(m,'http_requests_total'));
+  $('htOk').textContent=fmtN(g(m,'http_requests_success_total'));
+  $('ht4xx').textContent=fmtN(g(m,'http_requests_client_errors_total'));
+  $('ht5xx').textContent=fmtN(g(m,'http_requests_server_errors_total'));
+  $('htAuth').textContent=fmtN(g(m,'http_auth_failures_total'));
+
+  // Counters
+  const cVals=gAll(m,'counter_value');
+  const cFreqs=gAll(m,'counter_frequency_hz');
+  if(cVals.length>0){
+    let h='<table class="tbl"><tr><th>ID</th><th>Værdi</th><th>Frekvens</th></tr>';
+    for(const c of cVals){
+      const id=c.labels.id||'?';
+      const freq=cFreqs.find(f=>f.labels.id===id);
+      h+='<tr><td>#'+id+'</td><td>'+fmtN(c.value)+'</td><td>'+(freq?freq.value.toFixed(1)+' Hz':'-')+'</td></tr>';
+    }
+    h+='</table>';
+    $('cntBody').innerHTML=h;
+  }else{$('cntBody').innerHTML='<span class="empty-msg">Ingen aktive tællere</span>';}
+
+  // Timers
+  const tOut=gAll(m,'timer_output');
+  const tRun=gAll(m,'timer_is_running');
+  const tPhase=gAll(m,'timer_current_phase');
+  const phases=['Idle','ON','OFF','Pause'];
+  if(tOut.length>0){
+    let h='<table class="tbl"><tr><th>ID</th><th>Output</th><th>Status</th><th>Fase</th></tr>';
+    for(const t of tOut){
+      const id=t.labels.id||'?';
+      const run=tRun.find(r=>r.labels.id===id);
+      const ph=tPhase.find(p=>p.labels.id===id);
+      const isOn=t.value===1;
+      const isRun=run?.value===1;
+      const phName=ph?phases[ph.value]||'?':'-';
+      h+='<tr><td>#'+id+'</td>';
+      h+='<td><span class="dot '+(isOn?'dot-g':'dot-off')+'"></span> '+(isOn?'ON':'OFF')+'</td>';
+      h+='<td>'+(isRun?'Kører':'Stop')+'</td>';
+      h+='<td>'+phName+'</td></tr>';
+    }
+    h+='</table>';
+    $('tmrBody').innerHTML=h;
+  }else{$('tmrBody').innerHTML='<span class="empty-msg">Ingen aktive timere</span>';}
+
+  // ST Logic
+  const stEnabled=g(m,'st_logic_enabled')===1;
+  badge($('badgeLogic'),stEnabled,stEnabled?'Aktiv':'Deaktiveret');
+  const stCyc2=g(m,'st_logic_total_cycles');
+  $('stCycles').textContent=fmtN(stCyc2);
+  const stOvr2=g(m,'st_logic_cycle_overruns');
+  const stOvrP2=(stCyc2!=null&&stCyc2>100)?(stOvr2/stCyc2*100):0;
+  $('stOverruns').textContent=fmtN(stOvr2)+(stCyc2>100?' ('+stOvrP2.toFixed(1)+'%)':'');
+  $('stOverruns').className='val '+(stOvrP2>5?'val-err':stOvrP2>1?'val-warn':'val-n');
+  const stExec=gAll(m,'st_logic_execution_count');
+  const stErr=gAll(m,'st_logic_error_count');
+  const stTime=gAll(m,'st_logic_exec_time_us');
+  const stMin=gAll(m,'st_logic_min_exec_us');
+  const stMax=gAll(m,'st_logic_max_exec_us');
+  const stOvrP=gAll(m,'st_logic_overrun_count');
+  if(stExec.length>0){
+    let h='<table class="tbl"><tr><th>Slot</th><th>Navn</th><th>Exec</th><th>Fejl</th><th>Ovr</th><th>Tid (min/last/max us)</th></tr>';
+    for(const s of stExec){
+      const slot=s.labels.slot||'?';
+      const name=s.labels.name||'-';
+      const err=stErr.find(e=>e.labels.slot===slot);
+      const time=stTime.find(t=>t.labels.slot===slot);
+      const mn=stMin.find(t=>t.labels.slot===slot);
+      const mx=stMax.find(t=>t.labels.slot===slot);
+      const ovr=stOvrP.find(t=>t.labels.slot===slot);
+      const errN=err?.value||0;
+      const ovrN=ovr?.value||0;
+      const timeStr=(mn&&time&&mx)?mn.value+' / '+time.value+' / '+mx.value:time?String(time.value):'-';
+      h+='<tr><td>#'+slot+'</td><td>'+name+'</td><td>'+fmtN(s.value)+'</td>';
+      h+='<td class="'+(errN>0?'val-err':'')+'">'+fmtN(errN)+'</td>';
+      h+='<td class="'+(ovrN>0?'val-warn':'')+'">'+fmtN(ovrN)+'</td>';
+      h+='<td>'+timeStr+'</td></tr>';
+    }
+    h+='</table>';
+    $('stBody').innerHTML=h;
+  }else{$('stBody').innerHTML='<span class="empty-msg">Ingen aktive programmer</span>';}
+
+  // NTP
+  {
+    const ntpOn=g(m,'ntp_enabled')===1;
+    const ntpSync=g(m,'ntp_synced')===1;
+    badge($('badgeNtp'),ntpSync,ntpSync?'Synkroniseret':ntpOn?'Venter...':'Deaktiveret');
+    $('ntpSyncs').textContent=fmtN(g(m,'ntp_sync_count'));
+    if(ntpSync){
+      const age=g(m,'ntp_last_sync_age_ms');
+      if(age!=null)$('ntpAge').textContent=(age/1000).toFixed(0)+' sek. siden';
+      $('ntpTime').textContent='Synkroniseret';
+    }else{
+      $('ntpTime').textContent=ntpOn?'Venter på sync...':'Deaktiveret';
+      $('ntpAge').textContent='-';
+    }
+  }
+
+  // RTU Trafik
+  {
+    const sT=g(m,'modbus_slave_requests_total')||0;
+    const mT=g(m,'modbus_master_requests_total')||0;
+    const sDelta=prevSlaveTotal!=null?sT-prevSlaveTotal:0;
+    const mDelta=prevMasterTotal!=null?mT-prevMasterTotal:0;
+    prevSlaveTotal=sT;prevMasterTotal=mT;
+    const sRate=(_dtSec!=null)?sDelta/_dtSec:0;
+    const mRate=(_dtSec!=null)?mDelta/_dtSec:0;
+    history.rtSlave.push(sRate);if(history.rtSlave.length>HIST_MAX)history.rtSlave.shift();
+    history.rtMaster.push(mRate);if(history.rtMaster.length>HIST_MAX)history.rtMaster.shift();
+    $('rtSlaveRate').textContent=fmtRate(sRate);
+    $('rtMasterRate').textContent=fmtRate(mRate);
+    $('rtSlaveMinMax').textContent=histMinMax(history.rtSlave);
+    $('rtMasterMinMax').textContent=histMinMax(history.rtMaster);
+    const sO=g(m,'modbus_slave_success_total')||0;
+    const mO=g(m,'modbus_master_success_total')||0;
+    $('rtSlaveSucc').textContent=rate(sO,sT);
+    $('rtMasterSucc').textContent=rate(mO,mT);
+    $('rtSlaveCrc').textContent=fmtN(g(m,'modbus_slave_crc_errors_total')||0);
+    $('rtMasterCrc').textContent=fmtN(g(m,'modbus_master_crc_errors_total')||0);
+    $('rtTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
+    $('rtSlaveExc').textContent=fmtN(g(m,'modbus_slave_exceptions_total')||0);
+    $('rtMasterExc').textContent=fmtN(g(m,'modbus_master_exception_errors_total')||0);
+    drawSparkline('sparkRtSlave',history.rtSlave,'#89b4fa');
+    drawSparkline('sparkRtMaster',history.rtMaster,'#cba6f7');
+  }
+
+  // Modbus Master Cache
+  {
+    const hits=g(m,'modbus_master_cache_hits');
+    const misses=g(m,'modbus_master_cache_misses');
+    const entries=g(m,'modbus_master_cache_entries');
+    const qfull=g(m,'modbus_master_queue_full_count');
+    const qdepth=g(m,'modbus_master_queue_depth');
+    const qhwm=g(m,'modbus_master_queue_hwm');
+    const pdrop=g(m,'modbus_master_priority_drops');
+    const hitRate=g(m,'modbus_master_cache_hit_rate');
+    const cUtil=g(m,'modbus_master_cache_utilization');
+    if(hits!=null){
+      $('mcEntries').textContent=fmtN(entries)+' / '+MB_CACHE_MAX;
+      $('mcHitMiss').textContent=fmtN(hits)+' / '+fmtN(misses);
+      const total=hits+misses;
+      $('mcHitRate').textContent=hitRate!=null?hitRate+'%':(total>0?(hits/total*100).toFixed(1)+'%':'N/A');
+      $('mcUtil').textContent=cUtil!=null?cUtil+'%':'-';
+      $('mcQueueDepth').textContent=(qdepth!=null?qdepth:'0')+' / '+MB_QUEUE_MAX;
+      $('mcQueueHwm').textContent=qhwm!=null?qhwm:'-';
+      $('mcQueueFull').textContent=fmtN(qfull);
+      $('mcPrioDrop').textContent=pdrop!=null?fmtN(pdrop):'0';
+      const ttl=g(m,'modbus_master_cache_ttl_ms');
+      $('mcTtl').textContent=(ttl==null)?'-':(ttl==0?'0 (aldrig expire)':ttl+' ms');
+      const slaves=gAll(m,'modbus_master_slave_status');
+      if(slaves.length>0){
+        let h='<table class="tbl"><tr><th>Slave</th><th>Addr</th><th>FC</th><th>Status</th><th>Age</th></tr>';
+        for(const s of slaves){
+          const st=s.labels.status||'?';
+          const ams=parseInt(s.labels.age_ms||'0');
+          const exp=(ttl>0 && ams>=ttl);
+          const cls=exp?'val-warn':(st==='valid'?'val-ok':st==='error'?'val-err':'val-warn');
+          const age=ams<1000?ams+'ms':ams<60000?(ams/1000).toFixed(1)+'s':(ams/60000).toFixed(1)+'m';
+          h+='<tr><td>#'+s.labels.slave+'</td><td>'+s.labels.addr+'</td><td>FC'+s.labels.fc+'</td>';
+          h+='<td class="'+cls+'">'+st+(exp?' [EXP]':'')+'</td><td>'+age+'</td></tr>';
+        }
+        h+='</table>';
+        $('mcSlaves').innerHTML=h;
+      }else{$('mcSlaves').innerHTML='<span class="empty-msg">Ingen aktive slaves</span>';}
+      const boffs=gAll(m,'modbus_master_slave_backoff');
+      if(boffs.length>0){
+        let bh='<div style="border-top:1px solid #313244;margin-top:6px;padding-top:4px"><span class="lbl" style="font-size:11px;color:#6c7086">Adaptive Backoff</span></div>';
+        bh+='<table class="tbl"><tr><th>Slave</th><th>Backoff</th><th>Timeouts</th><th>OK</th></tr>';
+        for(const b of boffs){
+          const ms=parseInt(b.value);
+          const to=b.labels.timeouts||'0';
+          const ok=b.labels.successes||'0';
+          const cls=ms>=1000?'val-err':ms>0?'val-warn':'val-ok';
+          bh+='<tr><td>#'+b.labels.slave+'</td><td class="'+cls+'">'+(ms>0?ms+'ms':'0')+'</td>';
+          bh+='<td>'+to+'</td><td>'+ok+'</td></tr>';
+        }
+        bh+='</table>';
+        $('mcBackoff').innerHTML=bh;
+      }else{$('mcBackoff').innerHTML='';}
+    }else{
+      $('mcEntries').textContent='Inaktiv';
+      $('mcSlaves').innerHTML='<span class="empty-msg">Master ikke startet</span>';
+      $('mcBackoff').innerHTML='';
+    }
+  }
+
+  // FreeRTOS Tasks (bruges af System-kortet)
+  {
+    $('cpuTaskCount').textContent=fmtN(g(m,'freertos_task_count'));
+    const largest=g(m,'esp32_heap_largest_free_block');
+    const heapTotal=g(m,'esp32_heap_free_bytes');
+    $('cpuLargestBlock').textContent=fmtKB(largest);
+    if(largest!=null&&heapTotal!=null&&heapTotal>0){
+      const fragPct=((1-largest/heapTotal)*100);
+      $('cpuFragPct').textContent=fragPct.toFixed(1)+'%';
+      const bar=$('fragBar');
+      bar.style.width=Math.min(100,fragPct).toFixed(0)+'%';
+      bar.className='bar-fill '+(fragPct<30?'bar-ok':fragPct<60?'bar-warn':'bar-err');
+      history.fragPct.push(fragPct);
+      if(history.fragPct.length>HIST_MAX)history.fragPct.shift();
+      drawSparkline('sparkFrag',history.fragPct,'#f9e2af');
+    }
+    const tasks=gAll(m,'freertos_task_stack_hwm');
+    if(tasks.length>0){
+      let h='<table class="tbl"><tr><th>Task</th><th>Stack HWM</th></tr>';
+      for(const t of tasks){
+        const name=t.labels.task||'?';
+        const hwm=t.value;
+        const hwmCls=hwm<200?'val-err':hwm<500?'val-warn':'val-n';
+        h+='<tr><td>'+name+'</td><td class="'+hwmCls+'">'+hwm+' B</td></tr>';
+      }
+      h+='</table>';
+      $('cpuTaskBody').innerHTML=h;
+    }
+  }
+
+  // Digital I/O (read-only — INGEN onclick/toggleDO, dette er en offentlig side)
+  {
+    const dins=gAll(m,'gpio_digital_input');
+    const douts=gAll(m,'gpio_digital_output');
+    if(dins.length>0){
+      let h='';
+      for(const d of dins){
+        const on=d.value===1;
+        const num=parseInt(d.labels.pin)-100;
+        h+='<div class="dio-led"><div class="led '+(on?'led-on':'led-off')+'"></div><span class="led-lbl">IN'+num+'</span></div>';
+      }
+      $('dioInputs').innerHTML=h;
+    }
+    if(douts.length>0){
+      let h='';
+      for(const d of douts){
+        const on=d.value===1;
+        const num=parseInt(d.labels.pin)-200;
+        h+='<div class="dio-led"><div class="led '+(on?'led-on':'led-off')+'"></div><span class="led-lbl">CH'+num+'</span></div>';
+      }
+      $('dioOutputs').innerHTML=h;
+    }
+    if(dins.length===0&&douts.length===0)$('cardDio').style.display='none';
+  }
+
+  // Analog I/O (read-only — INGEN Sæt-knap/input, dette er en offentlig side)
+  {
+    const allAi=gAll(m,'analog_input_value');
+    const aiv=allAi.filter(d=>d.labels.type==='voltage');
+    const aii=allAi.filter(d=>d.labels.type==='current');
+    const aoset=gAll(m,'analog_output_setpoint');
+    for(const d of aiv.concat(aii)){
+      const ch=d.labels.channel;
+      if(!history.analog[ch])history.analog[ch]=[];
+      const hv=history.analog[ch];
+      hv.push(d.value/100);
+      if(hv.length>HIST_MAX)hv.shift();
+    }
+    
+    if(aiv.length>0){
+      $('analogVIn').innerHTML=analogRows(aiv,'V');
+      for(const d of aiv)drawSparkline('spark_'+d.labels.channel,history.analog[d.labels.channel],'#89b4fa');
+    }
+    if(aii.length>0){
+      $('analogIIn').innerHTML=analogRows(aii,'mA');
+      for(const d of aii)drawSparkline('spark_'+d.labels.channel,history.analog[d.labels.channel],'#f9e2af');
+    }
+    if(aoset.length>0){
+      let h='<table class="tbl"><tr><th>Kanal</th><th>Setpoint</th></tr>';
+      for(const d of aoset){
+        h+='<tr><td>'+d.labels.channel.toUpperCase()+'</td><td>'+(d.value/100).toFixed(2)+'</td></tr>';
+      }
+      $('analogOut').innerHTML=h+'</table>';
+    }
+    if(aiv.length===0&&aii.length===0&&aoset.length===0)$('cardAnalogIo').style.display='none';
+  }
+
+  checkAlarms(m);
+  $('footRefresh').textContent='Opdateret: '+new Date().toLocaleTimeString('da-DK');
+  const up=g(m,'esp32_uptime_seconds');
+  if(up!=null)$('hdrInfo').textContent='Uptime: '+fmtUp(up);
+}
+
+async function fetchMetrics(){
+  try{
+    const r=await dashFetch('/api/metrics/public',{});
+    if(!r.ok)return;
+    const text=await r.text();
+    const m=parsePrometheus(text);
+    updateDashboard(m);
+  }catch(e){
+    $('footRefresh').textContent='Forbindelse tabt...';
+  }
+}
+
+// FEAT-407: skjuler ethvert kort admin IKKE har valgt at vise offentligt —
+// hentes ÉN gang ved indlæsning (listen ændres ikke mens siden er åben).
+function applyPublicCardVisibility(){
+  fetch('/api/public-dashboard/cards',{}).then(r=>r.json()).then(d=>{
+    const visible=(d.visible||'').split(',').map(s=>s.trim()).filter(Boolean);
+    document.querySelectorAll('#grid .card[data-card-id]').forEach(c=>{
+      c.style.display=visible.includes(c.dataset.cardId)?'':'none';
+    });
+  }).catch(()=>{});
+}
+
+applyPublicCardVisibility();
+fetchMetrics();
+fetchMbActivity();
+setInterval(fetchMetrics,3000);
+setInterval(fetchMbActivity,3000);
+</script>
+</body>
+</html>

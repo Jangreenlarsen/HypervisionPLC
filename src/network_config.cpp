@@ -52,6 +52,9 @@ void network_config_init_defaults(NetworkConfig *config)
   config->http.enabled = 1;                       // HTTP enabled by default
   config->http.port = HTTP_SERVER_PORT;           // Port 80
   config->http.auth_enabled = 1;                   // SECURITY FIX: auth on by default (was 0 — open API on factory reset)
+  // NOTE: auth_mode (FEAT-397h) sættes IKKE her — feltet bor i PersistConfig.http_auth_mode
+  // (se types.h), ikke i denne NetworkConfig. Default sættes i config_load.cpp's
+  // config_init_defaults() i stedet, som har adgang til hele PersistConfig.
   strncpy(config->http.username, "admin", sizeof(config->http.username) - 1);
   config->http.username[sizeof(config->http.username) - 1] = '\0';
   strncpy(config->http.password, "modbus123", sizeof(config->http.password) - 1);

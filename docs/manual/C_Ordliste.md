@@ -1,6 +1,6 @@
 # Appendiks C: Ordliste
 
-[← Appendiks B: REST API-reference](B_REST_API_Reference.md) · [Indeks](00_INDEKS.md)
+[← Appendiks B: REST API-reference](B_REST_API_Reference.md) · [Indeks](00_INDEKS.md) · Næste: [Appendiks D: ST Logic Funktionsreference →](D_ST_Logic_Funktionsreference.md)
 
 ---
 
@@ -9,7 +9,9 @@
 | Term | Forklaring |
 |------|------------|
 | **Modbus RTU** | Seriel udgave af Modbus-protokollen, kører over RS-485. Binært framing med CRC16-checksum. |
-| **Modbus TCP** | Modbus over Ethernet/IP-netværk. *Ikke implementeret i dette system* — kun RTU understøttes pr. denne manuals skrivetidspunkt. |
+| **Modbus TCP** | Modbus over Ethernet/IP-netværk — samme function code-baserede PDU som RTU, men indrammet i en MBAP-header i stedet for adresse+CRC16. Systemets egen Slave/Master (RS-485) taler RTU, men PLC'en taler Modbus TCP som klient mod eksterne Modbus Expansion Boards (se nedenfor og [§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)). |
+| **MBAP-header** | Modbus Application Protocol-header — de 7 byte (Transaction ID, Protocol ID, Length, Unit ID) der indrammer en Modbus TCP-PDU. Unit ID bærer den fysiske RTU slave-adresse videre gennem en TCP-gateway/expansion-board. |
+| **Modbus Expansion Board** | Et separat, fysisk "HypervisionPLC Extension Board" med egne RS485/RS232-kanaler (A/B), administreret af PLC'en over Modbus TCP + et REST-management-API. Se [§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409). |
 | **Slave / Master** | I Modbus-terminologi: Slaven svarer passivt på forespørgsler; Masteren initierer dem. Systemet kan spille begge roller (se [kapitel 6](06_Modbus_Interface.md)). |
 | **Function Code (FC)** | Nummereret operationstype i en Modbus-forespørgsel (fx FC03 = læs holding-registre). Se [§6.2](06_Modbus_Interface.md#62-understøttede-function-codes). |
 | **Holding Register** | 16-bit læs/skriv-register. Den mest almindeligt anvendte datatype i Modbus. |
@@ -57,4 +59,4 @@
 
 ---
 
-[← Appendiks B: REST API-reference](B_REST_API_Reference.md) · [Indeks](00_INDEKS.md)
+[← Appendiks B: REST API-reference](B_REST_API_Reference.md) · [Indeks](00_INDEKS.md) · Næste: [Appendiks D: ST Logic Funktionsreference →](D_ST_Logic_Funktionsreference.md)

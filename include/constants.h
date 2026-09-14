@@ -273,11 +273,41 @@ typedef enum {
   MAPPING_SOURCE_ST_VAR = 1      // Map ST Logic variable
 } VariableMappingSourceType;
 
+// FEAT-397i (schema 25+): delt kapacitet for var_maps[] (GPIO-mappinger +
+// ST Logic-variabelbindinger i samme array). Var oprindeligt 64, blev
+// reduceret til 32 for at spare NVS-plads — udvidet tilbage til 64 efter
+// at et enkelt ST-program med mange bindinger i praksis kunne blokere al
+// GPIO-konfiguration for resten af enheden. Se types.h (PersistConfig.var_maps)
+// og config_load.cpp (schema 24→25 migration) for detaljer.
+#define MAX_VAR_MAPPINGS        64
+
 /* ============================================================================
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   23      // Current config schema version (v7.9.10.23: dashboard "Custom" tab membership)
+#define CONFIG_SCHEMA_VERSION   31      // Current config schema version (schema 31: FEAT-409c tilfoejer board_type[] til ExpansionBoard, se config_load.cpp's migrationsblok. Schema 30: FEAT-409 tilfoejer expansion_board_count/expansion_boards[] til PersistConfig. Schema 29-feltet forbliver reserveret/ubrugt — FEAT-408 rullet tilbage, se BUGS_INDEX.md)
+
+// FEAT-409: HypervisionPLC Extension Board — management-API-klient.
+// EXPANSION_BOARD_MAX matcher expansion-boardets eget design (op til 8 boards).
+// EXPANSION_TOKEN_MAX rummer boardets Bearer-token med god margin (boardets
+// egen provisionering genererer typisk et 32-64 tegns token).
+#define EXPANSION_BOARD_MAX         8
+#define EXPANSION_BOARD_NAME_MAX    32
+#define EXPANSION_TOKEN_MAX         64
+
+// FEAT-409c: Kendte board-typer. Dette ER hele det validerede allow-list —
+// `board_type` skal matche PRÆCIS én af disse strenge (ellers afvises
+// tilføj/rediger). Tilføj en ny type her (+ en tilsvarende UI/CLI-gren) når
+// et nyt fysisk board-design faktisk findes — gæt ALDRIG en fremtidig types
+// kapacitets-detaljer på forhånd (YAGNI), se types.h's ExpansionBoard-note.
+#define EXPANSION_BOARD_TYPE_MAX          16
+#define EXPANSION_BOARD_TYPE_MODBUS_2CH   "modbus_2ch"   // Det eneste board-design der findes i dag: 2× RS485/RS232-selectable Modbus-kanaler (kanal A+B)
+
+// FEAT-397h: HTTP API auth mode (network.http.auth_mode) — only meaningful
+// when network.http.auth_enabled=1 ("None" mode is auth_enabled=0, unchanged
+// from the pre-existing "virtual admin" fallback, see rbac_check_http()).
+#define HTTP_AUTH_MODE_BASIC    0       // Basic-Auth OR Bearer/cookie both accepted (pre-FEAT-397h behavior)
+#define HTTP_AUTH_MODE_BEARER   1       // Only Bearer-token/cookie accepted — Basic-Auth headers rejected (except /api/login itself)
 // NOTE: v7.9.7.3 ændrer kun platformio.ini (PSRAM enable på ES32D26/WROVER) — ingen schema-ændring.
 // NOTE: schema 19->20 tilfoejer analog_ai_v[4]/analog_ai_i[4]/analog_ao[2] til PersistConfig
 // (FEAT-034/035/036) — se config_load.cpp's migrationsblok. Se BUG-339 for hvorfor denne bump
@@ -285,6 +315,33 @@ typedef enum {
 // NOTE: schema 20->21 tilfoejer https_port til PersistConfig (BUG-350) — se config_load.cpp.
 // NOTE: schema 21->22 tilfoejer rbac_salt[]/http_legacy_salt til PersistConfig og haser
 // RBAC-/legacy-HTTP-passwords (SHA-256+salt i stedet for klartekst) — se config_load.cpp.
+
+/* ============================================================================
+ * IP ACCESS CONTROL LIST (FEAT-399, schema 26+)
+ * ============================================================================ */
+
+// Delt kapacitet for acl_rules[] — samme stoerrelsesorden som andre liste-
+// baserede features i denne kodebase (RBAC_MAX_USERS=8, PERSIST_MAX_GROUPS=8),
+// men ACL-regler er billigere (8 byte/entry) og daekker typisk hele undernet
+// (CIDR), saa 32 giver rigelig headroom uden reel NVS-omkostning (256 bytes).
+#define ACL_MAX_RULES              32
+
+// AclServiceType — hvilken netvaerkstjeneste en regel gaelder for.
+#define ACL_SVC_HTTP               0   // REST API + Web-GUI + OTA (HTTP og HTTPS, port 80/443)
+#define ACL_SVC_TELNET             1   // CLI, port 23
+#define ACL_SVC_SSE                2   // Real-time push (dashboard), separat port
+#define ACL_SVC_ALL                3   // Gaelder alle tre ovenfor paa én gang
+
+// Lockout-recovery: hvor laenge en "gated" ACL-aendring (se ip_acl.cpp) kan
+// staa uden bekraeftelse foer den automatisk rulles tilbage. 5 minutter —
+// rigelig tid til at logge ind paa ny og teste, men kort nok til at enheden
+// selv-helbreder hurtigt hvis brugeren blot glemmer at bekraefte.
+#define ACL_PENDING_CONFIRM_TIMEOUT_MS   (5UL * 60UL * 1000UL)
+
+// FEAT-401 (schema 27+): ordnet permit/deny-firewall-model — acl_rules[]
+// evalueres i INDEX-raekkefolge, foerste match (service+CIDR) vinder. AclRule.action:
+#define ACL_ACTION_ALLOW           0   // "permit" — tillader eksplicit (kan bruges som undtagelse foer en deny-any-any)
+#define ACL_ACTION_DENY            1   // "deny" — blokerer (svarer til v1's eneste regeltype)
 
 /* ============================================================================
  * RBAC CONSTANTS (v7.6.2)
@@ -595,7 +652,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.28.0"
+#define PROJECT_VERSION     "7.9.67.0"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:

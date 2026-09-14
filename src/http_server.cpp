@@ -14,8 +14,11 @@
 #include <esp_log.h>
 #include <Arduino.h>
 #include <mbedtls/base64.h>
+#include <lwip/sockets.h>
+#include <lwip/inet.h>
 
 #include "http_server.h"
+#include "ip_acl.h"
 #include "https_wrapper.h"
 #include "api_handlers.h"
 #include "web_editor.h"
@@ -25,6 +28,7 @@
 #include "web_cli.h"
 #include "web_logs.h"
 #include "web_io.h"
+#include "web_common.h"
 #include "rbac.h"
 #include "ota_handler.h"
 #include "constants.h"
@@ -581,6 +585,159 @@ static const httpd_uri_t uri_rbac_user_delete = {
   .user_ctx = NULL
 };
 
+// IP Access Control List (FEAT-399) — se include/ip_acl.h
+extern esp_err_t api_handler_acl_get(httpd_req_t *req);
+extern esp_err_t api_handler_acl_post(httpd_req_t *req);
+extern esp_err_t api_handler_acl_rules_post(httpd_req_t *req);
+extern esp_err_t api_handler_acl_rule_post(httpd_req_t *req);
+extern esp_err_t api_handler_acl_rule_delete(httpd_req_t *req);
+extern esp_err_t api_handler_acl_confirm(httpd_req_t *req);
+static const httpd_uri_t uri_acl_get = {
+  .uri      = "/api/acl",
+  .method   = HTTP_GET,
+  .handler  = api_handler_acl_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_post = {
+  .uri      = "/api/acl",
+  .method   = HTTP_POST,
+  .handler  = api_handler_acl_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_rules_post = {
+  .uri      = "/api/acl/rules",
+  .method   = HTTP_POST,
+  .handler  = api_handler_acl_rules_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_rule_post = {
+  .uri      = "/api/acl/rules/*",
+  .method   = HTTP_POST,
+  .handler  = api_handler_acl_rule_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_rule_delete = {
+  .uri      = "/api/acl/rules/*",
+  .method   = HTTP_DELETE,
+  .handler  = api_handler_acl_rule_delete,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_confirm = {
+  .uri      = "/api/acl/confirm",
+  .method   = HTTP_POST,
+  .handler  = api_handler_acl_confirm,
+  .user_ctx = NULL
+};
+
+// FEAT-409: Modbus Expansion Board — management-API-klient (se include/expansion_api_client.h)
+extern esp_err_t api_handler_expansion_board_types_get(httpd_req_t *req);
+extern esp_err_t api_handler_expansion_boards_get(httpd_req_t *req);
+extern esp_err_t api_handler_expansion_boards_post(httpd_req_t *req);
+extern esp_err_t api_handler_expansion_board_put(httpd_req_t *req);
+extern esp_err_t api_handler_expansion_board_delete(httpd_req_t *req);
+extern esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req);
+extern esp_err_t api_handler_expansion_action_status_get(httpd_req_t *req);
+static const httpd_uri_t uri_expansion_board_types_get = {
+  .uri      = "/api/expansion/board-types",
+  .method   = HTTP_GET,
+  .handler  = api_handler_expansion_board_types_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_expansion_boards_get = {
+  .uri      = "/api/expansion/boards",
+  .method   = HTTP_GET,
+  .handler  = api_handler_expansion_boards_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_expansion_boards_post = {
+  .uri      = "/api/expansion/boards",
+  .method   = HTTP_POST,
+  .handler  = api_handler_expansion_boards_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_expansion_board_put = {
+  .uri      = "/api/expansion/boards/*",
+  .method   = HTTP_PUT,
+  .handler  = api_handler_expansion_board_put,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_expansion_board_delete = {
+  .uri      = "/api/expansion/boards/*",
+  .method   = HTTP_DELETE,
+  .handler  = api_handler_expansion_board_delete,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_expansion_board_action_post = {
+  .uri      = "/api/expansion/boards/*",
+  .method   = HTTP_POST,
+  .handler  = api_handler_expansion_board_action_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_expansion_action_status_get = {
+  .uri      = "/api/expansion/action-status",
+  .method   = HTTP_GET,
+  .handler  = api_handler_expansion_action_status_get,
+  .user_ctx = NULL
+};
+
+// FEAT-402: IP ACL kladde-tilstand (draft mode) — se include/ip_acl.h
+extern esp_err_t api_handler_acl_draft_get(httpd_req_t *req);
+extern esp_err_t api_handler_acl_draft_begin_post(httpd_req_t *req);
+extern esp_err_t api_handler_acl_draft_delete(httpd_req_t *req);
+extern esp_err_t api_handler_acl_draft_post(httpd_req_t *req);
+extern esp_err_t api_handler_acl_draft_rules_post(httpd_req_t *req);
+extern esp_err_t api_handler_acl_draft_rule_post(httpd_req_t *req);
+extern esp_err_t api_handler_acl_draft_rule_delete(httpd_req_t *req);
+extern esp_err_t api_handler_acl_draft_apply_post(httpd_req_t *req);
+static const httpd_uri_t uri_acl_draft_get = {
+  .uri      = "/api/acl/draft",
+  .method   = HTTP_GET,
+  .handler  = api_handler_acl_draft_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_draft_begin = {
+  .uri      = "/api/acl/draft/begin",
+  .method   = HTTP_POST,
+  .handler  = api_handler_acl_draft_begin_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_draft_delete = {
+  .uri      = "/api/acl/draft",
+  .method   = HTTP_DELETE,
+  .handler  = api_handler_acl_draft_delete,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_draft_post = {
+  .uri      = "/api/acl/draft",
+  .method   = HTTP_POST,
+  .handler  = api_handler_acl_draft_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_draft_rules_post = {
+  .uri      = "/api/acl/draft/rules",
+  .method   = HTTP_POST,
+  .handler  = api_handler_acl_draft_rules_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_draft_rule_post = {
+  .uri      = "/api/acl/draft/rules/*",
+  .method   = HTTP_POST,
+  .handler  = api_handler_acl_draft_rule_post,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_draft_rule_delete = {
+  .uri      = "/api/acl/draft/rules/*",
+  .method   = HTTP_DELETE,
+  .handler  = api_handler_acl_draft_rule_delete,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_acl_draft_apply = {
+  .uri      = "/api/acl/draft/apply",
+  .method   = HTTP_POST,
+  .handler  = api_handler_acl_draft_apply_post,
+  .user_ctx = NULL
+};
+
 // System Backup GET
 static const httpd_uri_t uri_system_backup = {
   .uri      = "/api/system/backup",
@@ -775,11 +932,40 @@ static const httpd_uri_t uri_editor = {
   .user_ctx = NULL
 };
 
-// v7.3.1: Web dashboard (homepage)
+// v7.3.1: Web dashboard — FEAT-407: flyttet fra "/" til "/dashboard" (kraever
+// login, jf. BUG-406) — "/" er nu den nye, login-fri offentlige statusside
+// (uri_status_page, web_status.cpp) i stedet.
 static const httpd_uri_t uri_dashboard = {
-  .uri      = "/",
+  .uri      = "/dashboard",
   .method   = HTTP_GET,
   .handler  = web_dashboard_handler,
+  .user_ctx = NULL
+};
+
+// FLASH-OPTIMERING v2: CSS/JS-regler der var byte-identiske paa tvaers af
+// >=2 af de 8 admin-siderne, udtrukket til web/common.css/.js og serveret
+// herfra i stedet for indlejret i hver side (se web_common.cpp).
+static const httpd_uri_t uri_common_css = {
+  .uri      = "/common.css",
+  .method   = HTTP_GET,
+  .handler  = web_common_css_handler,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_common_js = {
+  .uri      = "/common.js",
+  .method   = HTTP_GET,
+  .handler  = web_common_js_handler,
+  .user_ctx = NULL
+};
+
+// FEAT-407: ny offentlig, login-fri statusside — viser et admin-udvalgt
+// subset af dashboardets kort (se api_handler_metrics_public() og
+// api_handler_public_dashboard_cards_get()).
+extern esp_err_t web_status_handler(httpd_req_t *req);
+static const httpd_uri_t uri_status_page = {
+  .uri      = "/",
+  .method   = HTTP_GET,
+  .handler  = web_status_handler,
   .user_ctx = NULL
 };
 
@@ -905,11 +1091,20 @@ static const httpd_uri_t uri_api_version = {
   .user_ctx = NULL
 };
 
-// FEAT-032: Prometheus metrics endpoint
+// FEAT-032: Prometheus metrics endpoint (kraever login, se BUG-406)
 static const httpd_uri_t uri_metrics = {
   .uri      = "/api/metrics",
   .method   = HTTP_GET,
   .handler  = api_handler_metrics,
+  .user_ctx = NULL
+};
+
+// FEAT-407: auth-fri variant (uden register-dump) til den offentlige statusside
+extern esp_err_t api_handler_metrics_public(httpd_req_t *req);
+static const httpd_uri_t uri_metrics_public = {
+  .uri      = "/api/metrics/public",
+  .method   = HTTP_GET,
+  .handler  = api_handler_metrics_public,
   .user_ctx = NULL
 };
 
@@ -993,6 +1188,23 @@ static const httpd_uri_t uri_dashboard_layout_post = {
   .user_ctx = NULL
 };
 
+// FEAT-407: hvilke dashboard-kort vises paa den offentlige statusside — GET
+// er bevidst auth-fri (ren metadata), POST er admin-only (CHECK_AUTH_WRITE)
+extern esp_err_t api_handler_public_dashboard_cards_get(httpd_req_t *req);
+extern esp_err_t api_handler_public_dashboard_cards_post(httpd_req_t *req);
+static const httpd_uri_t uri_public_dashboard_cards_get = {
+  .uri      = "/api/public-dashboard/cards",
+  .method   = HTTP_GET,
+  .handler  = api_handler_public_dashboard_cards_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_public_dashboard_cards_post = {
+  .uri      = "/api/public-dashboard/cards",
+  .method   = HTTP_POST,
+  .handler  = api_handler_public_dashboard_cards_post,
+  .user_ctx = NULL
+};
+
 // FEAT-030: /api/v1/* dispatchers (forward to existing handlers)
 static const httpd_uri_t uri_v1_get = {
   .uri      = "/api/v1/*",
@@ -1034,6 +1246,40 @@ int http_server_init(void)
   return 0;
 }
 
+// FEAT-399: IP ACL for plain HTTP — kaldes af ESP-IDF lige efter accept(),
+// FOeR nogen request parses (bekraeftet i esp_http_server's httpd_sess.c:
+// httpd_sess_new() kalder httpd_sess_delete() og returnerer fejlen videre til
+// klienten hvis dette callback IKKE returnerer ESP_OK — en fuldt ramme-ejet,
+// sikker afvisning). Daekker KUN almindelig HTTP — HTTPS haandhaever ACL paa
+// request-laget i stedet (CHECK_AUTH*-makroerne, api_handlers.cpp), fordi
+// ESP-IDF's httpd_ssl_open() kalder et chainet open_fn EFTER TLS-handshake
+// og ignorerer dets returvaerdi fuldstaendigt — se ip_acl.h for den fulde
+// begrundelse.
+static esp_err_t http_acl_open_fn(httpd_handle_t hd, int sockfd)
+{
+  struct sockaddr_in6 addr6;
+  socklen_t addr_len = sizeof(addr6);
+  if (getpeername(sockfd, (struct sockaddr *)&addr6, &addr_len) != 0) {
+    return ESP_OK;  // Kan ikke afgoere IP — tillad (samme fail-open som rate-limiteren)
+  }
+
+  uint32_t ip = 0;
+  if (addr6.sin6_family == AF_INET) {
+    struct sockaddr_in *addr4 = (struct sockaddr_in *)&addr6;
+    ip = addr4->sin_addr.s_addr;
+  } else if (addr6.sin6_family == AF_INET6) {
+    // IPv4-mapped IPv6 (::ffff:x.x.x.x) — samme udpakning som
+    // http_get_client_info() (api_handlers.cpp) bruger.
+    struct in_addr mapped;
+    memcpy(&mapped, &addr6.sin6_addr.un.u32_addr[3], 4);
+    ip = mapped.s_addr;
+  } else {
+    return ESP_OK;  // Ukendt familie — tillad
+  }
+
+  return ip_acl_check(ip, ACL_SVC_HTTP) ? ESP_OK : ESP_FAIL;
+}
+
 int http_server_start(const HttpConfig *config)
 {
   if (!http_state.initialized) {
@@ -1069,13 +1315,14 @@ int http_server_start(const HttpConfig *config)
     uint8_t prio = (config->priority == 0) ? 3 : (config->priority == 2) ? 6 : 5;
     int ret = https_wrapper_start(&http_state.server,
                                    https_port,
-                                   128,      // BUG-354: was 96 — 98 handlers now registered (BUG-336c's
-                                             // 96 already only just covered the then-92; /api/login+
-                                             // /api/logout (BUG-353) pushed the total past it, silently
-                                             // dropping the LAST 2 registrations (uri_ota_page, uri_cli_page)
-                                             // since httpd_register_uri_handler()'s return value here isn't
-                                             // checked. Bumped with real headroom this time, not just to
-                                             // match the current count exactly.
+                                   160,      // BUG-403: was 128 — FEAT-402's 8 new /api/acl/draft*
+                                             // registrations pushed the total to 131, silently dropping
+                                             // the LAST 3 (uri_cli_page/uri_logs_page/uri_io_page — same
+                                             // "return value not checked" trap as BUG-354/BUG-336c before
+                                             // it). Bumped with real headroom this time (was 128, an EXACT
+                                             // match to that fix's count, with zero margin for the next
+                                             // batch of routes — see the checklist comment further below
+                                             // in this file, at the top of the URI-registration block).
                                    10240,    // stack (TLS handshake needs ~8-10KB)
                                    prio,
                                    0);       // BUG-336c: Core 0 (was 1) — loopTask (CLI/mb scan) and
@@ -1095,7 +1342,7 @@ int http_server_start(const HttpConfig *config)
     httpd_config_t httpd_config = HTTPD_DEFAULT_CONFIG();
     httpd_config.server_port = config->port;
     http_state.active_port = config->port;
-    httpd_config.max_uri_handlers = 128;  // BUG-354: see https_wrapper_start() call above for why
+    httpd_config.max_uri_handlers = 160;  // BUG-403: see https_wrapper_start() call above for why
     // BUG-364/366 bumpede denne til 16384 saa siden 20480, fordi FEAT-169s
     // GitHub-OTA-handlers dengang lavede deres eget KLIENT-side TLS-
     // handshake (WiFiClientSecure/HTTPClient/mbedtls) direkte INDE i denne
@@ -1136,6 +1383,7 @@ int http_server_start(const HttpConfig *config)
     // can never contend for the same core, same reasoning as the HTTPS
     // path above.
     httpd_config.core_id = 0;
+    httpd_config.open_fn = http_acl_open_fn;  // FEAT-399: IP ACL, se funktionens kommentar ovenfor
 
     esp_err_t err = httpd_start(&http_state.server, &httpd_config);
     if (err != ESP_OK) {
@@ -1150,18 +1398,23 @@ int http_server_start(const HttpConfig *config)
   // Middle-wildcards like /api/logic/*/source NEVER match.
   // Instead, wildcard handlers do internal suffix-based routing.
   //
-  // BUG-354: httpd_register_uri_handler()'s return value is NOT checked
-  // below (98 call sites) — if the actual count ever exceeds max_uri_handlers
-  // (set for both HTTP and HTTPS a bit further up in this function), the
-  // LAST registrations in this list silently fail with no boot-time error,
-  // surfacing later as "This URI does not exist" for whichever page/route
-  // happened to be registered last (bit us twice now: BUG-336c, then
-  // BUG-354 when /api/login+/api/logout pushed the count from 96 to 98).
+  // BUG-354/BUG-403: httpd_register_uri_handler()'s return value is NOT
+  // checked below (131 call sites as of BUG-403) — if the actual count ever
+  // exceeds max_uri_handlers (set for both HTTP and HTTPS a bit further up
+  // in this function), the LAST registrations in this list silently fail
+  // with no boot-time error, surfacing later as "This URI does not exist"
+  // for whichever page/route happened to be registered last. Bit us THREE
+  // times now: BUG-336c, BUG-354 (/api/login+/api/logout pushed 96→98), and
+  // BUG-403 (FEAT-402's 8 new /api/acl/draft* routes pushed 123→131 against
+  // a cap of EXACTLY 128 — zero headroom left over from BUG-354's own fix).
+  // Bumped to 160 this time (29 spare), not just to the current count.
   // After adding a new route here, run:
   //   grep -c "httpd_register_uri_handler(http_state.server" src/http_server.cpp
   // and keep max_uri_handlers comfortably above that number, not just equal to it.
   //
   // Discovery + status
+  httpd_register_uri_handler(http_state.server, &uri_common_css);
+  httpd_register_uri_handler(http_state.server, &uri_common_js);
   httpd_register_uri_handler(http_state.server, &uri_endpoints);
   httpd_register_uri_handler(http_state.server, &uri_endpoints_slash);
   httpd_register_uri_handler(http_state.server, &uri_status);
@@ -1241,6 +1494,28 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_rbac_post);
   httpd_register_uri_handler(http_state.server, &uri_rbac_users_post);
   httpd_register_uri_handler(http_state.server, &uri_rbac_user_delete);
+  httpd_register_uri_handler(http_state.server, &uri_acl_get);
+  httpd_register_uri_handler(http_state.server, &uri_acl_post);
+  httpd_register_uri_handler(http_state.server, &uri_acl_rules_post);
+  httpd_register_uri_handler(http_state.server, &uri_acl_rule_post);
+  httpd_register_uri_handler(http_state.server, &uri_acl_rule_delete);
+  httpd_register_uri_handler(http_state.server, &uri_acl_confirm);
+  // FEAT-409: Modbus Expansion Board
+  httpd_register_uri_handler(http_state.server, &uri_expansion_board_types_get);
+  httpd_register_uri_handler(http_state.server, &uri_expansion_boards_get);
+  httpd_register_uri_handler(http_state.server, &uri_expansion_boards_post);
+  httpd_register_uri_handler(http_state.server, &uri_expansion_board_put);
+  httpd_register_uri_handler(http_state.server, &uri_expansion_board_delete);
+  httpd_register_uri_handler(http_state.server, &uri_expansion_board_action_post);
+  httpd_register_uri_handler(http_state.server, &uri_expansion_action_status_get);
+  httpd_register_uri_handler(http_state.server, &uri_acl_draft_get);
+  httpd_register_uri_handler(http_state.server, &uri_acl_draft_begin);
+  httpd_register_uri_handler(http_state.server, &uri_acl_draft_delete);
+  httpd_register_uri_handler(http_state.server, &uri_acl_draft_post);
+  httpd_register_uri_handler(http_state.server, &uri_acl_draft_rules_post);
+  httpd_register_uri_handler(http_state.server, &uri_acl_draft_rule_post);
+  httpd_register_uri_handler(http_state.server, &uri_acl_draft_rule_delete);
+  httpd_register_uri_handler(http_state.server, &uri_acl_draft_apply);
   // Backup/restore
   httpd_register_uri_handler(http_state.server, &uri_system_backup);
   httpd_register_uri_handler(http_state.server, &uri_system_restore);
@@ -1266,6 +1541,7 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_api_version);
   // v7.0.4: FEAT-032 Prometheus metrics
   httpd_register_uri_handler(http_state.server, &uri_metrics);
+  httpd_register_uri_handler(http_state.server, &uri_metrics_public);
   // v7.8.0: FEAT-085 Alarm history API
   httpd_register_uri_handler(http_state.server, &uri_alarms_get);
   httpd_register_uri_handler(http_state.server, &uri_alarms_ack);
@@ -1280,6 +1556,8 @@ int http_server_start(const HttpConfig *config)
   // FEAT-108: Dashboard layout
   httpd_register_uri_handler(http_state.server, &uri_dashboard_layout_get);
   httpd_register_uri_handler(http_state.server, &uri_dashboard_layout_post);
+  httpd_register_uri_handler(http_state.server, &uri_public_dashboard_cards_get);
+  httpd_register_uri_handler(http_state.server, &uri_public_dashboard_cards_post);
   // v7.0.0: FEAT-030 /api/v1/* dispatchers
   httpd_register_uri_handler(http_state.server, &uri_v1_get);
   httpd_register_uri_handler(http_state.server, &uri_v1_post);
@@ -1296,6 +1574,7 @@ int http_server_start(const HttpConfig *config)
 
   httpd_register_uri_handler(http_state.server, &uri_editor);
   httpd_register_uri_handler(http_state.server, &uri_dashboard);
+  httpd_register_uri_handler(http_state.server, &uri_status_page);
   httpd_register_uri_handler(http_state.server, &uri_system);
   // v7.5.0: FEAT-031 OTA firmware update (register specific paths BEFORE wildcards)
   httpd_register_uri_handler(http_state.server, &uri_ota_status);

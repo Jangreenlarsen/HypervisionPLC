@@ -36,7 +36,7 @@ PersistConfig* config_struct_create_default(void) {
   g_persist_config.st_logic_interval_ms = 10;  // Default: 10ms execution interval
 
   // Initialize all var_maps as unused (important for CRC stability)
-  for (uint8_t i = 0; i < 32; i++) {
+  for (uint8_t i = 0; i < MAX_VAR_MAPPINGS; i++) {
     g_persist_config.var_maps[i].input_reg = 65535;
     g_persist_config.var_maps[i].output_reg = 65535;
     g_persist_config.var_maps[i].associated_counter = 0xff;

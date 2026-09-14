@@ -21,6 +21,7 @@
 #include "timer_config.h"
 #include "registers.h"
 #include "registers_persist.h"
+#include "ip_acl.h"
 #include "watchdog_monitor.h"
 #include "version.h"
 #include "cli_shell.h"
@@ -3489,6 +3490,10 @@ void cli_cmd_show_http(void) {
   debug_println(g_persist_config.network.http.auth_enabled ? "ENABLED" : "DISABLED");
 
   if (g_persist_config.network.http.auth_enabled) {
+    // FEAT-397h
+    debug_print("Auth Mode: ");
+    debug_println((g_persist_config.http_auth_mode == HTTP_AUTH_MODE_BEARER)
+                     ? "BEARER (Basic-Auth rejected)" : "BASIC (Basic-Auth + Bearer both accepted)");
     debug_print("Username: ");
     debug_println(g_persist_config.network.http.username);
     debug_println("Password: ***");
@@ -3555,6 +3560,7 @@ void cli_cmd_show_http(void) {
   debug_println("  set http port <port>");
   debug_println("  set http api enable|disable");
   debug_println("  set http auth enable|disable");
+  debug_println("  set http auth-mode basic|bearer");
   debug_println("  set http username <user>");
   debug_println("  set http password <pass>");
   debug_println("  save (to persist changes)\n");
@@ -4402,6 +4408,85 @@ void cli_cmd_read_input(uint8_t argc, char* argv[]) {
     debug_print(value ? "1" : "0");
     debug_println("");
   }
+  debug_println("");
+}
+
+/* ============================================================================
+ * SHOW ACL (FEAT-399: IP Access Control List)
+ * ============================================================================ */
+
+void cli_cmd_show_acl(void) {
+  debug_println("\n=== IP ACCESS CONTROL LIST ===");
+
+  debug_print("Status: ");
+  debug_println(ip_acl_get_effective_enabled() ? "ENABLED" : "DISABLED");
+
+  if (ip_acl_is_pending()) {
+    uint32_t remaining_s = ip_acl_pending_remaining_ms() / 1000;
+    debug_println("");
+    debug_print("*** AFVENTER BEKRAEFTELSE — automatisk rollback om ");
+    debug_print_uint(remaining_s);
+    debug_println(" sekunder medmindre bekraeftet ('confirm acl') ***");
+    debug_println("(regeltabellen nedenfor viser den MIDLERTIDIGE, testede tilstand)");
+  }
+
+  uint8_t count = ip_acl_get_effective_rule_count();
+  debug_println("\n--- Regler (evalueres i raekkefolge, foerste match vinder) ---");
+  if (count == 0) {
+    debug_println("(ingen regler konfigureret — alt tilladt)");
+  } else {
+    debug_println("#  | Aktion | CIDR               | Service | Status");
+    debug_println("---+--------+--------------------+---------+--------");
+    for (uint8_t i = 0; i < count; i++) {
+      AclRule r;
+      if (!ip_acl_get_effective_rule(i, &r)) continue;
+      char cidr[20];
+      ip_acl_format_cidr(r.network_addr, r.prefix_len, cidr, sizeof(cidr));
+      debug_printf("%-2d | %-6s | %-18s | %-7s | %s\n",
+                   i, ip_acl_action_name(r.action),
+                   cidr, ip_acl_service_name(r.service),
+                   r.enabled ? "aktiv" : "deaktiveret");
+    }
+    debug_println("(intet match => tilladt — tilfoej en 'deny 0.0.0.0/0'-regel nederst for at lukke helt)");
+  }
+  debug_println("");
+}
+
+// FEAT-402: viser kladdens indhold — ALDRIG haandhaevet, uanset hvad der staar
+// her. Adskilt fra cli_cmd_show_acl() (som viser den EFFEKTIVE, faktisk
+// haandhaevede tilstand) for at undgaa enhver forveksling af de to.
+void cli_cmd_show_acl_draft(void) {
+  debug_println("\n=== IP ACL — KLADDE (IKKE HAaNDHAEVET) ===");
+
+  if (!ip_acl_draft_is_active()) {
+    debug_println("Ingen aktiv kladde ('set acl draft begin' for at starte)");
+    debug_println("");
+    return;
+  }
+
+  debug_print("Kladde-status: ");
+  debug_println(ip_acl_draft_get_enabled() ? "ENABLED" : "DISABLED");
+  debug_println("(dette er UDKAST — intet heraf er haandhaevet foer 'set acl draft apply')");
+
+  uint8_t count = ip_acl_draft_get_rule_count();
+  debug_println("\n--- Kladde-regler (evalueres i raekkefolge, foerste match vinder) ---");
+  if (count == 0) {
+    debug_println("(ingen regler i kladden — alt tilladt)");
+  } else {
+    debug_println("#  | Aktion | CIDR               | Service | Status");
+    debug_println("---+--------+--------------------+---------+--------");
+    for (uint8_t i = 0; i < count; i++) {
+      AclRule r;
+      if (!ip_acl_draft_get_rule(i, &r)) continue;
+      char cidr[20];
+      ip_acl_format_cidr(r.network_addr, r.prefix_len, cidr, sizeof(cidr));
+      debug_printf("%-2d | %-6s | %-18s | %-7s | %s\n",
+                   i, ip_acl_action_name(r.action),
+                   cidr, ip_acl_service_name(r.service),
+                   r.enabled ? "aktiv" : "deaktiveret");
+    }
+  }
+  debug_println("\nBrug 'set acl draft apply' for at anvende, eller 'set acl draft discard' for at kassere.");
   debug_println("");
 }
 

@@ -279,24 +279,108 @@ void rbac_session_token_revoke(const char *token)
   taskEXIT_CRITICAL(&rbac_session_token_mux);
 }
 
+void rbac_session_token_revoke_all(void)
+{
+  taskENTER_CRITICAL(&rbac_session_token_mux);
+  for (int i = 0; i < RBAC_SESSION_TOKEN_SLOTS; i++) {
+    rbac_session_tokens[i].active = false;
+  }
+  taskEXIT_CRITICAL(&rbac_session_token_mux);
+}
+
+// BUG-393: pull the "hfplc_session" cookie's value out of a raw Cookie
+// header ("name1=value1; name2=value2; ..."). Matches only on a real
+// cookie-pair boundary (start of string, or right after "; ") so we never
+// accidentally match a DIFFERENT cookie whose own value happens to contain
+// this substring.
+bool rbac_extract_cookie_token(httpd_req_t *req, char *out, size_t out_len)
+{
+  if (!out || out_len == 0) return false;
+  out[0] = '\0';
+
+  char cookie_buf[512];
+  if (httpd_req_get_hdr_value_str(req, "Cookie", cookie_buf, sizeof(cookie_buf)) != ESP_OK) {
+    return false;
+  }
+
+  static const char *NEEDLE = "hfplc_session=";
+  const size_t needle_len = strlen(NEEDLE);
+  const char *p = cookie_buf;
+  const char *match = NULL;
+  while ((p = strstr(p, NEEDLE)) != NULL) {
+    if (p == cookie_buf || p[-1] == ' ') { match = p; break; }
+    p += 1;
+  }
+  if (!match) return false;
+
+  const char *val = match + needle_len;
+  size_t i = 0;
+  while (val[i] != '\0' && val[i] != ';' && i < out_len - 1) {
+    out[i] = val[i];
+    i++;
+  }
+  out[i] = '\0';
+  return i > 0;
+}
+
 int rbac_check_http(httpd_req_t *req)
 {
   // Extract Authorization header
   char auth_buf[256] = {0};
-  if (httpd_req_get_hdr_value_str(req, "Authorization", auth_buf, sizeof(auth_buf)) != ESP_OK) {
-    // No header — check if auth is even required
+  bool has_auth_header =
+      (httpd_req_get_hdr_value_str(req, "Authorization", auth_buf, sizeof(auth_buf)) == ESP_OK);
+
+  // BUG-353: session tokens (issued via POST /api/login) checked first — an
+  // unambiguous "Bearer " prefix, independent of RBAC-enabled/legacy mode.
+  if (has_auth_header && strncmp(auth_buf, "Bearer ", 7) == 0) {
+    return rbac_session_token_check(auth_buf + 7);
+  }
+
+  // BUG-398 (FEAT-397h-følgefejl): session-cookien tjekkes nu ALTID her,
+  // UANSET om der ogsaa er en Authorization-header til stede — ikke kun naar
+  // headeren mangler, som foer. Fundet umiddelbart efter FEAT-397h's Bearer-
+  // only-udrulning: Firefox sender proaktivt sit CACHEDE Basic-Auth-forsoeg
+  // (fra foer denne opdatering, dengang Basic blev accepteret alle steder)
+  // paa ALLE requests i denne oprindelse, ikke kun ved en 401-udfordring —
+  // se selve denne sessions BUG-395/397g/FEAT-397h-undersoegelse af netop
+  // dette. Med cookie-tjekket laengere nede (kun i "ingen header"-grenen)
+  // blev EN request med baade en gyldig session-cookie OG en forældet
+  // Basic-header afvist med det samme af FEAT-397h's Bearer-only-tjek
+  // nedenfor, FoeR cookien nogensinde blev set — en browser der reelt VAR
+  // logget rigtigt ind kunne dermed permanent ikke bruge siden, saa laenge
+  // den forældede Basic-header sad fast i browserens interne cache (kun
+  // en fuld browser-genstart rydder den, jf. denne sessions Firefox-research).
+  char cookie_token[RBAC_SESSION_TOKEN_LEN];
+  if (rbac_extract_cookie_token(req, cookie_token, sizeof(cookie_token))) {
+    int uid = rbac_session_token_check(cookie_token);
+    if (uid >= 0) return uid;
+  }
+
+  if (!has_auth_header) {
+    // Hverken header eller gyldig cookie — tjek om auth overhovedet kraeves
     if (!g_persist_config.rbac.enabled && !g_persist_config.network.http.auth_enabled) {
       return 99; // No auth required, virtual admin
     }
     return -1;
   }
 
-  // BUG-353: session tokens (issued via POST /api/login) checked first — an
-  // unambiguous "Bearer " prefix, independent of RBAC-enabled/legacy mode.
-  // Falls through to the unchanged Basic Auth logic below for anything else,
-  // so scripts/Node-RED/curl using Basic Auth directly are unaffected.
-  if (strncmp(auth_buf, "Bearer ", 7) == 0) {
-    return rbac_session_token_check(auth_buf + 7);
+  // FEAT-397h: "Bearer"-tilstand afviser Basic-Auth aktivt paa alle andre
+  // endpoints end selve login — det er praecis Basic-Auth's evne til at
+  // blive cachet permanent og usynligt i browserens EGEN interne
+  // credential-butik (adskilt fra password manager'en, ingen API til at
+  // rydde den programmatisk — bekraeftet under denne sessions BUG-395/397g-
+  // undersoegelse) der goer logout/reboot-baseret session-invalidering
+  // meningsloes, saa laenge Basic-Auth stadig accepteres uden videre.
+  // api_handler_login() (POST /api/login) SKAL blive ved med at acceptere
+  // Basic-encodede credentials uanset tilstand — det ER selve login-kaldets
+  // formaal at bytte brugernavn:password til et Bearer-token i foerste
+  // omgang, og det kalder denne samme funktion for at validere dem.
+  // (Naar vi naar hertil er en evt. cookie allerede forsoegt ovenfor og enten
+  // fravaerende eller ugyldig — kun DERFOR afgoer Basic-headeren noget her.)
+  if (g_persist_config.network.http.auth_enabled &&
+      g_persist_config.http_auth_mode == HTTP_AUTH_MODE_BEARER &&
+      strcmp(req->uri, "/api/login") != 0) {
+    return -1;
   }
 
   if (g_persist_config.rbac.enabled) {

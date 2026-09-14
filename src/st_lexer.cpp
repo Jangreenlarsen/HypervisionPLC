@@ -195,20 +195,56 @@ static bool lexer_read_integer(st_lexer_t *lexer, st_token_t *token) {
     return true;
   }
 
-  // Check for binary prefix (2#)
-  if (isdigit(lexer->current_char) && lexer_peek(lexer, 1) == '#') {
-    lexer_advance(lexer); // skip digit
-    lexer_advance(lexer); // skip #
-
-    while ((lexer->current_char == '0' || lexer->current_char == '1') && i < 63) {
-      buffer[i++] = lexer->current_char;
-      lexer_advance(lexer);
+  // Check for a radix-prefixed literal (N# or NN#, e.g. 2#1010, 8#17, 16#FF)
+  // -- IEC 61131-3 style. BUG-397 FIX: this used to only match a SINGLE
+  // leading digit, then discard it and re-lex the remainder as a plain
+  // decimal number -- so "2#1010" silently became decimal 1010, not binary
+  // 10, with no error at all. A two-digit radix like "16#FF" wasn't matched
+  // by this branch either, so it fell through and hit a hard lexer error on
+  // the stray '#' instead. This now genuinely computes the value in the
+  // given radix (2-16), or reports a clear error instead of a silent
+  // mis-parse.
+  if (isdigit(lexer->current_char)) {
+    char radix_buf[3] = {0};
+    int radix_len = 0;
+    char c0 = lexer->current_char;
+    char c1 = lexer_peek(lexer, 1);
+    char c2 = lexer_peek(lexer, 2);
+    if (isdigit((unsigned char)c0) && isdigit((unsigned char)c1) && c2 == '#') {
+      radix_buf[0] = c0; radix_buf[1] = c1; radix_len = 2;
+    } else if (isdigit((unsigned char)c0) && c1 == '#') {
+      radix_buf[0] = c0; radix_len = 1;
     }
-    buffer[i] = '\0';  // BUG-067: Explicit null terminator
-    strncpy(token->value, buffer, 255);
-    token->value[255] = '\0';
-    token->type = ST_TOK_INT;
-    return true;
+
+    if (radix_len > 0) {
+      int radix = atoi(radix_buf);
+      if (radix >= 2 && radix <= 16) {
+        for (int k = 0; k < radix_len + 1; k++) lexer_advance(lexer);  // digits + '#'
+
+        char digits[64] = {0};
+        int di = 0;
+        while (isxdigit((unsigned char)lexer->current_char) && di < 63) {
+          digits[di++] = lexer->current_char;
+          lexer_advance(lexer);
+        }
+        digits[di] = '\0';
+
+        char *endptr = NULL;
+        long val = (di > 0) ? strtol(digits, &endptr, radix) : 0;
+        if (di == 0 || endptr == digits || *endptr != '\0') {
+          token->type = ST_TOK_ERROR;
+          snprintf(token->value, sizeof(token->value),
+                   "Invalid radix-%d literal (digits must be valid for that base)", radix);
+          return false;
+        }
+
+        // Store as a plain decimal string so every existing strtol(...,0)
+        // call site downstream in the parser keeps working unchanged.
+        snprintf(token->value, sizeof(token->value), "%ld", val);
+        token->type = ST_TOK_INT;
+        return true;
+      }
+    }
   }
 
   // Standard decimal number

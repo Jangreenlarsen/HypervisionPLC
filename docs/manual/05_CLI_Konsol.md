@@ -72,6 +72,8 @@ mb reset stats                 Nulstil statistiktællere
 
 Disse kommandoer går gennem samme asynkrone kø/cache som ST Logic's Modbus-kald, og optræder derfor også i Modbus Aktivitetsloggen ([§4.2](04_Web_Dashboard_og_Monitor.md#4-2-dashboard--layout-og-faner)) med kilde `cli`.
 
+Findes der et Modbus Expansion Board på netværket ([§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)), er der en tilsvarende `mbx <board> <kanal> read|write ...`-kommandofamilie til at afprøve DETS kanaler manuelt — se [Appendiks A](A_CLI_Kommando_Reference.md#modbus-expansion-board-feat-409).
+
 ## 5.5 Fuld kommandoreference
 
 Se [**Appendiks A: CLI-kommandoreference**](A_CLI_Kommando_Reference.md) for en komplet, systematisk liste over alle `show`-, `set`- og `mb`-kommandoer med syntaks og beskrivelse.

@@ -32,7 +32,7 @@ GPIO mapping allows you to connect physical GPIO pins or virtual registers to Mo
 - ✅ Virtual GPIO (pins 100+) for register-based control
 - ✅ ST Logic variable binding to GPIO
 - ✅ Persistent storage to NVS
-- ✅ Up to 32 simultaneous mappings
+- ✅ Up to 64 simultaneous mappings (FEAT-397i, shared with ST Logic variable bindings)
 
 ---
 
@@ -436,7 +436,7 @@ save
 
 ### Maximum Mappings
 
-- **Total mappings:** 32 per configuration
+- **Total mappings:** 64 per configuration (delt mellem GPIO-mappinger og ST Logic-variabelbindinger, FEAT-397i)
 - **Virtual GPIO pins:** 100-199 (for distinction from physical pins 0-99)
 
 ### Pin Availability

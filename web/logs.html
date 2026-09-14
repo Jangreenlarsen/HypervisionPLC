@@ -1,38 +1,14 @@
 <!DOCTYPE html>
 <html lang="da">
 <head>
+  <link rel="stylesheet" href="/common.css">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HyberFusion PLC Dashboard : Logs</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-/* BUG-390: 100vh on mobile browsers is measured against the LARGEST possible
-   viewport (browser chrome collapsed), not what's actually visible when the
-   address bar is shown — with body's own overflow:hidden below, that could
-   push bottom-anchored content below the visible screen with no way to
-   scroll down to reach it. 100dvh (dynamic viewport height) tracks the
-   ACTUAL visible viewport as browser chrome shows/hides; kept 100vh first as
-   a fallback for browsers that don't support dvh (the later, supported
-   declaration simply wins). */
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
-.topnav{background:#11111b;padding:6px 16px;display:flex;gap:8px;border-bottom:2px solid #89b4fa;flex-shrink:0;align-items:center}
 .topnav .brand{font-size:14px;font-weight:700;color:#89b4fa;margin-right:12px}
 .topnav a{padding:5px 14px;font-size:12px;font-weight:600;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s}
-.topnav a:hover{background:#45475a;color:#cdd6f4}
-.topnav a.active{background:#89b4fa;color:#1e1e2e}
 .user-badge{position:relative;display:flex;align-items:center;gap:6px;margin-left:auto}
-.user-btn{padding:4px 10px;font-size:11px;background:#313244;color:#a6adc8;border-radius:4px;cursor:pointer;border:1px solid #45475a;display:flex;align-items:center;gap:5px}
-.user-btn:hover{background:#45475a;color:#cdd6f4}
-.user-btn .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
-.user-btn .dot-on{background:#a6e3a1}
-.user-btn .dot-off{background:#f38ba8}
-.user-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#181825;border:1px solid #45475a;border-radius:6px;padding:8px 0;min-width:200px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.4)}
-.user-menu.show{display:block}
-.user-menu .um-row{padding:4px 14px;font-size:11px;color:#a6adc8;display:flex;justify-content:space-between}
-.user-menu .um-row .um-val{color:#cdd6f4;font-weight:600}
-.user-menu .um-sep{border-top:1px solid #313244;margin:4px 0}
-.user-menu .um-btn{display:block;width:calc(100% - 16px);margin:4px 8px;padding:5px 10px;font-size:11px;background:#313244;color:#a6adc8;border:none;border-radius:4px;cursor:pointer;text-align:center}
-.user-menu .um-btn:hover{background:#f38ba8;color:#1e1e2e}
 .hdr{background:#181825;padding:10px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #313244;flex-shrink:0}
 .hdr h1{font-size:16px;color:#89b4fa;flex-shrink:0}
 .hdr .info{font-size:11px;color:#6c7086;margin-left:auto}
@@ -40,7 +16,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .tab-btn{padding:8px 18px;font-size:12px;font-weight:600;background:#181825;color:#a6adc8;border:1px solid #313244;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer}
 .tab-btn.active{background:#181825;color:#89b4fa;border-color:#89b4fa}
 .tab-btn:not(.active):hover{color:#cdd6f4;background:#1e1e2e}
-.content{flex:1;overflow-y:auto;padding:16px}
 .card{background:#181825;border:1px solid #313244;border-radius:8px;padding:16px 20px}
 .card h2{font-size:14px;color:#89b4fa;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #313244;display:flex;align-items:center;gap:8px}
 .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
@@ -48,14 +23,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .toolbar .spacer{flex:1}
 .badge{font-size:11px;color:#a6adc8}
 .btn{padding:6px 14px;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;transition:opacity .15s}
-.btn:disabled{opacity:.4;cursor:not-allowed}
 .btn-primary{background:#89b4fa;color:#1e1e2e}
-.btn-danger{background:#f38ba8;color:#1e1e2e}
 .btn-sm{padding:4px 10px;font-size:11px}
 .tbl{width:100%;border-collapse:collapse;font-size:12px}
 .tbl th{text-align:left;color:#89b4fa;font-weight:600;padding:6px 8px;border-bottom:1px solid #313244;position:sticky;top:0;background:#181825}
 .tbl td{padding:5px 8px;border-bottom:1px solid rgba(49,50,68,.5);font-family:'Consolas',monospace}
-.tbl tr:hover{background:rgba(49,50,68,.3)}
 .tbl-wrap{max-height:calc(100vh - 300px);overflow-y:auto}
 .method{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700}
 .method-get{background:#1e2e3e;color:#89b4fa}
@@ -64,14 +36,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .status-ok{color:#a6e3a1}
 .status-err{color:#f38ba8}
 .empty-msg{color:#6c7086;text-align:center;padding:24px;font-size:13px;display:block}
-.confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
-.confirm-overlay.show{display:flex}
-.confirm-box{background:#1e1e2e;border:1px solid #313244;border-radius:8px;padding:24px;width:360px;text-align:center}
-.confirm-box h3{color:#f38ba8;font-size:16px;margin-bottom:12px}
-.confirm-box p{font-size:12px;color:#a6adc8;margin-bottom:16px;line-height:1.5}
-.confirm-box .actions{display:flex;gap:8px;justify-content:center}
-.foot{background:#181825;border-top:1px solid #313244;padding:4px 16px;font-size:10px;color:#45475a;flex-shrink:0;display:flex;justify-content:space-between}
-[hidden]{display:none!important}
 </style>
 </head>
 <body>
@@ -79,12 +43,13 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <!-- Top Navigation -->
 <div class="topnav">
 <span class="brand">HyberFusion PLC</span>
-<a href="/">Monitor</a>
+<a href="/dashboard">Monitor</a>
 <a href="/editor">ST Editor</a>
 <a href="/cli">CLI</a>
 <a href="/system">System</a>
 <a href="/io">I/O</a>
 <a href="/logs" class="active">Logs</a>
+<a href="/ota">OTA</a>
 <div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogout" onclick="doLogout()">Log ud</div></div></div>
 </div>
 
@@ -182,10 +147,16 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 
 <div class="foot"><span>HyberFusion PLC Logs</span><span id="footVer"></span></div>
 
+<script src="/common.js"></script>
 <script>
-let AUTH=localStorage.getItem('hfplc_auth')||'';
+// BUG-393: login now uses a server-set, HttpOnly session cookie
+// (Set-Cookie from POST /api/login) instead of a Bearer token this page
+// has to remember itself — the browser sends it automatically on every
+// same-origin request. No client-side token state left to lose, which is
+// what made BUG-392/389/389b (all iOS-Safari-specific breakage) possible
+// in the first place.
 let pendingConfirmFn=null;
-function $(id){return document.getElementById(id)}
+
 
 // --- Tabs ---
 function switchTab(name){
@@ -202,63 +173,88 @@ function doLogin(){
   const u=$('authUser').value, p=$('authPass').value;
   if(!u||!p){$('loginErr').style.display='block';$('loginErr').textContent='Udfyld begge felter';return}
   const basicAuth='Basic '+btoa(u+':'+p);
+  // FEAT-399-følgefejl: skeln 403 ("Blocked by IP ACL", se §10.7.1) fra 401
+  // (reelt forkerte credentials) — ellers viser UI'et "forkert kodeord" for
+  // en helt anden, forbigående årsag som auto-ruller tilbage af sig selv.
   fetch('/api/login',{method:'POST',headers:{'Authorization':basicAuth}}).then(r=>{
-    if(!r.ok)throw new Error('Auth failed');
+    if(r.status===403)throw new Error('acl');
+    if(!r.ok)throw new Error('auth');
     return r.json();
   }).then(d=>{
-    if(!d.token)throw new Error('No token');
-    AUTH='Bearer '+d.token;
-    localStorage.setItem('hfplc_auth',AUTH);
+    if(!d.authenticated)throw new Error('auth');
     $('loginModal').classList.remove('show');
-    fetchLogs();
+    // BUG-393b: updateUserBadge() first — see the same reasoning at this
+    // page's page-load bootstrap call further down.
     updateUserBadge();
-  }).catch(()=>{
+    fetchLogs();
+  }).catch(e=>{
     $('loginErr').style.display='block';
-    $('loginErr').textContent='Forkert brugernavn eller adgangskode';
+    $('loginErr').textContent=(e.message==='acl')
+      ? 'Denne IP-adresse er blokeret af IP ACL\'en. Enheden retter en ny, ubekræftet regel automatisk inden for 5 minutter — prøv igen om lidt.'
+      : 'Forkert brugernavn eller adgangskode';
   });
 }
 $('authPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
-if(AUTH){fetch('/api/status',{headers:{'Authorization':AUTH}}).then(r=>{if(r.ok){fetchLogs();updateUserBadge();}else{AUTH='';localStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');}}).catch(()=>{$('loginModal').classList.add('show');});}
-else{$('loginModal').classList.add('show');}
-
-// --- Confirm Dialog ---
-function askConfirm(title,msg,fn){$('confirmTitle').textContent=title;$('confirmMsg').textContent=msg;pendingConfirmFn=fn;$('confirmDlg').classList.add('show');}
-function closeConfirm(){$('confirmDlg').classList.remove('show');pendingConfirmFn=null}
-function confirmAction(){var fn=pendingConfirmFn;closeConfirm();if(fn)fn()}
 
 // BUG-369c-mønster: hårdt loft på samtidige forbindelser.
+// BUG-394b: denne blok SKAL staa foer det foerste updateUserBadge()/fetchLogs()
+// bootstrap-kald nedenfor — de bruger queuedFetch(), som laeser
+// _apiFetchQueue/_apiFetchActive. Disse er `let`/`const` (ikke hoisted som
+// funktionserklaeringer), saa et kald FOeR denne blok udfoeres rammer
+// midlertidig-dod-zone (TDZ): "Cannot access '_apiFetchQueue' before
+// initialization" — kastet inde i queuedFetch()'s Promise-executor, hvilket
+// goer det til et rejected promise (ikke en synkron exception), som
+// updateUserBadge()s stille .catch(()=>{}) sluger usynligt. Ramte /logs (og
+// /io, /system — samme fejl der) fordi BUG-393b flyttede updateUserBadge()
+// til FOeRST i bootstrap-raekkefoelgen uden at tjekke at koeens deklarationer
+// stod foer det nye kaldested.
 let _apiFetchActive=0;
 const _apiFetchQueue=[];
 const API_FETCH_MAX_CONCURRENT=2;
-function _apiFetchPump(){
-  while(_apiFetchActive<API_FETCH_MAX_CONCURRENT && _apiFetchQueue.length>0){
-    const job=_apiFetchQueue.shift();
-    _apiFetchActive++;
-    fetch(job.url,job.opts).then(r=>{_apiFetchActive--;_apiFetchPump();job.resolve(r);})
-      .catch(e=>{_apiFetchActive--;_apiFetchPump();job.reject(e);});
-  }
-}
-function queuedFetch(url,opts){return new Promise((resolve,reject)=>{_apiFetchQueue.push({url,opts,resolve,reject});_apiFetchPump();});}
+
+
 function api(url,opts={}){
-  if(AUTH){if(!opts.headers)opts.headers={};opts.headers['Authorization']=AUTH;}
   return queuedFetch(url,opts).then(r=>{
-    if(r.status===401){AUTH='';localStorage.removeItem('hfplc_auth');$('loginModal').classList.add('show');throw new Error('Login');}
+    if(r.status===401){$('loginModal').classList.add('show');throw new Error('Login');}
     return r;
   });
 }
 
+// BUG-393: used to proactively probe /api/status first (with its own
+// network-vs-401 distinction to get wrong, see BUG-389/389b). Simpler and
+// structurally immune to that bug class: just start loading — if not
+// logged in (or the cookie's session expired), the first real request
+// 401s and api()'s own handling below shows the modal.
+// BUG-393b: updateUserBadge() called FIRST, not after fetchLogs() — if
+// fetchLogs() ever throws synchronously, the next statement would never
+// run, silently leaving the badge on its default "not logged in" text.
+updateUserBadge();
+fetchLogs();
+
+// --- Confirm Dialog ---
+function askConfirm(title,msg,fn){$('confirmTitle').textContent=title;$('confirmMsg').textContent=msg;pendingConfirmFn=fn;$('confirmDlg').classList.add('show');}
+
+
+
 // === User Badge ===
-function toggleUserMenu(){$('userMenu').classList.toggle('show')}
+
 document.addEventListener('click',function(e){const b=$('userBtn'),m=$('userMenu');if(b&&m&&!b.contains(e.target)&&!m.contains(e.target))m.classList.remove('show')});
 function updateUserBadge(){
-  const auth=localStorage.getItem('hfplc_auth');
-  const opts=auth?{headers:{'Authorization':auth}}:{};
-  fetch('/api/user/me',opts).then(r=>r.json()).then(d=>{
+  // BUG-393b: route through the same queuedFetch() throttle every other
+  // request on this page uses — a plain unqueued fetch() here could exceed
+  // the device's max_open_sockets alongside the page's own burst of queued
+  // calls and lose the race (BUG-369's original heap-crash class of bug, on
+  // this page it just silently left the badge unset instead).
+  queuedFetch('/api/user/me',{}).then(r=>r.json()).then(d=>{
     if(d.authenticated){$('userName').textContent=d.username;$('userDot').className='dot dot-on';$('umUser').textContent=d.username;$('umRoles').textContent=d.roles||'all';$('umPriv').textContent=d.privilege||'rw';$('umMode').textContent=d.mode||'legacy';$('umLogout').style.display='block'}
     else{$('userName').textContent='Ikke logget ind';$('userDot').className='dot dot-off';$('umLogout').style.display='none'}
   }).catch(()=>{});
 }
-function doLogout(){if(AUTH){fetch('/api/logout',{method:'POST',headers:{'Authorization':AUTH}}).catch(()=>{})}localStorage.removeItem('hfplc_auth');AUTH='';$('userName').textContent='Ikke logget ind';$('userDot').className='dot dot-off';$('userMenu').classList.remove('show');$('loginModal').classList.add('show')}
+function doLogout(){
+// BUG-393: cookie is HttpOnly, always POST unconditionally — server reads
+// it itself and clears it in the response either way. Reload afterward to
+// reliably stop this page's polling and blank any already-rendered data.
+fetch('/api/logout',{method:'POST'}).catch(()=>{}).then(()=>{location.reload();});}
 
 // ============================================================
 // AUDIT LOG (FEAT-033)
@@ -328,22 +324,8 @@ function toggleSyslog(){
     renderSyslog();
   }).catch(()=>{});
 }
-function syslogTimeString(e){
-  if(e.epoch_s&&e.epoch_s>0){
-    const d=new Date(e.epoch_s*1000);
-    const pad=n=>String(n).padStart(2,'0');
-    return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
-  }
-  const s=Math.floor(e.timestamp_ms/1000);
-  return String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor((s%3600)/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
-}
-function syslogDetail(e){
-  if(e.category==='regchange'){
-    const kind=e.is_coil?'Coil':'HR';
-    return kind+e.reg_addr+': '+e.old_value+' → '+e.new_value;
-  }
-  return e.message||'';
-}
+
+
 function exportSyslog(){
   api('/api/syslog').then(r=>r.json()).then(d=>{
     const rows=d.entries||[];

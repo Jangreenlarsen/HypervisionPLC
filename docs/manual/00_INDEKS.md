@@ -10,7 +10,7 @@
 
 ---
 
-**Version:** v7.9.8.5 · **Platform:** ESP32-WROOM-32 / ESP32-WROVER / ESP32-S3
+**Version:** v7.9.64.0 · **Platform:** ESP32-WROOM-32 / ESP32-WROVER / ESP32-S3
 
 </div>
 
@@ -42,7 +42,7 @@ Manualen er skrevet som en **modulær samling af selvstændige kapitler**, så d
 
 | # | Kapitel | Indhold |
 |---|---------|---------|
-| 6 | [Modbus-interface](06_Modbus_Interface.md) | RTU Slave + Master, register-map, function codes, adressering |
+| 6 | [Modbus-interface](06_Modbus_Interface.md) | RTU Slave + Master, register-map, function codes, adressering, Modbus Expansion Boards (Modbus TCP) |
 | 7 | [REST API](07_REST_API.md) | Autentificering, endpoints, integrationseksempler (curl/Python/Node-RED) |
 | 8 | [ST Logic-programmering](08_ST_Logic_Programmering.md) | IEC 61131-3-sproget, VM'en, builtins, eksempelprogrammer, fjernovervågning via REST |
 | 9 | [Tællere & Timere](09_Taellere_og_Timere.md) | Dedikerede hardware-tællere (SW/HW/ISR) og timer-funktionsblokke |
@@ -63,6 +63,7 @@ Manualen er skrevet som en **modulær samling af selvstændige kapitler**, så d
 | A | [CLI-kommandoreference](A_CLI_Kommando_Reference.md) | Komplet liste over alle `show`/`set`/`mb`-kommandoer |
 | B | [REST API-reference](B_REST_API_Reference.md) | Komplet liste over alle endpoints, metoder og auth-krav |
 | C | [Ordliste](C_Ordliste.md) | Forklaring af fagtermer (Modbus, IEC 61131-3, netværk) |
+| D | [ST Logic Funktionsreference](D_ST_Logic_Funktionsreference.md) | Komplet reference: alle datatyper, kontrolstrukturer, operatorer og indbyggede funktioner i ST-sproget |
 
 ---
 
@@ -73,6 +74,9 @@ Manualen er skrevet som en **modulær samling af selvstændige kapitler**, så d
 - **Skrive dit første ST Logic-program** → [Kapitel 8: Kom i gang](08_ST_Logic_Programmering.md#kom-i-gang-et-foerste-program)
 - **Læse/skrive et register via REST API** → [Kapitel 7: Register- og coil-endpoints](07_REST_API.md#registre-og-coils)
 - **Opsætte Modbus Master mod eksterne enheder** → [Kapitel 6: Master-rollen](06_Modbus_Interface.md#modbus-master)
+- **Tilslutte og styre et Modbus Expansion Board (MBX_*)** → [Kapitel 6.7: Modbus Expansion Boards](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)
+- **Bruge en GPIO-indgang (inkl. de multiplexede skifteregister-kanaler) fra ST Logic** → [Kapitel 8: GPIO-bindinger](08_ST_Logic_Programmering.md#813-gpio-indgange-i-st-logic-bindings-mode)
+- **Tillade/blokere adgang fra bestemte IP'er/subnet (IP ACL, permit/deny, kladde-tilstand)** → [Kapitel 10: IP Access Control List](10_Sikkerhed_og_Adgangsstyring.md#107-ip-access-control-list-feat-399401402)
 - **Opdatere firmware (OTA)** → [Kapitel 11: OTA-opdatering](11_Backup_Restore_og_Firmware.md#ota-firmwareopdatering)
 - **Enheden svarer ikke / mistænkelig opførsel** → [Kapitel 13: Fejlfinding](13_Fejlfinding.md)
 

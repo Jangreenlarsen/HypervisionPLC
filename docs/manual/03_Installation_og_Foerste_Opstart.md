@@ -71,7 +71,9 @@ Se hele kommandosættet i [Appendiks A](A_CLI_Kommando_Reference.md#netv%C3%A6rk
 
 ## 3.5 Første login på webdashboardet
 
-Når enheden har en IP-adresse: åbn `http://<enhedens-ip>/` i en browser.
+Når enheden har en IP-adresse: åbn `http://<enhedens-ip>/` i en browser. **Siden "/" er en offentlig, login-fri statusside** (FEAT-407) — I ser med det samme et skrivebeskyttet overblik uden at logge ind. Klik **"Log ind for fuld adgang →"** øverst til højre (eller gå direkte til `/dashboard`) for at få login-dialogen frem og få adgang til konfiguration/redigering:
+
+![Login-dialogen, fremkaldt ved at åbne en login-krævende side](assets/screenshots/login_modal.png)
 
 **Fabriksstandard-credentials:**
 
@@ -94,7 +96,7 @@ set telnet pass <nyt-stærkt-kodeord>
 ```
 
 Overvej desuden:
-- Aktivér HTTP Basic Auth hvis den ikke allerede er slået til: `set http auth on`
+- Aktivér HTTP auth hvis den ikke allerede er slået til: `set http auth on` (auth-metoden er som standard `bearer` — se [§10.3.1](10_Sikkerhed_og_Adgangsstyring.md#1031-auth-metode-none--basic--bearer-feat-397h-fra-v79420))
 - Aktivér HTTPS/TLS hvis I har brug for kryptering på ledningen: `set http tls on` (kræver reboot) — se [kapitel 10](10_Sikkerhed_og_Adgangsstyring.md) for forudsætninger
 - Overvej at deaktivere telnet helt til fordel for web-CLI, hvis fjernadgang via netværk ikke er nødvendig: `set telnet disable`
 - Gennemgå [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) for kendte, endnu-ikke-lukkede sikkerhedspunkter der er relevante for jeres installation (f.eks. OTA-adgangskontrol)

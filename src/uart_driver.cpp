@@ -219,3 +219,4 @@ void uart1_flush_tx(void) {
   // Wait for TX to complete
   ModbusSlaveSerial->flush();
 }
+

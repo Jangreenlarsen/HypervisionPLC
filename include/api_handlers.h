@@ -231,6 +231,63 @@ esp_err_t api_handler_rbac_users_post(httpd_req_t *req);
 esp_err_t api_handler_rbac_user_delete(httpd_req_t *req);
 
 /* ============================================================================
+ * IP ACCESS CONTROL LIST ENDPOINTS (FEAT-399) — se include/ip_acl.h
+ * ============================================================================ */
+
+/** GET /api/acl — effektiv status (enabled, regler, pending-confirm) */
+esp_err_t api_handler_acl_get(httpd_req_t *req);
+
+/** POST /api/acl — Enable/disable ACL (body: {"enabled":bool}) — kan "gate" */
+esp_err_t api_handler_acl_post(httpd_req_t *req);
+
+/** POST /api/acl/rules — Tilfoej regel (body: {"cidr","service","action","enabled"}) — kan "gate" */
+esp_err_t api_handler_acl_rules_post(httpd_req_t *req);
+
+/** POST /api/acl/rules/{index} — FEAT-401: body med KUN "enabled" er til/fra-toggle;
+ *  body med cidr/service/action er en fuld redigering (ip_acl_rule_edit()); et
+ *  "/move"-URI-suffiks (body {"to_index":N}) dispatches internt til flytte-logikken
+ *  (samme handler — se acl_rule_move_dispatch() i api_handlers.cpp) — kan "gate" */
+esp_err_t api_handler_acl_rule_post(httpd_req_t *req);
+
+/** DELETE /api/acl/rules/{index} — Slet en regel — FEAT-401: kan nu "gate" (sletning af en ALLOW-regel) */
+esp_err_t api_handler_acl_rule_delete(httpd_req_t *req);
+
+/** POST /api/acl/confirm — Bekraeft en ventende aendring */
+esp_err_t api_handler_acl_confirm(httpd_req_t *req);
+
+/* ============================================================================
+ * FEAT-402: IP ACL KLADDE-TILSTAND (draft mode) — se include/ip_acl.h
+ * Kladde-CRUD'en gater ALDRIG (ingen haandhaevelse foer apply); kun
+ * api_handler_acl_draft_apply_post() kan udloese pending-confirm-flowet.
+ * ============================================================================ */
+
+/** GET /api/acl/draft — kladdens indhold ({"active","enabled","rule_count","rules":[...]}) */
+esp_err_t api_handler_acl_draft_get(httpd_req_t *req);
+
+/** POST /api/acl/draft/begin — starter en ny kladde (kopi af den bekraeftede tilstand) */
+esp_err_t api_handler_acl_draft_begin_post(httpd_req_t *req);
+
+/** DELETE /api/acl/draft — kasserer kladden uden at haandhaeve noget */
+esp_err_t api_handler_acl_draft_delete(httpd_req_t *req);
+
+/** POST /api/acl/draft — til/fra-slaar kladdens overordnede ACL-flag (body: {"enabled":bool}) */
+esp_err_t api_handler_acl_draft_post(httpd_req_t *req);
+
+/** POST /api/acl/draft/rules — tilfoej regel til kladden (samme body-form som /api/acl/rules) */
+esp_err_t api_handler_acl_draft_rules_post(httpd_req_t *req);
+
+/** POST /api/acl/draft/rules/{index} — edit/toggle af en kladde-regel; "/move"-suffiks
+ *  (body {"to_index":N}) dispatches til flytte-logikken — samme moenster som den direkte variant */
+esp_err_t api_handler_acl_draft_rule_post(httpd_req_t *req);
+
+/** DELETE /api/acl/draft/rules/{index} — slet en kladde-regel */
+esp_err_t api_handler_acl_draft_rule_delete(httpd_req_t *req);
+
+/** POST /api/acl/draft/apply — anvender HELE kladden atomisk. Kan "gate" praecis
+ *  som en direkte mutation (samme pending-confirm-svar/-flow, se ip_acl_draft_apply()) */
+esp_err_t api_handler_acl_draft_apply_post(httpd_req_t *req);
+
+/* ============================================================================
  * BACKUP / RESTORE ENDPOINTS
  * ============================================================================ */
 
@@ -288,8 +345,12 @@ esp_err_t api_handler_sse_status(httpd_req_t *req);
 /** FEAT-030: GET /api/version — API version info */
 esp_err_t api_handler_api_version(httpd_req_t *req);
 
-/** FEAT-032: GET /api/metrics — Prometheus metrics */
+/** FEAT-032: GET /api/metrics — Prometheus metrics (kraever login, se BUG-406) */
 esp_err_t api_handler_metrics(httpd_req_t *req);
+
+/** FEAT-407: GET /api/metrics/public — samme som ovenfor MINUS register-dumpet,
+ *  bevidst UDEN auth — datakilde for den offentlige statusside (web/status.html) */
+esp_err_t api_handler_metrics_public(httpd_req_t *req);
 
 /** NTP API (v7.8.1) */
 esp_err_t api_handler_ntp_get(httpd_req_t *req);

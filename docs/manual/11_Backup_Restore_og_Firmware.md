@@ -39,6 +39,8 @@ Firmware kan opdateres over netværket uden at skulle koble USB til igen:
 
 **Størrelsesgrænse:** maks. ca. **1,8 MB** (1.900.544 bytes, svarende til én OTA-partition). Upload afvises med en tydelig fejlbesked hvis filen er for stor.
 
+![/ota-siden — firmwareinformation og upload-zone](assets/screenshots/ota_page.png)
+
 > **Adgangskontrol:** OTA-upload/rollback kræver eksplicit skriverettighed (rettet i BUG-355) — en bruger med kun læse-adgang kan ikke flashe firmware. **Stadig ingen kryptografisk firmware-signaturverifikation** — se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #2.
 
 ### 11.3a Opdatering direkte fra GitHub (FEAT-169)

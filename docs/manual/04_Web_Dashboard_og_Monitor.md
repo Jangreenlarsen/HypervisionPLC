@@ -6,19 +6,26 @@
 
 ## 4.1 Sideoversigt
 
-Webgrænsefladen består af syv sider, alle bag samme login og samme topnavigation:
+Webgrænsefladen består af otte sider — en offentlig, login-fri statusside plus syv login-krævende sider bag samme topnavigation:
 
-| Side | URL | Formål |
-|------|-----|--------|
-| **Dashboard** | `/` | Live-monitor: system, netværk, Modbus, alarmer, tællere/timere, ST Logic |
-| **ST Logic Editor** | `/editor` | Skriv, kompilér, upload og debug ST-programmer med runtime-monitor |
-| **Web-CLI** | `/cli` | Fuld CLI-konsol i browseren — samme kommandoer som seriel/telnet |
-| **System** | `/system` | Systemindstillinger (uden for det almindelige `set`-CLI-flow) |
-| **I/O** | `/io` | Konfiguration af Tællere, Timere og GPIO statisk mapping (FEAT-171) |
-| **Logs** | `/logs` | API Audit Log + Hændelseslog i fuld sidebredde, som faner (FEAT-172) — se [§4.2](#42-dashboard--layout-og-faner) |
-| **OTA-opdatering** | `/ota` | Upload ny firmware |
+| Side | URL | Login krævet? | Formål |
+|------|-----|:---:|--------|
+| **Status** | `/` | Nej (FEAT-407) | Offentligt, admin-udvalgt statusoverblik — se nedenfor |
+| **Dashboard** | `/dashboard` | Ja | Live-monitor: system, netværk, Modbus, alarmer, tællere/timere, ST Logic |
+| **ST Logic Editor** | `/editor` | Ja | Skriv, kompilér, upload og debug ST-programmer med runtime-monitor |
+| **Web-CLI** | `/cli` | Ja | Fuld CLI-konsol i browseren — samme kommandoer som seriel/telnet |
+| **System** | `/system` | Ja | Systemindstillinger (uden for det almindelige `set`-CLI-flow) |
+| **I/O** | `/io` | Ja | Konfiguration af Tællere, Timere og GPIO statisk mapping (FEAT-171) |
+| **Logs** | `/logs` | Ja | API Audit Log + Hændelseslog i fuld sidebredde, som faner (FEAT-172) — se [§4.2](#42-dashboard--layout-og-faner) |
+| **OTA-opdatering** | `/ota` | Ja | Upload ny firmware |
 
-Login sker via HTTP Basic Auth; browseren gemmer credentials i `sessionStorage` for resten af sessionen (går tabt ved lukning af fanen).
+**Login sker via en server-sat, HttpOnly session-cookie** (`POST /api/login`, se [§10.3](10_Sikkerhed_og_Adgangsstyring.md#103-standard-credentials--skal-aendres) for den fulde arkitekturforklaring, BUG-393) — browseren sender og opbevarer den automatisk, der er intet for JavaScript (eller jer) at gemme manuelt. En aktiv fane logges ikke ud; en glemt fane gør efter 30 minutters inaktivitet.
+
+### Den offentlige statusside (`/`, FEAT-407)
+
+Siden "/" kræver **ikke** login og viser et admin-udvalgt, skrivebeskyttet subset af dashboard-kortene (vælges under `/system` → "Offentlig statusside") — praktisk til fx et infoskærm-visning i produktionen, uden at dele login-adgang ud. Klik **"Log ind for fuld adgang →"** for at komme til det fulde, login-krævende `/dashboard`:
+
+![Den offentlige statusside — login-frit overblik](assets/screenshots/status_public.png)
 
 ## 4.2 Dashboard — layout og faner
 
@@ -51,6 +58,10 @@ Dashboardet er organiseret i **kort** (cards), grupperet under faner:
 
 **Modbus Aktivitetslog** — et wire-level-vindue ind i hvad der rent faktisk sker på Modbus-interfacet lige nu: hver transaktion (Master *og* Slave-rolle) med rolle, kilde (ST Logic/CLI/dashboard/ekstern master), slave-ID, function code, adresse, værdi og status. RAM-only (nulstilles ved reboot), fungerer som et levende diagnoseværktøj — se [kapitel 13](13_Fejlfinding.md) for hvordan den bruges til fejlsøgning.
 
+![Modbus-fanen — Slave/Master/Expansion Boards/Bus Health side om side](assets/screenshots/dashboard_modbus_tab.png)
+
+**Modbus Expansion Boards (FEAT-409b)** — online/offline-badge pr. tilsluttet expansion-board (grøn/rød/grå), plus et samlet "N/M online"-badge i kort-overskriften. Tjekkes automatisk hvert 30. sekund, så længe dashboardet er åbent i en browser — se [§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409) for opsætning og den kontinuerlige `MBX_*`-datatrafik.
+
 **RS-485 Bus Health (FEAT-096)** — samlet bus-niveau-overblik der supplerer Slave-/Master-kortene: kombineret fejlrate på tværs af begge roller, "bus busy/kontention" (antal gange master ikke kunne opnå UART-mutex'en — en praktisk kollisions-proxy for enkelt-transceiver-arkitekturen, se [§6.1](06_Modbus_Interface.md)), og et **estimeret** bus-belastningstal (request-rate × en antaget gennemsnitlig frame-størrelse ÷ baudrate — IKKE en direkte målt værdi, tydeligt mærket som sådan i kortet, da firmwaren ikke i dag har byte-niveau UART-instrumentering).
 
 **Trend Recorder (FEAT-099)** — optag op til 8 vilkårlige registre (Holding/Input/Coil/Discrete Input, blandet frit) på et konfigurerbart interval (500ms-60s) til en RAM-only ringbuffer (720 samples), og eksportér som CSV til commissioning/dybere offline-analyse i f.eks. Excel. Adskiller sig fra Hændelseslogens registerændrings-sporing ved at sample **periodisk uanset om værdien har ændret sig** — et ægte tidsserie-værktøj, ikke en audit-log. Konfiguration og data er bevidst IKKE persisteret (nulstilles ved reboot) — en rekonfiguration (tilføj/fjern målepunkt, skift interval) stopper og rydder altid eksisterende data, så en "session" altid starter frisk.
@@ -71,6 +82,8 @@ Antalsfeltet styrer hvor mange linjer der **hentes og vises** (standard 100). Da
 
 **Hændelseslog** — audit-spor over *hvem* der har lavet *hvad* og *hvornår*: config gemt, reboot (REST/CLI/OTA), login-fejl og boot ("Hændelser"), samt registerændringer skrevet via REST API eller af en ekstern Modbus-master ("Registerændringer" — gammel/ny værdi, adresse, og for REST-kald hvilken bruger + klient-IP). Ringbuffer på **200 poster** i PSRAM, samme start/stop-, CSV-eksport- og filtreringsmønster som Modbus Aktivitetslog ovenfor. **Dækker bevidst ikke** CLI-skrivninger eller ST Logics periodiske output-binding — se [Appendiks B.16a](B_REST_API_Reference.md) for begrundelsen. **FEAT-172:** samme Hændelseslog findes nu også som sin egen fane på **`/logs`**-siden (link i topnavigationen), i fuld sidebredde ved siden af API Audit Log-fanen — brug dashboard-kortet til hurtigt overblik undervejs, og `/logs`-siden når du har brug for mere skærmplads til at grave i en lang log.
 
+![/logs-siden — API Audit Log-fanen, fuld sidebredde](assets/screenshots/logs_page.png)
+
 **Digital I/O** — live-visning og manuel styring af digitale ind-/udgange.
 
 **Analog I/O** (kun ES32D26) — live-visning af de 4 spændingsindgange (Vi1-4, 0-10V), 4 strømindgange (Ii1-4, 4-20mA) og 2 analoge udgange (AO1-2, DAC). Kortet skjules automatisk hvis ingen kanaler er aktiveret. Sæt en ny AO-værdi direkte fra dashboardet (felt + "Sæt"-knap) — virker med det samme, ligesom Digital I/O's toggle-knapper.
@@ -79,9 +92,27 @@ Kanaler aktiveres og kalibreres via CLI (`set analog <vi1-4|ii1-4|ao1-2> enabled
 
 **Tællere / Timere / ST Logic** — status og seneste værdier for hver af de 4 tællere, 4 timere og 4 ST-programmer.
 
+### Registre, Register Map og Indstillinger
+
+Ud over selve "Metrics"-visningen (kort/faner, beskrevet ovenfor) har `/dashboard` tre yderligere undersider, valgt via knapperne øverst til venstre (Metrics/Registre/Register Map/Indstillinger):
+
+**Registre** — en rå gitter-visning af hele register-lageret (Holding Registers, Input Registers, Coils, Discrete Inputs, 256 af hver), 16×16-tabeller hvor hver celle viser sin aktuelle værdi live og kan holdes over for detaljer. Nyttigt til hurtigt at bekræfte "står der overhovedet noget i register 142 lige nu", uden at skulle bruge CLI'ens `show hr`/`show coil` eller REST API'et:
+
+![Registre-visningen — rå HR/Coil-gitter](assets/screenshots/dashboard_registre.png)
+
+**Register Map** — viser hvem der EJER hvert register-interval (Counter/Timer/ST Logic/Manuel-System/Ledig), farvekodet efter ejer-type. Det samme formål som [`../../MODBUS_REGISTER_MAP.md`](../../MODBUS_REGISTER_MAP.md)-filen, men live og interaktivt i browseren i stedet for en statisk fil — praktisk når man skal finde en ledig registerblok til en ny binding uden at støde ind i noget der allerede er i brug:
+
+![Register Map — register-allokering farvekodet efter ejer](assets/screenshots/dashboard_regmap.png)
+
+**Indstillinger** — dashboardets egen konfigurationsside: hvilke kort der er synlige, hvilken fane hvert kort hører til, og hvilke kort der (også) skal vises på den uafhængige Custom-fane (FEAT-167, se ovenfor). Gemmes på selve ESP32'en (delt for alle brugere), i modsætning til selve kort-*placeringen*, som er lokal pr. browser/skærmstørrelse:
+
+![Dashboard Indstillinger — kort-synlighed og fane-tildeling](assets/screenshots/dashboard_indstillinger.png)
+
 ## 4.3 ST Logic Editor
 
 Se [kapitel 8](08_ST_Logic_Programmering.md) for selve sproget. Dette afsnit dækker værktøjet.
+
+![ST Logic Editor — kildekode med syntax-highlighting og funktions-reference](assets/screenshots/editor_page.png)
 
 Editoren har 4 uafhængige program-faner (Logic1-4), vist øverst i deres egen række sammen med **Editor**-knappen (som skifter tilbage til kildekode-visningen — placeret her og ikke i værktøjslinjen, da den hører logisk sammen med program-valget, ikke med selve handlingerne på det valgte program). Værktøjslinjen:
 
@@ -117,6 +148,8 @@ Begge dele var tidligere kun tilgængelige via CLI. Ændringer aktiveres med det
 ## 4.4 Web-CLI (`/cli`)
 
 En fuld terminal-emulering i browseren, med samme kommandosæt som seriel/telnet-konsollen (se [kapitel 5](05_CLI_Konsol.md)). Praktisk når man er logget ind via HTTPS og ikke ønsker at åbne en separat telnet-session — og det eneste af de tre konsol-adgange der kan beskyttes af TLS.
+
+![Web-CLI — samme kommandosæt som seriel/telnet, her "show logic 1"](assets/screenshots/cli_page.png)
 
 ## 4.5 Real-time opdatering (SSE)
 

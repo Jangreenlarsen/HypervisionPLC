@@ -33,6 +33,56 @@ Det mest almindeligt anvendte board i felten. Alt IO er hardware-signalkondition
 
 Digitale ind- og udgange tilgås internt som **virtuelle GPIO'er** (101-108 for indgange, 201-208 for relæudgange), så de kan bindes til Modbus-registre og ST Logic-variabler på præcis samme måde som fysiske GPIO-pins.
 
+**DI1-8/DO1-8 — de navne du ser i web-GUI'ets `/io`-side og typisk også på boardets egne klemmer — ER blot brugervenlige navne for disse samme virtuelle GPIO-numre, ikke en tredje, separat adressering:**
+
+| GUI-/klemme-navn | Virtuel GPIO | GUI-/klemme-navn | Virtuel GPIO |
+|---|---|---|---|
+| DI1 | 101 | DO1 | 201 |
+| DI2 | 102 | DO2 | 202 |
+| DI3 | 103 | DO3 | 203 |
+| DI4 | 104 | DO4 | 204 |
+| DI5 | 105 | DO5 | 205 |
+| DI6 | 106 | DO6 | 206 |
+| DI7 | 107 | DO7 | 207 |
+| DI8 | 108 | DO8 | 208 |
+
+**Der er intet ekstra lag at holde styr på** — overalt hvor denne manual (eller CLI'en/REST API'et) beder om et "GPIO-pin"-tal, er det tallet fra tabellen ovenfor (101-108/201-208) der bruges, uanset om du selv tænker på kanalen som "DI3" eller "GPIO 103". Kilde: `web/io.html`'s egen GPIO-dropdown, som viser præcis disse par ved siden af hinanden.
+
+Live-status for digitale/analoge kanaler vises på dashboardet ([kapitel 4](04_Web_Dashboard_og_Monitor.md)):
+
+![Digital I/O-kort på dashboardet — grønne prikker viser aktive indgange](assets/screenshots/dashboard_applikation.png)
+
+### 2.2.1 Hvorfor "virtuelle" GPIO'er? — skifteregistrene bag de 8+8 kanaler
+
+ES32D26 har **ikke** 8 separate ESP32-pins forbundet direkte til de 8 digitale indgange (og tilsvarende for de 8 relæudgange) — det ville kræve flere pins end boardet reelt stiller til rådighed ved siden af RS-485, Ethernet, analog-IO og USB. I stedet **multiplexes** alle 8 kanaler over et enkelt **skiftregister**-chip, som kun bruger 3-4 ESP32-pins uanset kanalantal:
+
+| Retning | Chip | ESP32-pins brugt | Funktion |
+|---|---|---|---|
+| **Indgange (DI)** | SN74HC165 (parallel-ind, seriel-ud) | GPIO0 (Parallel Load / SH-LD), GPIO2 (Clock), GPIO15 (Serial Data ind) | Alle 8 opto-isolerede indgangstilstande "skydes" seriel ind over disse 3 pins, ét bit ad gangen, ved hver poll |
+| **Udgange (DO/relæ)** | SN74HC595 (seriel-ind, parallel-ud) | GPIO12 (Serial Data ud), GPIO22 (Shift Clock), GPIO23 (Latch), GPIO13 (Output Enable) | Alle 8 relætilstande skydes seriel UD over disse pins, "clockes" ud til de 8 fysiske relæer samtidig via latch-pinnen |
+
+Denne teknik (klassisk "parallel-in/serial-out" hhv. "serial-in/parallel-out" skifteregister) er grunden til at GPIO2 (som ellers bærer status-LED'en på andre boardvarianter) er optaget på ES32D26, jf. §2.5. **Softwaren skjuler hele denne kompleksitet** — som bruger ser du blot 8 "virtuelle GPIO'er" (101-108 for indgange, 201-208 for udgange), der opfører sig præcis som almindelige fysiske pins i alle CLI-, REST- og ST Logic-sammenhænge; selve skifteregister-udlæsningen/-skrivningen sker automatisk i baggrunden ved hver loop-iteration. Se [`../ES32D26_BOARD_GUIDE.md`](../ES32D26_BOARD_GUIDE.md) for den fulde, multimeter-verificerede pin-for-pin-tabel, og CLI-kommandoen `test sr`/`test sr input` ([Appendiks A](A_CLI_Kommando_Reference.md)) for at teste selve skifteregistrene direkte uden om GPIO-mapping-laget.
+
+### 2.2.2 Sådan konfigureres og bruges en GPIO-indgang
+
+Uanset om det er en fysisk pin (0-39) eller en virtuel skifteregister-kanal (101-108/201-208, dvs. DI1-8/DO1-8 — se tabellen ovenfor), foregår opsætningen på samme måde — GPIO'en skal først **mappes til en Modbus discrete input-adresse**, før dens tilstand kan læses fra Modbus-master-systemer, dashboardet, eller (vigtigst) et ST Logic-program. Eksemplet her bruger **DI1** (= virtuel GPIO 101):
+
+```
+set gpio 101 input 5      (* DI1 (virtuel GPIO 101) → discrete input-adresse 5 *)
+show gpio                 (* bekræft mappingen — vises som pin 101 *)
+read input 5              (* læs den rå tilstand direkte, uden om ST Logic *)
+```
+
+Samme opsætning via REST API ([Appendiks B, §B.8](B_REST_API_Reference.md#b8-gpio)):
+```bash
+curl -u admin:modbus123 -X POST http://192.168.1.100/api/gpio/101/config \
+     -H "Content-Type: application/json" -d '{"direction":"input","register":5}'
+```
+
+Eller via web-GUI'ets `/io`-side (GPIO Statisk Mapping-sektionen, FEAT-171).
+
+**For at læse GPIO-indgangen fra et ST Logic-program** kræves et **andet, uafhængigt bindings-trin** — se [§8.13](08_ST_Logic_Programmering.md#813-gpio-indgange-i-st-logic-bindings-mode) for den fulde forklaring og et gennemarbejdet eksempel med de multiplexede skifteregister-indgange.
+
 ## 2.3 Trådløs og kablet netværk
 
 - **Wi-Fi** — indbygget på alle ESP32-varianter. Klient-mode (tilslutter et eksisterende netværk).
@@ -61,7 +111,7 @@ Standard-boards har en status-LED på GPIO2 (hjerteslag, ca. 500 ms interval —
 | NVS (konfiguration) | 64 KB partition | 64 KB partition |
 | OTA-partitioner | 2× ~1,8 MB (dual-bank, rollback-understøttet) | Samme |
 
-Flash er typisk 89-90% udnyttet på et fuldt konfigureret build (Ethernet + alle features aktiveret) — se [`../../BUGS_INDEX.md`](../../BUGS_INDEX.md) (FEAT-145/146) for baggrund om flash-optimeringen der gjorde plads til PSRAM-migreringen.
+Flash er typisk 96% udnyttet på et fuldt konfigureret build (Ethernet + alle features, inkl. Modbus Expansion Boards-integrationen, aktiveret) — se [`../../BUGS_INDEX.md`](../../BUGS_INDEX.md) (FEAT-145/146 for baggrund om den oprindelige flash-optimering der gjorde plads til PSRAM-migreringen, FEAT-411 for den seneste runde flash-analyse/-optimering) for detaljer og løbende status.
 
 ---
 

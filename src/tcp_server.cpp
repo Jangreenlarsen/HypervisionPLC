@@ -21,6 +21,7 @@
 
 #include "tcp_server.h"
 #include "constants.h"
+#include "ip_acl.h"
 
 static const char *TAG = "TCP_SRV";
 
@@ -164,6 +165,16 @@ int tcp_server_accept(TcpServer *server)
 
     int client_sock = accept(server->listen_socket, (struct sockaddr*)&client_addr, &client_addr_len);
     if (client_sock >= 0) {
+      // FEAT-399: IP ACL — afvist FOeR den ene klientplads optages, saa en
+      // blokeret IP aldrig fortraenger en legitim ventende klient. Telnet er
+      // "service TELNET" for ACL'ens vedkommende (ip_acl_check() daekker
+      // ogsaa HTTP/SSE via egne hooks, se ip_acl.h).
+      if (!ip_acl_check(client_addr.sin_addr.s_addr, ACL_SVC_TELNET)) {
+        ESP_LOGW(TAG, "Telnet-forbindelse afvist af IP ACL");
+        close(client_sock);
+        return accepted;
+      }
+
       // Set non-blocking mode for client socket
       int flags = fcntl(client_sock, F_GETFL, 0);
       fcntl(client_sock, F_SETFL, flags | O_NONBLOCK);

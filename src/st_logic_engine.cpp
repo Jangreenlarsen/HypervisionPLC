@@ -12,6 +12,7 @@
 #include "st_vm.h"
 #include "st_stateful.h"  // BUG-153 FIX: For cycle_time_ms update
 #include "st_builtin_modbus.h"  // BUG-133 FIX: For g_mb_request_count reset
+#include "st_builtin_modbus_expansion.h"  // FEAT-410: samme reset-disciplin for g_mbx_request_count
 #include "st_debug.h"  // FEAT-008: Debugger support
 #include "config_struct.h"
 #include "constants.h"
@@ -300,6 +301,7 @@ bool st_logic_engine_loop(st_logic_engine_state_t *state,
     // and block slots 1-3 from issuing any Modbus requests.
     g_mb_request_count = 0;
     g_mb_cache_enabled = true;  // Reset cache mode to default per slot
+    g_mbx_request_count = 0;    // FEAT-410: samme BUG-133-lektion for MBX_*-familien
 
     // Execute program bytecode
     bool success = st_logic_execute_program(state, prog_id);

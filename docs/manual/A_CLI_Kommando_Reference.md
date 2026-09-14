@@ -328,6 +328,25 @@ Aliaser: `mb rd`=`mb read`, `mb wr`=`mb write`, `mb rst`=`mb reset`. `slave_id`:
 
 Fejlkoder vist ved fejl: `OK`, `TIMEOUT`, `CRC ERROR`, `EXCEPTION`, `NOT ENABLED`, `INVALID SLAVE ID`, `INVALID ADDRESS`.
 
+## Modbus Expansion Board (FEAT-409)
+
+Administration af eksterne HypervisionPLC Extension Boards (se [kapitel 6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)). Et board identificeres i CLI'en enten ved dets board-nummer (1-8, vist som "nr" i `show modbus-expansion`) eller dets navn (case-insensitivt).
+
+| Kommando | Beskrivelse |
+|---|---|
+| `set modbus-expansion add <nr> <type> <navn> <ip> <token>` | Tilføj et board på et EKSPLICIT valgt nummer (1-8) — fast for boardets levetid, vælg det så det matcher fysisk mærkning. `<type>`: `modbus_2ch` (eneste understøttede type i dag — se `show modbus-expansion ?`/REST `GET /api/expansion/board-types` for den fulde, opdaterede liste). `<token>`: Bearer-token fra boardets egen serielle opsætnings-CLI (`status`) |
+| `set modbus-expansion edit <board> <navn> <ip> [token] [type]` | Redigér navn/IP/token/type. Udelad `[token]`/`[type]` for at bevare de eksisterende værdier. Board-nummeret kan IKKE ændres — fjern og tilføj boardet igen med et nyt nummer om nødvendigt |
+| `set modbus-expansion remove <board>` | Fjern et board fra listen (påvirker ikke selve boardet) |
+| `set modbus-expansion channel <board> <kanal> <mode> <baud> <parity> <stopbits> <timeout_ms> <inter_frame_ms> <on\|off>` | Push kanal-konfiguration ATOMISK til boardet. `<kanal>`: A/B (eller 1-8). `<mode>`: rs485/rs232. `<parity>`: none/even/odd |
+| `show modbus-expansion` | Liste over alle konfigurerede boards (lokal data) |
+| `show modbus-expansion <board>` | Live status + kanal-detaljer hentet fra boardet selv |
+| `show modbus-expansion queue` | FEAT-410: kø/cache-diagnostik for den kontinuerlige `MBX_*`-datatrafik (kø-dybde, cache-hits/misses, fejl/timeouts, adaptiv backoff pr. board/kanal/slave) — se [Appendiks D.5.9b](D_ST_Logic_Funktionsreference.md#d59b-modbus-expansion-board-mbx_-feat-410) |
+| `mbx <board> status` | Alias for `show modbus-expansion <board>` |
+| `mbx <board> <kanal> read <fc> <slave_id> <address> [quantity]` | Diagnostisk Modbus-læsning (FC01-04) direkte mod boardets kanal |
+| `mbx <board> <kanal> write <fc> <slave_id> <address> <value...>` | Diagnostisk Modbus-skrivning (FC05/06/16, sidstnævnte med flere værdier) |
+
+Alle netværkskald mod et board er synkrone fra CLI'ens perspektiv (kommandoen venter på svaret, op til ca. 6 sekunder) — kun ét kald mod expansion-boards ad gangen på tværs af CLI/web-UI.
+
 ## A.7 Multi-line ST Logic upload-mode
 
 `set logic <id> upload` (uden inline kode) skifter prompten til `>>> ` og optager linjer i en 5000-byte buffer indtil brugeren skriver `END_UPLOAD` (case-insensitivt), hvorefter koden kompileres automatisk. Echo-indstilling (`set echo`) bevares under upload.

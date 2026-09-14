@@ -1,0 +1,172 @@
+/* AUTO-EXTRACTED shared CSS -- see scripts/gzip_web_assets.py.
+   Do not duplicate these rules back into individual pages. */
+
+*{margin:0;padding:0;box-sizing:border-box}
+
+/* BUG-390: 100vh on mobile browsers is measured against the LARGEST possible
+   viewport (browser chrome collapsed), not what's actually visible when the
+   address bar is shown — with body's own overflow:hidden below, that could
+   push bottom-anchored content below the visible screen with no way to
+   scroll down to reach it. 100dvh (dynamic viewport height) tracks the
+   ACTUAL visible viewport as browser chrome shows/hides; kept 100vh first as
+   a fallback for browsers that don't support dvh (the later, supported
+   declaration simply wins). */
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+
+.topnav{background:#11111b;padding:6px 16px;display:flex;gap:8px;border-bottom:2px solid #89b4fa;flex-shrink:0;align-items:center}
+
+.topnav a:hover{background:#45475a;color:#cdd6f4}
+
+.topnav a.active{background:#89b4fa;color:#1e1e2e}
+
+.save-btn{margin-left:auto;padding:4px 12px;font-size:11px;font-weight:600;background:#a6e3a1;color:#1e1e2e;border:none;border-radius:4px;cursor:pointer;transition:all .2s}
+
+.save-btn:hover{background:#94e2d5}
+
+.save-btn.saving{background:#fab387;cursor:wait}
+
+.save-btn.saved{background:#a6e3a1}
+
+.save-btn.save-err{background:#f38ba8}
+
+.user-btn{padding:4px 10px;font-size:11px;background:#313244;color:#a6adc8;border-radius:4px;cursor:pointer;border:1px solid #45475a;display:flex;align-items:center;gap:5px}
+
+.user-btn:hover{background:#45475a;color:#cdd6f4}
+
+.user-btn .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+
+.user-btn .dot-on{background:#a6e3a1}
+
+.user-btn .dot-off{background:#f38ba8}
+
+.user-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#181825;border:1px solid #45475a;border-radius:6px;padding:8px 0;min-width:200px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+
+.user-menu.show{display:block}
+
+.user-menu .um-row{padding:4px 14px;font-size:11px;color:#a6adc8;display:flex;justify-content:space-between}
+
+.user-menu .um-row .um-val{color:#cdd6f4;font-weight:600}
+
+.user-menu .um-sep{border-top:1px solid #313244;margin:4px 0}
+
+.user-menu .um-btn{display:block;width:calc(100% - 16px);margin:4px 8px;padding:5px 10px;font-size:11px;background:#313244;color:#a6adc8;border:none;border-radius:4px;cursor:pointer;text-align:center}
+
+.user-menu .um-btn:hover{background:#f38ba8;color:#1e1e2e}
+
+.modal-bg.show{display:flex}
+
+.btn-primary:hover{background:#74c7ec}
+
+.alarm-bar{background:#f38ba8;color:#1e1e2e;padding:4px 16px;font-size:12px;font-weight:600;display:none;align-items:center;justify-content:space-between;flex-shrink:0;animation:pulse 1.5s infinite}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
+
+.card h2 .badge{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:400}
+
+.badge-ok{background:#a6e3a1;color:#1e1e2e}
+
+.badge-off{background:#45475a;color:#a6adc8}
+
+.subhdr.sep{border-top:1px solid #313244;padding-top:10px;margin-top:14px}
+
+.row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
+
+.row .lbl{color:#6c7086}
+
+.row .val{font-weight:600;font-variant-numeric:tabular-nums}
+
+.val-ok{color:#a6e3a1}
+
+.val-err{color:#f38ba8}
+
+.val-warn{color:#fab387}
+
+.val-n{color:#cdd6f4}
+
+.bar-wrap{height:6px;background:#313244;border-radius:3px;margin-top:4px;overflow:hidden}
+
+.bar-fill{height:100%;border-radius:3px;transition:width .5s}
+
+.bar-ok{background:#a6e3a1}
+
+.bar-warn{background:#fab387}
+
+.bar-err{background:#f38ba8}
+
+.tbl tr:hover{background:rgba(49,50,68,.3)}
+
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle}
+
+.dot-g{background:#a6e3a1}
+
+.dot-r{background:#f38ba8}
+
+.dot-y{background:#fab387}
+
+.dot-off{background:#45475a}
+
+.spark-row{display:flex;align-items:center;gap:8px;margin-top:4px}
+
+.spark-row .sl{font-size:10px;color:#6c7086;min-width:70px}
+
+.dio-led{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:36px}
+
+.dio-led .led-on{background:#a6e3a1;border-color:#a6e3a1;box-shadow:0 0 6px #a6e3a1}
+
+.dio-led .led-off{background:#313244;border-color:#45475a}
+
+.dio-led .led-lbl{font-size:9px;color:#6c7086}
+
+.foot{background:#181825;border-top:1px solid #313244;padding:4px 16px;font-size:10px;color:#45475a;flex-shrink:0;display:flex;justify-content:space-between}
+
+.content{flex:1;overflow-y:auto;padding:16px}
+
+.section-hdr{grid-column:1/-1;font-size:12px;font-weight:700;color:#89b4fa;text-transform:uppercase;letter-spacing:.6px;padding:6px 2px;border-bottom:1px solid #313244}
+
+.section-hdr:not(:first-child){margin-top:8px}
+
+.card p{font-size:12px;color:#6c7086;margin-bottom:12px;line-height:1.5}
+
+.btn-success{background:#a6e3a1;color:#1e1e2e}
+
+.btn-success:hover{background:#94e2d5}
+
+.btn-danger{background:#f38ba8;color:#1e1e2e}
+
+.btn-danger:hover{background:#eba0ac}
+
+.btn-warn{background:#fab387;color:#1e1e2e}
+
+.btn-warn:hover{background:#f9e2af}
+
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+.alert{padding:8px 12px;border-radius:4px;font-size:12px;margin-top:10px;display:none}
+
+.alert-ok{background:rgba(166,227,161,.15);color:#a6e3a1;border:1px solid rgba(166,227,161,.3)}
+
+.alert-err{background:rgba(243,139,168,.15);color:#f38ba8;border:1px solid rgba(243,139,168,.3)}
+
+.alert-warn{background:rgba(250,179,135,.15);color:#fab387;border:1px solid rgba(250,179,135,.3)}
+
+.alert-info{background:rgba(137,180,250,.15);color:#89b4fa;border:1px solid rgba(137,180,250,.3)}
+
+.info-grid .lbl{color:#6c7086}
+
+.info-grid .val{color:#cdd6f4;font-weight:600;font-variant-numeric:tabular-nums}
+
+.confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+
+.confirm-overlay.show{display:flex}
+
+.confirm-box{background:#1e1e2e;border:1px solid #313244;border-radius:8px;padding:24px;width:360px;text-align:center}
+
+.confirm-box h3{color:#f38ba8;font-size:16px;margin-bottom:12px}
+
+.confirm-box p{font-size:12px;color:#a6adc8;margin-bottom:16px;line-height:1.5}
+
+.confirm-box .actions{display:flex;gap:8px;justify-content:center}
+
+[hidden]{display:none!important}
+
+.status-bar .ok{color:#a6e3a1}

@@ -14,6 +14,8 @@ Hypervision PLC er en **letvægts, netværkstilkoblet PLC** bygget på ESP32-pla
 
 Det hele er tilgængeligt både klassisk (RS-485/Modbus) og moderne (REST API, webdashboard, WiFi/Ethernet) — samme enhed kan stå i et rack og tale RTU til et ældre SCADA-system, samtidig med at et Node-RED-flow eller en Python-service læser og skriver data over HTTP.
 
+![Monitor Dashboard — Overblik-fanen med System- og Netværks-status](assets/screenshots/dashboard_overview.png)
+
 ## 1.2 Hvilket problem løser den?
 
 Klassiske PLC'er er ofte enten:
@@ -46,6 +48,7 @@ Typiske anvendelser:
 | **Web Dashboard** | Live-monitor, ST Logic-editor med debugger og trend-visning, webbaseret CLI-konsol, alarmhistorik, Modbus-aktivitetslog. | [4](04_Web_Dashboard_og_Monitor.md) |
 | **CLI** | Fuld `show`/`set`-kommandostruktur, tilgængelig via seriel USB, telnet og web — samme kommandosæt alle tre steder. | [5](05_CLI_Konsol.md) |
 | **Netværk** | Wi-Fi og/eller kablet Ethernet (W5500), NTP-tidssynkronisering, statisk IP eller DHCP. | [12](12_Netvaerkskonfiguration.md) |
+| **Modbus Expansion Boards** | Administrér eksterne "HypervisionPLC Extension Board"-enheder (egne RS485/RS232-kanaler) fra PLC'ens egen web-UI — Modbus TCP-dataplan + REST-management-API, med `MBX_*`-ST Logic-funktioner til kontinuerlig datatrafik. | [6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409) |
 | **Sikkerhed** | Rollebaseret adgangsstyring (RBAC) med flere brugere/roller, valgfri HTTPS/TLS, rate-limiting. | [10](10_Sikkerhed_og_Adgangsstyring.md) |
 | **Overvågning** | Prometheus-kompatible metrics, SSE (Server-Sent Events) for real-time push af register-/tæller-/timer-ændringer til dashboardet. | [4](04_Web_Dashboard_og_Monitor.md), [7](07_REST_API.md) |
 

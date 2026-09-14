@@ -1,32 +1,36 @@
 <!DOCTYPE html>
 <html lang="da">
 <head>
+  <link rel="stylesheet" href="/common.css">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HyperFusion PLC : OTA Firmware Update</title>
+<title>HyberFusion PLC Dashboard : OTA</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-/* BUG-390: 100vh on mobile browsers is measured against the LARGEST possible
-   viewport (browser chrome collapsed), not what's actually visible when the
-   address bar is shown — with body's own overflow:hidden below, that could
-   push bottom-anchored content below the visible screen with no way to
-   scroll down to reach it. 100dvh (dynamic viewport height) tracks the
-   ACTUAL visible viewport as browser chrome shows/hides; kept 100vh first as
-   a fallback for browsers that don't support dvh (the later, supported
-   declaration simply wins). */
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
-nav{background:#181825;padding:8px 16px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #313244}
-nav a{color:#89b4fa;text-decoration:none;padding:6px 12px;border-radius:6px;font-size:13px;transition:background .2s}
-nav a:hover{background:#313244}
-nav a.active{background:#89b4fa;color:#1e1e2e;font-weight:600}
-nav .brand{font-weight:700;color:#cba6f7;margin-right:auto;font-size:15px}
-.container{flex:1;padding:24px;overflow-y:auto;max-width:700px;margin:0 auto;width:100%}
+/* BUG-410: denne side havde sit eget, uafhaengige "nav"/lilla-farvede design
+   fra foer FEAT-411's common.css/.js-udtraekning -- ingen bruger-badge,
+   intet konsistent topnav-udseende med de oevrige 7 sider. Nu genbruger
+   header/login-modal common.css's delte .topnav/.user-badge/.confirm-overlay
+   -klasser (samme visuelle sprog som dashboard/system/osv.); kun de
+   OTA-specifikke elementer (upload-zone, progress-bar, status-msg) har
+   fortsat deres egen lokale styling her, da intet andet sted deler dem.
+   .btn/.info-grid holder ogsaa en lille lokal afvigelse fra common.css'
+   version (samme princip som CSS-udtraekningen fulgte: kun byte-identiske
+   regler paa tvaers af sider blev centraliseret).*/
+/* .topnav a og .hdr/.hdr h1 er BEVIDST ikke i common.css (FEAT-411 udelukkede
+   dem — status.html har en let afvigende .topnav a, andre sider har en
+   afvigende .hdr-padding) -- samme lokale kopi som de øvrige 6 sider. */
+.topnav a{padding:5px 14px;font-size:12px;font-weight:600;background:#313244;color:#a6adc8;border-radius:4px;text-decoration:none;transition:all .15s}
+.topnav .brand{font-size:14px;font-weight:700;color:#89b4fa;margin-right:12px}
+.hdr{background:#181825;padding:10px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #313244;flex-shrink:0}
+.hdr h1{font-size:16px;color:#89b4fa;flex-shrink:0}
+.user-badge{position:relative;display:flex;align-items:center;gap:6px;margin-left:auto}
+.btn{padding:10px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .2s}
+.btn-primary{background:#89b4fa;color:#1e1e2e}
+.btn-row{display:flex;gap:12px;margin-top:16px}
 .card{background:#181825;border:1px solid #313244;border-radius:12px;padding:20px;margin-bottom:16px}
-.card h2{font-size:16px;color:#cba6f7;margin-bottom:12px}
+.card h2{font-size:16px;color:#89b4fa;margin-bottom:12px}
 .card h3{font-size:14px;color:#a6adc8;margin-bottom:8px}
-.info-grid{display:grid;grid-template-columns:140px 1fr;gap:6px 12px;font-size:13px}
-.info-grid .label{color:#a6adc8}
-.info-grid .value{color:#cdd6f4;font-family:monospace}
+.info-grid{grid-template-columns:140px 1fr;font-size:13px}
 .upload-zone{border:2px dashed #45475a;border-radius:8px;padding:32px;text-align:center;margin:12px 0;transition:border-color .3s,background .3s;cursor:pointer}
 .upload-zone:hover,.upload-zone.dragover{border-color:#89b4fa;background:#1e1e3e}
 .upload-zone input[type=file]{display:none}
@@ -41,30 +45,28 @@ nav .brand{font-weight:700;color:#cba6f7;margin-right:auto;font-size:15px}
 .status-msg.info{display:block;background:#1e1e3e;border:1px solid #89b4fa;color:#89b4fa}
 .status-msg.ok{display:block;background:#1e2e1e;border:1px solid #a6e3a1;color:#a6e3a1}
 .status-msg.err{display:block;background:#2e1e1e;border:1px solid #f38ba8;color:#f38ba8}
-.btn{padding:10px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .2s}
-.btn:disabled{opacity:.4;cursor:not-allowed}
-.btn-primary{background:#89b4fa;color:#1e1e2e}
-.btn-danger{background:#f38ba8;color:#1e1e2e}
-.btn-row{display:flex;gap:12px;margin-top:16px}
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
-.modal-overlay.show{display:flex}
-.modal{background:#181825;border:1px solid #313244;border-radius:12px;padding:24px;width:340px}
-.modal h3{color:#cba6f7;margin-bottom:12px}
-.modal input{width:100%;padding:8px;margin:4px 0 8px;background:#1e1e2e;border:1px solid #45475a;border-radius:6px;color:#cdd6f4;font-size:14px}
-.modal .btn{width:100%;margin-top:8px}
-footer{background:#181825;border-top:1px solid #313244;padding:6px 16px;font-size:11px;color:#585b70;text-align:center}
+.container{flex:1;padding:24px;overflow-y:auto;max-width:700px;margin:0 auto;width:100%}
 </style>
 </head>
 <body>
-<nav>
-<span class="brand">HyperFusion PLC</span>
-<a href="/">Monitor</a>
+
+<!-- Top Navigation -->
+<div class="topnav">
+<span class="brand">HyberFusion PLC</span>
+<a href="/dashboard">Monitor</a>
 <a href="/editor">ST Editor</a>
 <a href="/cli">CLI</a>
-<a href="/system" class="active">System</a>
+<a href="/system">System</a>
 <a href="/io">I/O</a>
 <a href="/logs">Logs</a>
-</nav>
+<a href="/ota" class="active">OTA</a>
+<div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogout" onclick="doLogout()">Log ud</div></div></div>
+</div>
+
+<!-- Header -->
+<div class="hdr">
+<h1>OTA Firmware Update</h1>
+</div>
 
 <div class="container">
 <!-- Firmware Info -->
@@ -99,20 +101,34 @@ footer{background:#181825;border-top:1px solid #313244;padding:6px 16px;font-siz
 </div>
 
 <!-- Login Modal -->
-<div class="modal-overlay" id="loginModal">
-<div class="modal">
-<h3>Login</h3>
-<input id="authUser" placeholder="Brugernavn" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false">
-<input id="authPass" type="password" placeholder="Adgangskode" autocomplete="current-password">
-<div id="loginErr" style="display:none;color:#f38ba8;font-size:12px;padding:6px 0"></div>
-<button class="btn btn-primary" onclick="doLogin()">Log ind</button>
+<div class="confirm-overlay" id="loginModal">
+<div class="confirm-box" style="text-align:left">
+<h3 style="color:#89b4fa">Login</h3>
+<p>OTA-siden kræver autentificering.</p>
+<div style="margin-bottom:8px"><label style="font-size:12px;color:#a6adc8">Brugernavn</label><br>
+<input type="text" id="authUser" style="width:100%;padding:6px 10px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:13px;margin-top:4px" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+<div style="margin-bottom:8px"><label style="font-size:12px;color:#a6adc8">Adgangskode</label><br>
+<input type="password" id="authPass" style="width:100%;padding:6px 10px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:13px;margin-top:4px" autocomplete="current-password"></div>
+<div id="loginErr" style="display:none;color:#f38ba8;font-size:12px;padding:4px 0"></div>
+<div class="actions" style="justify-content:flex-end;margin-top:12px">
+<button class="btn btn-primary" onclick="doLogin()">Forbind</button>
+</div>
 </div>
 </div>
 
-<footer id="footStatus">OTA Firmware Update - FEAT-031</footer>
+<div class="foot">
+<span>HyberFusion PLC OTA Firmware Update</span>
+<span id="footVer"></span>
+</div>
 
+<script src="/common.js"></script>
 <script>
-let AUTH=localStorage.getItem('hfplc_auth')||'';
+// BUG-393: login now uses a server-set, HttpOnly session cookie
+// (Set-Cookie from POST /api/login) instead of a Bearer token this page
+// has to remember itself — the browser sends it automatically on every
+// same-origin request. No client-side token state left to lose, which is
+// what made BUG-392/389/389b (all iOS-Safari-specific breakage) possible
+// in the first place.
 let selectedFile=null;
 let pollTimer=null;
 
@@ -124,25 +140,12 @@ let pollTimer=null;
 let _apiFetchActive=0;
 const _apiFetchQueue=[];
 const API_FETCH_MAX_CONCURRENT=2;
-function _apiFetchPump(){
-  while(_apiFetchActive<API_FETCH_MAX_CONCURRENT && _apiFetchQueue.length>0){
-    const job=_apiFetchQueue.shift();
-    _apiFetchActive++;
-    fetch(job.url,job.opts).then(r=>{_apiFetchActive--;_apiFetchPump();job.resolve(r);})
-      .catch(e=>{_apiFetchActive--;_apiFetchPump();job.reject(e);});
-  }
-}
-function queuedFetch(url,opts){
-  return new Promise((resolve,reject)=>{
-    _apiFetchQueue.push({url,opts,resolve,reject});
-    _apiFetchPump();
-  });
-}
+
+
 
 function api(url,opts={}){
-  if(AUTH){if(!opts.headers)opts.headers={};opts.headers['Authorization']=AUTH;}
   return queuedFetch(url,opts).then(r=>{
-    if(r.status===401){AUTH='';localStorage.removeItem('hfplc_auth');document.getElementById('loginModal').classList.add('show');throw new Error('Login');}
+    if(r.status===401){document.getElementById('loginModal').classList.add('show');throw new Error('Login');}
     return r;
   });
 }
@@ -154,26 +157,50 @@ async function doLogin(){
     // BUG-353: POST /api/login udsteder et session-token vi bruger fremover
     // — foer blev det raa base64(user:pass) bare gemt uden verifikation her.
     const r=await fetch('/api/login',{method:'POST',headers:{'Authorization':basicAuth}});
+    // FEAT-399-følgefejl: skeln 403 ("Blocked by IP ACL", se §10.7.1) fra 401
+    // (reelt forkerte credentials).
+    if(r.status===403){
+      document.getElementById('loginErr').style.display='block';
+      document.getElementById('loginErr').textContent='Denne IP-adresse er blokeret af IP ACL\'en. Enheden retter en ny, ubekræftet regel automatisk inden for 5 minutter — prøv igen om lidt.';
+      return;
+    }
     if(!r.ok){
       document.getElementById('loginErr').style.display='block';
       document.getElementById('loginErr').textContent='Forkert brugernavn eller adgangskode';
       return;
     }
     const d=await r.json();
-    if(!d.token){
+    if(!d.authenticated){
       document.getElementById('loginErr').style.display='block';
-      document.getElementById('loginErr').textContent='Login fejlede (intet token)';
+      document.getElementById('loginErr').textContent='Login fejlede';
       return;
     }
-    AUTH='Bearer '+d.token;
-    localStorage.setItem('hfplc_auth',AUTH);
     document.getElementById('loginModal').classList.remove('show');
     fetchStatus();
+    updateUserBadge();
   }catch(e){
     document.getElementById('loginErr').style.display='block';
     document.getElementById('loginErr').textContent='Forbindelsesfejl';
   }
 }
+function updateUserBadge(){
+// BUG-393b: route through the same queuedFetch() throttle every other
+// request on this page uses — a plain unqueued fetch() here could exceed
+// the device's max_open_sockets alongside init()'s own burst of queued
+// calls and lose the race (BUG-369's original heap-crash class of bug, on
+// this page it just silently left the badge unset instead).
+queuedFetch('/api/user/me',{}).then(function(r){return r.json()}).then(function(d){
+if(d.authenticated){document.getElementById('userName').textContent=d.username;document.getElementById('userDot').className='dot dot-on';document.getElementById('umUser').textContent=d.username;document.getElementById('umRoles').textContent=d.roles||'all';document.getElementById('umPriv').textContent=d.privilege||'rw';document.getElementById('umMode').textContent=d.mode||'legacy';document.getElementById('umLogout').style.display='block'}
+else{document.getElementById('userName').textContent='Ikke logget ind';document.getElementById('userDot').className='dot dot-off';document.getElementById('umLogout').style.display='none'}
+}).catch(function(){})
+}
+
+function doLogout(){
+// BUG-393: cookie is HttpOnly, always POST unconditionally — server reads
+// it itself and clears it in the response either way. Reload afterward to
+// reliably stop this page's polling and blank any already-rendered data.
+fetch('/api/logout',{method:'POST'}).catch(()=>{}).then(()=>{location.reload();});}
+
 function setStatus(cls,msg){
   const el=document.getElementById('statusMsg');
   el.className='status-msg '+cls;
@@ -212,7 +239,6 @@ function startUpload(){
 
   const xhr=new XMLHttpRequest();
   xhr.open('POST','/api/system/ota',true);
-  if(AUTH)xhr.setRequestHeader('Authorization',AUTH);
   xhr.setRequestHeader('Content-Type','application/octet-stream');
 
   xhr.upload.onprogress=function(e){
@@ -232,7 +258,6 @@ function startUpload(){
         setTimeout(()=>{window.location.reload();},((j.reboot_in_ms||2000)+8000));
       }catch(e){setStatus('ok','OTA faerdig! Genstarter...');setTimeout(()=>window.location.reload(),10000);}
     }else if(xhr.status===401){
-      AUTH='';localStorage.removeItem('hfplc_auth');
       document.getElementById('loginModal').classList.add('show');
       setStatus('err','Login kraeves');
       document.getElementById('uploadBtn').disabled=false;
@@ -296,6 +321,7 @@ function fetchStatus(){
 
 // Initial load
 fetchStatus();
+updateUserBadge();
 </script>
 </body>
 </html>

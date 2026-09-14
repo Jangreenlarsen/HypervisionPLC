@@ -127,6 +127,13 @@ void cli_cmd_show_http(void);
 void cli_cmd_show_sse(void);
 
 /**
+ * @brief Handle "show acl" command — IP Access Control List, regel-tabel +
+ *        pending-confirm-status/nedtaelling (FEAT-399)
+ */
+void cli_cmd_show_acl(void);
+void cli_cmd_show_acl_draft(void);  // FEAT-402
+
+/**
  * @brief Handle "show ntp" / "show time" command — NTP status and current time (v7.8.1)
  */
 void cli_cmd_show_ntp(void);

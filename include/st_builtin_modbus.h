@@ -104,9 +104,29 @@ st_value_t st_builtin_mb_write_holdings(st_value_t slave_id, st_value_t address,
 
 /**
  * @brief MB_SUCCESS() → BOOL
- * TRUE if last cache read had valid data.
+ * TRUE if the last MB_* call (read OR write) succeeded — meaning differs by
+ * direction (cache validity for a read, queued-not-yet-sent for a write,
+ * see manual §8.9). Kept exactly as-is for backward compatibility; prefer
+ * MB_READ_OK()/MB_WRITE_QUEUED() (BUG-397e) in new code for an unambiguous
+ * answer that isn't affected by other MB_* calls made in between.
  */
 st_value_t st_builtin_mb_success_func();
+
+/**
+ * @brief MB_READ_OK() → BOOL (BUG-397e)
+ * TRUE if the most recent MB_READ_* call had valid cached data — tracked
+ * independently of any MB_WRITE_* calls made since.
+ */
+st_value_t st_builtin_mb_read_ok_func();
+
+/**
+ * @brief MB_WRITE_QUEUED() → BOOL (BUG-397e)
+ * TRUE if the most recent MB_WRITE_* call was successfully queued for
+ * background sending (NOT whether it has actually been executed on the bus
+ * yet — same caveat as MB_SUCCESS() after a write, see manual §8.9) —
+ * tracked independently of any MB_READ_* calls made since.
+ */
+st_value_t st_builtin_mb_write_queued_func();
 
 /**
  * @brief MB_BUSY() → BOOL
@@ -136,6 +156,8 @@ st_value_t st_builtin_mb_cache_func(st_value_t enabled);
 // These are updated after each Modbus call
 extern int32_t g_mb_last_error;   // mb_error_code_t (0=OK, 1=Timeout, etc.)
 extern bool g_mb_success;         // TRUE if last operation succeeded
+extern bool g_mb_read_success;    // BUG-397e: TRUE if last MB_READ_* had valid cache data
+extern bool g_mb_write_queued;    // BUG-397e: TRUE if last MB_WRITE_* was queued
 extern uint8_t g_mb_request_count; // Current request count in this execution
 extern bool g_mb_cache_enabled;   // TRUE = cache dedup active (default), FALSE = always refresh
 

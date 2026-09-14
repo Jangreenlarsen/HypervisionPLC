@@ -296,6 +296,12 @@ typedef struct __attribute__((packed)) {
   uint8_t enabled;                              // HTTP server enabled (1) or disabled (0)
   uint16_t port;                                // HTTP port (default 80)
   uint8_t auth_enabled;                         // Basic auth enabled (1) or disabled (0)
+  // NOTE: auth_mode (FEAT-397h: none/basic/bearer) er BEVIDST IKKE et felt her —
+  // se PersistConfig.http_auth_mode helt til sidst i den struct i stedet, med
+  // samme begrundelse som https_port/rbac_salt/dashboard_card_custom: HttpConfig
+  // sidder naer STARTEN af NetworkConfig/PersistConfig, saa et nyt felt her ville
+  // forskyde byte-offsettet for naesten ALT resten af PersistConfig for enhver
+  // allerede-konfigureret enhed.
   char username[HTTP_AUTH_USERNAME_MAX_LEN];    // Basic auth username
   char password[HTTP_AUTH_PASSWORD_MAX_LEN];    // Basic auth password
   uint8_t api_enabled;                          // API endpoints enabled (1) or disabled (0)
@@ -510,6 +516,76 @@ typedef struct __attribute__((packed)) {
 } NtpConfig;                             // 100 bytes
 
 /* ============================================================================
+ * IP ACCESS CONTROL LIST (FEAT-399, schema 26+; FEAT-401 ordnet permit/deny, schema 27+)
+ * ============================================================================ */
+
+typedef struct __attribute__((packed)) {
+  uint32_t network_addr;  // Maskeret netvaerksadresse, network byte order (inet_aton-format)
+  uint8_t  prefix_len;    // CIDR-praefiks 0-32 (0 = "any", 32 = enkelt host)
+  uint8_t  service;       // AclServiceType: 0=HTTP,1=TELNET,2=SSE,3=ALL (constants.h)
+  uint8_t  enabled;       // 1 = aktiv/haandhaevet, 0 = bevaret men ikke haandhaevet
+  uint8_t  action;        // FEAT-401 (schema 27+, var "reserved"): 0=ALLOW,1=DENY
+                           // (constants.h ACL_ACTION_*). acl_rules[] evalueres i
+                           // INDEX-raekkefolge, foerste match (service+CIDR) vinder
+                           // — samme klassiske Cisco/iptables-semantik som goer en
+                           // "deny 0.0.0.0/0" nederst i listen meningsfuld. Regler
+                           // migreret fra schema <27 faar eksplicit action=DENY
+                           // (config_load.cpp) — de betoed alle "bloker" under den
+                           // gamle, ordensuafhaengige model, og skal blive ved med det.
+} AclRule;                              // 8 bytes, packed
+
+/* ============================================================================
+ * MODBUS EXPANSION BOARD (FEAT-409, schema 30+)
+ * ============================================================================
+ * PLC-side registrering af en "HypervisionPLC Extension Board" (separat
+ * fysisk board, egen ESP32, taler REST/JSON management-API over WiFi/LAN —
+ * se det eksterne designdokument for hele arkitekturen). Kun det der er
+ * noedvendigt for at PLC'en kan naa boardets management-API er gemt her:
+ * navn (til visning), IP og et Bearer-token. Selve kanal-konfigurationen
+ * (baudrate/mode/osv.) er IKKE duplikeret her — boardet er selv
+ * autoritativt og persisterer sin egen config (bekraeftet i boardets
+ * PLC_INTEGRATION_MANUAL.md); PLC'en henter/viser den live ved behov
+ * fremfor at holde en potentielt forældet kopi.
+ *
+ * v1-scope (FEAT-409): kun management-API-klient (status/kanal-config/
+ * diagnostisk read-write, alt on-demand/brugerinitieret — IKKE en
+ * kontinuerlig Modbus TCP-datapoller eller ST Logic-integration endnu,
+ * se SECURITY_INDEX.md #20 for begrundelsen om at holde udgående
+ * netvaerkskald bevidst brugerinitierede).
+ *
+ * FEAT-409c (schema 31+): `board_type` + brugerstyret "board nr". Boardets
+ * TYPE (ikke kun navn/IP/token) bestemmer hvilken slags hardware/protokol-
+ * dialekt der er tale om — i dag findes KUN "modbus_2ch" (se
+ * EXPANSION_BOARD_TYPE_MODBUS_2CH, constants.h), men designet er bevidst
+ * forberedt til flere fremtidige board-typer (fx et rent IO-expansion-board
+ * med digitale ind/udgange) UDEN at kraeve nogen omstrukturering af selve
+ * board-listen/CRUD'en — kun: (1) et nyt navn i typelisten (constants.h),
+ * (2) en ny gren i UI/CLI-visningslaget for den type, (3) evt. en ny REST-
+ * klient-funktionsfamilie hvis typen taler et andet API-dialekt end de
+ * eksisterende /channels-endpoints. "Board nr" (1-8) er BEVIDST ikke et
+ * separat felt — array-indexet ER selve nummeret: `expansion_board_add()`
+ * lader brugeren vaelge hvilket nummer et nyt board faar, fremfor at
+ * auto-tildele foerste ledige slot, saa nummeret matcher fysisk maerkning
+ * (skab/panel) uafhaengigt af tilfoejelses-raekkefoelge.
+ * ============================================================================ */
+
+typedef struct __attribute__((packed)) {
+  uint8_t  configured;                       // 1 = slot i brug, 0 = tomt/slettet
+  char     name[EXPANSION_BOARD_NAME_MAX];   // Visningsnavn, fx "Skab 3, RS485-panel"
+  uint32_t ip;                                // IPv4, network byte order (samme konvention som static_ip andre steder i denne fil)
+  char     token[EXPANSION_TOKEN_MAX];       // Bearer-token fra boardets serielle CLI-provisionering.
+                                               // BEVIDST klartekst, ikke hashet som HTTP/RBAC-passwords (BUG-352) —
+                                               // det skal kunne sendes UD IGEN som "Authorization: Bearer <token>"
+                                               // mod boardet, en envejs-hash goer det ubrugeligt til det formaal.
+                                               // Samme begrundelse som WiFi-password's klartekst-undtagelse,
+                                               // SECURITY_INDEX.md #15/#20. Returneres ALDRIG via GET-endpoints —
+                                               // kun "har token: ja/nej", samme praksis som RBAC-brugerlisten (#18).
+  char     board_type[EXPANSION_BOARD_TYPE_MAX]; // Fx "modbus_2ch" — se EXPANSION_BOARD_TYPE_* (constants.h) for
+                                               // den fulde, validerede liste. Bestemmer hvilken UI/CLI/REST-gren
+                                               // (og evt. protokol-dialekt) boardet behandles med.
+} ExpansionBoard;                             // 1 + 32 + 4 + 64 + 16 = 117 bytes, packed
+
+/* ============================================================================
  * PERSISTENT CONFIGURATION (EEPROM/NVS)
  * ============================================================================ */
 
@@ -550,9 +626,24 @@ typedef struct __attribute__((packed)) {
   uint8_t dynamic_coil_count;
   DynamicCoilMapping dynamic_coils[MAX_DYNAMIC_COILS];
 
-  // Variable mappings (GPIO pins + ST variables)
+  // Variable mappings (GPIO pins + ST variables) — FEAT-397i (schema 24+):
+  // udvidet fra 32 til 64 (MAX_VAR_MAPPINGS, constants.h). Arrayet er DELT
+  // mellem GPIO-statiske mappinger og ST Logic-variabelbindinger (se
+  // VariableMapping.source_type) — 32 var for lille i praksis: et enkelt
+  // ST-program med mange bindinger (fx 17) kunne alene fylde det meste af
+  // pladsen og blokere GPIO-konfiguration for resten af enheden (set live:
+  // "Maximum GPIO mappings (32) reached" med kun 15 GPIO-mappinger, fordi
+  // 17 ST-bindinger fra et andet program allerede fyldte resten). BEMAERK:
+  // denne udvidelse sker MIDT i structen (efterfulgt af gpio2_user_mode,
+  // persist_regs, rbac, ntp, analog, salte, crc16 osv.), saa en simpel
+  // schema-bump alene er IKKE nok — se PersistConfig_v24_shadow_t og
+  // "VAR_MAPS RE-POSITIONERING" i config_load.cpp, som eksplicit
+  // reallokerer alle disse felter til deres nye byte-position for aeldre
+  // gemte configs. cli_commands_logic.cpp's mappings-graense checkede i
+  // forvejen mod 64 (et levn fra FOeR reduktionen til 32) — den graense er
+  // korrekt igen efter denne udvidelse.
   uint8_t var_map_count;
-  VariableMapping var_maps[32];  // Reduced from 64 to fit in NVS (saves ~400 bytes)
+  VariableMapping var_maps[MAX_VAR_MAPPINGS];
 
   // GPIO2 configuration (heartbeat control)
   uint8_t gpio2_user_mode;  // 0 = heartbeat mode (default), 1 = user mode (GPIO2 available)
@@ -644,6 +735,61 @@ typedef struct __attribute__((packed)) {
   // begrundelse for placering (helt til sidst, foer crc16) som resten af
   // dashboard-/analog-/salt-felterne ovenfor.
   char dashboard_card_custom[80];  // "id,id,..." kort-id'er der er tilfoejet til Custom-fanen
+
+  // HTTP auth-metode (FEAT-397h, schema 24+) — none/basic/bearer. "None" er
+  // uaendret network.http.auth_enabled=0 (virtual-admin-fald-tilbage, BUG-370),
+  // saa dette felt er kun meningsfuldt naar auth_enabled=1. BEVIDST placeret
+  // her (og IKKE i HttpConfig ved siden af auth_enabled) — samme begrundelse
+  // som https_port/rbac_salt/dashboard_card_custom ovenfor: HttpConfig sidder
+  // naer starten af PersistConfig, saa et nyt felt der ville forskyde
+  // byte-offsettet for stort set alt resten af structen.
+  uint8_t http_auth_mode;  // HTTP_AUTH_MODE_BASIC(0)/BEARER(1), constants.h
+
+  // IP Access Control List (FEAT-399, schema 26+) — se AclRule ovenfor.
+  // BEVIDST placeret helt til sidst (samme begrundelse som http_auth_mode/
+  // https_port/rbac_salt/dashboard_card_custom ovenfor) — INGEN felter maa
+  // nogensinde indsaettes MIDT i PersistConfig, kun tilfoejes her. Bekraeftede
+  // ubekraeftede/afventende ACL-aendringer (lockout-recovery, se ip_acl.cpp)
+  // ligger BEVIDST IKKE her, men i en helt separat RAM-only staging-struct i
+  // ip_acl.cpp — se den udfoerlige begrundelse der: hvis en utestet, endnu
+  // ikke bekraeftet regel laa direkte i disse felter, kunne ETHVERT af de
+  // ~15 uafhaengige `config_save_to_nvs()`-kaldesteder andre steder i
+  // kodebasen (REST/CLI/ST Logic) ved et uheld persistere den til NVS FOeR
+  // brugeren fik bekraeftet at den ikke laaste dem selv ude.
+  uint8_t acl_enabled;
+  uint8_t acl_rule_count;
+  AclRule acl_rules[ACL_MAX_RULES];  // ACL_MAX_RULES = 32 (constants.h)
+
+  // FEAT-407 (schema 28+): hvilke af dashboardets 18 kort (data-card-id i
+  // web/dashboard.html) der vises paa den offentlige, login-fri statusside
+  // ("/", web/status.html) — kommasepareret liste af kort-ID'er, fx
+  // "system,network,alarms". Tom streng = INGEN kort vises (bevidst
+  // opt-in-default, ikke opt-out — nogle kort viser reel drifts-/procesdata,
+  // fx counters/timers/dio/analogio/mbactivity, saa admin skal aktivt vaelge
+  // hvad der er passende at vise offentligt). Samme "hidden"-liste-koncept
+  // som dashboard_card_hidden ovenfor, blot omvendt (visible i stedet for
+  // hidden) og for en HELT ANDEN, ikke-autentificeret side.
+  char public_dashboard_cards[220];
+
+  // FEAT-408 (schema 29): RESERVERET, IKKE LAENGERE AKTIVT BRUGT. Var
+  // tiltaenkt Modbus Master #2 (dedikeret UART2-motor) — forsoeget blev
+  // rullet tilbage efter et hardware-blocker-fund (se BUGS_INDEX.md
+  // FEAT-408: UART-hardware-periferi #1 korrumperer heapen paa denne
+  // ES32D26/ESP32-WROVER-kombination, formentlig en PSRAM-cache-erratum
+  // udloest af en foerste-gangs UART-interrupt-kilde). Feltet BEVARES
+  // (ikke fjernet, schema IKKE rullet tilbage til 28) fordi allerede
+  // migrerede enheder har gemt NVS-data i schema 29-layoutet — at fjerne
+  // feltet ville faa dem til at falde tilbage til fabriksdefaults ved
+  // naeste boot. Zero-init (alt 0) er harmloest.
+  modbus_master_config_t modbus_master2;
+  uint8_t uart2_role;
+
+  // FEAT-409 (schema 30+): HypervisionPLC Extension Board-registrering —
+  // se ExpansionBoard ovenfor. BEVIDST placeret helt til sidst, som alle
+  // andre sene tilfoejelser i denne struct (samme begrundelse som
+  // http_auth_mode/acl_rules/public_dashboard_cards ovenfor).
+  uint8_t expansion_board_count;
+  ExpansionBoard expansion_boards[EXPANSION_BOARD_MAX];
 
   // CRC checksum (last)
   uint16_t crc16;

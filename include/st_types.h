@@ -207,6 +207,12 @@ typedef struct {
   // STRUCT, no STRUCT field that is itself an array, in this v1 profile).
   uint8_t is_struct;        // 1 = STRUCT-typed variable
   char struct_type_name[32]; // Name from "TYPE <name> : STRUCT ... END_TYPE" (resolved by the compiler, not the parser)
+  // BUG-397d: CONST support — parsed here (optional `CONST` prefix on a
+  // VAR-block declaration), enforced by the compiler at every `:=` target
+  // resolution (st_compiler_compile_assignment). Compile-time-only: does not
+  // change the persisted bytecode format (symbol table is compile-time-only,
+  // never serialized), so no ST_BYTECODE_VERSION bump was needed.
+  uint8_t is_const;         // 1 = CONST-qualified (requires an initial value, rejects := elsewhere)
 } st_variable_decl_t;
 
 /* FEAT-009: one field inside a "TYPE Name : STRUCT ... END_STRUCT END_TYPE"

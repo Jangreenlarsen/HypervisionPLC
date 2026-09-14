@@ -41,6 +41,7 @@ typedef struct {
   // FEAT-009: STRUCT support — mutually exclusive with is_array
   uint8_t is_struct;          // 1 = STRUCT-typed variable (this is the BASE symbol, i.e. field[0])
   uint8_t struct_type_index;  // Index into st_compiler_t.struct_types[]
+  uint8_t is_const;           // BUG-397d: CONST-qualified — checked in st_compiler_compile_assignment()
 } st_symbol_t;
 
 /* Symbol table */

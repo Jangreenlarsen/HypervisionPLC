@@ -10,6 +10,7 @@
 #include "st_logic_engine.h"   // FEAT-007: st_logic_lock_variables()/_unlock_variables()
 #include "st_builtins.h"
 #include "st_builtin_modbus.h"
+#include "st_builtin_modbus_expansion.h"  // FEAT-410
 #include "st_stateful.h"  // For st_stateful_storage_t cast
 #include "st_builtin_edge.h"
 #include "st_builtin_timers.h"
@@ -588,12 +589,29 @@ static bool st_vm_exec_add(st_vm_t *vm, st_bytecode_instr_t *instr) {
     return st_vm_push_typed(vm, result, ST_TYPE_REAL);
   }
 
-  // DINT + DINT = DINT (32-bit arithmetic)
-  if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
-    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val : (int32_t)left.int_val;
-    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val : (int32_t)right.int_val;
-    result.dint_val = left_d + right_d;  // Wraps on overflow
-    return st_vm_push_typed(vm, result, ST_TYPE_DINT);
+  // BUG-397c FIX: DWORD used to have no branch here at all and silently fell
+  // through to the 16-bit INT path below, losing bits 16-31 entirely (same
+  // bug class as BUG-397's SHL/SHR gap). 32-bit arithmetic is done in
+  // uint32_t throughout (addition's bit pattern is identical whether the
+  // result is interpreted as signed DINT or unsigned DWORD afterwards) --
+  // the result is only reported as DINT if a DINT operand was actually
+  // involved (preserving existing DINT+INT/DINT+DINT behavior exactly),
+  // otherwise as DWORD.
+  if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT ||
+      left_type == ST_TYPE_DWORD || right_type == ST_TYPE_DWORD) {
+    uint32_t left_u = (left_type == ST_TYPE_DWORD) ? left.dword_val :
+                      (left_type == ST_TYPE_DINT) ? (uint32_t)left.dint_val :
+                      (uint32_t)(int32_t)left.int_val;
+    uint32_t right_u = (right_type == ST_TYPE_DWORD) ? right.dword_val :
+                       (right_type == ST_TYPE_DINT) ? (uint32_t)right.dint_val :
+                       (uint32_t)(int32_t)right.int_val;
+    uint32_t sum = left_u + right_u;  // Wraps on overflow (well-defined for unsigned)
+    if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
+      result.dint_val = (int32_t)sum;
+      return st_vm_push_typed(vm, result, ST_TYPE_DINT);
+    }
+    result.dword_val = sum;
+    return st_vm_push_typed(vm, result, ST_TYPE_DWORD);
   }
 
   // INT + INT = INT (16-bit arithmetic with natural wrapping)
@@ -649,6 +667,24 @@ static bool st_vm_exec_add_checked(st_vm_t *vm, st_bytecode_instr_t *instr) {
     return st_vm_push_typed(vm, result, ST_TYPE_DINT);
   }
 
+  // BUG-397c FIX: DWORD overflow check (32-bit unsigned) -- a DWORD-typed
+  // FOR-loop variable is unusual but previously fell through to the 16-bit
+  // INT branch below with no overflow detection at all for the upper 16
+  // bits. Unsigned overflow only happens "upward" (no negative operand
+  // case), so the check is simpler than DINT's.
+  if (left_type == ST_TYPE_DWORD || right_type == ST_TYPE_DWORD) {
+    uint32_t left_u = (left_type == ST_TYPE_DWORD) ? left.dword_val : (uint32_t)(int32_t)left.int_val;
+    uint32_t right_u = (right_type == ST_TYPE_DWORD) ? right.dword_val : (uint32_t)(int32_t)right.int_val;
+
+    if (right_u > 0 && left_u > UINT32_MAX - right_u) {
+      snprintf(vm->error_msg, sizeof(vm->error_msg),
+               "FOR loop overflow: %lu + %lu exceeds DWORD range", (unsigned long)left_u, (unsigned long)right_u);
+      return false;
+    }
+    result.dword_val = left_u + right_u;
+    return st_vm_push_typed(vm, result, ST_TYPE_DWORD);
+  }
+
   // INT overflow check (16-bit) - primary use case for BUG-159
   int32_t sum = (int32_t)left.int_val + (int32_t)right.int_val;
   if (sum > INT16_MAX || sum < INT16_MIN) {
@@ -696,12 +732,24 @@ static bool st_vm_exec_sub(st_vm_t *vm, st_bytecode_instr_t *instr) {
     return st_vm_push_typed(vm, result, ST_TYPE_REAL);
   }
 
-  // DINT - DINT = DINT (32-bit arithmetic)
-  if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
-    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val : (int32_t)left.int_val;
-    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val : (int32_t)right.int_val;
-    result.dint_val = left_d - right_d;  // Wraps on overflow
-    return st_vm_push_typed(vm, result, ST_TYPE_DINT);
+  // BUG-397c FIX: see st_vm_exec_add() above for the full rationale -- DWORD
+  // needs the same 32-bit branch here (unsigned subtraction wraps
+  // identically to signed wraparound at the bit level).
+  if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT ||
+      left_type == ST_TYPE_DWORD || right_type == ST_TYPE_DWORD) {
+    uint32_t left_u = (left_type == ST_TYPE_DWORD) ? left.dword_val :
+                      (left_type == ST_TYPE_DINT) ? (uint32_t)left.dint_val :
+                      (uint32_t)(int32_t)left.int_val;
+    uint32_t right_u = (right_type == ST_TYPE_DWORD) ? right.dword_val :
+                       (right_type == ST_TYPE_DINT) ? (uint32_t)right.dint_val :
+                       (uint32_t)(int32_t)right.int_val;
+    uint32_t diff = left_u - right_u;  // Wraps on underflow (well-defined for unsigned)
+    if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
+      result.dint_val = (int32_t)diff;
+      return st_vm_push_typed(vm, result, ST_TYPE_DINT);
+    }
+    result.dword_val = diff;
+    return st_vm_push_typed(vm, result, ST_TYPE_DWORD);
   }
 
   // INT - INT = INT (16-bit arithmetic with natural wrapping)
@@ -745,12 +793,24 @@ static bool st_vm_exec_mul(st_vm_t *vm, st_bytecode_instr_t *instr) {
     return st_vm_push_typed(vm, result, ST_TYPE_REAL);
   }
 
-  // DINT * DINT = DINT (32-bit arithmetic)
-  if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
-    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val : (int32_t)left.int_val;
-    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val : (int32_t)right.int_val;
-    result.dint_val = left_d * right_d;  // Wraps on overflow
-    return st_vm_push_typed(vm, result, ST_TYPE_DINT);
+  // BUG-397c FIX: see st_vm_exec_add() above for the full rationale -- DWORD
+  // needs the same 32-bit branch here (unsigned multiplication wraps
+  // identically to signed wraparound at the bit level).
+  if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT ||
+      left_type == ST_TYPE_DWORD || right_type == ST_TYPE_DWORD) {
+    uint32_t left_u = (left_type == ST_TYPE_DWORD) ? left.dword_val :
+                      (left_type == ST_TYPE_DINT) ? (uint32_t)left.dint_val :
+                      (uint32_t)(int32_t)left.int_val;
+    uint32_t right_u = (right_type == ST_TYPE_DWORD) ? right.dword_val :
+                       (right_type == ST_TYPE_DINT) ? (uint32_t)right.dint_val :
+                       (uint32_t)(int32_t)right.int_val;
+    uint32_t prod = left_u * right_u;  // Wraps on overflow (well-defined for unsigned)
+    if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
+      result.dint_val = (int32_t)prod;
+      return st_vm_push_typed(vm, result, ST_TYPE_DINT);
+    }
+    result.dword_val = prod;
+    return st_vm_push_typed(vm, result, ST_TYPE_DWORD);
   }
 
   // INT * INT = INT (16-bit arithmetic with natural wrapping)
@@ -822,10 +882,18 @@ static bool st_vm_exec_mod(st_vm_t *vm, st_bytecode_instr_t *instr) {
   // Math modulo: always positive (e.g., -7 mod 3 = 2)
   // This behavior is standard across most programming languages (C, C++, Java, etc.)
 
-  // DINT % DINT = DINT (32-bit modulo)
+  // DINT % DINT = DINT (32-bit modulo). BUG-397c FIX: a DWORD operand mixed
+  // with a DINT is now read via its bit pattern reinterpreted as int32_t
+  // (dword_val, not int_val) -- previously this branch only checked
+  // left/right_type == DINT and silently read a DWORD operand's low 16 bits
+  // via int_val, same class of bug as ADD/SUB/MUL above.
   if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
-    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val : (int32_t)left.int_val;
-    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val : (int32_t)right.int_val;
+    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val :
+                     (left_type == ST_TYPE_DWORD) ? (int32_t)left.dword_val :
+                     (int32_t)left.int_val;
+    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val :
+                      (right_type == ST_TYPE_DWORD) ? (int32_t)right.dword_val :
+                      (int32_t)right.int_val;
 
     if (right_d == 0) {
       snprintf(vm->error_msg, sizeof(vm->error_msg), "Modulo by zero");
@@ -841,6 +909,23 @@ static bool st_vm_exec_mod(st_vm_t *vm, st_bytecode_instr_t *instr) {
 
     result.dint_val = left_d % right_d;
     return st_vm_push_typed(vm, result, ST_TYPE_DINT);
+  }
+
+  // BUG-397c FIX: DWORD % DWORD (or DWORD % INT) -- genuinely unsigned
+  // modulo, no INT32_MIN/-1 trap exists for unsigned types. Previously fell
+  // through to the 16-bit INT branch below and lost bits 16-31.
+  if (left_type == ST_TYPE_DWORD || right_type == ST_TYPE_DWORD) {
+    uint32_t left_u = (left_type == ST_TYPE_DWORD) ? left.dword_val : (uint32_t)(int32_t)left.int_val;
+    uint32_t right_u = (right_type == ST_TYPE_DWORD) ? right.dword_val : (uint32_t)(int32_t)right.int_val;
+
+    if (right_u == 0) {
+      snprintf(vm->error_msg, sizeof(vm->error_msg), "Modulo by zero");
+      vm->error = 1;
+      return false;
+    }
+
+    result.dword_val = left_u % right_u;
+    return st_vm_push_typed(vm, result, ST_TYPE_DWORD);
   }
 
   // INT % INT = INT (16-bit modulo)
@@ -881,6 +966,13 @@ static bool st_vm_exec_neg(st_vm_t *vm, st_bytecode_instr_t *instr) {
     }
     result.dint_val = -val.dint_val;
     return st_vm_push_typed(vm, result, ST_TYPE_DINT);
+  } else if (val_type == ST_TYPE_DWORD) {
+    // BUG-397c FIX: DWORD used to fall through to the 16-bit INT branch
+    // below. Unlike signed INT/DINT, unsigned negation has no MIN-value
+    // overflow trap (unsigned underflow/overflow wraparound is well-defined
+    // by the C standard, so this needs no REAL-promotion special case).
+    result.dword_val = -val.dword_val;
+    return st_vm_push_typed(vm, result, ST_TYPE_DWORD);
   } else {
     // INT type (16-bit)
     // BUG-087 & BUG-105: Handle INT16_MIN negation (undefined behavior in C/C++)
@@ -906,6 +998,17 @@ static bool st_vm_exec_and(st_vm_t *vm, st_bytecode_instr_t *instr) {
   if (!st_vm_pop_typed(vm, &right, &right_type)) return false;
   if (!st_vm_pop_typed(vm, &left, &left_type)) return false;
 
+  // BUG-397 FIX: AND only ever read .bool_val regardless of operand type, so
+  // e.g. "status AND 16#0020" silently compared truthiness instead of doing
+  // a bitwise mask -- wrong result, no error, no warning. Reject non-BOOL
+  // operands instead: force BIT_SET/BIT_CLR/BIT_TST for bit-masking, which
+  // are the type-aware equivalents provided for exactly this purpose.
+  if (left_type != ST_TYPE_BOOL || right_type != ST_TYPE_BOOL) {
+    snprintf(vm->error_msg, sizeof(vm->error_msg),
+             "Type error: AND requires BOOL operands (use BIT_SET/BIT_CLR/BIT_TST for integer bit-masking)");
+    return false;
+  }
+
   result.bool_val = (left.bool_val != 0) && (right.bool_val != 0);
   return st_vm_push_typed(vm, result, ST_TYPE_BOOL);
 }
@@ -917,6 +1020,13 @@ static bool st_vm_exec_or(st_vm_t *vm, st_bytecode_instr_t *instr) {
   // BUG-151 FIX: Use typed pop to maintain type stack consistency
   if (!st_vm_pop_typed(vm, &right, &right_type)) return false;
   if (!st_vm_pop_typed(vm, &left, &left_type)) return false;
+
+  // BUG-397 FIX: see st_vm_exec_and() above for the full rationale.
+  if (left_type != ST_TYPE_BOOL || right_type != ST_TYPE_BOOL) {
+    snprintf(vm->error_msg, sizeof(vm->error_msg),
+             "Type error: OR requires BOOL operands (use BIT_SET/BIT_CLR/BIT_TST for integer bit-masking)");
+    return false;
+  }
 
   result.bool_val = (left.bool_val != 0) || (right.bool_val != 0);
   return st_vm_push_typed(vm, result, ST_TYPE_BOOL);
@@ -930,6 +1040,13 @@ static bool st_vm_exec_xor(st_vm_t *vm, st_bytecode_instr_t *instr) {
   if (!st_vm_pop_typed(vm, &right, &right_type)) return false;
   if (!st_vm_pop_typed(vm, &left, &left_type)) return false;
 
+  // BUG-397 FIX: see st_vm_exec_and() above for the full rationale.
+  if (left_type != ST_TYPE_BOOL || right_type != ST_TYPE_BOOL) {
+    snprintf(vm->error_msg, sizeof(vm->error_msg),
+             "Type error: XOR requires BOOL operands (use BIT_SET/BIT_CLR/BIT_TST for integer bit-masking)");
+    return false;
+  }
+
   result.bool_val = (left.bool_val != 0) != (right.bool_val != 0);
   return st_vm_push_typed(vm, result, ST_TYPE_BOOL);
 }
@@ -940,6 +1057,13 @@ static bool st_vm_exec_not(st_vm_t *vm, st_bytecode_instr_t *instr) {
 
   // BUG-151 FIX: Use typed pop to maintain type stack consistency
   if (!st_vm_pop_typed(vm, &val, &val_type)) return false;
+
+  // BUG-397 FIX: see st_vm_exec_and() above for the full rationale.
+  if (val_type != ST_TYPE_BOOL) {
+    snprintf(vm->error_msg, sizeof(vm->error_msg),
+             "Type error: NOT requires a BOOL operand (use BIT_TST for integer bit-testing)");
+    return false;
+  }
 
   result.bool_val = (val.bool_val == 0);
   return st_vm_push_typed(vm, result, ST_TYPE_BOOL);
@@ -978,10 +1102,21 @@ static bool st_vm_exec_eq(st_vm_t *vm, st_bytecode_instr_t *instr) {
                     (float)right.dint_val;
     result.bool_val = (left_f == right_f);
   } else if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
-    // DINT comparison (promote INT to DINT)
-    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val : (int32_t)left.int_val;
-    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val : (int32_t)right.int_val;
+    // DINT comparison (promote INT to DINT). BUG-397c FIX: a DWORD operand
+    // is now read via dword_val reinterpreted as int32_t, not int_val.
+    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val :
+                     (left_type == ST_TYPE_DWORD) ? (int32_t)left.dword_val :
+                     (int32_t)left.int_val;
+    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val :
+                      (right_type == ST_TYPE_DWORD) ? (int32_t)right.dword_val :
+                      (int32_t)right.int_val;
     result.bool_val = (left_d == right_d);
+  } else if (left_type == ST_TYPE_DWORD || right_type == ST_TYPE_DWORD) {
+    // BUG-397c FIX: genuinely unsigned DWORD comparison -- previously fell
+    // through to the 16-bit INT branch below and lost bits 16-31.
+    uint32_t left_u = (left_type == ST_TYPE_DWORD) ? left.dword_val : (uint32_t)(int32_t)left.int_val;
+    uint32_t right_u = (right_type == ST_TYPE_DWORD) ? right.dword_val : (uint32_t)(int32_t)right.int_val;
+    result.bool_val = (left_u == right_u);
   } else {
     // INT comparison (16-bit)
     result.bool_val = (left.int_val == right.int_val);
@@ -1018,10 +1153,21 @@ static bool st_vm_exec_ne(st_vm_t *vm, st_bytecode_instr_t *instr) {
                     (float)right.dint_val;
     result.bool_val = (left_f != right_f);
   } else if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
-    // DINT comparison (promote INT to DINT)
-    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val : (int32_t)left.int_val;
-    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val : (int32_t)right.int_val;
+    // DINT comparison (promote INT to DINT). BUG-397c FIX: a DWORD operand
+    // is now read via dword_val reinterpreted as int32_t, not int_val.
+    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val :
+                     (left_type == ST_TYPE_DWORD) ? (int32_t)left.dword_val :
+                     (int32_t)left.int_val;
+    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val :
+                      (right_type == ST_TYPE_DWORD) ? (int32_t)right.dword_val :
+                      (int32_t)right.int_val;
     result.bool_val = (left_d != right_d);
+  } else if (left_type == ST_TYPE_DWORD || right_type == ST_TYPE_DWORD) {
+    // BUG-397c FIX: genuinely unsigned DWORD comparison -- previously fell
+    // through to the 16-bit INT branch below and lost bits 16-31.
+    uint32_t left_u = (left_type == ST_TYPE_DWORD) ? left.dword_val : (uint32_t)(int32_t)left.int_val;
+    uint32_t right_u = (right_type == ST_TYPE_DWORD) ? right.dword_val : (uint32_t)(int32_t)right.int_val;
+    result.bool_val = (left_u != right_u);
   } else {
     // INT comparison (16-bit)
     result.bool_val = (left.int_val != right.int_val);
@@ -1047,10 +1193,21 @@ static bool st_vm_exec_lt(st_vm_t *vm, st_bytecode_instr_t *instr) {
                     (float)right.dint_val;
     result.bool_val = (left_f < right_f);
   } else if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
-    // DINT comparison (promote INT to DINT)
-    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val : (int32_t)left.int_val;
-    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val : (int32_t)right.dint_val;
+    // DINT comparison (promote INT to DINT). BUG-397c FIX: a DWORD operand
+    // is now read via dword_val reinterpreted as int32_t, not int_val.
+    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val :
+                     (left_type == ST_TYPE_DWORD) ? (int32_t)left.dword_val :
+                     (int32_t)left.int_val;
+    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val :
+                      (right_type == ST_TYPE_DWORD) ? (int32_t)right.dword_val :
+                      (int32_t)right.int_val;
     result.bool_val = (left_d < right_d);
+  } else if (left_type == ST_TYPE_DWORD || right_type == ST_TYPE_DWORD) {
+    // BUG-397c FIX: genuinely unsigned DWORD comparison -- previously fell
+    // through to the 16-bit INT branch below and lost bits 16-31.
+    uint32_t left_u = (left_type == ST_TYPE_DWORD) ? left.dword_val : (uint32_t)(int32_t)left.int_val;
+    uint32_t right_u = (right_type == ST_TYPE_DWORD) ? right.dword_val : (uint32_t)(int32_t)right.int_val;
+    result.bool_val = (left_u < right_u);
   } else {
     // INT comparison (16-bit)
     result.bool_val = (left.int_val < right.int_val);
@@ -1076,10 +1233,21 @@ static bool st_vm_exec_gt(st_vm_t *vm, st_bytecode_instr_t *instr) {
                     (float)right.dint_val;
     result.bool_val = (left_f > right_f);
   } else if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
-    // DINT comparison (promote INT to DINT)
-    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val : (int32_t)left.int_val;
-    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val : (int32_t)right.int_val;
+    // DINT comparison (promote INT to DINT). BUG-397c FIX: a DWORD operand
+    // is now read via dword_val reinterpreted as int32_t, not int_val.
+    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val :
+                     (left_type == ST_TYPE_DWORD) ? (int32_t)left.dword_val :
+                     (int32_t)left.int_val;
+    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val :
+                      (right_type == ST_TYPE_DWORD) ? (int32_t)right.dword_val :
+                      (int32_t)right.int_val;
     result.bool_val = (left_d > right_d);
+  } else if (left_type == ST_TYPE_DWORD || right_type == ST_TYPE_DWORD) {
+    // BUG-397c FIX: genuinely unsigned DWORD comparison -- previously fell
+    // through to the 16-bit INT branch below and lost bits 16-31.
+    uint32_t left_u = (left_type == ST_TYPE_DWORD) ? left.dword_val : (uint32_t)(int32_t)left.int_val;
+    uint32_t right_u = (right_type == ST_TYPE_DWORD) ? right.dword_val : (uint32_t)(int32_t)right.int_val;
+    result.bool_val = (left_u > right_u);
   } else {
     // INT comparison (16-bit)
     result.bool_val = (left.int_val > right.int_val);
@@ -1105,10 +1273,21 @@ static bool st_vm_exec_le(st_vm_t *vm, st_bytecode_instr_t *instr) {
                     (float)right.dint_val;
     result.bool_val = (left_f <= right_f);
   } else if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
-    // DINT comparison (promote INT to DINT)
-    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val : (int32_t)left.int_val;
-    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val : (int32_t)right.int_val;
+    // DINT comparison (promote INT to DINT). BUG-397c FIX: a DWORD operand
+    // is now read via dword_val reinterpreted as int32_t, not int_val.
+    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val :
+                     (left_type == ST_TYPE_DWORD) ? (int32_t)left.dword_val :
+                     (int32_t)left.int_val;
+    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val :
+                      (right_type == ST_TYPE_DWORD) ? (int32_t)right.dword_val :
+                      (int32_t)right.int_val;
     result.bool_val = (left_d <= right_d);
+  } else if (left_type == ST_TYPE_DWORD || right_type == ST_TYPE_DWORD) {
+    // BUG-397c FIX: genuinely unsigned DWORD comparison -- previously fell
+    // through to the 16-bit INT branch below and lost bits 16-31.
+    uint32_t left_u = (left_type == ST_TYPE_DWORD) ? left.dword_val : (uint32_t)(int32_t)left.int_val;
+    uint32_t right_u = (right_type == ST_TYPE_DWORD) ? right.dword_val : (uint32_t)(int32_t)right.int_val;
+    result.bool_val = (left_u <= right_u);
   } else {
     // INT comparison (16-bit)
     result.bool_val = (left.int_val <= right.int_val);
@@ -1134,10 +1313,21 @@ static bool st_vm_exec_ge(st_vm_t *vm, st_bytecode_instr_t *instr) {
                     (float)right.dint_val;
     result.bool_val = (left_f >= right_f);
   } else if (left_type == ST_TYPE_DINT || right_type == ST_TYPE_DINT) {
-    // DINT comparison (promote INT to DINT)
-    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val : (int32_t)left.int_val;
-    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val : (int32_t)right.int_val;
+    // DINT comparison (promote INT to DINT). BUG-397c FIX: a DWORD operand
+    // is now read via dword_val reinterpreted as int32_t, not int_val.
+    int32_t left_d = (left_type == ST_TYPE_DINT) ? left.dint_val :
+                     (left_type == ST_TYPE_DWORD) ? (int32_t)left.dword_val :
+                     (int32_t)left.int_val;
+    int32_t right_d = (right_type == ST_TYPE_DINT) ? right.dint_val :
+                      (right_type == ST_TYPE_DWORD) ? (int32_t)right.dword_val :
+                      (int32_t)right.int_val;
     result.bool_val = (left_d >= right_d);
+  } else if (left_type == ST_TYPE_DWORD || right_type == ST_TYPE_DWORD) {
+    // BUG-397c FIX: genuinely unsigned DWORD comparison -- previously fell
+    // through to the 16-bit INT branch below and lost bits 16-31.
+    uint32_t left_u = (left_type == ST_TYPE_DWORD) ? left.dword_val : (uint32_t)(int32_t)left.int_val;
+    uint32_t right_u = (right_type == ST_TYPE_DWORD) ? right.dword_val : (uint32_t)(int32_t)right.int_val;
+    result.bool_val = (left_u >= right_u);
   } else {
     // INT comparison (16-bit)
     result.bool_val = (left.int_val >= right.int_val);
@@ -1167,6 +1357,21 @@ static bool st_vm_exec_shl(st_vm_t *vm, st_bytecode_instr_t *instr) {
     }
     result.dint_val = left.dint_val << right.int_val;
     return st_vm_push_typed(vm, result, ST_TYPE_DINT);
+  }
+
+  // BUG-397 FIX: DWORD used to silently fall into the INT (16-bit) branch
+  // below, which operates on the union's .int_val field -- losing bits
+  // 16-31 entirely and silently re-typing the result as INT instead of
+  // DWORD. DWORD is a 32-bit unsigned type; give it its own 32-bit branch
+  // (unsigned shift, matching its bit-pattern semantics) same as DINT above.
+  if (left_type == ST_TYPE_DWORD) {
+    if (right.int_val < 0 || right.int_val >= 32) {
+      snprintf(vm->error_msg, sizeof(vm->error_msg), "Shift amount out of range for DWORD (0-31)");
+      vm->error = 1;
+      return false;
+    }
+    result.dword_val = left.dword_val << right.int_val;
+    return st_vm_push_typed(vm, result, ST_TYPE_DWORD);
   }
 
   // INT shift left (16-bit)
@@ -1199,6 +1404,19 @@ static bool st_vm_exec_shr(st_vm_t *vm, st_bytecode_instr_t *instr) {
     }
     result.dint_val = left.dint_val >> right.int_val;
     return st_vm_push_typed(vm, result, ST_TYPE_DINT);
+  }
+
+  // BUG-397 FIX: see st_vm_exec_shl() above for the full rationale -- DWORD
+  // needs its own 32-bit (unsigned, logical) shift branch instead of
+  // silently falling into the 16-bit INT one.
+  if (left_type == ST_TYPE_DWORD) {
+    if (right.int_val < 0 || right.int_val >= 32) {
+      snprintf(vm->error_msg, sizeof(vm->error_msg), "Shift amount out of range for DWORD (0-31)");
+      vm->error = 1;
+      return false;
+    }
+    result.dword_val = left.dword_val >> right.int_val;
+    return st_vm_push_typed(vm, result, ST_TYPE_DWORD);
   }
 
   // INT shift right (16-bit)
@@ -1506,6 +1724,70 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
           vm->variables[arr_base + i].int_val = (int16_t)g_mb_multi_reg_buf[i];
         }
       }
+    }
+    else if (func_id == ST_BUILTIN_MBX_READ_COIL || func_id == ST_BUILTIN_MBX_READ_INPUT ||
+             func_id == ST_BUILTIN_MBX_READ_HOLDING || func_id == ST_BUILTIN_MBX_READ_INPUT_REG) {
+      // FEAT-410: MBX_READ_*(board, kanal, slave, addr) — arg1=board, arg2=kanal, arg3=slave, arg4=addr.
+      // Samme type-promotion-disciplin som MB_WRITE_COIL/HOLDING ovenfor (BUG-134/135/136-lektionen):
+      // enhver DINT/DWORD-vaerdi klemmes til INT-range FOER den naar C++-laget, saa et program der (fejlagtigt
+      // eller med vilje) sender en DINT/DWORD-literal aldrig kan sende en vaerdi udenfor det tilsigtede omraade.
+      st_value_t board_i, ch_i, slave_i, addr_i;
+
+      auto clamp_to_int = [](st_value_t v, st_datatype_t t, int32_t lo, int32_t hi) -> st_value_t {
+        st_value_t out;
+        int32_t raw = (t == ST_TYPE_DINT) ? v.dint_val : (t == ST_TYPE_DWORD) ? (int32_t)v.dword_val : v.int_val;
+        if (raw < lo) raw = lo;
+        if (raw > hi) raw = hi;
+        out.int_val = (int16_t)raw;
+        return out;
+      };
+
+      board_i = clamp_to_int(arg1, arg1_type, 0, 255);
+      ch_i    = clamp_to_int(arg2, arg2_type, 0, 255);
+      slave_i = clamp_to_int(arg3, arg3_type, 0, 255);
+      addr_i  = clamp_to_int(arg4, arg4_type, 0, 65535);
+
+      if (func_id == ST_BUILTIN_MBX_READ_COIL) result = st_builtin_mbx_read_coil(board_i, ch_i, slave_i, addr_i);
+      else if (func_id == ST_BUILTIN_MBX_READ_INPUT) result = st_builtin_mbx_read_input(board_i, ch_i, slave_i, addr_i);
+      else if (func_id == ST_BUILTIN_MBX_READ_HOLDING) result = st_builtin_mbx_read_holding(board_i, ch_i, slave_i, addr_i);
+      else result = st_builtin_mbx_read_input_reg(board_i, ch_i, slave_i, addr_i);
+    }
+  } else if (arg_count == 5 &&
+             (func_id == ST_BUILTIN_MBX_WRITE_COIL || func_id == ST_BUILTIN_MBX_WRITE_HOLDING)) {
+    // FEAT-410: MBX_WRITE_COIL/HOLDING(board, kanal, slave, addr, value) —
+    // arg1=board, arg2=kanal, arg3=slave, arg4=addr, arg5=value.
+    st_value_t board_i, ch_i, slave_i, addr_i, value_out;
+
+    auto clamp_to_int5 = [](st_value_t v, st_datatype_t t, int32_t lo, int32_t hi) -> st_value_t {
+      st_value_t out;
+      int32_t raw = (t == ST_TYPE_DINT) ? v.dint_val : (t == ST_TYPE_DWORD) ? (int32_t)v.dword_val : v.int_val;
+      if (raw < lo) raw = lo;
+      if (raw > hi) raw = hi;
+      out.int_val = (int16_t)raw;
+      return out;
+    };
+
+    board_i = clamp_to_int5(arg1, arg1_type, 0, 255);
+    ch_i    = clamp_to_int5(arg2, arg2_type, 0, 255);
+    slave_i = clamp_to_int5(arg3, arg3_type, 0, 255);
+    addr_i  = clamp_to_int5(arg4, arg4_type, 0, 65535);
+
+    if (func_id == ST_BUILTIN_MBX_WRITE_COIL) {
+      // Value → BOOL (non-zero = TRUE), samme konvertering som MB_WRITE_COIL ovenfor
+      if (arg5_type == ST_TYPE_BOOL) value_out.bool_val = arg5.bool_val;
+      else if (arg5_type == ST_TYPE_DINT) value_out.bool_val = (arg5.dint_val != 0);
+      else if (arg5_type == ST_TYPE_DWORD) value_out.bool_val = (arg5.dword_val != 0);
+      else if (arg5_type == ST_TYPE_REAL) value_out.bool_val = (fabs(arg5.real_val) > 0.001f);
+      else value_out.bool_val = (arg5.int_val != 0);
+      result = st_builtin_mbx_write_coil(board_i, ch_i, slave_i, addr_i, value_out);
+    } else {
+      // Value → INT, samme konvertering som MB_WRITE_HOLDING ovenfor
+      if (arg5_type == ST_TYPE_REAL) value_out.int_val = (int16_t)arg5.real_val;
+      else if (arg5_type == ST_TYPE_DINT) value_out.int_val = (arg5.dint_val > 32767) ? 32767 : (arg5.dint_val < -32768) ? -32768 : arg5.dint_val;
+      else if (arg5_type == ST_TYPE_DWORD) value_out.int_val = (int16_t)(arg5.dword_val & 0xFFFF);
+      else if (arg5_type == ST_TYPE_BOOL) value_out.int_val = arg5.bool_val ? 1 : 0;
+      else value_out.int_val = arg5.int_val;
+      result = st_builtin_mbx_write_holding(board_i, ch_i, slave_i, addr_i, value_out);
     }
   } else if (func_id == ST_BUILTIN_ROL && arg_count == 2) {
     // ROL: Rotate left (type-dependent)

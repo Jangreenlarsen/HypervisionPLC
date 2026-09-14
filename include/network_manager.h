@@ -102,6 +102,12 @@ const NetworkState* network_manager_get_state(void);
  */
 uint8_t network_manager_get_telnet_client_info(uint32_t *ip_out, uint32_t *uptime_s, char *username);
 
+/**
+ * FEAT-399 (IP ACL lockout-recovery): forcibly disconnect the current Telnet
+ * client, if any. No-op if no client is connected.
+ */
+void network_manager_disconnect_telnet_client(void);
+
 /* ============================================================================
  * TELNET I/O (Line-oriented)
  * ============================================================================ */

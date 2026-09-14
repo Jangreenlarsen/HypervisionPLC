@@ -54,6 +54,9 @@
 #include "cli_parser.h"
 #include "cli_shell.h"
 #include "rbac.h"
+#include "ip_acl.h"
+#include "expansion_api_client.h"  // FEAT-409
+#include "network_config.h"  // network_config_ip_to_str()
 #include "mb_async.h"
 #include "mb_activity_log.h"
 #include "trend_recorder.h"
@@ -435,25 +438,32 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
   char fail_ip[16] = {0};
   char fail_user[32] = {0};
   if (status == 401 || status == 403) {
-    // BUG-387 FIX: only send the WWW-Authenticate CHALLENGE when the request
-    // carried NO Authorization header at all — a genuinely anonymous hit
-    // (bare curl call, or a browser address-bar visit straight to an API
-    // URL). This header used to be set on EVERY 401, including the web
-    // GUI's own background Bearer-token checks (session validity pings,
-    // e.g. after the device reboots and invalidates all RAM-only session
-    // tokens — see BUG-353) and a wrong-password attempt through the GUI's
-    // own custom login modal (doLogin() in web/*.html, which already sends
-    // its own Basic Authorization header). Browsers show their OWN native
-    // Basic-Auth popup on ANY 401 carrying this header, regardless of
-    // whether the request already included Bearer/Basic credentials — so
-    // the user got a confusing SECOND, native prompt stacked on top of the
-    // page's own custom login modal ("asked for login in two places").
-    // A client that already sent Authorization made its own attempt and
-    // has its own UI for the failure; only the credential-less case
-    // benefits from the browser's native challenge.
-    if (status == 401 && httpd_req_get_hdr_value_len(req, "Authorization") == 0) {
-      httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Modbus ESP32\"");
-    }
+    // BUG-387 FIX (senere helt fjernet i BUG-395): sendte tidligere WWW-
+    // Authenticate paa ETHVERT 401, hvilket fik browsere til at vise deres
+    // EGEN native Basic-Auth-popup oveni GUI'ets eget login-modal. BUG-387
+    // begraensede den til kun kreditiv-loese requests (ingen Authorization-
+    // header overhovedet) — men netop DEN situation rammer web-GUI'et hver
+    // eneste gang en side indlaeses UDEN gyldig cookie endnu (foerste besoeg,
+    // eller efter en reboot der har invalideret alle RAM-only sessions), saa
+    // native popuppen blev stadig vist regelmaessigt.
+    // BUG-395: fjernet HELT. Roden til problemet: naar en bruger taster
+    // kodeord i browserens NATIVE popup (i stedet for/oveni appens eget
+    // modal), CACHER Safari/Firefox-iOS credentialet i deres egen interne
+    // Basic-Auth-butik, uden for JS'ens kontrol. Den cache bliver AUTOMATISK
+    // vedhaeftet som Authorization-header paa ALLE efterfoelgende requests —
+    // OGSAA efter et logout, der korrekt rydder session-cookien server-side
+    // (`rbac_check_http()` accepterer med vilje en Authorization-header
+    // uaendret, af bagudkompatibilitetshensyn til curl/Node-RED). Resultatet:
+    // "Log ud" ser ud til slet ikke at virke, fordi browseren lydloest
+    // genautentificerer med det cachede password paa selve reload-requesten,
+    // uafhaengigt af cookien — et symptom der IKKE kan rettes fra server-
+    // siden alene (kraever at brugeren manuelt sletter det gemte login paa
+    // sin enhed). Web-GUI'et har intet behov for browserens native popup
+    // laengere — det bruger sit eget cookie-baserede login-modal fuldt ud
+    // (BUG-393) — og curl/Node-RED-klienter der bruger `-u`/Basic-Auth sender
+    // allerede deres Authorization-header proaktivt uden at vente paa denne
+    // udfordring. At udelade headeren forhindrer browsere i nogensinde at
+    // faa muligheden for at cache et credential paa denne maade fremover.
     // Get client IP while socket is still valid
     int sockfd = httpd_req_to_sockfd(req);
     struct sockaddr_in6 addr6;
@@ -566,8 +576,56 @@ esp_err_t api_send_json(httpd_req_t *req, const char *json_str)
  * AUTHENTICATION CHECK MACRO
  * ============================================================================ */
 
+// FEAT-399: IP ACL for HTTPS. Plain HTTP afvises langt tidligere, i
+// httpd_config.open_fn (http_server.cpp, foer accept() overhovedet fuldfoeres)
+// — men ESP-IDF's httpd_ssl_open() udfoerer TLS-haandtrykket FOeR den kalder
+// et evt. chainet open_fn og ignorerer dets returvaerdi, saa den vej er
+// ubrugelig for HTTPS (se ip_acl.h for den fulde begrundelse). Haandhaeves
+// derfor her, paa REQUEST-laget (CHECK_IP_ACL-makroen nedenfor, som bruger
+// ip_acl_check_req() fra ip_acl.h/.cpp), som allerfoerste tjek i alle tre
+// CHECK_AUTH*-varianter — daekker dermed baade HTTP (dobbelt-tjekket,
+// harmloest) og HTTPS (dens eneste reelle haandhaevelsespunkt).
+//
+// get_client_ip_raw() bruges IKKE af CHECK_IP_ACL (den bruger den delte
+// ip_acl_check_req() i stedet) — kun af ACL-CRUD-handlerne laengere nede til
+// den proaktive "denne regel ville ramme din EGEN IP"-advarsel. 0 hvis IP
+// ikke kunne afgoeres.
+static uint32_t get_client_ip_raw(httpd_req_t *req) {
+  int sockfd = httpd_req_to_sockfd(req);
+  struct sockaddr_in6 addr6;
+  socklen_t addr_len = sizeof(addr6);
+  if (sockfd < 0 || getpeername(sockfd, (struct sockaddr *)&addr6, &addr_len) != 0) {
+    return 0;
+  }
+  if (addr6.sin6_family == AF_INET) {
+    return ((struct sockaddr_in *)&addr6)->sin_addr.s_addr;
+  } else if (addr6.sin6_family == AF_INET6) {
+    struct in_addr mapped;
+    memcpy(&mapped, &addr6.sin6_addr.un.u32_addr[3], 4);
+    return mapped.s_addr;
+  }
+  return 0;
+}
+
+#define CHECK_IP_ACL(req) \
+  do { \
+    if (!ip_acl_check_req(req, ACL_SVC_HTTP)) { \
+      return api_send_error(req, 403, "Blocked by IP ACL"); \
+    } \
+  } while(0)
+
+// FEAT-399 (brugerkrav: "ACL skal opfoeres som en firewall — ALT IP-trafik
+// skal igennem foer noget som helst andet"): CHECK_IP_ACL flyttet IND i selve
+// CHECK_API_ENABLED, saa den bliver det allerfoerste tjek for ENHVER handler
+// der bruger API'et overhovedet — ogsaa de faa endpoints der bevidst IKKE
+// kraever auth (fx api_handler_metrics(), Prometheus-scraping) og derfor
+// aldrig gaar gennem CHECK_AUTH/CHECK_AUTH_WRITE/CHECK_AUTH_ROLE. Uden dette
+// var "ingen auth kraevet" utilsigtet blevet til "heller ingen ACL-kontrol"
+// for den haandfuld endpoints — ACL er ORTOGONAL til autentificering (den
+// afgoer om en IP overhovedet maa TALE med tjenesten, ikke hvem brugeren er).
 #define CHECK_API_ENABLED(req) \
   do { \
+    CHECK_IP_ACL(req); \
     if (!g_persist_config.network.http.api_enabled) { \
       return api_send_error(req, 403, "API disabled"); \
     } \
@@ -713,6 +771,22 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/rbac",                          "Enable/disable RBAC"},
   {"POST",   "/api/rbac/users",                    "Create/update RBAC user"},
   {"DELETE", "/api/rbac/users/{username}",         "Delete RBAC user"},
+  {"GET",    "/api/acl",                           "IP ACL status + rule list"},
+  {"POST",   "/api/acl",                           "Enable/disable IP ACL"},
+  {"POST",   "/api/acl/rules",                     "Add IP ACL rule"},
+  {"POST",   "/api/acl/rules/{index}",             "Enable/disable, or fully edit (cidr/service/action), an IP ACL rule"},
+  {"POST",   "/api/acl/rules/{index}/move",        "Reorder an IP ACL rule (body: {\"to_index\":N})"},
+  {"DELETE", "/api/acl/rules/{index}",             "Delete IP ACL rule"},
+  {"POST",   "/api/acl/confirm",                   "Confirm pending IP ACL change"},
+  {"GET",    "/api/acl/draft",                     "FEAT-402: IP ACL draft contents (never enforced)"},
+  {"POST",   "/api/acl/draft/begin",               "FEAT-402: start a new IP ACL draft"},
+  {"DELETE", "/api/acl/draft",                     "FEAT-402: discard the IP ACL draft"},
+  {"POST",   "/api/acl/draft",                     "FEAT-402: enable/disable the IP ACL draft's overall flag"},
+  {"POST",   "/api/acl/draft/rules",               "FEAT-402: add a rule to the IP ACL draft"},
+  {"POST",   "/api/acl/draft/rules/{index}",       "FEAT-402: edit/toggle a draft rule"},
+  {"POST",   "/api/acl/draft/rules/{index}/move",  "FEAT-402: reorder a draft rule (body: {\"to_index\":N})"},
+  {"DELETE", "/api/acl/draft/rules/{index}",       "FEAT-402: delete a draft rule"},
+  {"POST",   "/api/acl/draft/apply",               "FEAT-402: apply the whole draft atomically (can gate)"},
   {"GET",    "/api/user/me",                       "Current session info"},
   {"POST",   "/api/login",                         "Authenticate, issue session token"},
   {"POST",   "/api/logout",                        "Invalidate session token"},
@@ -753,7 +827,8 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/events/disconnect",             "Disconnect an SSE client"},
   {"GET",    "/api/version",                       "API version info (FEAT-030)"},
   {"GET",    "/api/v1/*",                          "API v1 versioned endpoint (FEAT-030)"},
-  {"GET",    "/api/metrics",                       "Prometheus metrics (FEAT-032)"},
+  {"GET",    "/api/metrics",                       "Prometheus metrics (FEAT-032, kraever login siden BUG-406)"},
+  {"GET",    "/api/metrics/public",                 "FEAT-407: auth-fri Prometheus metrics uden register-dump, til den offentlige statusside"},
   {"GET",    "/api/alarms",                        "Alarm log"},
   {"POST",   "/api/alarms/ack",                    "Acknowledge alarm"},
   {"GET",    "/api/persist/groups",                "List persistence groups"},
@@ -765,11 +840,23 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/persist/config",                "Set persistence enabled/auto_load_enabled"},
   {"GET",    "/api/dashboard/layout",               "Dashboard layout settings"},
   {"POST",   "/api/dashboard/layout",               "Save dashboard layout settings"},
+  {"GET",    "/api/public-dashboard/cards",         "FEAT-407: which dashboard cards are shown on the public status page"},
+  {"POST",   "/api/public-dashboard/cards",         "FEAT-407: set which dashboard cards are shown on the public status page (admin)"},
   {"POST",   "/api/system/ota",                    "Upload firmware (OTA, FEAT-031)"},
   {"GET",    "/api/system/ota/status",              "OTA progress status (FEAT-031)"},
   {"POST",   "/api/system/ota/rollback",           "Rollback firmware (FEAT-031)"},
   {"GET",    "/api/system/ota/github-check",        "Check GitHub Releases for newer firmware (FEAT-169)"},
   {"POST",   "/api/system/ota/github-install",      "Download+install latest GitHub release (FEAT-169)"},
+  {"GET",    "/api/expansion/board-types",          "List known Modbus Expansion Board types (FEAT-409c)"},
+  {"GET",    "/api/expansion/boards",               "List Modbus Expansion Boards (FEAT-409)"},
+  {"POST",   "/api/expansion/boards",               "Add Modbus Expansion Board (FEAT-409)"},
+  {"PUT",    "/api/expansion/boards/{id}",          "Edit board metadata, or PUT .../{id}/channels/{n} to push channel config (FEAT-409)"},
+  {"DELETE", "/api/expansion/boards/{id}",          "Remove Modbus Expansion Board (FEAT-409)"},
+  {"POST",   "/api/expansion/boards/{id}/status",   "Start async board status check (FEAT-409)"},
+  {"POST",   "/api/expansion/boards/{id}/channels", "Start async channel list fetch (FEAT-409)"},
+  {"POST",   "/api/expansion/boards/{id}/channels/{n}/read",  "Start async diagnostic Modbus read (FEAT-409)"},
+  {"POST",   "/api/expansion/boards/{id}/channels/{n}/write", "Start async diagnostic Modbus write (FEAT-409)"},
+  {"GET",    "/api/expansion/action-status",        "Poll result of the last started expansion-board call (FEAT-409)"},
 };
 #define API_ROUTES_COUNT (sizeof(API_ROUTES) / sizeof(API_ROUTES[0]))
 
@@ -1548,7 +1635,12 @@ esp_err_t api_handler_logic(httpd_req_t *req)
   // Compiler resource info (realtime heap + pool stats)
   JsonObject res = doc["resources"].to<JsonObject>();
   res["heap_free"] = (uint32_t)esp_get_free_heap_size();
-  res["largest_block"] = (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  // BUG-409: MALLOC_CAP_8BIT alone also matches PSRAM on boards that have it
+  // (ES32D26) -- paired with heap_free above (internal-only), that made this
+  // look like a many-megabyte "largest block" next to a ~90KB free heap.
+  // The AST pool below is allocated via plain malloc(), which stays internal,
+  // so report the same internal-only figure it actually sizes against.
+  res["largest_block"] = (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
   res["min_free"] = (uint32_t)esp_get_minimum_free_heap_size();
   uint32_t pool_used = 0, pool_free = 0, pool_largest = 0;
   st_logic_get_pool_stats(state, &pool_used, &pool_free, &pool_largest);
@@ -1556,7 +1648,7 @@ esp_err_t api_handler_logic(httpd_req_t *req)
   res["pool_used"] = pool_used;
   res["pool_free"] = pool_free;
   // Estimated max AST nodes that can be allocated (node_size ~84 bytes + 24KB reserve for compiler)
-  uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
   uint32_t available_for_ast = (largest > 24576) ? (largest - 24576) : 0;
   res["ast_node_size"] = (uint32_t)sizeof(st_ast_node_t);
   res["max_ast_nodes"] = (available_for_ast > 0) ? (uint32_t)(available_for_ast / sizeof(st_ast_node_t)) : 0;
@@ -1708,6 +1800,14 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
         case ST_TYPE_BOOL: type_str = "BOOL"; break;
         case ST_TYPE_INT:  type_str = "INT"; break;
         case ST_TYPE_DINT: type_str = "DINT"; break;
+        // BUG-397 FIX: DWORD had no case here, so every DWORD variable fell
+        // through to the default and was reported as "INT" -- and its value
+        // (below) was read via the union's 16-bit .int_val instead of
+        // .dword_val, silently wrapping/truncating anything outside the
+        // INT16 range. The compiler/VM already track DWORD correctly (see
+        // `show logic <id> bytecode`); this was purely a REST-serialization
+        // gap in this one handler.
+        case ST_TYPE_DWORD: type_str = "DWORD"; break;
         case ST_TYPE_REAL: type_str = "REAL"; break;
         case ST_TYPE_TIME: type_str = "TIME"; break;
         case ST_TYPE_STRING: type_str = "STRING"; break;  // FEAT-005
@@ -1726,6 +1826,10 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
           break;
         case ST_TYPE_DINT:
           v["value"] = val.dint_val;
+          break;
+        // BUG-397 FIX: see the type_str switch above for the full rationale.
+        case ST_TYPE_DWORD:
+          v["value"] = val.dword_val;
           break;
         case ST_TYPE_REAL:
           v["value"] = val.real_val;
@@ -1746,10 +1850,22 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
     }
   }
 
-  char buf[HTTP_SERVER_MAX_RESP_SIZE];
-  serializeJson(doc, buf, sizeof(buf));
-
-  return api_send_json(req, buf);
+  // BUG-397g FIX: same root cause as BUG-332/BUG-397g (see
+  // api_handler_bindings_list()'s comment for the full explanation) -- a
+  // program with 32 variables (the max) and moderately long names was
+  // observed at 2033 bytes, dangerously close to the fixed 2048-byte
+  // HTTP_SERVER_MAX_RESP_SIZE limit -- one more variable, or slightly
+  // longer names, would silently start truncating mid-JSON-object and leak
+  // adjacent heap bytes into the HTTP response (this endpoint is the
+  // primary program-status GET, called far more often than /api/bindings).
+  // measureJson() sizes the buffer exactly, eliminating the risk entirely.
+  size_t json_len = measureJson(doc);
+  char *buf = (char *)malloc(json_len + 1);
+  if (!buf) return api_send_error(req, 500, "Out of memory");
+  serializeJson(doc, buf, json_len + 1);
+  esp_err_t result = api_send_json(req, buf);
+  free(buf);
+  return result;
 }
 
 /* ============================================================================
@@ -2834,6 +2950,7 @@ esp_err_t api_handler_config_get(httpd_req_t *req)
   http["https_port"] = g_persist_config.https_port;  // BUG-350: dedikeret, ikke samme som "port"
   http["api_enabled"] = g_persist_config.network.http.api_enabled ? true : false;
   http["auth_enabled"] = g_persist_config.network.http.auth_enabled ? true : false;
+  http["auth_mode"] = (g_persist_config.http_auth_mode == HTTP_AUTH_MODE_BEARER) ? "bearer" : "basic";  // FEAT-397h
   http["username"] = g_persist_config.network.http.username;  // FEAT-166: username isn't a secret (unlike password) — needed so the system.html settings form can show the CURRENT legacy admin username instead of leaving it blank
   const char *prio_str = "NORMAL";
   if (g_persist_config.network.http.priority == 0) prio_str = "LOW";
@@ -3736,6 +3853,17 @@ esp_err_t api_handler_http_config_post(httpd_req_t *req)
   if (doc.containsKey("auth_enabled")) {
     g_persist_config.network.http.auth_enabled = doc["auth_enabled"].as<bool>() ? 1 : 0;
   }
+  // FEAT-397h
+  if (doc.containsKey("auth_mode")) {
+    const char *mode = doc["auth_mode"].as<const char*>();
+    if (mode && !strcmp(mode, "basic")) {
+      g_persist_config.http_auth_mode = HTTP_AUTH_MODE_BASIC;
+    } else if (mode && !strcmp(mode, "bearer")) {
+      g_persist_config.http_auth_mode = HTTP_AUTH_MODE_BEARER;
+    } else {
+      return api_send_error(req, 400, "Invalid auth_mode (use: basic|bearer)");
+    }
+  }
   if (doc.containsKey("api_enabled")) {
     g_persist_config.network.http.api_enabled = doc["api_enabled"].as<bool>() ? 1 : 0;
   }
@@ -4330,8 +4458,10 @@ esp_err_t api_handler_gpio_config_post(httpd_req_t *req)
 
   if (!existing) {
     // Create new mapping
-    if (g_persist_config.var_map_count >= 32) {
-      return api_send_error(req, 500, "Maximum GPIO mappings (32) reached");
+    if (g_persist_config.var_map_count >= MAX_VAR_MAPPINGS) {
+      char errbuf[48];
+      snprintf(errbuf, sizeof(errbuf), "Maximum GPIO mappings (%d) reached", MAX_VAR_MAPPINGS);
+      return api_send_error(req, 500, errbuf);
     }
     existing = &g_persist_config.var_maps[g_persist_config.var_map_count++];
     memset(existing, 0, sizeof(VariableMapping));
@@ -4536,8 +4666,10 @@ esp_err_t api_handler_logic_bind_post(httpd_req_t *req)
   // Create new binding(s)
   int created = 0;
   if (is_input) {
-    if (g_persist_config.var_map_count >= 32) {
-      return api_send_error(req, 500, "Maximum variable mappings (32) reached");
+    if (g_persist_config.var_map_count >= MAX_VAR_MAPPINGS) {
+      char errbuf[48];
+      snprintf(errbuf, sizeof(errbuf), "Maximum variable mappings (%d) reached", MAX_VAR_MAPPINGS);
+      return api_send_error(req, 500, errbuf);
     }
     VariableMapping *m = &g_persist_config.var_maps[g_persist_config.var_map_count++];
     memset(m, 0, sizeof(VariableMapping));
@@ -4561,8 +4693,10 @@ esp_err_t api_handler_logic_bind_post(httpd_req_t *req)
     created++;
   }
   if (is_output) {
-    if (g_persist_config.var_map_count >= 32) {
-      return api_send_error(req, 500, "Maximum variable mappings (32) reached");
+    if (g_persist_config.var_map_count >= MAX_VAR_MAPPINGS) {
+      char errbuf[48];
+      snprintf(errbuf, sizeof(errbuf), "Maximum variable mappings (%d) reached", MAX_VAR_MAPPINGS);
+      return api_send_error(req, 500, errbuf);
     }
     VariableMapping *m = &g_persist_config.var_maps[g_persist_config.var_map_count++];
     memset(m, 0, sizeof(VariableMapping));
@@ -4695,6 +4829,7 @@ static void build_user_info_json(int uid, const char *token, char *buf, size_t b
 esp_err_t api_handler_user_me(httpd_req_t *req)
 {
   http_server_stat_request();
+  CHECK_IP_ACL(req);  // FEAT-399
   CHECK_API_ENABLED(req);
   if (!http_rate_limit_check(req)) {
     return api_send_error(req, 429, "Too many requests");
@@ -4716,6 +4851,12 @@ esp_err_t api_handler_user_me(httpd_req_t *req)
 esp_err_t api_handler_login(httpd_req_t *req)
 {
   http_server_stat_request();
+  // FEAT-399: IP ACL — bevidst IKKE undtaget her (til forskel fra
+  // FEAT-397h's Bearer/Basic-undtagelse). Hele pointen med lockout-recovery-
+  // flowet er at kunne opdage om login rent faktisk stadig virker under nye
+  // regler; en fast ACL-bypass for /api/login ville skjule en fejlkonfigureret
+  // regel indtil den er persisteret og enheden genstartet.
+  CHECK_IP_ACL(req);
   CHECK_API_ENABLED(req);
   if (!http_rate_limit_check(req)) {
     return api_send_error(req, 429, "Too many requests");
@@ -4748,6 +4889,31 @@ esp_err_t api_handler_login(httpd_req_t *req)
     system_log_add_event((uint8_t)SYSLOG_SRC_REST, user, ip, "Login lykkedes");
   }
 
+  // BUG-393: also set a session cookie, so browser pages (web/*.html) no
+  // longer have to manually store the token themselves (in localStorage,
+  // which iOS Safari can throw on writing to — see BUG-392/389/389b) and
+  // manually attach it as an Authorization header on every request. The
+  // browser now does both automatically. The JSON `token` field below is
+  // kept unchanged for backward compatibility — curl/Node-RED/scripts that
+  // read it and build their own Bearer header keep working exactly as
+  // before; only the browser pages stop using that field.
+  // Max-Age (seconds) mirrors rbac.cpp's RBAC_SESSION_TOKEN_TTL_MS (1800000
+  // ms = 30 min) — not exposed via rbac.h, so kept in sync by comment
+  // instead of a shared constant (this is the only other place it matters).
+  // No "Secure" attribute: the device defaults to plain HTTP (tls_enabled
+  // false) and a Secure cookie would silently never be sent over it.
+  // static: httpd_resp_set_hdr() stores only the POINTER (doesn't copy the
+  // string) and expects it valid through httpd_resp_send() below — same
+  // reasoning as status_line's own static buffer earlier in this file
+  // (api_send_error()); safe because this httpd instance runs as ONE
+  // single-threaded worker task (BUG-367), so no concurrent re-entry.
+  {
+    static char cookie_hdr[96];
+    snprintf(cookie_hdr, sizeof(cookie_hdr),
+             "hfplc_session=%s; Path=/; Max-Age=1800; SameSite=Lax; HttpOnly", token);
+    httpd_resp_set_hdr(req, "Set-Cookie", cookie_hdr);
+  }
+
   char buf[300];
   build_user_info_json(uid, token, buf, sizeof(buf));
 
@@ -4768,6 +4934,18 @@ esp_err_t api_handler_logout(httpd_req_t *req)
   if (httpd_req_get_hdr_value_str(req, "Authorization", auth_buf, sizeof(auth_buf)) == ESP_OK &&
       strncmp(auth_buf, "Bearer ", 7) == 0) {
     rbac_session_token_revoke(auth_buf + 7);
+  }
+
+  // BUG-393: also revoke a cookie-based token, if any, and clear the cookie
+  // in the browser regardless (Max-Age=0) — mirrors api_handler_login()'s
+  // Set-Cookie, see the comment there for why a static buffer is required.
+  {
+    char cookie_token[24];  // RBAC_SESSION_TOKEN_LEN, not exposed via rbac.h
+    if (rbac_extract_cookie_token(req, cookie_token, sizeof(cookie_token))) {
+      rbac_session_token_revoke(cookie_token);
+    }
+    static const char *clear_cookie_hdr = "hfplc_session=; Path=/; Max-Age=0";
+    httpd_resp_set_hdr(req, "Set-Cookie", clear_cookie_hdr);
   }
 
   http_server_stat_success();
@@ -4935,7 +5113,9 @@ esp_err_t api_handler_bindings_list(httpd_req_t *req)
         const char *type_str = "INT";
         switch (prog->bytecode.var_types[m->st_var_index]) {
           case ST_TYPE_BOOL: type_str = "BOOL"; break;
+          case ST_TYPE_INT:  type_str = "INT"; break;
           case ST_TYPE_DINT: type_str = "DINT"; break;
+          case ST_TYPE_DWORD: type_str = "DWORD"; break;  // BUG-397 FIX: was missing, fell through to default "INT"
           case ST_TYPE_REAL: type_str = "REAL"; break;
           case ST_TYPE_TIME: type_str = "TIME"; break;
           case ST_TYPE_STRING: type_str = "STRING"; break;  // FEAT-005 (not bindable, see binding-creation validation)
@@ -4957,10 +5137,29 @@ esp_err_t api_handler_bindings_list(httpd_req_t *req)
     }
   }
 
-  const size_t BUF_SIZE = 2048;
-  char *buf = (char *)malloc(BUF_SIZE);
+  // BUG-397g FIX: same root cause as BUG-332 (documented precedent, see
+  // api_handler_modbus_activity_get() below) -- a fixed BUF_SIZE=2048 was
+  // silently too small once enough bindings existed (each entry is
+  // ~150-200+ bytes: index/program/var_index/name/type/direction/
+  // word_count/register_type/register_addr; up to 32 bindings possible).
+  // serializeJson(doc, buf, BUF_SIZE) truncates mid-object when the real
+  // output exceeds BUF_SIZE, WITHOUT reserving room to null-terminate at
+  // the truncation point -- api_send_json()'s httpd_resp_sendstr() then
+  // strlen()s past the end of the 2048-byte allocation into whatever
+  // adjacent heap memory happens to follow, until it coincidentally finds a
+  // zero byte. That's what produced the reported "bad control character in
+  // string literal" (a stray non-printable heap byte landing inside what
+  // the browser's JSON.parse() still thought was an open string, since
+  // truncation happened mid-value) -- not just truncated JSON, but actual
+  // heap-adjacent garbage sent as part of the HTTP response. Reproduced
+  // with only 17-18 bindings, well under the 32-binding cap. Fix: measure
+  // the exact required size first (bindings are capped at 32 entries, so
+  // this never needs the fuller chunked-send approach BUG-332 eventually
+  // adopted for the much larger, unbounded syslog).
+  size_t json_len = measureJson(doc);
+  char *buf = (char *)malloc(json_len + 1);
   if (!buf) return api_send_error(req, 500, "Out of memory");
-  serializeJson(doc, buf, BUF_SIZE);
+  serializeJson(doc, buf, json_len + 1);
   esp_err_t result = api_send_json(req, buf);
   free(buf);
   return result;
@@ -5296,6 +5495,913 @@ esp_err_t api_handler_rbac_user_delete(httpd_req_t *req)
 }
 
 /* ============================================================================
+ * MODBUS EXPANSION BOARD ENDPOINTS (FEAT-409) — se include/expansion_api_client.h
+ * for arkitekturen. Board-CRUD/HTTP-klient-logik ligger i expansion_api_client.cpp;
+ * disse handlers er bevidst tynde wrappere (samme "ét kernemodul, tynde
+ * CLI/REST/Web-wrappere"-regel som RBAC/ACL følger). Alle mutationer/kald mod
+ * et boards management-API kræver CHECK_AUTH_WRITE (samme RBAC-niveau som
+ * PLC'ens egen OTA, SECURITY_INDEX.md #20) — rene visninger (status/kanal-
+ * liste/diagnostisk LÆSNING) nøjes med CHECK_AUTH.
+ * ============================================================================ */
+
+static void expansion_board_to_json(uint8_t index, const ExpansionBoard *b, JsonObject &jo) {
+  jo["id"] = index;
+  jo["number"] = index + 1;  // FEAT-409c: brugerstyret "board nr" (1-8) — id ER (number-1), men eksponeres begge for klarhedens skyld
+  jo["name"] = b->name;
+  char ip_str[16];
+  network_config_ip_to_str(b->ip, ip_str);
+  jo["ip"] = ip_str;
+  jo["type"] = b->board_type;
+  jo["has_token"] = (b->token[0] != '\0');
+}
+
+// GET /api/expansion/boards — liste over konfigurerede boards. Returnerer
+// ALDRIG selve tokenet (kun has_token bool) — samme praksis som RBAC-
+// brugerlisten (SECURITY_INDEX.md #18).
+esp_err_t api_handler_expansion_boards_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  JsonDocument doc;
+  JsonArray boards = doc["boards"].to<JsonArray>();
+  for (uint8_t i = 0; i < EXPANSION_BOARD_MAX; i++) {
+    if (!g_persist_config.expansion_boards[i].configured) continue;
+    JsonObject jo = boards.add<JsonObject>();
+    expansion_board_to_json(i, &g_persist_config.expansion_boards[i], jo);
+  }
+  char buf[1024];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+// GET /api/expansion/board-types — det validerede allow-list af kendte
+// board-typer (FEAT-409c), til web-UI'ens type-dropdown. Autoritativ kilde
+// er expansion_board_type_list() (expansion_api_client.cpp) — ALDRIG
+// dupliceret som en separat, hardkodet liste her.
+esp_err_t api_handler_expansion_board_types_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  JsonDocument doc;
+  JsonArray types = doc["types"].to<JsonArray>();
+  const char *value, *label;
+  for (uint8_t i = 0; expansion_board_type_list(i, &value, &label); i++) {
+    JsonObject to = types.add<JsonObject>();
+    to["value"] = value;
+    to["label"] = label;
+  }
+  char buf[512];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+// POST /api/expansion/boards — tilføj et nyt board. Body: {"number","type","name","ip","token"}
+esp_err_t api_handler_expansion_boards_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[256];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+
+  uint8_t number = doc["number"] | 0;
+  const char *type = doc["type"] | "";
+  const char *name = doc["name"] | "";
+  const char *ip = doc["ip"] | "";
+  const char *token = doc["token"] | "";
+  if (number < 1 || number > EXPANSION_BOARD_MAX) {
+    return api_send_error(req, 400, "Mangler eller ugyldigt 'number' (1-8)");
+  }
+  if (!expansion_board_type_valid(type)) {
+    return api_send_error(req, 400, "Mangler eller ukendt 'type' (se GET /api/expansion/board-types)");
+  }
+  if (!name[0] || !ip[0] || !token[0]) {
+    return api_send_error(req, 400, "Mangler 'name', 'ip' eller 'token'");
+  }
+
+  int idx = expansion_board_add(number, type, name, ip, token);
+  if (idx < 0) {
+    return api_send_error(req, 400, "Board nr allerede i brug, eller ugyldigt navn/IP/token");
+  }
+
+  char buf[128];
+  snprintf(buf, sizeof(buf), "{\"status\":200,\"id\":%d,\"message\":\"Board tilfoejet. Brug 'Gem Config' for at persistere.\"}", idx);
+  return api_send_json(req, buf);
+}
+
+// PUT /api/expansion/boards/{id} — redigér board-metadata (navn/IP/token).
+// PUT /api/expansion/boards/{id}/channels/{n} — push kanal-config til boardet.
+esp_err_t api_handler_expansion_board_put(httpd_req_t *req)
+{
+  http_server_stat_request();
+
+  const char *prefix = "/api/expansion/boards/";
+  const char *uri = req->uri;
+  if (strncmp(uri, prefix, strlen(prefix)) != 0) return api_send_error(req, 400, "Invalid URI");
+  const char *tail = uri + strlen(prefix);
+
+  int idx = -1, channel = -1, consumed = 0;
+  if (sscanf(tail, "%d/channels/%d%n", &idx, &channel, &consumed) == 2 && tail[consumed] == '\0') {
+    // Kanal-config-push — kræver skriverettighed (styrer fysisk RS485/RS232-hardware)
+    CHECK_AUTH_WRITE(req);
+    if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
+      return api_send_error(req, 404, "Board ikke fundet");
+    }
+    if (expansion_api_is_busy()) {
+      return api_send_error(req, 409, "Et andet expansion-board-kald er allerede i gang");
+    }
+
+    char content[256];
+    int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+    if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+    content[ret] = '\0';
+
+    JsonDocument doc;
+    if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+    if (!doc.containsKey("enabled") || !doc.containsKey("mode") || !doc.containsKey("baudrate") ||
+        !doc.containsKey("parity") || !doc.containsKey("stop_bits") || !doc.containsKey("timeout_ms")) {
+      return api_send_error(req, 400, "Mangler et eller flere felter (enabled/mode/baudrate/parity/stop_bits/timeout_ms) — konfigurationen sendes altid atomisk (samme princip som boardets egen API)");
+    }
+    bool enabled = doc["enabled"].as<bool>();
+    const char *mode = doc["mode"] | "rs485";
+    uint32_t baudrate = doc["baudrate"] | 9600;
+    const char *parity = doc["parity"] | "none";
+    uint8_t stop_bits = doc["stop_bits"] | 1;
+    uint16_t timeout_ms = doc["timeout_ms"] | 500;
+    uint16_t inter_frame = doc["inter_frame_delay_ms"] | 0;
+
+    if (!expansion_api_start_config_push((uint8_t)idx, (uint8_t)channel, enabled, mode, baudrate,
+                                          parity, stop_bits, timeout_ms, inter_frame)) {
+      return api_send_error(req, 409, "Kunne ikke starte kald (et andet kald kan vaere i gang)");
+    }
+    return api_send_json(req, "{\"status\":\"started\"}");
+  }
+
+  consumed = 0;
+  if (sscanf(tail, "%d%n", &idx, &consumed) == 1 && tail[consumed] == '\0') {
+    // Board-metadata-redigering
+    CHECK_AUTH_WRITE(req);
+
+    char content[256];
+    int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+    if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+    content[ret] = '\0';
+
+    JsonDocument doc;
+    if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+    const char *name = doc["name"] | "";
+    const char *ip = doc["ip"] | "";
+    const char *token = doc["token"] | "";  // tom = bevar eksisterende
+    const char *type = doc["type"] | "";    // tom = bevar eksisterende
+    if (!name[0] || !ip[0]) return api_send_error(req, 400, "Mangler 'name' eller 'ip'");
+    if (type[0] && !expansion_board_type_valid(type)) {
+      return api_send_error(req, 400, "Ukendt 'type' (se GET /api/expansion/board-types)");
+    }
+
+    if (!expansion_board_edit((uint8_t)idx, name, ip, token[0] ? token : NULL, type[0] ? type : NULL)) {
+      return api_send_error(req, 404, "Board ikke fundet, eller ugyldigt navn/IP");
+    }
+    return api_send_json(req, "{\"status\":200,\"message\":\"Board opdateret. Brug 'Gem Config' for at persistere.\"}");
+  }
+
+  return api_send_error(req, 400, "Invalid URI");
+}
+
+// DELETE /api/expansion/boards/{id}
+esp_err_t api_handler_expansion_board_delete(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  const char *prefix = "/api/expansion/boards/";
+  const char *uri = req->uri;
+  if (strncmp(uri, prefix, strlen(prefix)) != 0) return api_send_error(req, 400, "Invalid URI");
+  int idx = atoi(uri + strlen(prefix));
+
+  if (!expansion_board_remove((uint8_t)idx)) {
+    return api_send_error(req, 404, "Board ikke fundet");
+  }
+  return api_send_json(req, "{\"status\":200,\"message\":\"Board fjernet. Brug 'Gem Config' for at persistere.\"}");
+}
+
+// POST /api/expansion/boards/{id}/status              — start status-kald
+// POST /api/expansion/boards/{id}/channels             — start kanal-liste-kald
+// POST /api/expansion/boards/{id}/channels/{n}/read    — start diagnostisk laesning
+// POST /api/expansion/boards/{id}/channels/{n}/write   — start diagnostisk skrivning
+esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+
+  const char *prefix = "/api/expansion/boards/";
+  const char *uri = req->uri;
+  if (strncmp(uri, prefix, strlen(prefix)) != 0) return api_send_error(req, 400, "Invalid URI");
+  const char *tail = uri + strlen(prefix);
+
+  int idx = -1, channel = -1, consumed = 0;
+
+  if (sscanf(tail, "%d/status%n", &idx, &consumed) == 1 && tail[consumed] == '\0') {
+    CHECK_AUTH(req);
+    if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
+      return api_send_error(req, 404, "Board ikke fundet");
+    }
+    if (expansion_api_is_busy()) return api_send_error(req, 409, "Et andet expansion-board-kald er allerede i gang");
+    if (!expansion_api_start_status((uint8_t)idx)) return api_send_error(req, 500, "Kunne ikke starte kald");
+    return api_send_json(req, "{\"status\":\"started\"}");
+  }
+
+  consumed = 0;
+  if (sscanf(tail, "%d/channels%n", &idx, &consumed) == 1 && tail[consumed] == '\0') {
+    CHECK_AUTH(req);
+    if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
+      return api_send_error(req, 404, "Board ikke fundet");
+    }
+    if (expansion_api_is_busy()) return api_send_error(req, 409, "Et andet expansion-board-kald er allerede i gang");
+    if (!expansion_api_start_channels((uint8_t)idx)) return api_send_error(req, 500, "Kunne ikke starte kald");
+    return api_send_json(req, "{\"status\":\"started\"}");
+  }
+
+  consumed = 0;
+  bool is_read = false, is_write = false;
+  if (sscanf(tail, "%d/channels/%d/read%n", &idx, &channel, &consumed) == 2 && tail[consumed] == '\0') {
+    is_read = true;
+  } else {
+    consumed = 0;
+    if (sscanf(tail, "%d/channels/%d/write%n", &idx, &channel, &consumed) == 2 && tail[consumed] == '\0') {
+      is_write = true;
+    }
+  }
+
+  if (is_read || is_write) {
+    // Diagnostisk laesning er ikke-destruktiv (CHECK_AUTH); skrivning aendrer
+    // fysisk udstyr paa feltbussen og kraever derfor skriverettighed.
+    if (is_write) { CHECK_AUTH_WRITE(req); } else { CHECK_AUTH(req); }
+
+    if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
+      return api_send_error(req, 404, "Board ikke fundet");
+    }
+    if (channel < 1 || channel > 8) return api_send_error(req, 400, "Ugyldigt kanal-nummer");
+    if (expansion_api_is_busy()) return api_send_error(req, 409, "Et andet expansion-board-kald er allerede i gang");
+
+    char content[256];
+    int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+    if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+    content[ret] = '\0';
+    JsonDocument doc;
+    if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+
+    uint8_t function_code = doc["function_code"] | 0;
+    uint8_t slave_id = doc["slave_id"] | 0;
+    uint16_t address = doc["address"] | 0;
+    if (function_code == 0 || slave_id < 1 || slave_id > 247) {
+      return api_send_error(req, 400, "Mangler/ugyldig 'function_code' eller 'slave_id' (1-247)");
+    }
+
+    bool started = false;
+    if (is_read) {
+      uint16_t quantity = doc["quantity"] | 1;
+      started = expansion_api_start_diag_read((uint8_t)idx, (uint8_t)channel, function_code, slave_id, address, quantity);
+    } else if (function_code == 16) {
+      JsonArray values = doc["values"].as<JsonArray>();
+      uint8_t count = values.size();
+      if (count == 0 || count > 32) return api_send_error(req, 400, "'values' skal have 1-32 elementer");
+      uint16_t vals[32];
+      uint8_t i = 0;
+      for (JsonVariant v : values) { if (i < 32) vals[i++] = v.as<uint16_t>(); }
+      started = expansion_api_start_diag_write_multi((uint8_t)idx, (uint8_t)channel, slave_id, address, vals, count);
+    } else {
+      uint32_t value = doc["value"].is<bool>() ? (doc["value"].as<bool>() ? 1 : 0) : (doc["value"] | 0);
+      started = expansion_api_start_diag_write_single((uint8_t)idx, (uint8_t)channel, function_code, slave_id, address, value);
+    }
+
+    if (!started) return api_send_error(req, 500, "Kunne ikke starte kald");
+    return api_send_json(req, "{\"status\":\"started\"}");
+  }
+
+  return api_send_error(req, 400, "Invalid URI");
+}
+
+// GET /api/expansion/action-status — poller resultatet af det seneste
+// board-kald startet ovenfor (status/channels/config-push/read/write deler
+// ÉT globalt resultat-slot, se expansion_api_client.h). Svarer altid straks.
+esp_err_t api_handler_expansion_action_status_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  ExpansionApiResult res;
+  if (!expansion_api_poll(&res)) {
+    return api_send_json(req, "{\"valid\":false}");
+  }
+
+  JsonDocument doc;
+  doc["valid"] = true;
+  doc["in_progress"] = res.in_progress;
+  doc["done"] = res.done;
+  doc["board_id"] = res.board_index;
+  doc["kind"] = res.kind;
+  doc["http_status"] = res.http_status;
+  doc["transport_ok"] = res.transport_ok;
+  // res.response_json er boardets EGEN, raa JSON-svar (eller en synteseret
+  // fejlbesked ved transportfejl) — indlejres som et rigtigt JSON-objekt,
+  // ikke en escaped streng, saa web-UI'et kan laese det direkte.
+  JsonDocument inner;
+  if (res.response_json[0] && deserializeJson(inner, res.response_json) == DeserializationError::Ok) {
+    doc["response"] = inner;
+  } else {
+    doc["response"] = nullptr;
+  }
+
+  char buf[1600];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+/* ============================================================================
+ * IP ACCESS CONTROL LIST ENDPOINTS (FEAT-399) — se include/ip_acl.h for den
+ * fulde arkitektur. Al regel-CRUD/CIDR-parsing/pending-confirm-logik ligger i
+ * ip_acl.cpp; disse handlers er bevidst tynde wrappere (samme "ét kernemodul,
+ * tynde CLI/REST/Web-wrappere"-regel som RBAC ovenfor følger).
+ * ============================================================================ */
+
+esp_err_t api_handler_acl_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  JsonDocument doc;
+  doc["enabled"] = ip_acl_get_effective_enabled();
+  doc["rule_count"] = ip_acl_get_effective_rule_count();
+  doc["pending_confirm"] = ip_acl_is_pending();
+  doc["pending_remaining_ms"] = ip_acl_pending_remaining_ms();
+
+  JsonArray rules = doc["rules"].to<JsonArray>();
+  uint8_t count = ip_acl_get_effective_rule_count();
+  for (uint8_t i = 0; i < count; i++) {
+    AclRule r;
+    if (!ip_acl_get_effective_rule(i, &r)) continue;
+    JsonObject ro = rules.add<JsonObject>();
+    ro["index"] = i;
+    char cidr[20];
+    ip_acl_format_cidr(r.network_addr, r.prefix_len, cidr, sizeof(cidr));
+    ro["cidr"] = cidr;
+    ro["service"] = ip_acl_service_name(r.service);
+    ro["action"] = ip_acl_action_name(r.action);
+    ro["enabled"] = r.enabled ? true : false;
+  }
+
+  char buf[HTTP_JSON_DOC_SIZE];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+// Faelles hjaelper: oversaetter en IpAclResult til det rigtige HTTP-svar.
+// out_success_json skal indeholde et komplet JSON-objekt-body (uden ydre {}).
+// self_match_warning: brugerkrav efter et reelt selv-lockout-tilfaelde —
+// advar PROAKTIVT hvis den (nu ventende) aendring rent faktisk rammer
+// kalderens EGEN nuvaerende IP for HTTP, saa man opdager en fejlkonfigureret
+// regel STRAKS i stedet for foerst naar login fejler bagefter.
+static esp_err_t acl_result_to_response(httpd_req_t *req, IpAclResult res, bool now_pending,
+                                         const char *ok_extra_json, bool self_match_warning)
+{
+  switch (res) {
+    case ACL_ACTION_OK: {
+      char buf[512];
+      if (now_pending) {
+        snprintf(buf, sizeof(buf),
+          "{\"status\":200,%s,\"pending_confirm\":true,\"pending_remaining_ms\":%lu,"
+          "\"self_match_warning\":%s,"
+          "\"message\":\"Aendringen paavirker management (HTTP/Telnet) og afventer bekraeftelse. "
+          "Alle aktive sessioner er logget ud — log ind paa ny og kald POST /api/acl/confirm "
+          "indenfor tidsvinduet, ellers rulles aendringen automatisk tilbage.%s\"}",
+          ok_extra_json, (unsigned long)ip_acl_pending_remaining_ms(),
+          self_match_warning ? "true" : "false",
+          self_match_warning ? " ADVARSEL: denne regel matcher din EGEN nuvaerende IP for HTTP." : "");
+      } else {
+        snprintf(buf, sizeof(buf), "{\"status\":200,%s,\"pending_confirm\":false,\"message\":\"Gemt til NVS.\"}", ok_extra_json);
+      }
+      return api_send_json(req, buf);
+    }
+    case ACL_ACTION_ERR_PENDING:
+      return api_send_error(req, 409, "En anden ACL-aendring afventer allerede bekraeftelse — bekraeft (POST /api/acl/confirm) eller vent paa automatisk rollback");
+    case ACL_ACTION_ERR_FULL:
+      return api_send_error(req, 400, "Regel-tabellen er fuld (max 32)");
+    case ACL_ACTION_ERR_INVALID:
+      return api_send_error(req, 400, "Ugyldig regel/index");
+    case ACL_ACTION_ERR_NOT_PENDING:
+      return api_send_error(req, 400, "Ingen ACL-aendring afventer bekraeftelse");
+    case ACL_ACTION_ERR_DRAFT_ACTIVE:
+      // FEAT-402: en direkte (ikke-kladde) mutation ramte guarden i ip_acl.cpp
+      // fordi en kladde er i gang — brugeren skal enten fuldfoere/kassere den,
+      // eller bruge kladde-endpointsene i stedet.
+      return api_send_error(req, 409, "En ACL-kladde er aktiv — brug /api/acl/draft/* endpoints, eller anvend/kassér kladden foerst");
+    case ACL_ACTION_ERR_NO_DRAFT:
+      return api_send_error(req, 400, "Ingen aktiv kladde");
+    default:
+      return api_send_error(req, 500, "Ukendt fejl");
+  }
+}
+
+esp_err_t api_handler_acl_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[128];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+  if (!doc.containsKey("enabled")) return api_send_error(req, 400, "Missing 'enabled' field");
+
+  bool now_pending = false;
+  IpAclResult res = ip_acl_set_enabled(doc["enabled"].as<bool>(), &now_pending);
+  char extra[64];
+  snprintf(extra, sizeof(extra), "\"enabled\":%s", ip_acl_get_effective_enabled() ? "true" : "false");
+  return acl_result_to_response(req, res, now_pending, extra, false);
+}
+
+esp_err_t api_handler_acl_rules_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[128];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+
+  const char *cidr_str = doc["cidr"] | "";
+  const char *svc_str = doc["service"] | "";
+  const char *action_str = doc["action"] | "";
+  bool enabled = doc["enabled"] | true;
+
+  uint32_t net; uint8_t prefix;
+  if (!cidr_str[0] || !ip_acl_parse_cidr(cidr_str, &net, &prefix)) {
+    return api_send_error(req, 400, "Ugyldig eller manglende 'cidr' (fx \"192.168.1.0/24\")");
+  }
+  uint8_t svc;
+  if (!svc_str[0] || !ip_acl_parse_service(svc_str, &svc)) {
+    return api_send_error(req, 400, "Ugyldig eller manglende 'service' (http|telnet|sse|all)");
+  }
+  uint8_t action;
+  if (!action_str[0] || !ip_acl_parse_action(action_str, &action)) {
+    return api_send_error(req, 400, "Ugyldig eller manglende 'action' (allow|deny)");
+  }
+
+  // FEAT-399-følgefejl (reelt lockout-tilfaelde, brugerrapporteret): advar
+  // PROAKTIVT hvis denne regel rammer kalderens EGEN IP for HTTP/ALL, FOeR
+  // den anvendes — kun relevant for en DENY-regel (en ALLOW der matcher egen
+  // IP er per definition harmløs).
+  bool self_match = action == ACL_ACTION_DENY &&
+                     (svc == ACL_SVC_HTTP || svc == ACL_SVC_ALL) &&
+                     enabled &&
+                     ip_acl_cidr_matches(net, prefix, get_client_ip_raw(req));
+
+  bool now_pending = false;
+  int idx = -1;
+  IpAclResult res = ip_acl_rule_add(net, prefix, svc, action, enabled, &now_pending, &idx);
+  char extra[32];
+  snprintf(extra, sizeof(extra), "\"index\":%d", idx);
+  return acl_result_to_response(req, res, now_pending, extra, self_match);
+}
+
+static esp_err_t acl_rule_move_dispatch(httpd_req_t *req, int from_index);
+
+// POST /api/acl/rules/{index} — body med KUN "enabled" er et til/fra-toggle
+// (bagudkompatibelt); body med "cidr"/"service"/"action" er en fuld
+// redigering (FEAT-401, kalder ip_acl_rule_edit()).
+esp_err_t api_handler_acl_rule_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  const char *prefix = "/api/acl/rules/";
+  const char *uri = req->uri;
+  if (strncmp(uri, prefix, strlen(prefix)) != 0) return api_send_error(req, 400, "Invalid URI");
+  int index = atoi(uri + strlen(prefix));  // atoi stopper ved foerste ikke-ciffer — virker uaendret for "N/move"
+
+  // FEAT-401: "/move"-suffiks dispatches til flytte-logikken — se
+  // acl_rule_move_dispatch()s kommentar for hvorfor dette IKKE er en
+  // selvstaendig httpd_uri_t-registrering.
+  size_t uri_len = strlen(uri);
+  if (uri_len >= 5 && strcmp(uri + uri_len - 5, "/move") == 0) {
+    return acl_rule_move_dispatch(req, index);
+  }
+
+  char content[128];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+
+  bool is_edit = doc.containsKey("cidr") || doc.containsKey("service") || doc.containsKey("action");
+
+  if (is_edit) {
+    AclRule existing;
+    if (!ip_acl_get_effective_rule((uint8_t)index, &existing)) {
+      return api_send_error(req, 404, "Regel ikke fundet");
+    }
+    const char *cidr_str = doc["cidr"] | "";
+    const char *svc_str = doc["service"] | "";
+    const char *action_str = doc["action"] | "";
+
+    uint32_t net = existing.network_addr; uint8_t prefix_len = existing.prefix_len;
+    if (cidr_str[0] && !ip_acl_parse_cidr(cidr_str, &net, &prefix_len)) {
+      return api_send_error(req, 400, "Ugyldig 'cidr'");
+    }
+    uint8_t svc = existing.service;
+    if (svc_str[0] && !ip_acl_parse_service(svc_str, &svc)) {
+      return api_send_error(req, 400, "Ugyldig 'service'");
+    }
+    uint8_t action = existing.action;
+    if (action_str[0] && !ip_acl_parse_action(action_str, &action)) {
+      return api_send_error(req, 400, "Ugyldig 'action'");
+    }
+    bool enabled = doc["enabled"] | (existing.enabled ? true : false);
+
+    // Samme selv-match-advarsel som ved add, for den RESULTERENDE tilstand.
+    bool self_match = action == ACL_ACTION_DENY &&
+                       (svc == ACL_SVC_HTTP || svc == ACL_SVC_ALL) &&
+                       enabled &&
+                       ip_acl_cidr_matches(net, prefix_len, get_client_ip_raw(req));
+
+    bool now_pending = false;
+    IpAclResult res = ip_acl_rule_edit(index, net, prefix_len, svc, action, enabled, &now_pending);
+    char extra[32];
+    snprintf(extra, sizeof(extra), "\"index\":%d", index);
+    return acl_result_to_response(req, res, now_pending, extra, self_match);
+  }
+
+  if (!doc.containsKey("enabled")) return api_send_error(req, 400, "Missing 'enabled' field");
+  bool want_enabled = doc["enabled"].as<bool>();
+  // FEAT-399-følgefejl: samme proaktive selv-match-advarsel som ved
+  // rule-add, for genaktivering af en eksisterende DENY-regel.
+  bool self_match = false;
+  if (want_enabled) {
+    AclRule existing;
+    if (ip_acl_get_effective_rule((uint8_t)index, &existing) &&
+        existing.action == ACL_ACTION_DENY &&
+        (existing.service == ACL_SVC_HTTP || existing.service == ACL_SVC_ALL)) {
+      self_match = ip_acl_cidr_matches(existing.network_addr, existing.prefix_len, get_client_ip_raw(req));
+    }
+  }
+
+  bool now_pending = false;
+  IpAclResult res = ip_acl_rule_set_enabled(index, want_enabled, &now_pending);
+  char extra[32];
+  snprintf(extra, sizeof(extra), "\"index\":%d", index);
+  return acl_result_to_response(req, res, now_pending, extra, self_match);
+}
+
+// FEAT-401: POST /api/acl/rules/{index}/move — body {"to_index":N}. Kaldt
+// via suffix-routing INDE FRA api_handler_acl_rule_post() (samme etablerede
+// moenster som GAP-11's "/config"-suffiks for GPIO, api_handlers.cpp ~2462)
+// — IKKE en selvstaendigt registreret httpd_uri_t, fordi "/api/acl/rules/*"
+// allerede er registreret for POST og ESP-IDF's wildcard-matching vaelger
+// FoeRSTE registrerede match; et forsoeg paa en mere specifik "/api/acl/rules/*/move"-
+// registrering ville enten aldrig blive naaet (hvis den brede wildcard
+// registreres foerst) eller kraeve en usikker antagelse om at ESP-IDF's
+// matcher reelt understoetter en wildcard midt i moensteret.
+static esp_err_t acl_rule_move_dispatch(httpd_req_t *req, int from_index)
+{
+  char content[64];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+  if (!doc.containsKey("to_index")) return api_send_error(req, 400, "Missing 'to_index' field");
+  int to_index = doc["to_index"].as<int>();
+
+  bool now_pending = false;
+  IpAclResult res = ip_acl_rule_move(from_index, to_index, &now_pending);
+  char extra[32];
+  snprintf(extra, sizeof(extra), "\"index\":%d", to_index);
+  return acl_result_to_response(req, res, now_pending, extra, false);
+}
+
+esp_err_t api_handler_acl_rule_delete(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  const char *prefix = "/api/acl/rules/";
+  const char *uri = req->uri;
+  if (strncmp(uri, prefix, strlen(prefix)) != 0) return api_send_error(req, 400, "Invalid URI");
+  int index = atoi(uri + strlen(prefix));
+
+  bool now_pending = false;
+  IpAclResult res = ip_acl_rule_delete(index, &now_pending);
+  if (res == ACL_ACTION_ERR_INVALID) {
+    return api_send_error(req, 404, "Regel ikke fundet");
+  }
+  char extra[32];
+  snprintf(extra, sizeof(extra), "\"index\":%d", index);
+  return acl_result_to_response(req, res, now_pending, extra, false);
+}
+
+esp_err_t api_handler_acl_confirm(httpd_req_t *req)
+{
+  http_server_stat_request();
+  // BEMAERK: CHECK_AUTH_WRITE her er selve beviset for "frisk login" — kun en
+  // gyldig session-token, per definition udstedt EFTER at rbac_session_token_
+  // revoke_all() koerte (da aendringen gik i pending), kan naa hertil.
+  CHECK_AUTH_WRITE(req);
+
+  IpAclResult res = ip_acl_confirm();
+  if (res == ACL_ACTION_ERR_NOT_PENDING) {
+    return api_send_error(req, 400, "Ingen ACL-aendring afventer bekraeftelse");
+  }
+
+  return api_send_json(req, "{\"status\":200,\"message\":\"ACL-aendring bekraeftet og gemt permanent.\"}");
+}
+
+/* ============================================================================
+ * FEAT-402: KLADDE-TILSTAND (draft mode)
+ *
+ * Kladde-CRUD'en er BEVIDST uden gating/pending-confirm/session-revoke —
+ * intet heraf haandhaeves foer POST /api/acl/draft/apply. Se ip_acl.h for
+ * den fulde arkitektur-begrundelse.
+ * ============================================================================ */
+
+// Faelles hjaelper for ren kladde-CRUD (begin/discard/enabled/rule-add/edit/
+// move/delete) — IKKE for apply, som (naar den gater) skal have samme svar-
+// form som en direkte gated mutation (se acl_result_to_response() ovenfor).
+static esp_err_t acl_draft_crud_response(httpd_req_t *req, IpAclResult res, const char *ok_extra_json)
+{
+  switch (res) {
+    case ACL_ACTION_OK: {
+      char buf[256];
+      if (ok_extra_json && ok_extra_json[0]) {
+        snprintf(buf, sizeof(buf), "{\"status\":200,%s}", ok_extra_json);
+      } else {
+        snprintf(buf, sizeof(buf), "{\"status\":200}");
+      }
+      return api_send_json(req, buf);
+    }
+    case ACL_ACTION_ERR_DRAFT_ACTIVE:
+      return api_send_error(req, 409, "En kladde er allerede aktiv");
+    case ACL_ACTION_ERR_NO_DRAFT:
+      return api_send_error(req, 400, "Ingen aktiv kladde — start med POST /api/acl/draft/begin");
+    case ACL_ACTION_ERR_PENDING:
+      return api_send_error(req, 409, "En ACL-aendring afventer allerede bekraeftelse — bekraeft (POST /api/acl/confirm) eller vent paa automatisk rollback");
+    case ACL_ACTION_ERR_FULL:
+      return api_send_error(req, 400, "Kladdens regel-tabel er fuld (max 32)");
+    case ACL_ACTION_ERR_INVALID:
+      return api_send_error(req, 400, "Ugyldig regel/index");
+    default:
+      return api_send_error(req, 500, "Ukendt fejl");
+  }
+}
+
+esp_err_t api_handler_acl_draft_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  bool active = ip_acl_draft_is_active();
+  JsonDocument doc;
+  doc["active"] = active;
+  doc["enabled"] = active ? ip_acl_draft_get_enabled() : false;
+  doc["rule_count"] = active ? ip_acl_draft_get_rule_count() : 0;
+
+  JsonArray rules = doc["rules"].to<JsonArray>();
+  if (active) {
+    uint8_t count = ip_acl_draft_get_rule_count();
+    for (uint8_t i = 0; i < count; i++) {
+      AclRule r;
+      if (!ip_acl_draft_get_rule(i, &r)) continue;
+      JsonObject ro = rules.add<JsonObject>();
+      ro["index"] = i;
+      char cidr[20];
+      ip_acl_format_cidr(r.network_addr, r.prefix_len, cidr, sizeof(cidr));
+      ro["cidr"] = cidr;
+      ro["service"] = ip_acl_service_name(r.service);
+      ro["action"] = ip_acl_action_name(r.action);
+      ro["enabled"] = r.enabled ? true : false;
+    }
+  }
+
+  char buf[HTTP_JSON_DOC_SIZE];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+esp_err_t api_handler_acl_draft_begin_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  IpAclResult res = ip_acl_draft_begin();
+  return acl_draft_crud_response(req, res, "");
+}
+
+esp_err_t api_handler_acl_draft_delete(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  IpAclResult res = ip_acl_draft_discard();
+  return acl_draft_crud_response(req, res, "");
+}
+
+// POST /api/acl/draft — {"enabled":bool}: til/fra-slaar kladdens overordnede
+// ACL-flag (parallel til POST /api/acl for den bekraeftede tilstand). Rører
+// intet haandhaevet — kun konsulteret ved et efterfoelgende apply.
+esp_err_t api_handler_acl_draft_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[128];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+  if (!doc.containsKey("enabled")) return api_send_error(req, 400, "Missing 'enabled' field");
+
+  IpAclResult res = ip_acl_draft_set_enabled(doc["enabled"].as<bool>());
+  char extra[64];
+  snprintf(extra, sizeof(extra), "\"enabled\":%s", ip_acl_draft_get_enabled() ? "true" : "false");
+  return acl_draft_crud_response(req, res, extra);
+}
+
+esp_err_t api_handler_acl_draft_rules_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[128];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+
+  const char *cidr_str = doc["cidr"] | "";
+  const char *svc_str = doc["service"] | "";
+  const char *action_str = doc["action"] | "";
+  bool enabled = doc["enabled"] | true;
+
+  uint32_t net; uint8_t prefix;
+  if (!cidr_str[0] || !ip_acl_parse_cidr(cidr_str, &net, &prefix)) {
+    return api_send_error(req, 400, "Ugyldig eller manglende 'cidr' (fx \"192.168.1.0/24\")");
+  }
+  uint8_t svc;
+  if (!svc_str[0] || !ip_acl_parse_service(svc_str, &svc)) {
+    return api_send_error(req, 400, "Ugyldig eller manglende 'service' (http|telnet|sse|all)");
+  }
+  uint8_t action;
+  if (!action_str[0] || !ip_acl_parse_action(action_str, &action)) {
+    return api_send_error(req, 400, "Ugyldig eller manglende 'action' (allow|deny)");
+  }
+
+  int idx = -1;
+  IpAclResult res = ip_acl_draft_rule_add(net, prefix, svc, action, enabled, &idx);
+  char extra[32];
+  snprintf(extra, sizeof(extra), "\"index\":%d", idx);
+  return acl_draft_crud_response(req, res, extra);
+}
+
+static esp_err_t acl_draft_rule_move_dispatch(httpd_req_t *req, int from_index);
+
+// POST /api/acl/draft/rules/{index} — samme edit-vs-toggle-konvention som
+// den direkte /api/acl/rules/{index} (se api_handler_acl_rule_post()), og
+// samme "/move"-suffiks-dispatch-moenster (GAP-11-praecedens).
+esp_err_t api_handler_acl_draft_rule_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  const char *prefix = "/api/acl/draft/rules/";
+  const char *uri = req->uri;
+  if (strncmp(uri, prefix, strlen(prefix)) != 0) return api_send_error(req, 400, "Invalid URI");
+  int index = atoi(uri + strlen(prefix));
+
+  size_t uri_len = strlen(uri);
+  if (uri_len >= 5 && strcmp(uri + uri_len - 5, "/move") == 0) {
+    return acl_draft_rule_move_dispatch(req, index);
+  }
+
+  char content[128];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+
+  bool is_edit = doc.containsKey("cidr") || doc.containsKey("service") || doc.containsKey("action");
+
+  if (is_edit) {
+    AclRule existing;
+    if (!ip_acl_draft_get_rule((uint8_t)index, &existing)) {
+      return api_send_error(req, 404, "Kladde-regel ikke fundet");
+    }
+    const char *cidr_str = doc["cidr"] | "";
+    const char *svc_str = doc["service"] | "";
+    const char *action_str = doc["action"] | "";
+
+    uint32_t net = existing.network_addr; uint8_t prefix_len = existing.prefix_len;
+    if (cidr_str[0] && !ip_acl_parse_cidr(cidr_str, &net, &prefix_len)) {
+      return api_send_error(req, 400, "Ugyldig 'cidr'");
+    }
+    uint8_t svc = existing.service;
+    if (svc_str[0] && !ip_acl_parse_service(svc_str, &svc)) {
+      return api_send_error(req, 400, "Ugyldig 'service'");
+    }
+    uint8_t action = existing.action;
+    if (action_str[0] && !ip_acl_parse_action(action_str, &action)) {
+      return api_send_error(req, 400, "Ugyldig 'action'");
+    }
+    bool enabled = doc["enabled"] | (existing.enabled ? true : false);
+
+    IpAclResult res = ip_acl_draft_rule_edit(index, net, prefix_len, svc, action, enabled);
+    char extra[32];
+    snprintf(extra, sizeof(extra), "\"index\":%d", index);
+    return acl_draft_crud_response(req, res, extra);
+  }
+
+  if (!doc.containsKey("enabled")) return api_send_error(req, 400, "Missing 'enabled' field");
+  bool want_enabled = doc["enabled"].as<bool>();
+
+  AclRule existing;
+  if (!ip_acl_draft_get_rule((uint8_t)index, &existing)) {
+    return api_send_error(req, 404, "Kladde-regel ikke fundet");
+  }
+  IpAclResult res = ip_acl_draft_rule_edit(index, existing.network_addr, existing.prefix_len,
+                                            existing.service, existing.action, want_enabled);
+  char extra[32];
+  snprintf(extra, sizeof(extra), "\"index\":%d", index);
+  return acl_draft_crud_response(req, res, extra);
+}
+
+static esp_err_t acl_draft_rule_move_dispatch(httpd_req_t *req, int from_index)
+{
+  char content[64];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+  content[ret] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, content)) return api_send_error(req, 400, "Invalid JSON");
+  if (!doc.containsKey("to_index")) return api_send_error(req, 400, "Missing 'to_index' field");
+  int to_index = doc["to_index"].as<int>();
+
+  IpAclResult res = ip_acl_draft_rule_move(from_index, to_index);
+  char extra[32];
+  snprintf(extra, sizeof(extra), "\"index\":%d", to_index);
+  return acl_draft_crud_response(req, res, extra);
+}
+
+esp_err_t api_handler_acl_draft_rule_delete(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  const char *prefix = "/api/acl/draft/rules/";
+  const char *uri = req->uri;
+  if (strncmp(uri, prefix, strlen(prefix)) != 0) return api_send_error(req, 400, "Invalid URI");
+  int index = atoi(uri + strlen(prefix));
+
+  IpAclResult res = ip_acl_draft_rule_delete(index);
+  char extra[32];
+  snprintf(extra, sizeof(extra), "\"index\":%d", index);
+  return acl_draft_crud_response(req, res, extra);
+}
+
+// POST /api/acl/draft/apply — den ENESTE kladde-operation der kan paavirke
+// haandhaevelsen. Naar den gater, svarer den PRAECIS som en direkte gated
+// mutation (acl_result_to_response(), samme JSON-form/felter) — derfor
+// genbrugt her i stedet for acl_draft_crud_response().
+esp_err_t api_handler_acl_draft_apply_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  bool now_pending = false;
+  bool self_warn = false;
+  IpAclResult res = ip_acl_draft_apply(get_client_ip_raw(req), &now_pending, &self_warn);
+  return acl_result_to_response(req, res, now_pending, "\"draft_applied\":true", self_warn);
+}
+
+/* ============================================================================
  * BACKUP / RESTORE ENDPOINTS
  * ============================================================================ */
 
@@ -5434,6 +6540,7 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   http["https_port"] = g_persist_config.https_port;  // BUG-350: dedikeret, ikke samme som "port"
   http["api_enabled"] = g_persist_config.network.http.api_enabled ? true : false;
   http["auth_enabled"] = g_persist_config.network.http.auth_enabled ? true : false;
+  http["auth_mode"] = (g_persist_config.http_auth_mode == HTTP_AUTH_MODE_BEARER) ? "bearer" : "basic";  // FEAT-397h
   http["username"] = g_persist_config.network.http.username;
   {
     // BUG-352: password[] holder en raw 32-byte SHA-256-hash, ikke en
@@ -5569,7 +6676,7 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
 
   // ── VARIABLE MAPPINGS ──
   JsonArray var_maps = doc["var_maps"].to<JsonArray>();
-  for (int i = 0; i < g_persist_config.var_map_count && i < 32; i++) {
+  for (int i = 0; i < g_persist_config.var_map_count && i < MAX_VAR_MAPPINGS; i++) {
     const VariableMapping *m = &g_persist_config.var_maps[i];
     if (m->source_type == 0 && m->gpio_pin == 0 && m->input_reg == 0xFFFF && m->output_reg == 0xFFFF) continue;
     JsonObject mo = var_maps.add<JsonObject>();
@@ -5587,6 +6694,21 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
     // bevidst "coil_reg" for bagudkompatibilitet med eksisterende backup-filer.
     mo["coil_reg"] = m->output_reg;
     mo["word_count"] = m->word_count;
+  }
+
+  // ── IP ACCESS CONTROL LIST (FEAT-399) ──
+  JsonObject acl = doc["acl"].to<JsonObject>();
+  acl["enabled"] = g_persist_config.acl_enabled ? true : false;
+  JsonArray acl_rules = acl["rules"].to<JsonArray>();
+  for (int i = 0; i < g_persist_config.acl_rule_count && i < ACL_MAX_RULES; i++) {
+    const AclRule *r = &g_persist_config.acl_rules[i];
+    JsonObject ro = acl_rules.add<JsonObject>();
+    char cidr[20];
+    ip_acl_format_cidr(r->network_addr, r->prefix_len, cidr, sizeof(cidr));
+    ro["cidr"] = cidr;
+    ro["service"] = ip_acl_service_name(r->service);
+    ro["action"] = ip_acl_action_name(r->action);
+    ro["enabled"] = r->enabled ? true : false;
   }
 
   // ── PERSIST REGS ──
@@ -5862,6 +6984,12 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
     if (h.containsKey("https_port")) g_persist_config.https_port = h["https_port"];  // BUG-350
     if (h.containsKey("api_enabled")) g_persist_config.network.http.api_enabled = h["api_enabled"].as<bool>() ? 1 : 0;
     if (h.containsKey("auth_enabled")) g_persist_config.network.http.auth_enabled = h["auth_enabled"].as<bool>() ? 1 : 0;
+    if (h.containsKey("auth_mode")) {  // FEAT-397h
+      const char *mode = h["auth_mode"] | "";
+      if (!strcmp(mode, "bearer")) g_persist_config.http_auth_mode = HTTP_AUTH_MODE_BEARER;
+      else if (!strcmp(mode, "basic")) g_persist_config.http_auth_mode = HTTP_AUTH_MODE_BASIC;
+      // Silently ignored if neither — a backup-restore path shouldn't hard-fail on one unrecognized field.
+    }
     if (h.containsKey("username")) {
       strncpy(g_persist_config.network.http.username, h["username"] | "", sizeof(g_persist_config.network.http.username) - 1);
       g_persist_config.network.http.username[sizeof(g_persist_config.network.http.username) - 1] = '\0';
@@ -6137,7 +7265,7 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
     JsonArray vma = doc["var_maps"];
     g_persist_config.var_map_count = 0;
     for (JsonObject mo : vma) {
-      if (g_persist_config.var_map_count >= 32) break;
+      if (g_persist_config.var_map_count >= MAX_VAR_MAPPINGS) break;
       VariableMapping *m = &g_persist_config.var_maps[g_persist_config.var_map_count];
       m->source_type = mo["source_type"] | 0;
       m->gpio_pin = mo["gpio_pin"] | 0;
@@ -6154,6 +7282,45 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
       m->output_reg = mo["coil_reg"] | 0xFFFF;
       m->word_count = mo["word_count"] | 1;
       g_persist_config.var_map_count++;
+    }
+  }
+
+  // ── RESTORE IP ACCESS CONTROL LIST (FEAT-399) ──
+  // Skriver direkte til g_persist_config, UDENOM den normale pending-confirm-
+  // gate (samme som RBAC-restore lige nedenfor) — en fuld config-restore er i
+  // sig selv allerede en eksplicit, bevidst admin-handling (upload af en
+  // backup-fil), og genstart-kravet i selve restore-svaret ("kræver reboot
+  // for fuld effekt") giver samme reelle "test før det er endeligt"-mulighed.
+  if (doc.containsKey("acl")) {
+    JsonObject acl_obj = doc["acl"];
+    g_persist_config.acl_enabled = (acl_obj["enabled"] | false) ? 1 : 0;
+    g_persist_config.acl_rule_count = 0;
+    memset(g_persist_config.acl_rules, 0, sizeof(g_persist_config.acl_rules));
+    if (acl_obj.containsKey("rules")) {
+      for (JsonObject ro : acl_obj["rules"].as<JsonArray>()) {
+        if (g_persist_config.acl_rule_count >= ACL_MAX_RULES) break;
+        uint32_t net; uint8_t prefix;
+        const char *cidr_str = ro["cidr"] | "";
+        if (!ip_acl_parse_cidr(cidr_str, &net, &prefix)) continue;
+        uint8_t svc;
+        const char *svc_str = ro["service"] | "";
+        if (!ip_acl_parse_service(svc_str, &svc)) continue;
+        // FEAT-401: aeldre backup-filer (fra foer permit/deny) har intet
+        // "action"-felt — de betoed alle "bloker" under v1, saa default til
+        // DENY her, samme begrundelse som schema 26→27-migrationen.
+        uint8_t action = ACL_ACTION_DENY;
+        if (ro.containsKey("action")) {
+          const char *action_str = ro["action"] | "deny";
+          if (!ip_acl_parse_action(action_str, &action)) action = ACL_ACTION_DENY;
+        }
+        AclRule *r = &g_persist_config.acl_rules[g_persist_config.acl_rule_count];
+        r->network_addr = net;
+        r->prefix_len = prefix;
+        r->service = svc;
+        r->action = action;
+        r->enabled = (ro["enabled"] | true) ? 1 : 0;
+        g_persist_config.acl_rule_count++;
+      }
     }
   }
 
@@ -6546,6 +7713,109 @@ esp_err_t api_handler_dashboard_layout_post(httpd_req_t *req)
 }
 
 /* ============================================================================
+ * FEAT-407: GET/POST /api/public-dashboard/cards — hvilke af de 18
+ * eksisterende dashboard-kort (data-card-id i web/dashboard.html) der vises
+ * paa den NYE, login-fri offentlige statusside ("/", web/status.html).
+ *
+ * Samme "kommasepareret liste af kort-ID'er"-moenster som
+ * dashboard_card_hidden/-order/-tabs/-custom ovenfor, blot en HELT ANDEN,
+ * separat liste (public_dashboard_cards) for en anden side/publikum. GET er
+ * bevidst auth-fri (ren konfigurationsmetadata — "hvilke kort er valgt",
+ * ikke selve dataen, samme lave foelsomhed som GET /api/dashboard/layout) —
+ * bl.a. saa selve den offentlige side kan laese sin egen synligheds-liste
+ * uden login. POST er derimod CHECK_AUTH_WRITE (admin-only): dette er en
+ * reel sikkerhedsrelevant beslutning (hvad skal vaere offentligt synligt),
+ * ikke en ren UI-position-praeference — modsat dashboard_card_hidden's
+ * "Auth optional" gaelder det IKKE her.
+ * ============================================================================ */
+
+// FEAT-407: kort der ER PORTET til web/status.html — se BUGS_INDEX.md
+// FEAT-407 for hvorfor trendrec/syslog endnu ikke er med (kraever hver deres
+// nye offentlige endpoint-variant), og hvorfor tcpmonitor/alarms er BEVIDST
+// udeladt permanent (se SECURITY_INDEX #12). mbactivity tilfoejet uden ny
+// backend-endpoint — /api/modbus/activity var allerede auth-fri (kun
+// CHECK_API_ENABLED, ingen CHECK_AUTH).
+static const char *PUBLIC_DASHBOARD_CARD_IDS[] = {
+  "system", "network", "modbusslave", "modbusmaster", "bushealth",
+  "httpapi", "counters", "timers", "stlogic", "ntp", "rtutrafik",
+  "dio", "analogio", "mbactivity"
+};
+static const int PUBLIC_DASHBOARD_CARD_ID_COUNT =
+  sizeof(PUBLIC_DASHBOARD_CARD_IDS) / sizeof(PUBLIC_DASHBOARD_CARD_IDS[0]);
+
+static bool is_known_dashboard_card_id(const char *id, size_t len)
+{
+  for (int i = 0; i < PUBLIC_DASHBOARD_CARD_ID_COUNT; i++) {
+    if (strlen(PUBLIC_DASHBOARD_CARD_IDS[i]) == len && strncmp(PUBLIC_DASHBOARD_CARD_IDS[i], id, len) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+esp_err_t api_handler_public_dashboard_cards_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_API_ENABLED(req);  // bevidst ingen bruger-auth — se filhovedkommentaren ovenfor
+
+  char resp[256];
+  snprintf(resp, sizeof(resp), "{\"visible\":\"%s\"}", g_persist_config.public_dashboard_cards);
+  return api_send_json(req, resp);
+}
+
+esp_err_t api_handler_public_dashboard_cards_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);  // admin-only — se filhovedkommentaren ovenfor
+
+  char body[256];
+  int len = httpd_req_recv(req, body, sizeof(body) - 1);
+  if (len <= 0) {
+    return api_send_error(req, 400, "Empty request body");
+  }
+  body[len] = '\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+  if (!doc.containsKey("visible")) {
+    return api_send_error(req, 400, "Missing 'visible' field");
+  }
+  const char *visible = doc["visible"].as<const char*>();
+  if (!visible) visible = "";
+  if (strlen(visible) >= sizeof(g_persist_config.public_dashboard_cards)) {
+    return api_send_error(req, 400, "Liste for lang");
+  }
+
+  // Valider hvert kort-ID mod den kendte liste FoeR noget gemmes — undgaar at
+  // en tastefejl stille resulterer i et kort der aldrig vises, uden nogen
+  // fejlbesked til admin.
+  const char *p = visible;
+  while (*p) {
+    const char *comma = strchr(p, ',');
+    size_t tok_len = comma ? (size_t)(comma - p) : strlen(p);
+    if (tok_len == 0 || !is_known_dashboard_card_id(p, tok_len)) {
+      char bad[32];
+      size_t copy_len = tok_len < sizeof(bad) - 1 ? tok_len : sizeof(bad) - 1;
+      memcpy(bad, p, copy_len);
+      bad[copy_len] = '\0';
+      char err[64];
+      snprintf(err, sizeof(err), "Ukendt kort-id: '%s'", bad);
+      return api_send_error(req, 400, err);
+    }
+    p = comma ? comma + 1 : p + tok_len;
+  }
+
+  strncpy(g_persist_config.public_dashboard_cards, visible, sizeof(g_persist_config.public_dashboard_cards) - 1);
+  g_persist_config.public_dashboard_cards[sizeof(g_persist_config.public_dashboard_cards) - 1] = '\0';
+
+  char resp[256];
+  snprintf(resp, sizeof(resp), "{\"status\":200,\"visible\":\"%s\"}", g_persist_config.public_dashboard_cards);
+  return api_send_json(req, resp);
+}
+
+/* ============================================================================
  * FEAT-025: GET /api/system/watchdog
  * ============================================================================ */
 
@@ -6931,6 +8201,12 @@ esp_err_t api_handler_logic_debug(httpd_req_t *req)
         } else if (dbg->snapshot.var_types[i] == ST_TYPE_BOOL) {
           v["type"] = "BOOL";
           v["value"] = dbg->snapshot.variables[i].bool_val ? true : false;
+        } else if (dbg->snapshot.var_types[i] == ST_TYPE_DWORD) {
+          // BUG-397 FIX: was falling through to the final "else" below and
+          // showing as INT with a truncated 16-bit value, same class of gap
+          // as api_handler_logic_single() above.
+          v["type"] = "DWORD";
+          v["value"] = dbg->snapshot.variables[i].dword_val;
         } else if (dbg->snapshot.var_types[i] == ST_TYPE_STRING) {
           // FEAT-005: snapshottet kopierer kun st_value_t (str_ref), ikke
           // selve teksten — resolves her direkte fra det LEVENDE programs
@@ -7121,14 +8397,15 @@ esp_err_t api_handler_api_version(httpd_req_t *req)
  * Scrape-ready for Prometheus/Grafana integration.
  * ============================================================================ */
 
-esp_err_t api_handler_metrics(httpd_req_t *req)
+// FEAT-407: kroppen af metrics-generering udtrukket til en delt hjaelper, saa
+// en helt offentlig (auth-fri) variant (api_handler_metrics_public()
+// nedenfor) kan genbruge 100% af den — MINUS de to register-dump-loekker
+// (`include_registers`), som er netop dét der goer fuld adgang foelsom (se
+// BUG-406-kommentaren paa api_handler_metrics() nedenfor). Alt andet her er
+// allerede de aggregerede status-metrics dashboardets kort laeser, ikke raa
+// proces-/registerdata.
+static esp_err_t send_metrics_response(httpd_req_t *req, bool include_registers)
 {
-  http_server_stat_request();
-  // No auth required — metrics are read-only, used by dashboard and Prometheus scrapers
-  CHECK_API_ENABLED(req);
-  if (!http_rate_limit_check(req)) {
-    return api_send_error(req, 429, "Too many requests");
-  }
 
   // Buffer for Prometheus text format. BUG-358: var 12KB, men de to
   // register-dump-loekker laengere nede (modbus_holding_register/
@@ -7287,9 +8564,16 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   PROM_APPEND("modbus_slave_exceptions_total %lu\n", g_persist_config.modbus_slave.exception_errors);
 
   // --- Heap detailed metrics ---
-  PROM_APPEND("# HELP esp32_heap_largest_free_block Largest contiguous free heap block\n");
+  // BUG-409: MALLOC_CAP_8BIT alone also matches PSRAM on boards that have it
+  // (ES32D26) -- that let this number come back MUCH larger than
+  // esp32_heap_free_bytes (ESP.getFreeHeap(), internal-only), which the
+  // dashboard's fragmentation % (1 - largest/free) assumes can never happen,
+  // producing nonsense negative percentages. PSRAM already has its own
+  // dedicated esp32_psram_free_bytes metric above -- scope this to the same
+  // internal-only pool as esp32_heap_free_bytes so the two stay comparable.
+  PROM_APPEND("# HELP esp32_heap_largest_free_block Largest contiguous free internal-heap block\n");
   PROM_APPEND("# TYPE esp32_heap_largest_free_block gauge\n");
-  PROM_APPEND("esp32_heap_largest_free_block %lu\n", (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+  PROM_APPEND("esp32_heap_largest_free_block %lu\n", (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL));
 
   // --- Modbus Master config metrics ---
   PROM_APPEND("# HELP modbus_master_config_enabled Modbus master enabled (1=yes, 0=no)\n");
@@ -7705,21 +8989,27 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
   // osv., som dashboardets badges laeser) er nu ALTID skrevet foerst og
   // dermed sikret uanset hvor mange registre der er non-zero. Tilfoej ALDRIG
   // nye bulk/ubegraensede loekker foer dette punkt — kun faste, faa metrics.
-  PROM_APPEND("# HELP modbus_holding_register Modbus holding register value\n");
-  PROM_APPEND("# TYPE modbus_holding_register gauge\n");
-  for (int addr = 0; addr < HOLDING_REGS_SIZE; addr++) {
-    uint16_t val = registers_get_holding_register(addr);
-    if (val != 0) {
-      PROM_APPEND("modbus_holding_register{addr=\"%d\"} %u\n", addr, (unsigned)val);
+  // FEAT-407: denne sektion (og KUN denne) er ekskluderet fra den offentlige
+  // varianten (api_handler_metrics_public(), include_registers=false) — det
+  // er de raa register-vaerdier, ikke noget dashboardets kort selv laeser
+  // (se den delte hjaelpers doc-kommentar ovenfor og BUG-406).
+  if (include_registers) {
+    PROM_APPEND("# HELP modbus_holding_register Modbus holding register value\n");
+    PROM_APPEND("# TYPE modbus_holding_register gauge\n");
+    for (int addr = 0; addr < HOLDING_REGS_SIZE; addr++) {
+      uint16_t val = registers_get_holding_register(addr);
+      if (val != 0) {
+        PROM_APPEND("modbus_holding_register{addr=\"%d\"} %u\n", addr, (unsigned)val);
+      }
     }
-  }
 
-  PROM_APPEND("# HELP modbus_input_register Modbus input register value\n");
-  PROM_APPEND("# TYPE modbus_input_register gauge\n");
-  for (int addr = 0; addr < INPUT_REGS_SIZE; addr++) {
-    uint16_t val = registers_get_input_register(addr);
-    if (val != 0) {
-      PROM_APPEND("modbus_input_register{addr=\"%d\"} %u\n", addr, (unsigned)val);
+    PROM_APPEND("# HELP modbus_input_register Modbus input register value\n");
+    PROM_APPEND("# TYPE modbus_input_register gauge\n");
+    for (int addr = 0; addr < INPUT_REGS_SIZE; addr++) {
+      uint16_t val = registers_get_input_register(addr);
+      if (val != 0) {
+        PROM_APPEND("modbus_input_register{addr=\"%d\"} %u\n", addr, (unsigned)val);
+      }
     }
   }
 
@@ -7734,6 +9024,41 @@ esp_err_t api_handler_metrics(httpd_req_t *req)
 
   http_server_stat_success();
   return ESP_OK;
+}
+
+esp_err_t api_handler_metrics(httpd_req_t *req)
+{
+  http_server_stat_request();
+  // BUG-406: krævede tidligere INGEN auth (BUG-251, v7.3.1) — begrundet dengang
+  // med at data er read-only og bruges af Dashboard + Prometheus-scrapere der
+  // ikke selv kan haandtere et interaktivt login. Det holdt ikke: dette
+  // endpoint eksponerer bl.a. ALLE holding/input-registre (live proces-data),
+  // og en fuldstaendig auth-fri sti underminerer RBAC's read-only-rolle
+  // (`monitor`+`read`, se docs/manual/10_Sikkerhed_og_Adgangsstyring.md) —
+  // enhver kunne se Dashboard-siden inkl. reelle registervaerdier UDEN
+  // nogensinde at logge ind. Brugerbekraeftet: ingen ekstern Prometheus-
+  // scraper i brug her, saa CHECK_AUTH tilfoejet uden at afveje det behov.
+  // Samme CHECK_AUTH-niveau (ikke CHECK_AUTH_ROLE) som resten af dashboardets
+  // allerede-beskyttede read-endpoints (fx api_handler_gpio()) — enhver
+  // gyldig bruger, ingen saerskilt rolle-kraevning tilfoejet her.
+  CHECK_AUTH(req);  // daekker ogsaa CHECK_API_ENABLED + rate limit internt
+  return send_metrics_response(req, /*include_registers=*/true);
+}
+
+// FEAT-407: GET /api/metrics/public — INGEN CHECK_AUTH, bevidst. Genbruger
+// samme genererings-kode som api_handler_metrics(), men UDEN register-
+// dumpet (se send_metrics_response()s doc-kommentar) — det er praecis den
+// udeladelse der goer denne variant sikker at eksponere uden login, til den
+// nye offentlige statusside (web/status.html). Bruges IKKE af noget der
+// kraever de raa registervaerdier.
+esp_err_t api_handler_metrics_public(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_API_ENABLED(req);  // IP-ACL + "API enabled"-tjek, men bevidst ingen bruger-auth
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+  return send_metrics_response(req, /*include_registers=*/false);
 }
 
 /* ============================================================================
@@ -9093,11 +10418,14 @@ static const V1Route v1_routes[] = {
   {"/api/logic/settings",   true,  HTTP_POST,   api_handler_logic_settings_post},
   {"/api/dashboard/layout", true,  HTTP_GET,    api_handler_dashboard_layout_get},
   {"/api/dashboard/layout", true,  HTTP_POST,   api_handler_dashboard_layout_post},
+  {"/api/public-dashboard/cards", true, HTTP_GET,  api_handler_public_dashboard_cards_get},
+  {"/api/public-dashboard/cards", true, HTTP_POST, api_handler_public_dashboard_cards_post},
   {"/api/events/status",    true,  HTTP_GET,    api_handler_sse_status},
   {"/api/events/clients",   true,  HTTP_GET,    api_handler_sse_clients},
   {"/api/events/disconnect", true, HTTP_POST,   api_handler_sse_disconnect},
   {"/api/version",          true,  HTTP_GET,    api_handler_api_version},
   {"/api/metrics",          true,  HTTP_GET,    api_handler_metrics},
+  {"/api/metrics/public",   true,  HTTP_GET,    api_handler_metrics_public},
   {"/api/persist/groups",   true,  HTTP_GET,    api_handler_persist_groups_list},
   {"/api/persist/save",     true,  HTTP_POST,   api_handler_persist_save},
   {"/api/persist/restore",  true,  HTTP_POST,   api_handler_persist_restore},

@@ -67,6 +67,8 @@ Der er en **sikkerhedsgrænse på 10.000 VM-instruktioner pr. scan-cyklus** — 
 
 ## 8.5 Indbyggede funktioner (overblik)
 
+> Tabellen nedenfor er et overblik. For fulde signaturer, parametertyper, kaldeformer, IEC-navngivne parametre og alle kendte kant-tilfælde/faldgruber, se [Appendiks D: ST Logic Funktionsreference](D_ST_Logic_Funktionsreference.md).
+
 | Gruppe | Funktioner |
 |--------|-----------|
 | **Matematik** | `ABS SQRT POW LOG LN EXP SIN COS TAN CEIL FLOOR ROUND TRUNC MIN MAX LIMIT SUM` |
@@ -78,6 +80,7 @@ Der er en **sikkerhedsgrænse på 10.000 VM-instruktioner pr. scan-cyklus** — 
 | **Tællere (funktionsblokke)** | `CTU` (op), `CTD` (ned), `CTUD` (op/ned) |
 | **Hardware-tællere** | `CNT_SETUP CNT_SETUP_ADV CNT_SETUP_CMP CNT_CTRL CNT_ENABLE CNT_VALUE CNT_RAW CNT_FREQ CNT_STATUS` — se [kapitel 9](09_Taellere_og_Timere.md) |
 | **Modbus Master** | `MB_READ_COIL MB_READ_INPUT MB_READ_HOLDING MB_READ_INPUT_REG MB_READ_HOLDINGS MB_WRITE_COIL MB_WRITE_HOLDING MB_WRITE_HOLDINGS MB_SUCCESS MB_ERROR MB_BUSY MB_CACHE` — se §8.7 |
+| **Modbus Expansion Board** | `MBX_READ_COIL MBX_READ_INPUT MBX_READ_HOLDING MBX_READ_INPUT_REG MBX_WRITE_COIL MBX_WRITE_HOLDING MBX_SUCCESS MBX_BUSY MBX_ERROR` — samme cache/kø-mønster som `MB_*`, men mod et eksternt board (`board`/`kanal` som de to første argumenter), se [§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409) og [Appendiks D.5.9b](D_ST_Logic_Funktionsreference.md#d59b-modbus-expansion-board-mbx_-feat-410) |
 | **Persistens** | `SAVE LOAD` — gem/genindlæs registergrupper til/fra NVS på tværs af reboot |
 | **Bistabile latches** | `SR(S1, R)`, `RS(S, R1)` |
 | **Signalbehandling** | `SCALE(IN, IN_MIN, IN_MAX, OUT_MIN, OUT_MAX)`, `HYSTERESIS(IN, HIGH, LOW)`, `BLINK(ENABLE, ON_TIME, OFF_TIME)`, `FILTER(IN, TIME_CONSTANT)` |
@@ -149,14 +152,15 @@ BEGIN
 END_PROGRAM
 ```
 
-**Multi-register-varianter** (`MB_READ_HOLDINGS`/`MB_WRITE_HOLDINGS`) læser/skriver op til 16 registre i én forespørgsel, ind i/fra et ST-array:
+**Multi-register-varianter** (`MB_READ_HOLDINGS`/`MB_WRITE_HOLDINGS`) læser/skriver op til 16 registre i én forespørgsel, ind i/fra et ST-array. Bemærk at retningen af `:=` afgør læs vs. skriv — arrayet står til **venstre** ved læsning, til **højre** ved skrivning (kompilatoren afviser eksplicit den omvendte form med en fejlbesked):
 
 ```st
 VAR
   regs: ARRAY[0..7] OF INT;
 END_VAR
 BEGIN
-  MB_READ_HOLDINGS(slave_id, 100, 8) := regs;   (* læs 8 registre fra adresse 100 ind i regs[] *)
+  regs := MB_READ_HOLDINGS(slave_id, 100, 8);   (* læs 8 registre fra adresse 100 ind i regs[] *)
+  MB_WRITE_HOLDINGS(slave_id, 200, 8) := regs;  (* skriv regs[] til 8 registre fra adresse 200 *)
 END_PROGRAM
 ```
 
@@ -330,6 +334,56 @@ END_PROGRAM
 - Kald kan **nestes og rekursion er tilladt** (op til 8 niveauer) — hver funktions egne lokale variable/parametre er isoleret i sit eget navnerum, uafhængigt af den kaldende funktions.
 - **`VAR_OUTPUT`/`VAR_IN_OUT`-parametre accepteres af parseren, men skrives ikke tilbage til kalderens variabel efter returnering** — der findes i dag ingen kalde-syntaks for egne FUNCTION'er der kan modtage en outputbinding (kun de indbyggede FB'er understøtter `=>`). Brug **funktionens egen returværdi** til at levere ét resultat tilbage; skal du levere flere resultater, brug [`GLOBAL_VAR`](#810-delte-variable-mellem-programmer-global_var) i stedet for `VAR_OUTPUT`.
 - `FUNCTION_BLOCK ... END_FUNCTION_BLOCK` (stateful variant, tilstand bevares mellem scan-cyklusser pr. kaldested) findes også i grammatikken, men dens fulde kalde-konventioner (navngivne parametre, `.felt`-adgang til output) er ikke efterprøvet i denne manual — brug indtil videre de indbyggede FB'er (TON/TOF/TP/CTU/CTD/CTUD, §8.5) til stateful logik, og en almindelig stateless `FUNCTION` til beregninger.
+
+## 8.13 GPIO-indgange i ST Logic (bindings mode)
+
+Et ST-program kan ikke pege direkte på en GPIO-pin — det læser i stedet en almindelig **Modbus-adresse**, ligesom `MB_READ_HOLDING` gør mod en ekstern enhed (§8.7). Kæden fra en fysisk (eller multiplexet, se [§2.2.1](02_Hardware_og_Moduler.md#221-hvorfor-virtuelle-gpioer--skifteregistrene-bag-de-88-kanaler)) digital indgang til en ST-variabel går derfor altid gennem **to uafhængige trin**:
+
+1. **GPIO → Modbus discrete input** (`set gpio`/`/api/gpio/{pin}/config`, [§2.2.2](02_Hardware_og_Moduler.md#222-sådan-konfigureres-og-bruges-en-gpio-indgang)) — rent hardware-lag, ved intet om ST Logic.
+2. **Modbus discrete input → ST-variabel** (`set logic <id> bind`/`POST /api/logic/{id}/bind`, dette afsnit) — rent software-lag, ved intet om GPIO'en fysisk sad på en direkte pin eller bag et skifteregister.
+
+**Vigtigt om de multiplexede indgange (DI1-8 = virtuel GPIO 101-108 på ES32D26, se tabellen i [§2.2](02_Hardware_og_Moduler.md#22-io-oversigt-es32d26)):** fra ST Logic's synsvinkel er der **ingen forskel** på en almindelig fysisk GPIO-pin og en af de 8 skifteregister-multiplexede kanaler — begge ender som en helt almindelig discrete input-adresse efter trin 1. "DI1" er blot navnet du ser i web-GUI'en/på klemmen; i alle kommandoer nedenfor er det tallet (101) der bruges. Selve multiplexingen (SN74HC165-udlæsningen, §2.2.1) sker automatisk hver loop-iteration, længe før ST Logic-scanneren kører — programmet ser aldrig chippen, kun den færdig-udlæste bit-værdi.
+
+**Eksempel: start/stop-knapper på to multiplexede indgange**
+
+Fysisk opsætning: en startknap på **DI1** (virtuel GPIO 101) og en stopknap på **DI2** (virtuel GPIO 102).
+
+**Trin 1 — map GPIO'erne til discrete input-adresser** (CLI, eller REST/§2.2.2):
+```
+set gpio 101 input 0      (* DI1 *)
+set gpio 102 input 1      (* DI2 *)
+```
+
+**Trin 2 — skriv og upload ST-programmet**, med almindelige `BOOL`-variable (ingen særlig syntaks for at markere dem som "GPIO-forbundet" — det er bindingen i trin 3, ikke deklarationen, der afgør det):
+```st
+PROGRAM MotorStyring
+VAR
+  startKnap : BOOL;
+  stopKnap : BOOL;
+  motorKoerer : BOOL;
+END_VAR
+
+BEGIN
+  IF startKnap AND NOT stopKnap THEN
+    motorKoerer := TRUE;
+  ELSIF stopKnap THEN
+    motorKoerer := FALSE;
+  END_IF;
+END_PROGRAM
+```
+
+**Trin 3 — bind de to variable til deres discrete input-adresser** (samme adresser som i trin 1):
+```
+set logic 1 bind startKnap input:0
+set logic 1 bind stopKnap input:1
+set logic 1 enabled on
+```
+
+Herefter opdateres `startKnap`/`stopKnap` automatisk fra deres fysiske indgange **før** hver scan-cyklus (samme read-before/write-after-model som Modbus-registerbindinger generelt, se [§7](07_REST_API.md)) — programmet selv behøver aldrig kalde noget for at "hente" værdien, den er allerede korrekt når `BEGIN` når frem til `IF`.
+
+**Faldgrube:** binding af `input:<addr>` bruger — ligesom `set gpio ... input <idx>` — **discrete input-adresserummet**, ikke holding-register- eller coil-adresserummet. Adresse 0 i `input:0` er derfor en helt anden fysisk ting end adresse 0 i `reg:0` eller `coil:0`, selvom tallet er det samme — bekræft altid med `show gpio` hvilken discrete input-adresse en given GPIO faktisk er mappet til, før du binder den.
+
+For output-retningen (ST-variabel → fysisk relæ/DO, fx de tilsvarende 8 multiplexede udgangskanaler **DO1-8 = virtuel GPIO 201-208** via SN74HC595) gælder samme to-trins-princip, blot med `coil:<addr>` i stedet for `input:<addr>` i bindingen: `set gpio 201 coil 0` (DO1, trin 1) + `set logic 1 bind motorKoerer coil:0` (trin 3, samme program).
 
 ---
 
