@@ -20,6 +20,10 @@ bool    g_mbx_success = false;
 uint8_t g_mbx_request_count = 0;
 bool    g_mbx_cache_enabled = true;
 
+// v7.9.68.0: multi-register/coil scratch buffers for MBX_WRITE_HOLDINGS/MBX_WRITE_COILS
+uint16_t g_mbx_multi_reg_buf[MBX_MULTI_MAX] = {0};
+bool     g_mbx_multi_coil_buf[MBX_MULTI_MAX] = {false};
+
 #define MBX_MAX_REQUESTS_PER_CYCLE 20
 
 static bool mbx_check_request_limit() {
@@ -199,6 +203,62 @@ st_value_t st_builtin_mbx_write_holding(st_value_t board, st_value_t channel, st
   bool queued = modbus_expansion_async_queue_write(MBX_REQ_WRITE_HOLDING,
     (uint8_t)board.int_val, (uint8_t)channel.int_val, (uint8_t)slave_id.int_val, (uint16_t)address.int_val, value);
   g_mbx_success = queued;
+  result.bool_val = queued;
+  return result;
+}
+
+// v7.9.68.0: FC16 multi-register write — no single-address cache entry (see
+// modbus_expansion_async.h's design note), so unlike the single-value writes
+// above, only g_mbx_success is set, not a cache-backed confirmation.
+st_value_t st_builtin_mbx_write_holdings(st_value_t board, st_value_t channel, st_value_t slave_id, st_value_t address, st_value_t count) {
+  st_value_t result; result.bool_val = false;
+  if (!mbx_check_request_limit()) return result;
+  if (!mbx_validate(board.int_val, channel.int_val, slave_id.int_val, address.int_val)) return result;
+
+  int32_t cnt = count.int_val;
+  if (cnt < 1 || cnt > MBX_MULTI_MAX) {
+    g_mbx_last_error = MB_INVALID_ADDRESS;
+    g_mbx_success = false;
+    return result;
+  }
+  if (address.int_val + cnt - 1 > 65535) {
+    g_mbx_last_error = MB_INVALID_ADDRESS;
+    g_mbx_success = false;
+    return result;
+  }
+
+  bool queued = modbus_expansion_async_queue_write_multi_holdings(
+    (uint8_t)board.int_val, (uint8_t)channel.int_val, (uint8_t)slave_id.int_val,
+    (uint16_t)address.int_val, (uint8_t)cnt, g_mbx_multi_reg_buf);
+  g_mbx_success = queued;
+  g_mbx_last_error = queued ? MB_OK : MB_MAX_REQUESTS_EXCEEDED;
+  result.bool_val = queued;
+  return result;
+}
+
+// v7.9.68.0: FC15 multi-coil write — mirrors st_builtin_mbx_write_holdings() above.
+st_value_t st_builtin_mbx_write_coils(st_value_t board, st_value_t channel, st_value_t slave_id, st_value_t address, st_value_t count) {
+  st_value_t result; result.bool_val = false;
+  if (!mbx_check_request_limit()) return result;
+  if (!mbx_validate(board.int_val, channel.int_val, slave_id.int_val, address.int_val)) return result;
+
+  int32_t cnt = count.int_val;
+  if (cnt < 1 || cnt > MBX_MULTI_MAX) {
+    g_mbx_last_error = MB_INVALID_ADDRESS;
+    g_mbx_success = false;
+    return result;
+  }
+  if (address.int_val + cnt - 1 > 65535) {
+    g_mbx_last_error = MB_INVALID_ADDRESS;
+    g_mbx_success = false;
+    return result;
+  }
+
+  bool queued = modbus_expansion_async_queue_write_multi_coils(
+    (uint8_t)board.int_val, (uint8_t)channel.int_val, (uint8_t)slave_id.int_val,
+    (uint16_t)address.int_val, (uint8_t)cnt, g_mbx_multi_coil_buf);
+  g_mbx_success = queued;
+  g_mbx_last_error = queued ? MB_OK : MB_MAX_REQUESTS_EXCEEDED;
   result.bool_val = queued;
   return result;
 }

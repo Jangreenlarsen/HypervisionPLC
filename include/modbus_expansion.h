@@ -30,6 +30,11 @@ mb_error_code_t modbus_expansion_read_input_register(uint8_t board, uint8_t chan
 mb_error_code_t modbus_expansion_write_coil(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, bool value);
 mb_error_code_t modbus_expansion_write_holding(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint16_t value);
 
+// v7.9.68.0: FC16/FC15 multi-value writes — mirrors modbus_master.cpp's
+// modbus_master_write_holdings()/write_coils() PDU shape, count: 1-16.
+mb_error_code_t modbus_expansion_write_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values);
+mb_error_code_t modbus_expansion_write_coils(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const bool *values);
+
 // Luk (og glem) en evt. åben forbindelse til (board, channel) — bruges når et
 // board fjernes/redigeres (IP-skift), så en gammel socket ikke forbliver åben
 // mod en forkert/afmeldt destination.

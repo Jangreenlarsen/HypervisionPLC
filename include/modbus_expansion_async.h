@@ -12,11 +12,15 @@
  * som anbefalet i EXPANSION_BOARD_DESIGN.md §5.1.1.
  *
  * v1-scope (FEAT-410): KUN enkelt-register-operationer (COIL/INPUT/HOLDING/
- * INPUT_REG læs, COIL/HOLDING skriv) — bevidst UDEN multi-register-familien
- * (MB_READ_HOLDINGS/MB_WRITE_HOLDINGS's array-baserede specialsyntaks,
- * mb_async.cpp's g_mb_multi_write_pool) — den kræver dyb kompilator-
- * specialcasing (se st_compiler.cpp's "array := ..."-håndtering) som er en
- * selvstændig, senere udvidelse, ikke portet her endnu.
+ * INPUT_REG læs, COIL/HOLDING skriv).
+ *
+ * v7.9.68.0: multi-register/coil WRITE tilføjet (MBX_WRITE_HOLDINGS/FC16,
+ * MBX_WRITE_COILS/FC15), samme kompilator-specialcasing som MB_WRITE_HOLDINGS
+ * (st_compiler.cpp's "FUNC(...) := array"-håndtering). Multi-READ er stadig
+ * IKKE implementeret. Ligesom RTU-sidens MB_WRITE_HOLDINGS BYPASSER disse to
+ * cache-laget helt — mbx_cache_entry_t har kun plads til én st_value_t, ikke
+ * et register-RANGE, så der er ingen meningsfuld enkelt-nøgle at cache en
+ * multi-write's bekræftelse under. Kun g_mbx_success afspejler resultatet.
  */
 
 #ifndef MODBUS_EXPANSION_ASYNC_H
@@ -41,6 +45,7 @@
 #define MBX_PENDING_STALE_FACTOR        5   // × MBX_DEFAULT_TIMEOUT_MS (modbus_expansion.cpp)
 #define MBX_PENDING_STALE_MIN_MS      3000
 #define MBX_PENDING_SWEEP_INTERVAL_MS 1000
+#define MBX_MULTI_POOL_SIZE  4   // Ring-buffer slots for FC15/FC16 write values (mirrors MB_MULTI_REG_POOL_SIZE)
 
 typedef enum {
   MBX_REQ_READ_COIL = 1,
@@ -48,7 +53,9 @@ typedef enum {
   MBX_REQ_READ_HOLDING,
   MBX_REQ_READ_INPUT_REG,
   MBX_REQ_WRITE_COIL,
-  MBX_REQ_WRITE_HOLDING
+  MBX_REQ_WRITE_HOLDING,
+  MBX_REQ_WRITE_HOLDINGS,   // FC16 multi-register (v7.9.68.0)
+  MBX_REQ_WRITE_COILS       // FC15 multi-coil (v7.9.68.0)
 } mbx_request_type_t;
 
 typedef enum {
@@ -87,7 +94,9 @@ typedef struct {
   uint8_t   channel;
   uint8_t   slave_id;
   uint16_t  address;
-  st_value_t write_value;
+  st_value_t write_value;      // single-value writes only (MBX_REQ_WRITE_COIL/HOLDING)
+  uint8_t   count;              // register/coil count for multi writes (v7.9.68.0)
+  uint8_t   multi_pool_slot;    // index into g_mbx_multi_write_*_pool (v7.9.68.0)
   uint8_t   priority;
   uint16_t  insert_seq;
 } mbx_async_request_t;
@@ -140,6 +149,11 @@ mbx_cache_entry_t *mbx_cache_get_or_create(uint8_t board, uint8_t channel, uint8
 bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address);
 bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, st_value_t value);
 
+// v7.9.68.0: multi-register write (FC16) / multi-coil write (FC15) — bypass the
+// single-address cache entirely (see file header design note above).
+bool modbus_expansion_async_queue_write_multi_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values);
+bool modbus_expansion_async_queue_write_multi_coils(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const bool *values);
+
 bool modbus_expansion_async_is_busy();
 uint8_t modbus_expansion_async_queue_depth();
 const mbx_async_state_t *modbus_expansion_async_get_state();
@@ -148,5 +162,13 @@ void modbus_expansion_async_reset_stats();
 
 extern mbx_async_state_t g_mbx_async;
 extern portMUX_TYPE mbx_cache_spinlock;
+
+// Ring-buffer pools for FC16/FC15 multi write values (v7.9.68.0) — same
+// ring-buffer-decoupled-from-the-VM's-transient-scratch-buffer rationale as
+// mb_async.h's g_mb_multi_write_pool (a write may sit queued across ST cycles).
+extern uint16_t g_mbx_multi_write_reg_pool[MBX_MULTI_POOL_SIZE][16];
+extern volatile uint8_t g_mbx_multi_write_reg_next;
+extern bool g_mbx_multi_write_coil_pool[MBX_MULTI_POOL_SIZE][16];
+extern volatile uint8_t g_mbx_multi_write_coil_next;
 
 #endif // MODBUS_EXPANSION_ASYNC_H

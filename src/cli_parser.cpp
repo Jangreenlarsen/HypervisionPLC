@@ -498,6 +498,9 @@ static void print_modbus_master_help(void) {
   debug_println("  MB_READ_INPUT_REG(slave_id, address) → INT (async, cached)");
   debug_println("  MB_WRITE_COIL(slave_id, address, value) → BOOL   (async, queued)");
   debug_println("  MB_WRITE_HOLDING(slave_id, address, value) → BOOL (async, queued)");
+  debug_println("  MB_READ_HOLDINGS(slave, addr, count) → ARRAY OF INT  (async, FC03 multi, v7.9.2)");
+  debug_println("  MB_WRITE_HOLDINGS(slave, addr, count) := array       (async, FC16 multi, v7.9.2)");
+  debug_println("  MB_WRITE_COILS(slave, addr, count) := array (ARRAY OF BOOL) (async, FC15 multi, v7.9.68.0)");
   debug_println("  MB_SUCCESS() → BOOL  - TRUE if last cached read was valid");
   debug_println("  MB_BUSY() → BOOL     - TRUE if async queue has pending requests");
   debug_println("  MB_ERROR() → INT     - Last error code");
@@ -535,12 +538,14 @@ static void print_modbus_expansion_help(void) {
   debug_println("  MBX_READ_INPUT_REG(board, kanal, slave_id, address) → INT (async, cached)");
   debug_println("  MBX_WRITE_COIL(board, kanal, slave_id, address, value) → BOOL   (async, queued)");
   debug_println("  MBX_WRITE_HOLDING(board, kanal, slave_id, address, value) → BOOL (async, queued)");
+  debug_println("  MBX_WRITE_HOLDINGS(board, kanal, slave, addr, count) := array       (async, FC16 multi, v7.9.68.0)");
+  debug_println("  MBX_WRITE_COILS(board, kanal, slave, addr, count) := array (ARRAY OF BOOL) (async, FC15 multi, v7.9.68.0)");
   debug_println("  MBX_SUCCESS() → BOOL  - TRUE hvis seneste MBX_*-kald lykkedes");
   debug_println("  MBX_BUSY() → BOOL     - TRUE hvis expansion-datakøen har ventende forespørgsler");
   debug_println("  MBX_ERROR() → INT     - Seneste fejlkode (samme mb_error_code_t-tabel som MB_ERROR())");
   debug_println("");
   debug_println("  board: 1-8 (nr som vist i 'show modbus-expansion'). kanal: A/B eller 1-8.");
-  debug_println("  v1-afgrænsning: kun enkelt-register-operationer, ingen MBX_READ_HOLDINGS/MBX_WRITE_HOLDINGS (se BUGS_INDEX.md FEAT-410).");
+  debug_println("  v7.9.68.0: multi-register/coil WRITE tilføjet. Multi-READ (MBX_READ_HOLDINGS) findes stadig ikke.");
   debug_println("");
 }
 

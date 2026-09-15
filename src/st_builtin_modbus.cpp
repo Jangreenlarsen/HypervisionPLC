@@ -41,6 +41,7 @@ bool g_mb_write_queued = false;
 
 // Multi-register buffer for MB_SET_REG/MB_GET_REG/MB_READ_HOLDINGS/MB_WRITE_HOLDINGS
 uint16_t g_mb_multi_reg_buf[MB_MULTI_REG_MAX] = {0};
+bool g_mb_multi_coil_buf[MB_MULTI_REG_MAX] = {false};
 
 /* ============================================================================
  * HELPER FUNCTION
@@ -394,6 +395,40 @@ st_value_t st_builtin_mb_write_holdings(st_value_t slave_id, st_value_t address,
 
   bool queued = mb_async_queue_write_multi(
     (uint8_t)slave_id.int_val, (uint16_t)address.int_val, (uint8_t)cnt, g_mb_multi_reg_buf);
+
+  g_mb_success = queued;
+  g_mb_write_queued = queued;  // BUG-397e
+  g_mb_last_error = queued ? MB_OK : MB_MAX_REQUESTS_EXCEEDED;
+  result.bool_val = queued;
+  return result;
+}
+
+// v7.9.68.0: FC15 multi-coil write — mirrors st_builtin_mb_write_holdings() above,
+// coil address space is also 0-65535 so the same range check applies.
+st_value_t st_builtin_mb_write_coils(st_value_t slave_id, st_value_t address, st_value_t count) {
+  st_value_t result;
+  result.bool_val = false;
+
+  if (!check_request_limit(true)) return result;
+  if (!validate_slave_addr(slave_id.int_val, address.int_val, true)) return result;
+
+  int32_t cnt = count.int_val;
+  if (cnt < 1 || cnt > 16) {
+    g_mb_last_error = MB_INVALID_ADDRESS;
+    g_mb_success = false;
+    g_mb_write_queued = false;  // BUG-397e
+    return result;
+  }
+
+  if ((int32_t)address.int_val + cnt - 1 > 65535) {
+    g_mb_last_error = MB_INVALID_ADDRESS;
+    g_mb_success = false;
+    g_mb_write_queued = false;  // BUG-397e
+    return result;
+  }
+
+  bool queued = mb_async_queue_write_multi_coils(
+    (uint8_t)slave_id.int_val, (uint16_t)address.int_val, (uint8_t)cnt, g_mb_multi_coil_buf);
 
   g_mb_success = queued;
   g_mb_write_queued = queued;  // BUG-397e

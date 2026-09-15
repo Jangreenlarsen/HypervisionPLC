@@ -23,6 +23,8 @@ portMUX_TYPE mb_cache_spinlock = portMUX_INITIALIZER_UNLOCKED;
 // Ring-buffer pool for FC16 multi-register write values
 uint16_t g_mb_multi_write_pool[MB_MULTI_REG_POOL_SIZE][16] = {0};
 volatile uint8_t g_mb_multi_write_next = 0;
+bool g_mb_multi_write_coil_pool[MB_MULTI_REG_POOL_SIZE][16] = {false};
+volatile uint8_t g_mb_multi_write_coil_next = 0;
 
 /* ============================================================================
  * CACHE FUNCTIONS
@@ -133,6 +135,10 @@ static void mb_cache_clear_pending_for_request(const mb_async_request_t *req) {
     case MB_REQ_READ_HOLDINGS:
     case MB_REQ_WRITE_HOLDINGS:
       cache_type = (uint8_t)MB_REQ_READ_HOLDING;
+      count = (req->count > 0) ? req->count : 1;
+      break;
+    case MB_REQ_WRITE_COILS:
+      cache_type = (uint8_t)MB_REQ_READ_COIL;
       count = (req->count > 0) ? req->count : 1;
       break;
     default:
@@ -428,6 +434,32 @@ bool mb_async_queue_write_multi(uint8_t slave_id, uint16_t address, uint8_t coun
   return true;
 }
 
+// v7.9.68.0: FC15 multi-coil write — mirrors mb_async_queue_write_multi() above,
+// own ring-buffer pool since values are bool (not uint16_t register words).
+bool mb_async_queue_write_multi_coils(uint8_t slave_id, uint16_t address, uint8_t count, const bool *values) {
+  if (count == 0 || count > 16) return false;
+
+  uint8_t slot = g_mb_multi_write_coil_next;
+  g_mb_multi_write_coil_next = (g_mb_multi_write_coil_next + 1) % MB_MULTI_REG_POOL_SIZE;
+  memcpy(g_mb_multi_write_coil_pool[slot], values, count * sizeof(bool));
+
+  mb_async_request_t req;
+  memset(&req, 0, sizeof(req));
+  req.type = MB_REQ_WRITE_COILS;
+  req.slave_id = slave_id;
+  req.address = address;
+  req.count = count;
+  req.multi_pool_slot = slot;
+  req.priority = MB_PRIO_WRITE;
+  req.source = g_mb_activity_next_source;
+
+  if (!mb_pq_insert(&req)) {
+    g_mb_async.queue_full_count++;
+    return false;
+  }
+  return true;
+}
+
 bool mb_async_is_busy() {
   return g_mb_async.pq_count > 0;
 }
@@ -668,6 +700,32 @@ static void mb_async_task_func(void *pvParameters) {
         result.bool_val = (err == MB_OK);
         break;
       }
+      case MB_REQ_WRITE_COILS: {
+        // v7.9.68.0: FC15 multi-coil write — read values from pool slot
+        uint8_t cnt = req.count;
+        if (cnt == 0 || cnt > 16) { err = MB_INVALID_ADDRESS; break; }
+        bool *write_vals = g_mb_multi_write_coil_pool[req.multi_pool_slot];
+        err = modbus_master_write_coils(req.slave_id, req.address, cnt, write_vals);
+        // Update cache entries with written values
+        for (uint8_t i = 0; i < cnt; i++) {
+          mb_cache_entry_t *ce = mb_cache_get_or_create(req.slave_id, req.address + i, (uint8_t)MB_REQ_READ_COIL);
+          if (ce) {
+            portENTER_CRITICAL(&mb_cache_spinlock);
+            if (err == MB_OK) {
+              ce->value.bool_val = write_vals[i];
+              ce->status = MB_CACHE_VALID;
+            } else {
+              ce->status = MB_CACHE_ERROR;
+            }
+            ce->last_error = err;
+            ce->last_update_ms = millis();
+            ce->last_fc = (uint8_t)MB_REQ_WRITE_COILS;
+            portEXIT_CRITICAL(&mb_cache_spinlock);
+          }
+        }
+        result.bool_val = (err == MB_OK);
+        break;
+      }
     }
 
     // Apply inter-frame delay (on background task — doesn't block ST Logic)
@@ -682,8 +740,9 @@ static void mb_async_task_func(void *pvParameters) {
       }
     }
 
-    // Multi-register ops handle their own cache updates — skip for them
-    if (req.type == MB_REQ_READ_HOLDINGS || req.type == MB_REQ_WRITE_HOLDINGS) {
+    // Multi-register/coil ops handle their own cache updates — skip for them
+    if (req.type == MB_REQ_READ_HOLDINGS || req.type == MB_REQ_WRITE_HOLDINGS ||
+        req.type == MB_REQ_WRITE_COILS) {
       goto skip_cache_update;
     }
 

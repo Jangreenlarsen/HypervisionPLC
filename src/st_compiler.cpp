@@ -622,6 +622,11 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
         st_compiler_error(compiler, "Use: MB_WRITE_HOLDINGS(slave, addr, count) := array");
         return false;
       }
+      // v7.9.68.0: FC15 multi-coil write
+      else if (strcasecmp(node->data.function_call.func_name, "MB_WRITE_COILS") == 0) {
+        st_compiler_error(compiler, "Use: MB_WRITE_COILS(slave, addr, count) := array (ARRAY OF BOOL)");
+        return false;
+      }
       // Stateful functions (v4.7+)
       else if (strcasecmp(node->data.function_call.func_name, "R_TRIG") == 0) func_id = ST_BUILTIN_R_TRIG;
       else if (strcasecmp(node->data.function_call.func_name, "F_TRIG") == 0) func_id = ST_BUILTIN_F_TRIG;
@@ -658,6 +663,15 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "MBX_READ_INPUT_REG") == 0) func_id = ST_BUILTIN_MBX_READ_INPUT_REG;
       else if (strcasecmp(node->data.function_call.func_name, "MBX_WRITE_COIL") == 0) func_id = ST_BUILTIN_MBX_WRITE_COIL;
       else if (strcasecmp(node->data.function_call.func_name, "MBX_WRITE_HOLDING") == 0) func_id = ST_BUILTIN_MBX_WRITE_HOLDING;
+      // v7.9.68.0: Modbus Expansion Board multi-register/coil writes (FC16/FC15)
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_WRITE_HOLDINGS") == 0) {
+        st_compiler_error(compiler, "Use: MBX_WRITE_HOLDINGS(board, kanal, slave, addr, count) := array");
+        return false;
+      }
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_WRITE_COILS") == 0) {
+        st_compiler_error(compiler, "Use: MBX_WRITE_COILS(board, kanal, slave, addr, count) := array (ARRAY OF BOOL)");
+        return false;
+      }
       else if (strcasecmp(node->data.function_call.func_name, "MBX_SUCCESS") == 0) func_id = ST_BUILTIN_MBX_SUCCESS;
       else if (strcasecmp(node->data.function_call.func_name, "MBX_BUSY") == 0) func_id = ST_BUILTIN_MBX_BUSY;
       else if (strcasecmp(node->data.function_call.func_name, "MBX_ERROR") == 0) func_id = ST_BUILTIN_MBX_ERROR;
@@ -1085,8 +1099,19 @@ static bool st_compiler_compile_assignment(st_compiler_t *compiler, st_ast_node_
   return st_compiler_emit_store_symbol(compiler, var_index);
 }
 
-/* v4.6.0: Compile remote write: MB_WRITE_XXX(id, addr) := value */
+/* v4.6.0: Compile remote write: MB_WRITE_XXX(id, addr) := value
+ * v7.9.68.0: MBX_WRITE_HOLDINGS/MBX_WRITE_COILS also push board+kanal first. */
 static bool st_compiler_compile_remote_write(st_compiler_t *compiler, st_ast_node_t *node) {
+  // v7.9.68.0: board/kanal (MBX_* only) are pushed before slave_id/address
+  if (node->data.remote_write.board) {
+    if (!st_compiler_compile_expr(compiler, node->data.remote_write.board)) {
+      return false;
+    }
+    if (!st_compiler_compile_expr(compiler, node->data.remote_write.channel)) {
+      return false;
+    }
+  }
+
   // Compile slave_id expression onto stack
   if (!st_compiler_compile_expr(compiler, node->data.remote_write.slave_id)) {
     return false;
@@ -1097,8 +1122,15 @@ static bool st_compiler_compile_remote_write(st_compiler_t *compiler, st_ast_nod
     return false;
   }
 
-  // v7.9.2: MB_WRITE_HOLDINGS(slave, addr, count) := array_var
-  if (node->data.remote_write.func_id == ST_BUILTIN_MB_WRITE_HOLDINGS) {
+  // v7.9.2 / v7.9.68.0: *_WRITE_HOLDINGS/*_WRITE_COILS(slave, addr, count) := array_var
+  if (node->data.remote_write.func_id == ST_BUILTIN_MB_WRITE_HOLDINGS ||
+      node->data.remote_write.func_id == ST_BUILTIN_MB_WRITE_COILS ||
+      node->data.remote_write.func_id == ST_BUILTIN_MBX_WRITE_HOLDINGS ||
+      node->data.remote_write.func_id == ST_BUILTIN_MBX_WRITE_COILS) {
+    bool is_coils = (node->data.remote_write.func_id == ST_BUILTIN_MB_WRITE_COILS ||
+                      node->data.remote_write.func_id == ST_BUILTIN_MBX_WRITE_COILS);
+    const char *fname = node->data.remote_write.func_name;
+
     // Compile count expression
     if (!st_compiler_compile_expr(compiler, node->data.remote_write.count)) {
       return false;
@@ -1107,7 +1139,9 @@ static bool st_compiler_compile_remote_write(st_compiler_t *compiler, st_ast_nod
     // Value must be an array variable — resolve to base_index
     st_ast_node_t *val = node->data.remote_write.value;
     if (val->type != ST_AST_VARIABLE) {
-      st_compiler_error(compiler, "MB_WRITE_HOLDINGS: right side of := must be an array variable");
+      char msg[96];
+      snprintf(msg, sizeof(msg), "%s: right side of := must be an array variable", fname);
+      st_compiler_error(compiler, msg);
       return false;
     }
     uint8_t var_idx = st_compiler_lookup_symbol(compiler, val->data.variable.var_name);
@@ -1120,7 +1154,19 @@ static bool st_compiler_compile_remote_write(st_compiler_t *compiler, st_ast_nod
     st_symbol_t *sym = &compiler->symbol_table.symbols[var_idx];
     if (!sym->is_array) {
       char msg[128];
-      snprintf(msg, sizeof(msg), "'%s' is not an array — requires ARRAY OF INT", val->data.variable.var_name);
+      snprintf(msg, sizeof(msg), "'%s' is not an array — %s requires ARRAY OF %s",
+               val->data.variable.var_name, fname, is_coils ? "BOOL" : "INT");
+      st_compiler_error(compiler, msg);
+      return false;
+    }
+    // v7.9.68.0: MB_WRITE_COILS gathers .bool_val at runtime — reject a
+    // non-BOOL array here instead of silently scattering garbage (the
+    // pre-existing MB_WRITE_HOLDINGS path never checked element type either,
+    // left as-is to avoid an unrelated behavior change).
+    if (is_coils && sym->type != ST_TYPE_BOOL) {
+      char msg[128];
+      snprintf(msg, sizeof(msg), "'%s' is not ARRAY OF BOOL — MB_WRITE_COILS requires a BOOL array",
+               val->data.variable.var_name);
       st_compiler_error(compiler, msg);
       return false;
     }
@@ -1131,8 +1177,9 @@ static bool st_compiler_compile_remote_write(st_compiler_t *compiler, st_ast_nod
     push_instr->opcode = ST_OP_PUSH_INT;
     push_instr->arg.int_arg = (int32_t)var_idx;
 
-    // Emit CALL_BUILTIN MB_WRITE_HOLDINGS (4-arg: slave, addr, count, array_base)
-    if (!st_compiler_emit_int(compiler, ST_OP_CALL_BUILTIN, (int32_t)ST_BUILTIN_MB_WRITE_HOLDINGS)) {
+    // Emit CALL_BUILTIN — 4-arg (slave,addr,count,array_base) for MB_*,
+    // 6-arg (board,kanal,slave,addr,count,array_base) for MBX_*
+    if (!st_compiler_emit_int(compiler, ST_OP_CALL_BUILTIN, (int32_t)node->data.remote_write.func_id)) {
       return false;
     }
 

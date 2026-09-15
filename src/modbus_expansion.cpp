@@ -130,7 +130,10 @@ static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slav
   uint16_t txn_id = conn->next_transaction_id++;
   uint16_t length = 1 + pdu_len;  // Unit ID + PDU
 
-  uint8_t packet[7 + 8];  // MBAP(7) + max PDU vi selv sender (8 er rigeligt for FC01-06 enkelt-register)
+  // MBAP(7) + max PDU vi selv sender. v7.9.68.0: udvidet fra 8 til 40 byte —
+  // FC01-06 enkelt-register krævede kun 8, men FC15/FC16 med op til 16
+  // registre/coils kræver op til 1+2+2+1+32 = 38 byte PDU.
+  uint8_t packet[7 + 40];
   if (pdu_len > sizeof(packet) - 7) return MB_INVALID_ADDRESS;
 
   packet[0] = (txn_id >> 8) & 0xFF;
@@ -260,4 +263,53 @@ mb_error_code_t modbus_expansion_write_holding(uint8_t board, uint8_t channel, u
   uint8_t req[5] = { 0x06, (uint8_t)(address >> 8), (uint8_t)(address & 0xFF), (uint8_t)(value >> 8), (uint8_t)(value & 0xFF) };
   uint8_t resp[8]; uint8_t resp_len;
   return mbx_transact(board, channel, slave_id, req, sizeof(req), resp, &resp_len, sizeof(resp));
+}
+
+// v7.9.68.0: FC16 multi-register write — PDU shape mirrors modbus_master.cpp's
+// modbus_master_write_holdings() byte-for-byte (see file header design note),
+// minus the slave-id prefix and CRC suffix (MBAP carries the Unit ID instead).
+mb_error_code_t modbus_expansion_write_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values) {
+  if (count == 0 || count > 16) return MB_INVALID_ADDRESS;
+
+  uint8_t byte_count = count * 2;
+  uint8_t req[6 + 16 * 2];  // fc(1)+addr(2)+count(2)+byte_count(1)+data(count*2)
+  req[0] = 0x10;
+  req[1] = (address >> 8) & 0xFF;
+  req[2] = address & 0xFF;
+  req[3] = 0x00;
+  req[4] = count;
+  req[5] = byte_count;
+  for (uint8_t i = 0; i < count; i++) {
+    req[6 + i * 2] = (values[i] >> 8) & 0xFF;
+    req[7 + i * 2] = values[i] & 0xFF;
+  }
+
+  uint8_t resp[8]; uint8_t resp_len;
+  return mbx_transact(board, channel, slave_id, req, (uint8_t)(6 + byte_count), resp, &resp_len, sizeof(resp));
+}
+
+// v7.9.68.0: FC15 multi-coil write — bit-packs 8 coils/byte (LSB-first), same
+// chip=i/8,bit=i%8 idiom as gpio_driver.cpp's shift-register cache, mirrors
+// modbus_master.cpp's modbus_master_write_coils().
+mb_error_code_t modbus_expansion_write_coils(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const bool *values) {
+  if (count == 0 || count > 16) return MB_INVALID_ADDRESS;
+
+  uint8_t byte_count = (count + 7) / 8;
+  uint8_t req[6 + 2];  // fc(1)+addr(2)+count(2)+byte_count(1)+data(<=2)
+  req[0] = 0x0F;
+  req[1] = (address >> 8) & 0xFF;
+  req[2] = address & 0xFF;
+  req[3] = 0x00;
+  req[4] = count;
+  req[5] = byte_count;
+  req[6] = 0x00;
+  req[7] = 0x00;
+  for (uint8_t i = 0; i < count; i++) {
+    if (values[i]) {
+      req[6 + i / 8] |= (uint8_t)(1 << (i % 8));
+    }
+  }
+
+  uint8_t resp[8]; uint8_t resp_len;
+  return mbx_transact(board, channel, slave_id, req, (uint8_t)(6 + byte_count), resp, &resp_len, sizeof(resp));
 }

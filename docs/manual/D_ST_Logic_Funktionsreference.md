@@ -223,6 +223,7 @@ Alle kald er **asynkrone/non-blocking**: en læsning returnerer en cachet værdi
 | `MB_WRITE_HOLDING(slave, addr, val)` | INT, INT, INT | BOOL (queued) | 06 | Kø'er skrivning |
 | `MB_READ_HOLDINGS(slave, addr, count)` | INT, INT, INT (1-16) | `ARRAY OF INT` | 03 (multi) | Se særskilt syntaks nedenfor |
 | `MB_WRITE_HOLDINGS(slave, addr, count)` | INT, INT, INT (1-16) | `ARRAY OF INT` | 16 | Se særskilt syntaks nedenfor |
+| `MB_WRITE_COILS(slave, addr, count)` | INT, INT, INT (1-16) | `ARRAY OF BOOL` | 15 | **v7.9.68.0.** Kø'er skrivning. Samme særskilte array-syntaks som `MB_WRITE_HOLDINGS`, se nedenfor |
 | `MB_SUCCESS()` | — | BOOL | — | Se semantik-advarsel i [§8.9](08_ST_Logic_Programmering.md#89-fejlhaandtering-og-graenser) |
 | `MB_READ_OK()` | — | BOOL | — | **BUG-397e (v7.9.39.0).** Uafhængig af `MB_SUCCESS()` — afspejler altid seneste `MB_READ_*`-kald, uanset hvor mange `MB_WRITE_*`-kald der er sket siden. For `MB_READ_HOLDINGS` (multi-register) betyder den "blev sat i kø", ikke "arrayet har gyldige data" — samme asymmetri som `MB_SUCCESS()` altid har haft der |
 | `MB_WRITE_QUEUED()` | — | BOOL | — | **BUG-397e (v7.9.39.0).** Uafhængig af `MB_SUCCESS()` — afspejler altid seneste `MB_WRITE_*`-kald, uanset hvor mange `MB_READ_*`-kald der er sket siden |
@@ -230,11 +231,13 @@ Alle kald er **asynkrone/non-blocking**: en læsning returnerer en cachet værdi
 | `MB_ERROR()` | — | INT | — | Sidste fejlkode, se tabel nedenfor |
 | `MB_CACHE(enabled)` | BOOL | BOOL (forrige tilstand) | — | Til/fra for cache-dedup |
 
-> **`MB_READ_HOLDINGS`/`MB_WRITE_HOLDINGS` har en påkrævet, særskilt array-syntaks** — de kan **ikke** kaldes som almindelige udtryk (compileren afviser det med en direkte fejlbesked):
+> **`MB_READ_HOLDINGS`/`MB_WRITE_HOLDINGS`/`MB_WRITE_COILS` har en påkrævet, særskilt array-syntaks** — de kan **ikke** kaldes som almindelige udtryk (compileren afviser det med en direkte fejlbesked):
 > ```st
 > VAR regs: ARRAY[0..7] OF INT; END_VAR
+> VAR bits: ARRAY[0..7] OF BOOL; END_VAR
 > regs := MB_READ_HOLDINGS(1, 100, 8);        (* LÆS: array PÅ VENSTRE side af := *)
 > MB_WRITE_HOLDINGS(1, 200, 8) := regs;       (* SKRIV: array PÅ HØJRE side af := *)
+> MB_WRITE_COILS(1, 300, 8) := bits;          (* SKRIV: kræver ARRAY OF BOOL, ikke INT *)
 > ```
 > `MB_WRITE_COIL`/`MB_WRITE_HOLDING` (ental) har derimod to gyldige former: almindeligt kald (`ok := MB_WRITE_COIL(1,0,TRUE);`) **og** assignment-form (`MB_WRITE_COIL(1,0) := TRUE;`).
 
@@ -254,7 +257,7 @@ Alle kald er **asynkrone/non-blocking**: en læsning returnerer en cachet værdi
 
 ### D.5.9b Modbus Expansion Board (MBX_*, FEAT-410)
 
-Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ekstern "HypervisionPLC Extension Board" over Modbus TCP i stedet for den lokale RS485-bus — de to første argumenter (`board`, `kanal`) vælger hvilket board (1-8, se [kapitel 6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)) og hvilken kanal (1-8, A=1/B=2) forespørgslen gælder. **v1: kun enkelt-register-operationer** — der findes ingen `MBX_READ_HOLDINGS`/`MBX_WRITE_HOLDINGS` (multi-register array-form) endnu.
+Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ekstern "HypervisionPLC Extension Board" over Modbus TCP i stedet for den lokale RS485-bus — de to første argumenter (`board`, `kanal`) vælger hvilket board (1-8, se [kapitel 6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)) og hvilken kanal (1-8, A=1/B=2) forespørgslen gælder. **v7.9.68.0: multi-register/coil WRITE tilføjet** (`MBX_WRITE_HOLDINGS`/`MBX_WRITE_COILS`) — multi-**read** findes stadig ikke (ingen `MBX_READ_HOLDINGS`).
 
 | Funktion | Parametre | Retur | FC | Semantik |
 |---|---|---|---|---|
@@ -264,11 +267,22 @@ Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ek
 | `MBX_READ_INPUT_REG(board, kanal, slave, addr)` | INT×4 | INT | 04 | Cachet input register |
 | `MBX_WRITE_COIL(board, kanal, slave, addr, val)` | INT×4, BOOL | BOOL (queued) | 05 | Kø'er skrivning |
 | `MBX_WRITE_HOLDING(board, kanal, slave, addr, val)` | INT×4, INT | BOOL (queued) | 06 | Kø'er skrivning |
+| `MBX_WRITE_HOLDINGS(board, kanal, slave, addr, count)` | INT×5 (count: 1-16) | `ARRAY OF INT` | 16 | **v7.9.68.0.** Kø'er skrivning. Særskilt array-syntaks, se nedenfor. Bypasser cachen (se advarsel nedenfor) |
+| `MBX_WRITE_COILS(board, kanal, slave, addr, count)` | INT×5 (count: 1-16) | `ARRAY OF BOOL` | 15 | **v7.9.68.0.** Kø'er skrivning. Særskilt array-syntaks, se nedenfor. Bypasser cachen (se advarsel nedenfor) |
 | `MBX_SUCCESS()` | — | BOOL | — | TRUE hvis seneste `MBX_*`-kald lykkedes |
 | `MBX_BUSY()` | — | BOOL | — | TRUE hvis expansion-data-kø har ventende forespørgsler |
 | `MBX_ERROR()` | — | INT | — | Seneste fejlkode — samme `mb_error_code_t`-tabel som D.5.9's `MB_ERROR()` |
 
 `board` skal referere til et faktisk konfigureret board (se System-siden/`show modbus-expansion`), ellers returnerer kaldet `MB_INVALID_ADDRESS` uden at forsøge noget netværkskald. Diagnostik: `show modbus-expansion queue` (CLI) viser kø-dybde, cache-hits/misses, og aktiv backoff pr. (board, kanal, slave).
+
+> **`MBX_WRITE_HOLDINGS`/`MBX_WRITE_COILS` bruger samme påkrævede array-syntaks som `MB_WRITE_HOLDINGS`** (§D.5.9 ovenfor), blot med `board`/`kanal` som to ekstra, indledende argumenter:
+> ```st
+> VAR regs: ARRAY[0..3] OF INT; END_VAR
+> VAR bits: ARRAY[0..3] OF BOOL; END_VAR
+> MBX_WRITE_HOLDINGS(1, 2, 5, 300, 4) := regs;   (* board=1, kanal=2, slave=5, addr=300 *)
+> MBX_WRITE_COILS(1, 2, 5, 400, 4) := bits;
+> ```
+> **Vigtig forskel fra enkelt-værdi-skrivningerne ovenfor**: `MBX_WRITE_HOLDINGS`/`MBX_WRITE_COILS` opdaterer **ikke** nogen cache-post — der findes ingen meningsfuld enkelt-adresse at cache en multi-register-bekræftelse under (samme begrænsning som RTU-sidens `MB_WRITE_HOLDINGS`). Kun `MBX_SUCCESS()`/`MBX_BUSY()`/`MBX_ERROR()` afspejler resultatet, ikke et efterfølgende `MBX_READ_HOLDING`-kald mod samme adresse.
 
 ### D.5.10 Persistens
 

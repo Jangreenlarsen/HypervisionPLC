@@ -326,6 +326,10 @@ static void mb_log_master_activity(const uint8_t *request, uint8_t request_len,
       if (request_len >= 6) count = (uint8_t)(((uint16_t)request[4] << 8) | request[5]);
       if (request_len >= 9) value = ((int32_t)request[7] << 8) | request[8];  // First register written
       break;
+    case 0x0F:  // Write Multiple Coils (FC15, v7.9.68.0)
+      if (request_len >= 6) count = (uint8_t)(((uint16_t)request[4] << 8) | request[5]);
+      if (request_len >= 8) value = request[7] & 0x01;  // First coil bit written
+      break;
     default:
       break;
   }
@@ -463,8 +467,8 @@ mb_error_code_t modbus_master_send_request(
             if (bytes_received >= 8) {
               break; // Complete response
             }
-          } else if (function_code == 0x10) {
-            // FC16 Write Multiple: slave_id + fc + address(2) + count(2) + CRC(2) = 8 bytes
+          } else if (function_code == 0x10 || function_code == 0x0F) {
+            // FC16/FC15 Write Multiple: slave_id + fc + address(2) + count(2) + CRC(2) = 8 bytes
             if (bytes_received >= 8) {
               break; // Complete response
             }
@@ -790,6 +794,43 @@ mb_error_code_t modbus_master_write_holdings(uint8_t slave_id, uint16_t address,
   for (uint8_t i = 0; i < count; i++) {
     request[7 + i * 2] = (values[i] >> 8) & 0xFF;
     request[8 + i * 2] = values[i] & 0xFF;
+  }
+  uint8_t req_len = 7 + byte_count;
+  uint16_t crc = modbus_master_calc_crc(request, req_len);
+  request[req_len] = crc & 0xFF;
+  request[req_len + 1] = (crc >> 8) & 0xFF;
+
+  g_modbus_master_config.total_requests++;
+
+  mb_error_code_t err = modbus_master_send_request(request, req_len + 2, response, &response_len, sizeof(response));
+  return err;
+}
+
+mb_error_code_t modbus_master_write_coils(uint8_t slave_id, uint16_t address, uint8_t count, const bool *values) {
+  if (count == 0 || count > 16) return MB_INVALID_ADDRESS;
+
+  // FC15 packs 8 coils/byte (LSB-first) — max 16 coils = 2 data bytes,
+  // same chip=i/8,bit=i%8 idiom as gpio_driver.cpp's shift-register cache.
+  uint8_t byte_count = (count + 7) / 8;
+
+  // Request: slave(1) + FC15(1) + addr(2) + count(2) + byte_count(1) + data(<=2) + CRC(2)
+  uint8_t request[9 + 2];
+  uint8_t response[8];
+  uint8_t response_len;
+
+  request[0] = slave_id;
+  request[1] = 0x0F;  // FC15
+  request[2] = (address >> 8) & 0xFF;
+  request[3] = address & 0xFF;
+  request[4] = 0x00;
+  request[5] = count;
+  request[6] = byte_count;
+  request[7] = 0x00;
+  request[8] = 0x00;
+  for (uint8_t i = 0; i < count; i++) {
+    if (values[i]) {
+      request[7 + i / 8] |= (uint8_t)(1 << (i % 8));
+    }
   }
   uint8_t req_len = 7 + byte_count;
   uint16_t crc = modbus_master_calc_crc(request, req_len);

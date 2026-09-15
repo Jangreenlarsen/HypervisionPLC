@@ -365,7 +365,9 @@ typedef struct {
   st_ast_node_t *slave_id;   // Slave ID expression
   st_ast_node_t *address;    // Address expression
   st_ast_node_t *value;      // Value expression (right side of :=)
-  st_ast_node_t *count;      // Count expression (v7.9.2: MB_WRITE_HOLDINGS only, NULL for single-reg)
+  st_ast_node_t *count;      // Count expression (v7.9.2: MB_WRITE_HOLDINGS/MB_WRITE_COILS only, NULL for single-reg)
+  st_ast_node_t *board;      // v7.9.68.0: MBX_WRITE_HOLDINGS/MBX_WRITE_COILS only, NULL for MB_* (non-expansion)
+  st_ast_node_t *channel;    // v7.9.68.0: MBX_WRITE_HOLDINGS/MBX_WRITE_COILS only, NULL for MB_* (non-expansion)
   uint16_t func_id;          // ST_BUILTIN_MB_WRITE_COIL or ST_BUILTIN_MB_WRITE_HOLDING (enum value)
 } st_remote_write_t;
 

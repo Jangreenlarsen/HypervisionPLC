@@ -515,6 +515,7 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
       break;
 
     case ST_BUILTIN_MB_WRITE_HOLDINGS:
+    case ST_BUILTIN_MB_WRITE_COILS:
       // 4-argument function - handled in VM (with array)
       result.int_val = 0;
       break;
@@ -531,6 +532,12 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
     case ST_BUILTIN_MBX_WRITE_COIL:
     case ST_BUILTIN_MBX_WRITE_HOLDING:
       // 5-argument function - handled in VM
+      result.int_val = 0;
+      break;
+
+    case ST_BUILTIN_MBX_WRITE_HOLDINGS:
+    case ST_BUILTIN_MBX_WRITE_COILS:
+      // 6-argument function (board, kanal, slave, addr, count, array) - handled in VM
       result.int_val = 0;
       break;
 
@@ -638,6 +645,7 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_WRITE_HOLDING:  return "MB_WRITE_HOLDING";
     case ST_BUILTIN_MB_READ_HOLDINGS:  return "MB_READ_HOLDINGS";
     case ST_BUILTIN_MB_WRITE_HOLDINGS: return "MB_WRITE_HOLDINGS";
+    case ST_BUILTIN_MB_WRITE_COILS: return "MB_WRITE_COILS";
     case ST_BUILTIN_R_TRIG:        return "R_TRIG";
     case ST_BUILTIN_F_TRIG:        return "F_TRIG";
     case ST_BUILTIN_TON:           return "TON";
@@ -661,6 +669,8 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_READ_INPUT_REG: return "MBX_READ_INPUT_REG";
     case ST_BUILTIN_MBX_WRITE_COIL:     return "MBX_WRITE_COIL";
     case ST_BUILTIN_MBX_WRITE_HOLDING:  return "MBX_WRITE_HOLDING";
+    case ST_BUILTIN_MBX_WRITE_HOLDINGS: return "MBX_WRITE_HOLDINGS";
+    case ST_BUILTIN_MBX_WRITE_COILS:    return "MBX_WRITE_COILS";
     case ST_BUILTIN_MBX_SUCCESS:        return "MBX_SUCCESS";
     case ST_BUILTIN_MBX_BUSY:           return "MBX_BUSY";
     case ST_BUILTIN_MBX_ERROR:          return "MBX_ERROR";
@@ -732,9 +742,10 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_WRITE_HOLDING:  // MB_WRITE_HOLDING(slave_id, address, value)
       return 3;
 
-    // 4-argument multi-register functions (v7.9.2)
+    // 4-argument multi-register/coil functions (v7.9.2, v7.9.68.0)
     case ST_BUILTIN_MB_READ_HOLDINGS:  // MB_READ_HOLDINGS(slave, addr, count, array)
     case ST_BUILTIN_MB_WRITE_HOLDINGS: // MB_WRITE_HOLDINGS(slave, addr, count, array)
+    case ST_BUILTIN_MB_WRITE_COILS:    // MB_WRITE_COILS(slave, addr, count, array)
       return 4;
 
     // 1-argument functions (v4.0+)
@@ -798,6 +809,12 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_WRITE_HOLDING:
       return 5;
 
+    // v7.9.68.0: Modbus Expansion Board — 6-arg multi writes
+    // (board, kanal, slave, addr, count, array)
+    case ST_BUILTIN_MBX_WRITE_HOLDINGS:
+    case ST_BUILTIN_MBX_WRITE_COILS:
+      return 6;
+
     // 1-argument Modbus control (v7.9.1)
     case ST_BUILTIN_MB_CACHE:      // MB_CACHE(enabled)
       return 1;
@@ -857,6 +874,7 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MB_WRITE_HOLDING:  // MB_WRITE_HOLDING → BOOL (success flag)
     case ST_BUILTIN_MB_READ_HOLDINGS:  // MB_READ_HOLDINGS → BOOL (queued flag)
     case ST_BUILTIN_MB_WRITE_HOLDINGS: // MB_WRITE_HOLDINGS → BOOL (queued flag)
+    case ST_BUILTIN_MB_WRITE_COILS:    // MB_WRITE_COILS → BOOL (queued flag)
     case ST_BUILTIN_CNT_SETUP:         // CNT_SETUP → BOOL (success)
     case ST_BUILTIN_CNT_SETUP_ADV:     // CNT_SETUP_ADV → BOOL (success)
     case ST_BUILTIN_CNT_SETUP_CMP:     // CNT_SETUP_CMP → BOOL (success)
@@ -880,6 +898,8 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_READ_INPUT:    // MBX_READ_INPUT → BOOL — FEAT-410
     case ST_BUILTIN_MBX_WRITE_COIL:    // MBX_WRITE_COIL → BOOL — FEAT-410
     case ST_BUILTIN_MBX_WRITE_HOLDING: // MBX_WRITE_HOLDING → BOOL — FEAT-410
+    case ST_BUILTIN_MBX_WRITE_HOLDINGS: // MBX_WRITE_HOLDINGS → BOOL (queued flag) — v7.9.68.0
+    case ST_BUILTIN_MBX_WRITE_COILS:    // MBX_WRITE_COILS → BOOL (queued flag) — v7.9.68.0
     case ST_BUILTIN_MBX_SUCCESS:       // MBX_SUCCESS → BOOL — FEAT-410
     case ST_BUILTIN_MBX_BUSY:          // MBX_BUSY → BOOL — FEAT-410
       return ST_TYPE_BOOL;

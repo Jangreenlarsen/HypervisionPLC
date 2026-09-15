@@ -56,12 +56,13 @@ typedef enum {
   MB_REQ_WRITE_COIL,          // FC05
   MB_REQ_WRITE_HOLDING,       // FC06
   MB_REQ_READ_HOLDINGS,       // FC03 multi-register (v7.9.2)
-  MB_REQ_WRITE_HOLDINGS       // FC16 multi-register (v7.9.2)
+  MB_REQ_WRITE_HOLDINGS,      // FC16 multi-register (v7.9.2)
+  MB_REQ_WRITE_COILS          // FC15 multi-coil (v7.9.68.0)
 } mb_request_type_t;
 
 /* Priority levels for queue ordering (lower value = higher priority) */
 typedef enum {
-  MB_PRIO_WRITE        = 0,   // Writes always first (FC05/FC06/FC16)
+  MB_PRIO_WRITE        = 0,   // Writes always first (FC05/FC06/FC15/FC16)
   MB_PRIO_READ_FRESH   = 1,   // First read — no cached value yet
   MB_PRIO_READ_REFRESH = 2    // Cache refresh — client already has a value
 } mb_request_priority_t;
@@ -238,6 +239,14 @@ bool mb_async_queue_read_multi(uint8_t slave_id, uint16_t address, uint8_t count
 bool mb_async_queue_write_multi(uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values);
 
 /**
+ * @brief Queue a multi-coil write (FC15, v7.9.68.0)
+ * Writes values from provided buffer via FC15.
+ * @param values Array of bool values to write (count entries)
+ * @return true if queued successfully
+ */
+bool mb_async_queue_write_multi_coils(uint8_t slave_id, uint16_t address, uint8_t count, const bool *values);
+
+/**
  * @brief Check if any requests are pending in queue
  * @return true if queue has pending items
  */
@@ -273,5 +282,11 @@ extern portMUX_TYPE mb_cache_spinlock;
  * 4 slots × 16 regs × 2 bytes = 128 bytes (was 32 bytes × 16 queue items = 512 bytes inline) */
 extern uint16_t g_mb_multi_write_pool[MB_MULTI_REG_POOL_SIZE][16];
 extern volatile uint8_t g_mb_multi_write_next;  // Next free slot (0-3, wraps)
+
+/* Ring-buffer pool for FC15 multi-coil write values (v7.9.68.0) — same
+ * ring-buffer-decoupled-from-the-VM's-transient-scratch-buffer rationale as
+ * g_mb_multi_write_pool above (a write may sit queued across ST cycles). */
+extern bool g_mb_multi_write_coil_pool[MB_MULTI_REG_POOL_SIZE][16];
+extern volatile uint8_t g_mb_multi_write_coil_next;  // Next free slot (0-3, wraps)
 
 #endif // MB_ASYNC_H

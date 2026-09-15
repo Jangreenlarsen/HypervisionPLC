@@ -79,8 +79,8 @@ Der er en **sikkerhedsgrænse på 10.000 VM-instruktioner pr. scan-cyklus** — 
 | **Timere (funktionsblokke)** | `TON` (forsinket til), `TOF` (forsinket fra), `TP` (puls) |
 | **Tællere (funktionsblokke)** | `CTU` (op), `CTD` (ned), `CTUD` (op/ned) |
 | **Hardware-tællere** | `CNT_SETUP CNT_SETUP_ADV CNT_SETUP_CMP CNT_CTRL CNT_ENABLE CNT_VALUE CNT_RAW CNT_FREQ CNT_STATUS` — se [kapitel 9](09_Taellere_og_Timere.md) |
-| **Modbus Master** | `MB_READ_COIL MB_READ_INPUT MB_READ_HOLDING MB_READ_INPUT_REG MB_READ_HOLDINGS MB_WRITE_COIL MB_WRITE_HOLDING MB_WRITE_HOLDINGS MB_SUCCESS MB_ERROR MB_BUSY MB_CACHE` — se §8.7 |
-| **Modbus Expansion Board** | `MBX_READ_COIL MBX_READ_INPUT MBX_READ_HOLDING MBX_READ_INPUT_REG MBX_WRITE_COIL MBX_WRITE_HOLDING MBX_SUCCESS MBX_BUSY MBX_ERROR` — samme cache/kø-mønster som `MB_*`, men mod et eksternt board (`board`/`kanal` som de to første argumenter), se [§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409) og [Appendiks D.5.9b](D_ST_Logic_Funktionsreference.md#d59b-modbus-expansion-board-mbx_-feat-410) |
+| **Modbus Master** | `MB_READ_COIL MB_READ_INPUT MB_READ_HOLDING MB_READ_INPUT_REG MB_READ_HOLDINGS MB_WRITE_COIL MB_WRITE_HOLDING MB_WRITE_HOLDINGS MB_WRITE_COILS MB_SUCCESS MB_ERROR MB_BUSY MB_CACHE` — se §8.7 |
+| **Modbus Expansion Board** | `MBX_READ_COIL MBX_READ_INPUT MBX_READ_HOLDING MBX_READ_INPUT_REG MBX_WRITE_COIL MBX_WRITE_HOLDING MBX_WRITE_HOLDINGS MBX_WRITE_COILS MBX_SUCCESS MBX_BUSY MBX_ERROR` — samme cache/kø-mønster som `MB_*`, men mod et eksternt board (`board`/`kanal` som de to første argumenter), se [§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409) og [Appendiks D.5.9b](D_ST_Logic_Funktionsreference.md#d59b-modbus-expansion-board-mbx_-feat-410) |
 | **Persistens** | `SAVE LOAD` — gem/genindlæs registergrupper til/fra NVS på tværs af reboot |
 | **Bistabile latches** | `SR(S1, R)`, `RS(S, R1)` |
 | **Signalbehandling** | `SCALE(IN, IN_MIN, IN_MAX, OUT_MIN, OUT_MAX)`, `HYSTERESIS(IN, HIGH, LOW)`, `BLINK(ENABLE, ON_TIME, OFF_TIME)`, `FILTER(IN, TIME_CONSTANT)` |
@@ -161,6 +161,19 @@ END_VAR
 BEGIN
   regs := MB_READ_HOLDINGS(slave_id, 100, 8);   (* læs 8 registre fra adresse 100 ind i regs[] *)
   MB_WRITE_HOLDINGS(slave_id, 200, 8) := regs;  (* skriv regs[] til 8 registre fra adresse 200 *)
+END_PROGRAM
+```
+
+**`MB_WRITE_COILS`** (v7.9.68.0, FC15) er coil-modstykket til `MB_WRITE_HOLDINGS` — samme array-syntaks, men kræver `ARRAY OF BOOL`:
+
+```st
+VAR
+  bits: ARRAY[0..7] OF BOOL;
+END_VAR
+BEGIN
+  bits[0] := TRUE;
+  bits[1] := FALSE;
+  MB_WRITE_COILS(slave_id, 300, 2) := bits;   (* skriv bits[0..1] til 2 coils fra adresse 300 *)
 END_PROGRAM
 ```
 

@@ -107,6 +107,7 @@ typedef enum {
   // Multi-register Modbus (v7.9.2)
   ST_BUILTIN_MB_READ_HOLDINGS,   // MB_READ_HOLDINGS(slave, addr, count, array) → BOOL (FC03 multi + array fill)
   ST_BUILTIN_MB_WRITE_HOLDINGS,  // MB_WRITE_HOLDINGS(slave, addr, count, array) → BOOL (FC16 multi from array)
+  ST_BUILTIN_MB_WRITE_COILS,     // MB_WRITE_COILS(slave, addr, count, array) → BOOL (FC15 multi from ARRAY OF BOOL)
 
   // Async Modbus Status (v7.7.0)
   ST_BUILTIN_MB_SUCCESS,    // MB_SUCCESS() → BOOL (last cache read was valid)
@@ -137,6 +138,14 @@ typedef enum {
   ST_BUILTIN_MBX_READ_INPUT_REG, // MBX_READ_INPUT_REG(board, kanal, slave_id, address) → INT
   ST_BUILTIN_MBX_WRITE_COIL,     // MBX_WRITE_COIL(board, kanal, slave_id, address, value) → BOOL
   ST_BUILTIN_MBX_WRITE_HOLDING,  // MBX_WRITE_HOLDING(board, kanal, slave_id, address, value) → BOOL
+
+  // Multi-register/coil Modbus Expansion Board (v7.9.68.0) — mirrors
+  // MB_WRITE_HOLDINGS/MB_WRITE_COILS 1:1 med (board, kanal) som to ekstra,
+  // indledende argumenter. Se modbus_expansion_async.h for hvorfor disse
+  // bypasser cache-laget (multi-writes har ingen enkelt-adresse cache-nøgle).
+  ST_BUILTIN_MBX_WRITE_HOLDINGS, // MBX_WRITE_HOLDINGS(board, kanal, slave, addr, count, array) → BOOL (FC16)
+  ST_BUILTIN_MBX_WRITE_COILS,    // MBX_WRITE_COILS(board, kanal, slave, addr, count, array) → BOOL (FC15)
+
   ST_BUILTIN_MBX_SUCCESS,        // MBX_SUCCESS() → BOOL
   ST_BUILTIN_MBX_BUSY,           // MBX_BUSY() → BOOL
   ST_BUILTIN_MBX_ERROR,          // MBX_ERROR() → INT

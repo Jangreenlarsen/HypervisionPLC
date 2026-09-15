@@ -252,6 +252,8 @@ void st_ast_node_free(st_ast_node_t *node) {
       st_ast_node_free(node->data.remote_write.address);
       st_ast_node_free(node->data.remote_write.value);
       if (node->data.remote_write.count) st_ast_node_free(node->data.remote_write.count);
+      if (node->data.remote_write.board) st_ast_node_free(node->data.remote_write.board);
+      if (node->data.remote_write.channel) st_ast_node_free(node->data.remote_write.channel);
       break;
     case ST_AST_FUNCTION_CALL:
       for (uint8_t i = 0; i < node->data.function_call.arg_count; i++) {
@@ -972,22 +974,60 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
   }
 
   // v4.6.0: Check for new remote write syntax: MB_WRITE_XXX(id, addr) := value
+  // v7.9.68.0: also MBX_WRITE_HOLDINGS/MBX_WRITE_COILS(board, kanal, id, addr, count) := array
   if (!field_name[0] && parser_match(parser, ST_TOK_LPAREN)) {
-    // Check if this is MB_WRITE_COIL, MB_WRITE_HOLDING, or MB_WRITE_HOLDINGS
     if (strcasecmp(var_name, "MB_WRITE_COIL") == 0 ||
         strcasecmp(var_name, "MB_WRITE_HOLDING") == 0 ||
-        strcasecmp(var_name, "MB_WRITE_HOLDINGS") == 0) {
+        strcasecmp(var_name, "MB_WRITE_HOLDINGS") == 0 ||
+        strcasecmp(var_name, "MB_WRITE_COILS") == 0 ||
+        strcasecmp(var_name, "MBX_WRITE_HOLDINGS") == 0 ||
+        strcasecmp(var_name, "MBX_WRITE_COILS") == 0) {
 
-      bool is_multi = (strcasecmp(var_name, "MB_WRITE_HOLDINGS") == 0);
+      bool is_multi = (strcasecmp(var_name, "MB_WRITE_HOLDINGS") == 0 ||
+                        strcasecmp(var_name, "MB_WRITE_COILS") == 0 ||
+                        strcasecmp(var_name, "MBX_WRITE_HOLDINGS") == 0 ||
+                        strcasecmp(var_name, "MBX_WRITE_COILS") == 0);
+      bool is_expansion = (strcasecmp(var_name, "MBX_WRITE_HOLDINGS") == 0 ||
+                            strcasecmp(var_name, "MBX_WRITE_COILS") == 0);
       parser_advance(parser); // consume '('
+
+      // v7.9.68.0: MBX_* forms have 2 extra leading args (board, kanal) before slave_id
+      st_ast_node_t *board = NULL;
+      st_ast_node_t *channel = NULL;
+      if (is_expansion) {
+        board = parser_parse_expression(parser);
+        if (!board) return NULL;
+        if (!parser_expect(parser, ST_TOK_COMMA)) {
+          parser_error(parser, "Expected comma after board in MBX_WRITE function");
+          st_ast_node_free(board);
+          return NULL;
+        }
+        channel = parser_parse_expression(parser);
+        if (!channel) {
+          st_ast_node_free(board);
+          return NULL;
+        }
+        if (!parser_expect(parser, ST_TOK_COMMA)) {
+          parser_error(parser, "Expected comma after kanal in MBX_WRITE function");
+          st_ast_node_free(board);
+          st_ast_node_free(channel);
+          return NULL;
+        }
+      }
 
       // Parse slave_id argument
       st_ast_node_t *slave_id = parser_parse_expression(parser);
-      if (!slave_id) return NULL;
+      if (!slave_id) {
+        if (board) st_ast_node_free(board);
+        if (channel) st_ast_node_free(channel);
+        return NULL;
+      }
 
       // Expect comma
       if (!parser_expect(parser, ST_TOK_COMMA)) {
         parser_error(parser, "Expected comma after slave_id in MB_WRITE function");
+        if (board) st_ast_node_free(board);
+        if (channel) st_ast_node_free(channel);
         st_ast_node_free(slave_id);
         return NULL;
       }
@@ -995,21 +1035,27 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
       // Parse address argument
       st_ast_node_t *address = parser_parse_expression(parser);
       if (!address) {
+        if (board) st_ast_node_free(board);
+        if (channel) st_ast_node_free(channel);
         st_ast_node_free(slave_id);
         return NULL;
       }
 
-      // v7.9.2: MB_WRITE_HOLDINGS has 3rd arg: count
+      // v7.9.2 / v7.9.68.0: *_HOLDINGS/*_COILS (multi) have a count arg
       st_ast_node_t *count = NULL;
       if (is_multi) {
         if (!parser_expect(parser, ST_TOK_COMMA)) {
-          parser_error(parser, "Expected comma after address in MB_WRITE_HOLDINGS");
+          parser_error(parser, "Expected comma after address in MB_WRITE_HOLDINGS/MB_WRITE_COILS");
+          if (board) st_ast_node_free(board);
+          if (channel) st_ast_node_free(channel);
           st_ast_node_free(slave_id);
           st_ast_node_free(address);
           return NULL;
         }
         count = parser_parse_expression(parser);
         if (!count) {
+          if (board) st_ast_node_free(board);
+          if (channel) st_ast_node_free(channel);
           st_ast_node_free(slave_id);
           st_ast_node_free(address);
           return NULL;
@@ -1019,6 +1065,8 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
       // Expect closing ')'
       if (!parser_expect(parser, ST_TOK_RPAREN)) {
         parser_error(parser, "Expected ')' after MB_WRITE arguments");
+        if (board) st_ast_node_free(board);
+        if (channel) st_ast_node_free(channel);
         st_ast_node_free(slave_id);
         st_ast_node_free(address);
         if (count) st_ast_node_free(count);
@@ -1028,6 +1076,8 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
       // Expect ':=' for assignment syntax
       if (!parser_expect(parser, ST_TOK_ASSIGN)) {
         parser_error(parser, "Expected := after MB_WRITE function");
+        if (board) st_ast_node_free(board);
+        if (channel) st_ast_node_free(channel);
         st_ast_node_free(slave_id);
         st_ast_node_free(address);
         if (count) st_ast_node_free(count);
@@ -1037,6 +1087,8 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
       // Parse value expression (single value or array variable)
       st_ast_node_t *value = parser_parse_expression(parser);
       if (!value) {
+        if (board) st_ast_node_free(board);
+        if (channel) st_ast_node_free(channel);
         st_ast_node_free(slave_id);
         st_ast_node_free(address);
         if (count) st_ast_node_free(count);
@@ -1047,6 +1099,8 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
       st_ast_node_t *node = ast_node_alloc(ST_AST_REMOTE_WRITE, line);
       if (!node) {
         parser_error(parser, "Out of memory");
+        if (board) st_ast_node_free(board);
+        if (channel) st_ast_node_free(channel);
         st_ast_node_free(slave_id);
         st_ast_node_free(address);
         if (count) st_ast_node_free(count);
@@ -1060,12 +1114,20 @@ static st_ast_node_t *parser_parse_assignment(st_parser_t *parser) {
       node->data.remote_write.address = address;
       node->data.remote_write.value = value;
       node->data.remote_write.count = count;  // NULL for single-reg ops
+      node->data.remote_write.board = board;      // NULL for MB_* (non-expansion)
+      node->data.remote_write.channel = channel;  // NULL for MB_* (non-expansion)
 
       // Set function ID
       if (strcasecmp(var_name, "MB_WRITE_COIL") == 0) {
         node->data.remote_write.func_id = ST_BUILTIN_MB_WRITE_COIL;
       } else if (strcasecmp(var_name, "MB_WRITE_HOLDINGS") == 0) {
         node->data.remote_write.func_id = ST_BUILTIN_MB_WRITE_HOLDINGS;
+      } else if (strcasecmp(var_name, "MB_WRITE_COILS") == 0) {
+        node->data.remote_write.func_id = ST_BUILTIN_MB_WRITE_COILS;
+      } else if (strcasecmp(var_name, "MBX_WRITE_HOLDINGS") == 0) {
+        node->data.remote_write.func_id = ST_BUILTIN_MBX_WRITE_HOLDINGS;
+      } else if (strcasecmp(var_name, "MBX_WRITE_COILS") == 0) {
+        node->data.remote_write.func_id = ST_BUILTIN_MBX_WRITE_COILS;
       } else {
         node->data.remote_write.func_id = ST_BUILTIN_MB_WRITE_HOLDING;
       }

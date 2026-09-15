@@ -165,6 +165,17 @@ mb_error_code_t modbus_master_read_holdings(uint8_t slave_id, uint16_t address, 
  */
 mb_error_code_t modbus_master_write_holdings(uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values);
 
+/**
+ * @brief Write Multiple Coils (FC15, v7.9.68.0)
+ *
+ * @param slave_id Slave address (1-247)
+ * @param address Start coil address (0-65535)
+ * @param count Number of coils to write (1-16)
+ * @param values Array of values to write (count bools)
+ * @return mb_error_code_t Error code (MB_OK on success)
+ */
+mb_error_code_t modbus_master_write_coils(uint8_t slave_id, uint16_t address, uint8_t count, const bool *values);
+
 /* ============================================================================
  * INTERNAL FUNCTIONS
  * ============================================================================ */

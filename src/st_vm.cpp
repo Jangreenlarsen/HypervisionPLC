@@ -1725,6 +1725,45 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
         }
       }
     }
+    else if (func_id == ST_BUILTIN_MB_WRITE_COILS) {
+      // v7.9.68.0: FC15 multi-coil write — arg1=slave, arg2=addr, arg3=count, arg4=array_base_index
+      // Same slave/address/count promotion+clamp discipline as MB_WRITE_HOLDINGS above.
+      st_value_t slave_int, addr_int, count_int;
+
+      if (arg1_type == ST_TYPE_DINT) {
+        slave_int.int_val = (arg1.dint_val > 247) ? 247 : arg1.dint_val;
+      } else if (arg1_type == ST_TYPE_DWORD) {
+        slave_int.int_val = (arg1.dword_val > 247) ? 247 : arg1.dword_val;
+      } else {
+        slave_int.int_val = arg1.int_val;
+      }
+
+      if (arg2_type == ST_TYPE_DINT) {
+        addr_int.int_val = (arg2.dint_val > 65535) ? 65535 : arg2.dint_val;
+      } else if (arg2_type == ST_TYPE_DWORD) {
+        addr_int.int_val = (arg2.dword_val > 65535) ? 65535 : arg2.dword_val;
+      } else {
+        addr_int.int_val = arg2.int_val;
+      }
+
+      // Count: clamp to 1-16 (all types, both bounds) — same BUG-324 discipline as above.
+      if (arg3_type == ST_TYPE_DINT) {
+        count_int.int_val = (arg3.dint_val > 16) ? 16 : (arg3.dint_val < 1) ? 1 : arg3.dint_val;
+      } else if (arg3_type == ST_TYPE_DWORD) {
+        count_int.int_val = (arg3.dword_val > 16) ? 16 : (arg3.dword_val < 1) ? 1 : arg3.dword_val;
+      } else {
+        count_int.int_val = (arg3.int_val > 16) ? 16 : (arg3.int_val < 1) ? 1 : arg3.int_val;
+      }
+
+      uint8_t arr_base = (uint8_t)arg4.int_val;
+      uint8_t cnt = (uint8_t)count_int.int_val;
+
+      // Gather BOOL values from array variable slots → g_mb_multi_coil_buf
+      for (uint8_t i = 0; i < cnt && (arr_base + i) < vm->var_count; i++) {
+        g_mb_multi_coil_buf[i] = vm->variables[arr_base + i].bool_val;
+      }
+      result = st_builtin_mb_write_coils(slave_int, addr_int, count_int);
+    }
     else if (func_id == ST_BUILTIN_MBX_READ_COIL || func_id == ST_BUILTIN_MBX_READ_INPUT ||
              func_id == ST_BUILTIN_MBX_READ_HOLDING || func_id == ST_BUILTIN_MBX_READ_INPUT_REG) {
       // FEAT-410: MBX_READ_*(board, kanal, slave, addr) — arg1=board, arg2=kanal, arg3=slave, arg4=addr.
@@ -1788,6 +1827,42 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
       else if (arg5_type == ST_TYPE_BOOL) value_out.int_val = arg5.bool_val ? 1 : 0;
       else value_out.int_val = arg5.int_val;
       result = st_builtin_mbx_write_holding(board_i, ch_i, slave_i, addr_i, value_out);
+    }
+  } else if (arg_count == 6 &&
+             (func_id == ST_BUILTIN_MBX_WRITE_HOLDINGS || func_id == ST_BUILTIN_MBX_WRITE_COILS)) {
+    // v7.9.68.0: MBX_WRITE_HOLDINGS/MBX_WRITE_COILS(board, kanal, slave, addr, count) := array —
+    // arg1=board, arg2=kanal, arg3=slave, arg4=addr, arg5=count, arg6=array_base_index.
+    // Same board/kanal/slave/addr clamp discipline as the 5-arg MBX_WRITE_* block above.
+    st_value_t board_i, ch_i, slave_i, addr_i, count_i;
+
+    auto clamp_to_int6 = [](st_value_t v, st_datatype_t t, int32_t lo, int32_t hi) -> st_value_t {
+      st_value_t out;
+      int32_t raw = (t == ST_TYPE_DINT) ? v.dint_val : (t == ST_TYPE_DWORD) ? (int32_t)v.dword_val : v.int_val;
+      if (raw < lo) raw = lo;
+      if (raw > hi) raw = hi;
+      out.int_val = (int16_t)raw;
+      return out;
+    };
+
+    board_i = clamp_to_int6(arg1, arg1_type, 0, 255);
+    ch_i    = clamp_to_int6(arg2, arg2_type, 0, 255);
+    slave_i = clamp_to_int6(arg3, arg3_type, 0, 255);
+    addr_i  = clamp_to_int6(arg4, arg4_type, 0, 65535);
+    count_i = clamp_to_int6(arg5, arg5_type, 1, 16);  // BUG-324 discipline: clamp both bounds, all types
+
+    uint8_t arr_base = (uint8_t)arg6.int_val;
+    uint8_t cnt = (uint8_t)count_i.int_val;
+
+    if (func_id == ST_BUILTIN_MBX_WRITE_HOLDINGS) {
+      for (uint8_t i = 0; i < cnt && (arr_base + i) < vm->var_count; i++) {
+        g_mbx_multi_reg_buf[i] = (uint16_t)vm->variables[arr_base + i].int_val;
+      }
+      result = st_builtin_mbx_write_holdings(board_i, ch_i, slave_i, addr_i, count_i);
+    } else {
+      for (uint8_t i = 0; i < cnt && (arr_base + i) < vm->var_count; i++) {
+        g_mbx_multi_coil_buf[i] = vm->variables[arr_base + i].bool_val;
+      }
+      result = st_builtin_mbx_write_coils(board_i, ch_i, slave_i, addr_i, count_i);
     }
   } else if (func_id == ST_BUILTIN_ROL && arg_count == 2) {
     // ROL: Rotate left (type-dependent)

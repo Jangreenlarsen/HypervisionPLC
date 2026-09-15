@@ -13,6 +13,11 @@
 mbx_async_state_t g_mbx_async = {0};
 portMUX_TYPE mbx_cache_spinlock = portMUX_INITIALIZER_UNLOCKED;
 
+uint16_t g_mbx_multi_write_reg_pool[MBX_MULTI_POOL_SIZE][16] = {0};
+volatile uint8_t g_mbx_multi_write_reg_next = 0;
+bool g_mbx_multi_write_coil_pool[MBX_MULTI_POOL_SIZE][16] = {false};
+volatile uint8_t g_mbx_multi_write_coil_next = 0;
+
 /* ============================================================================
  * CACHE FUNCTIONS
  * ============================================================================ */
@@ -273,6 +278,52 @@ bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, 
   return true;
 }
 
+// v7.9.68.0: FC16 multi-register write — no per-address cache entry (see file
+// header design note), so unlike modbus_expansion_async_queue_write() above,
+// there is no dedup-against-cached-value check and no cache entry created here.
+bool modbus_expansion_async_queue_write_multi_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values) {
+  if (count == 0 || count > 16) return false;
+
+  uint8_t slot = g_mbx_multi_write_reg_next;
+  g_mbx_multi_write_reg_next = (g_mbx_multi_write_reg_next + 1) % MBX_MULTI_POOL_SIZE;
+  memcpy(g_mbx_multi_write_reg_pool[slot], values, count * sizeof(uint16_t));
+
+  mbx_async_request_t req;
+  memset(&req, 0, sizeof(req));
+  req.type = MBX_REQ_WRITE_HOLDINGS;
+  req.board = board;
+  req.channel = channel;
+  req.slave_id = slave_id;
+  req.address = address;
+  req.count = count;
+  req.multi_pool_slot = slot;
+  req.priority = MBX_PRIO_WRITE;
+
+  return mbx_pq_insert(&req);
+}
+
+// v7.9.68.0: FC15 multi-coil write — mirrors modbus_expansion_async_queue_write_multi_holdings() above.
+bool modbus_expansion_async_queue_write_multi_coils(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const bool *values) {
+  if (count == 0 || count > 16) return false;
+
+  uint8_t slot = g_mbx_multi_write_coil_next;
+  g_mbx_multi_write_coil_next = (g_mbx_multi_write_coil_next + 1) % MBX_MULTI_POOL_SIZE;
+  memcpy(g_mbx_multi_write_coil_pool[slot], values, count * sizeof(bool));
+
+  mbx_async_request_t req;
+  memset(&req, 0, sizeof(req));
+  req.type = MBX_REQ_WRITE_COILS;
+  req.board = board;
+  req.channel = channel;
+  req.slave_id = slave_id;
+  req.address = address;
+  req.count = count;
+  req.multi_pool_slot = slot;
+  req.priority = MBX_PRIO_WRITE;
+
+  return mbx_pq_insert(&req);
+}
+
 bool modbus_expansion_async_is_busy() { return g_mbx_async.pq_count > 0; }
 uint8_t modbus_expansion_async_queue_depth() { return g_mbx_async.pq_count; }
 
@@ -431,9 +482,30 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
         result.bool_val = (err == MB_OK);
         break;
       }
+      case MBX_REQ_WRITE_HOLDINGS: {
+        // v7.9.68.0: FC16 multi-register write — read values from pool slot
+        uint8_t cnt = req.count;
+        if (cnt == 0 || cnt > 16) { err = MB_INVALID_ADDRESS; break; }
+        err = modbus_expansion_write_holdings(req.board, req.channel, req.slave_id, req.address, cnt,
+                                               g_mbx_multi_write_reg_pool[req.multi_pool_slot]);
+        result.bool_val = (err == MB_OK);
+        break;
+      }
+      case MBX_REQ_WRITE_COILS: {
+        // v7.9.68.0: FC15 multi-coil write — read values from pool slot
+        uint8_t cnt = req.count;
+        if (cnt == 0 || cnt > 16) { err = MB_INVALID_ADDRESS; break; }
+        err = modbus_expansion_write_coils(req.board, req.channel, req.slave_id, req.address, cnt,
+                                            g_mbx_multi_write_coil_pool[req.multi_pool_slot]);
+        result.bool_val = (err == MB_OK);
+        break;
+      }
     }
 
-    {
+    // v7.9.68.0: multi writes bypass the single-address cache entirely (see
+    // file header design note) — only g_mbx_success (set by the caller from
+    // this function's return value) reflects them, no cache entry to update.
+    if (req.type != MBX_REQ_WRITE_HOLDINGS && req.type != MBX_REQ_WRITE_COILS) {
       uint8_t cache_type = (uint8_t)req.type;
       if (req.type == MBX_REQ_WRITE_COIL) cache_type = (uint8_t)MBX_REQ_READ_COIL;
       if (req.type == MBX_REQ_WRITE_HOLDING) cache_type = (uint8_t)MBX_REQ_READ_HOLDING;

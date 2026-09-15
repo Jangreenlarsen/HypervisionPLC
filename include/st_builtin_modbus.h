@@ -98,6 +98,20 @@ st_value_t st_builtin_mb_read_holdings(st_value_t slave_id, st_value_t address, 
  */
 st_value_t st_builtin_mb_write_holdings(st_value_t slave_id, st_value_t address, st_value_t count);
 
+/**
+ * @brief MB_WRITE_COILS(slave, addr, count) := array — FC15, multi-coil write (v7.9.68.0)
+ *
+ * Usage:
+ *   VAR bits : ARRAY[0..1] OF BOOL; END_VAR
+ *   bits[0] := TRUE;
+ *   bits[1] := FALSE;
+ *   MB_WRITE_COILS(1, 200, 2) := bits;
+ *
+ * Returns TRUE if queued successfully. count: 1-16 coils.
+ * Values are gathered from g_mb_multi_coil_buf (filled by the VM before this call).
+ */
+st_value_t st_builtin_mb_write_coils(st_value_t slave_id, st_value_t address, st_value_t count);
+
 /* ============================================================================
  * ASYNC STATUS FUNCTIONS (v7.7.0 — 0-arg builtins)
  * ============================================================================ */
@@ -164,5 +178,8 @@ extern bool g_mb_cache_enabled;   // TRUE = cache dedup active (default), FALSE 
 // Multi-register buffer for MB_SET_REG/MB_GET_REG (v7.9.2)
 #define MB_MULTI_REG_MAX 16
 extern uint16_t g_mb_multi_reg_buf[MB_MULTI_REG_MAX];
+
+// Multi-coil buffer for MB_WRITE_COILS (v7.9.68.0) — same MB_MULTI_REG_MAX cap
+extern bool g_mb_multi_coil_buf[MB_MULTI_REG_MAX];
 
 #endif // ST_BUILTIN_MODBUS_H
