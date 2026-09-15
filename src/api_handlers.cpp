@@ -1674,10 +1674,18 @@ esp_err_t api_handler_logic(httpd_req_t *req)
     }
   }
 
-  char buf[HTTP_JSON_DOC_SIZE];
-  serializeJson(doc, buf, sizeof(buf));
-
-  return api_send_json(req, buf);
+  // BUG-412 FIX: same root cause as BUG-332/BUG-397g -- the fixed
+  // HTTP_JSON_DOC_SIZE (1024 byte) buffer silently truncates mid-JSON once 4
+  // programs' name/last_error/etc. push the serialized doc past it, and the
+  // client then fails to parse the cut-off response ("unterminated string
+  // literal"). measureJson() sizes the buffer exactly, eliminating the risk.
+  size_t json_len = measureJson(doc);
+  char *buf = (char *)malloc(json_len + 1);
+  if (!buf) return api_send_error(req, 500, "Out of memory");
+  serializeJson(doc, buf, json_len + 1);
+  esp_err_t result = api_send_json(req, buf);
+  free(buf);
+  return result;
 }
 
 /* ============================================================================
