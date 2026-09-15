@@ -265,6 +265,11 @@
 </div>
 <div class="btn-row"><button class="btn btn-success btn-sm" onclick="runExpTest()">Kør</button></div>
 <pre id="expTestResult" style="background:#11111b;border:1px solid #313244;border-radius:4px;padding:8px;font-size:11px;color:#a6e3a1;white-space:pre-wrap;word-break:break-all;margin-top:8px;display:none"></pre>
+
+<h3 style="font-size:13px;color:#89b4fa;margin:18px 0 8px;padding-top:12px;border-top:1px solid #313244">Funktions-test (capability probe)</h3>
+<p style="font-size:11px;color:#6c7086;margin-bottom:8px">Afprøver ALLE function codes (FC01-06, FC15, FC16) i træk mod Kanal/Slave-ID/Adresse ovenfor. <strong style="color:#f9e2af">FC05/06/15/16 er RIGTIGE skrivninger</strong> — brug kun en adresse du ved er et ubrugt/fiktivt testregister, ALDRIG en adresse der styrer rigtigt udstyr. Boardet har ingen API til at rapportere understøttede function codes (se design-guide), så dette er den eneste måde at afklare det empirisk i dag.</p>
+<div class="btn-row"><button class="btn btn-danger btn-sm" onclick="runExpCapabilityTest()">Test alle funktioner</button></div>
+<div id="expCapResult" style="margin-top:8px;display:none"></div>
 </div>
 </div>
 
@@ -1557,6 +1562,110 @@ function runExpTest(){
         resEl.textContent=JSON.stringify(d.response,null,2);
       });
     }).catch(e=>{resEl.style.color='#f38ba8';resEl.textContent='Fejl: '+e.message});
+}
+
+// --- Funktions-test / capability probe (v7.9.68.2) ---
+// Boardet har ingen API til at rapportere understøttede function codes (se
+// DESIGN_GUIDE_MODBUS_EXPANSION_FC_CAPABILITIES.md) — dette afprøver dem
+// derfor empirisk, ét kald ad gangen (samme sekventielle kø-begrænsning som
+// resten af boardets Modbus TCP-server, se PLC_INTEGRATION_MANUAL.md §3.2).
+const EXP_CAP_TESTS=[
+  {fc:1,name:'FC01 Read Coils',kind:'read',quantity:2},
+  {fc:2,name:'FC02 Read Discrete Inputs',kind:'read',quantity:2},
+  {fc:3,name:'FC03 Read Holding Registers',kind:'read',quantity:2},
+  {fc:4,name:'FC04 Read Input Registers',kind:'read',quantity:2},
+  {fc:5,name:'FC05 Write Single Coil',kind:'write',value:true},
+  {fc:6,name:'FC06 Write Single Register',kind:'write',value:1234},
+  {fc:15,name:'FC15 Write Multiple Coils',kind:'write',values:[true,false]},
+  {fc:16,name:'FC16 Write Multiple Registers',kind:'write',values:[1,2]}
+];
+
+function runExpCapabilityTest(){
+  if(expCurrentBoardId===null){showAlert('expBoardsAlert','err','Vælg et board (klik "Kanaler") først');return}
+  const channel=parseInt($('expTestChannel').value,10);
+  const slave_id=parseInt($('expTestSlave').value,10);
+  const address=parseInt($('expTestAddr').value,10);
+  askConfirm('Test alle function codes',
+    'Dette sender RIGTIGE Modbus-skrivninger (FC05/06/15/16) til slave-ID '+slave_id+', adresse '+address+' på kanal '+$('expTestChannel').selectedOptions[0].text+
+    '. Brug KUN en adresse du ved er et ubrugt/fiktivt testregister — ALDRIG én der styrer rigtigt udstyr. Fortsæt?',
+    ()=>startExpCapabilityTest(channel,slave_id,address));
+}
+
+function startExpCapabilityTest(channel,slave_id,address){
+  const resEl=$('expCapResult');
+  resEl.style.display='block';
+  resEl.innerHTML='<p style="color:#6c7086">Tester...</p>';
+  runExpCapStep(0,channel,slave_id,address,[],resEl);
+}
+
+function runExpCapStep(i,channel,slave_id,address,results,resEl){
+  if(i>=EXP_CAP_TESTS.length){renderExpCapResults(results,resEl);return}
+  const t=EXP_CAP_TESTS[i];
+  let url,body;
+  if(t.kind==='read'){
+    url='/api/expansion/boards/'+expCurrentBoardId+'/channels/'+channel+'/read';
+    body={function_code:t.fc,slave_id,address,quantity:t.quantity};
+  }else{
+    url='/api/expansion/boards/'+expCurrentBoardId+'/channels/'+channel+'/write';
+    body=(t.fc===15||t.fc===16)?{function_code:t.fc,slave_id,address,values:t.values}:{function_code:t.fc,slave_id,address,value:t.value};
+  }
+  resEl.innerHTML='<p style="color:#6c7086">Tester '+t.name+' ('+(i+1)+'/'+EXP_CAP_TESTS.length+')...</p>';
+  const next=()=>runExpCapStep(i+1,channel,slave_id,address,results,resEl);
+  api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+      if(!ok){results.push({t,verdict:'plc_error',detail:{message:j.error||'HTTP-fejl'}});next();return}
+      pollExpAction(d=>{
+        results.push({t,verdict:classifyExpCapResult(d),detail:d.error?{message:d.error}:(d.response||{message:'Intet svar'})});
+        next();
+      });
+    }).catch(e=>{results.push({t,verdict:'plc_error',detail:{message:e.message}});next()});
+}
+
+// PLC_INTEGRATION_MANUAL.md §4.5/4.6+§5: REST-diagnose-endpointet skelner
+// EKSPLICIT mellem en exception fra slaven selv (error:"modbus_exception")
+// og en fejl i selve boardets håndtering (error:"channel_error", med et
+// error_code der er en mb_error_code_t-værdi) — modsat den raa Modbus TCP-
+// data-plane (§3.3), hvor de to er umulige at skelne. error_code 7
+// (MB_INVALID_ADDRESS) er dokumenteret som "ugyldig/ukendt function code
+// eller PDU-længde i selve requestet" — den klareste tilgængelige signal for
+// "boardet understøtter ikke denne FC" uden en egentlig capabilities-API.
+function classifyExpCapResult(d){
+  if(d.error)return 'plc_error';
+  const r=d.response||{};
+  if(r.ok===true)return 'ok';
+  if(r.ok===false&&r.error==='modbus_exception')return 'slave_exception';
+  if(r.ok===false&&r.error==='channel_error'){
+    if(r.error_code===7)return 'fc_unsupported';
+    if(r.error_code===1)return 'timeout';
+    if(r.error_code===5)return 'disabled';
+    if(r.error_code===8)return 'busy';
+    return 'channel_error';
+  }
+  return 'unknown';
+}
+
+function renderExpCapResults(results,resEl){
+  const label={
+    ok:['#a6e3a1','✅ OK — FC understøttet, slave svarede korrekt'],
+    slave_exception:['#f9e2af','⚠️ Slave-exception — FC understøttes af boardet, slaven afviste'],
+    fc_unsupported:['#f38ba8','⛔ Ikke understøttet af boardet (error_code 7)'],
+    timeout:['#f9e2af','⏱ Timeout — slaven svarede ikke (siger intet om FC-støtte)'],
+    disabled:['#6c7086','⏸ Kanal deaktiveret — test ikke udført'],
+    busy:['#f9e2af','⏳ Kanal optaget — prøv igen'],
+    channel_error:['#f38ba8','❌ Kanal-fejl'],
+    plc_error:['#f38ba8','❌ PLC/netværksfejl'],
+    unknown:['#a6adc8','? Uventet svar']
+  };
+  let html='<table style="width:100%;border-collapse:collapse;font-size:11px">'+
+    '<tr style="color:#a6adc8;text-align:left"><th style="padding:4px 6px">Function code</th><th style="padding:4px 6px">Resultat</th><th style="padding:4px 6px">Detaljer</th></tr>';
+  results.forEach(r=>{
+    const lbl=label[r.verdict]||['#a6adc8','?'];
+    html+='<tr style="border-top:1px solid #313244"><td style="padding:4px 6px">'+r.t.name+'</td>'+
+      '<td style="padding:4px 6px;color:'+lbl[0]+'">'+lbl[1]+'</td>'+
+      '<td style="padding:4px 6px;color:#6c7086;word-break:break-all">'+JSON.stringify(r.detail).slice(0,160)+'</td></tr>';
+  });
+  html+='</table><p style="font-size:10px;color:#6c7086;margin-top:6px">Kun "⏱ Timeout"/"⏳ Optaget"/"⏸ Deaktiveret" er reelt tvetydige (siger intet sikkert om FC-støtte) — "⛔ Ikke understøttet" og "⚠️ Slave-exception" er begge pålidelige, jf. PLC_INTEGRATION_MANUAL.md §4.5/§5s dokumenterede error_code-tabel.</p>';
+  resEl.innerHTML=html;
 }
 
 // --- IP Access Control List (FEAT-399, ordnet permit/deny FEAT-401, kladde FEAT-402) ---
