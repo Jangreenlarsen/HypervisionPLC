@@ -671,10 +671,30 @@ const DASH_FETCH_MAX_CONCURRENT=2;
 // en ny runde oven i en der (for mange/langsomme boards) endnu ikke er færdig.
 let _expBoardList=[];
 let _expCycleRunning=false;
+let _expCycleStartMs=0;
+// Watchdog (v7.9.68.6): worst case, EXPANSION_BOARD_MAX (8) boards all
+// unreachable at once, each bounded by expansion_api_client.cpp's 2s
+// connect + 3s read timeout plus this page's own _expPollResult polling
+// overhead (up to 15x300ms=4.5s) -- roughly 8x8s=64s worst case, so 90s
+// gives real headroom above that without waiting needlessly long to
+// recover from a genuine stall. If _expCycleRunning is still true past
+// that, something in the chain below failed to reach a terminal branch
+// (uncaught exception, an edge case not covered by the .catch() handlers)
+// -- without this, a single stuck cycle silently blocks EVERY future 30s
+// tick forever, and only a full page reload (which resets this flag along
+// with all other JS state) makes status checks resume, matching the
+// reported "only updates on refresh" symptom.
+function _expWatchdogExpired(){
+  return _expCycleRunning && (Date.now()-_expCycleStartMs>90000);
+}
 
 function fetchExpansionList(){
-  if(_expCycleRunning)return;
+  if(_expCycleRunning){
+    if(!_expWatchdogExpired())return;
+    _expCycleRunning=false;  // stuck cycle detected — force-unstick and retry below
+  }
   _expCycleRunning=true;
+  _expCycleStartMs=Date.now();
   dashFetch('/api/expansion/boards',{}).then(r=>r.json()).then(d=>{
     const list=$('expDashList');
     if(!d.boards||d.boards.length===0){
@@ -692,11 +712,15 @@ function fetchExpansionList(){
 
 function _expCheckSequential(idx){
   if(idx>=_expBoardList.length){
+    // v7.9.68.6: reset the flag FIRST -- badge()/forEach below touch DOM
+    // elements that can legitimately be absent (customized layout), and
+    // badge() is now null-safe too (common.js), but ordering this first
+    // means ANY future exception here still can't leave the cycle stuck.
+    _expCycleRunning=false;
     const total=_expBoardList.length;
     let onlineCount=0;
     _expBoardList.forEach(b=>{const el=$('expDashBoard'+b.id);if(el&&el.dataset.online==='1')onlineCount++});
     badge($('badgeExpansion'),onlineCount===total&&total>0,onlineCount+'/'+total+' online');
-    _expCycleRunning=false;
     return;
   }
   const board=_expBoardList[idx];

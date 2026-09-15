@@ -68,9 +68,15 @@ function histMinMax(hist){
   return 'min '+fmtRate(mn)+' / max '+fmtRate(mx);
 }
 
-function dot(el,on){el.className='dot '+(on?'dot-g':'dot-r')}
+// v7.9.68.6: null-guarded -- a caller's target element can legitimately be
+// absent (e.g. a customized dashboard layout with a card removed/hidden).
+// Throwing here used to silently abort whatever caller-side cleanup ran
+// AFTER the dot()/badge() call in the same function -- see
+// _expCheckSequential()'s base case in dashboard.html, where that skipped
+// _expCycleRunning=false and permanently stalled the 30s auto-refresh.
+function dot(el,on){if(!el)return;el.className='dot '+(on?'dot-g':'dot-r')}
 
-function badge(el,on,lbl){el.textContent=lbl||'';el.className='badge '+(on?'badge-ok':'badge-off')}
+function badge(el,on,lbl){if(!el)return;el.textContent=lbl||'';el.className='badge '+(on?'badge-ok':'badge-off')}
 
 function $(id){return document.getElementById(id)}
 
