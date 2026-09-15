@@ -195,3 +195,27 @@ function queuedFetch(url,opts){
     _apiFetchPump();
   });
 }
+
+// --- Session keepalive (v7.9.68.5) ---
+// The server session is a 30-min SLIDING idle timeout (rbac.cpp's
+// RBAC_SESSION_TOKEN_TTL_MS) -- it already renews on every authenticated
+// request. But a page with no periodic background polling (e.g. System,
+// while reading/filling a form without submitting) can go long stretches
+// making no requests at all, so the sliding window silently lapses even
+// though the user is still there -- the next click then hits a 401 and
+// the login modal reappears, despite the user having been "active" the
+// whole time. This pings a cheap, already-authenticated endpoint on a
+// timer, but ONLY while real user interaction (mouse/keyboard/touch/
+// scroll) has been seen recently -- a genuinely idle tab still logs out
+// after ~30 min, unchanged.
+let _lastUserActivityMs=Date.now();
+['mousedown','mousemove','keydown','touchstart','scroll'].forEach(evt=>{
+  document.addEventListener(evt,()=>{_lastUserActivityMs=Date.now()},{passive:true});
+});
+setInterval(()=>{
+  // 25 min, safely under the server's 30-min TTL so the renewal always
+  // lands before expiry even with this check's own 5-min granularity.
+  if(Date.now()-_lastUserActivityMs<25*60*1000){
+    fetch('/api/status',{credentials:'same-origin'}).catch(()=>{});
+  }
+},5*60*1000);
