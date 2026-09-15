@@ -379,6 +379,30 @@ bool expansion_api_start_diag_write_multi(uint8_t board_index, uint8_t channel,
   return expansion_api_spawn();
 }
 
+// v7.9.68.1: FC15 diagnostic write — mirrors expansion_api_start_diag_write_multi()
+// above, "values" array holds bool instead of uint16_t. Board-side contract not
+// yet in PLC_INTEGRATION_MANUAL.md (only FC16 is documented there today) —
+// symmetric with FC16's own {"function_code","slave_id","address","values"} shape.
+bool expansion_api_start_diag_write_multi_coils(uint8_t board_index, uint8_t channel,
+                                                 uint8_t slave_id, uint16_t address,
+                                                 const bool *values, uint8_t count) {
+  if (count == 0 || count > 32) return false;
+  char path[64];
+  snprintf(path, sizeof(path), "/api/channels/%u/write", channel);
+
+  JsonDocument doc;
+  doc["function_code"] = 15;
+  doc["slave_id"] = slave_id;
+  doc["address"] = address;
+  JsonArray arr = doc["values"].to<JsonArray>();
+  for (uint8_t i = 0; i < count; i++) arr.add(values[i]);
+  char body[400];
+  serializeJson(doc, body, sizeof(body));
+
+  if (!expansion_api_begin(board_index, "POST", path, body, "write")) return false;
+  return expansion_api_spawn();
+}
+
 bool expansion_api_poll(ExpansionApiResult *out) {
   if (!out) return false;
   *out = g_expansion_api_result;

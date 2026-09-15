@@ -252,6 +252,7 @@
 <option value="6">FC06 - Write Single Register</option>
 <option value="5">FC05 - Write Single Coil</option>
 <option value="16">FC16 - Write Multiple Registers</option>
+<option value="15">FC15 - Write Multiple Coils</option>
 </select></div>
 <div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Slave-ID (1-247)</label>
 <input type="number" id="expTestSlave" min="1" max="247" value="1" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
@@ -259,8 +260,8 @@
 <input type="number" id="expTestAddr" min="0" value="0" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
 <div id="expTestQtyWrap"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Antal (kun læsning)</label>
 <input type="number" id="expTestQty" min="1" max="125" value="1" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
-<div id="expTestValWrap" style="display:none"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Værdi(er) — komma-separeret ved FC16</label>
-<input type="text" id="expTestVal" placeholder="fx 1234 eller 1,2,3" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div id="expTestValWrap" style="display:none"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Værdi(er) — komma-separeret ved FC15/FC16</label>
+<input type="text" id="expTestVal" placeholder="fx 1234 eller 1,2,3 (FC15: 1,0,1)" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
 </div>
 <div class="btn-row"><button class="btn btn-success btn-sm" onclick="runExpTest()">Kør</button></div>
 <pre id="expTestResult" style="background:#11111b;border:1px solid #313244;border-radius:4px;padding:8px;font-size:11px;color:#a6e3a1;white-space:pre-wrap;word-break:break-all;margin-top:8px;display:none"></pre>
@@ -1514,7 +1515,7 @@ function saveExpChannelConfig(boardId,channel){
 
 function updateExpTestFields(){
   const fc=parseInt($('expTestFc').value,10);
-  const isWrite=(fc===5||fc===6||fc===16);
+  const isWrite=(fc===5||fc===6||fc===15||fc===16);
   $('expTestQtyWrap').style.display=isWrite?'none':'block';
   $('expTestValWrap').style.display=isWrite?'block':'none';
 }
@@ -1525,7 +1526,7 @@ function runExpTest(){
   const fc=parseInt($('expTestFc').value,10);
   const slave_id=parseInt($('expTestSlave').value,10);
   const address=parseInt($('expTestAddr').value,10);
-  const isWrite=(fc===5||fc===6||fc===16);
+  const isWrite=(fc===5||fc===6||fc===15||fc===16);
   const resEl=$('expTestResult');
   resEl.style.display='block';resEl.style.color='#6c7086';resEl.textContent='Kører...';
 
@@ -1538,6 +1539,8 @@ function runExpTest(){
     const raw=$('expTestVal').value.trim();
     if(fc===16){
       body={function_code:fc,slave_id,address,values:raw.split(',').map(s=>parseInt(s.trim(),10))};
+    }else if(fc===15){
+      body={function_code:fc,slave_id,address,values:raw.split(',').map(s=>{const t=s.trim().toLowerCase();return(t==='1'||t==='on'||t==='true')})};
     }else if(fc===5){
       body={function_code:fc,slave_id,address,value:(raw==='1'||raw.toLowerCase()==='on'||raw.toLowerCase()==='true')};
     }else{

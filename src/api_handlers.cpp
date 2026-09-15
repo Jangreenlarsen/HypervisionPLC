@@ -5783,6 +5783,16 @@ esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
       uint8_t i = 0;
       for (JsonVariant v : values) { if (i < 32) vals[i++] = v.as<uint16_t>(); }
       started = expansion_api_start_diag_write_multi((uint8_t)idx, (uint8_t)channel, slave_id, address, vals, count);
+    } else if (function_code == 15) {
+      // v7.9.68.1: was previously missing — fell through to the single-value
+      // branch below and sent a wrong payload shape for FC15.
+      JsonArray values = doc["values"].as<JsonArray>();
+      uint8_t count = values.size();
+      if (count == 0 || count > 32) return api_send_error(req, 400, "'values' skal have 1-32 elementer");
+      bool vals[32];
+      uint8_t i = 0;
+      for (JsonVariant v : values) { if (i < 32) vals[i++] = v.as<bool>(); }
+      started = expansion_api_start_diag_write_multi_coils((uint8_t)idx, (uint8_t)channel, slave_id, address, vals, count);
     } else {
       uint32_t value = doc["value"].is<bool>() ? (doc["value"].as<bool>() ? 1 : 0) : (doc["value"] | 0);
       started = expansion_api_start_diag_write_single((uint8_t)idx, (uint8_t)channel, function_code, slave_id, address, value);

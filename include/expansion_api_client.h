@@ -106,6 +106,11 @@ bool expansion_api_start_diag_write_multi(uint8_t board_index, uint8_t channel,
                                            uint8_t slave_id, uint16_t address,
                                            const uint16_t *values, uint8_t count);
 
+// Diagnostisk skrivning — function_code 15 (flere coils, maks 32 pr. boardets egen graense, v7.9.68.1)
+bool expansion_api_start_diag_write_multi_coils(uint8_t board_index, uint8_t channel,
+                                                 uint8_t slave_id, uint16_t address,
+                                                 const bool *values, uint8_t count);
+
 // Kopierer det aktuelle resultat-snapshot til *out. Returnerer false hvis
 // intet kald er startet endnu (out->valid vil da også være false).
 bool expansion_api_poll(ExpansionApiResult *out);
