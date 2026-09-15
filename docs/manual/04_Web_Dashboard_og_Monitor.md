@@ -34,7 +34,7 @@ Dashboardet er organiseret i **kort** (cards), grupperet under faner:
 - **Alle** — alle kort samlet
 - **Overblik** — System, Netværk, Alarm Historik, Hændelseslog
 - **Modbus** — Modbus Slave, Modbus Master (+ manuel Read/Write), Modbus Aktivitetslog, RTU-trafik, RS-485 Bus Health (FEAT-096)
-- **Forbindelser** — HTTP API/SSE, TCP-forbindelsesmonitor, NTP
+- **Forbindelser** — HTTP API/SSE, TCP/UDP-forbindelsesmonitor (inkl. Modbus TCP til expansion boards), NTP
 - **Applikation** — Tællere, Timere, ST Logic, Digital I/O, Trend Recorder (FEAT-099)
 - **Custom (FEAT-167)** — et uafhængigt, brugervalgt kort-sæt, se nedenfor
 
@@ -65,6 +65,16 @@ Dashboardet er organiseret i **kort** (cards), grupperet under faner:
 **RS-485 Bus Health (FEAT-096)** — samlet bus-niveau-overblik der supplerer Slave-/Master-kortene: kombineret fejlrate på tværs af begge roller, "bus busy/kontention" (antal gange master ikke kunne opnå UART-mutex'en — en praktisk kollisions-proxy for enkelt-transceiver-arkitekturen, se [§6.1](06_Modbus_Interface.md)), og et **estimeret** bus-belastningstal (request-rate × en antaget gennemsnitlig frame-størrelse ÷ baudrate — IKKE en direkte målt værdi, tydeligt mærket som sådan i kortet, da firmwaren ikke i dag har byte-niveau UART-instrumentering).
 
 **Trend Recorder (FEAT-099)** — optag op til 8 vilkårlige registre (Holding/Input/Coil/Discrete Input, blandet frit) på et konfigurerbart interval (500ms-60s) til en RAM-only ringbuffer (720 samples), og eksportér som CSV til commissioning/dybere offline-analyse i f.eks. Excel. Adskiller sig fra Hændelseslogens registerændrings-sporing ved at sample **periodisk uanset om værdien har ændret sig** — et ægte tidsserie-værktøj, ikke en audit-log. Konfiguration og data er bevidst IKKE persisteret (nulstilles ved reboot) — en rekonfiguration (tilføj/fjern målepunkt, skift interval) stopper og rydder altid eksisterende data, så en "session" altid starter frisk.
+
+### Forbindelser-fanen
+
+**HTTP API** — samlet request-tæller (total/success/4xx/5xx/auth failures), SSE-serverstatus (aktiv/inaktiv, port, antal tilsluttede klienter ud af max, heartbeat-interval).
+
+**NTP Tid** — synkroniseringsstatus, lokal tid, konfigureret server/tidszone, antal syncs og tid siden seneste.
+
+**TCP/UDP Forbindelser (FEAT-075, udvidet v7.9.68.7)** — én række pr. aktiv forbindelse, uanset retning eller protokol: indgående SSE-klienter og HTTP-aggregatet, udgående NTP (UDP) og **Modbus TCP** — de vedvarende data-plan-forbindelser til Modbus Expansion Boards (én pr. (board, kanal) i aktiv brug, se [§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)), med forbundet/afbrudt-status og tid siden seneste aktivitet. En række vises kun mens forbindelsen rent faktisk er i brug — fx forsvinder en Modbus TCP-række igen hvis ingen ST Logic-program har kaldt `MBX_*`-funktioner for nyligt.
+
+![Forbindelser-fanen — HTTP API, NTP og TCP/UDP Forbindelser (her med to aktive Modbus TCP-forbindelser til et expansion board)](assets/screenshots/dashboard_forbindelser_tab.png)
 
 Loggen rummer **500 transaktioner** (ringbuffer i PSRAM) og har tre knapper:
 
