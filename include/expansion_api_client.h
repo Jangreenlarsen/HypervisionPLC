@@ -86,6 +86,11 @@ typedef struct {
 bool expansion_api_start_status(uint8_t board_index);
 bool expansion_api_start_channels(uint8_t board_index);
 
+// v7.9.68.3: GET /api/capabilities — static, declared function-code support
+// (implemented by the board team per DESIGN_GUIDE_MODBUS_EXPANSION_FC_CAPABILITIES.md).
+// No bus traffic, no side effects.
+bool expansion_api_start_capabilities(uint8_t board_index);
+
 bool expansion_api_start_config_push(uint8_t board_index, uint8_t channel,
                                       bool enabled, const char *mode, uint32_t baudrate,
                                       const char *parity, uint8_t stop_bits,

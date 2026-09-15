@@ -66,7 +66,7 @@ Dette er den vej PLC'en skal bruge til NORMAL, høj-frekvent Modbus-drift — RE
 - Standard Modbus TCP (MBAP-header): Transaction ID (ekko), Protocol ID (altid 0), Length, **Unit ID = den fysiske RTU-slaves adresse** (1-247) — IKKE en dummy-værdi. PLC'en sætter Unit ID til den slave den faktisk vil tale med på den fysiske bus bag den valgte kanal.
 - PDU'en (function code + data) passerer **uændret** igennem — ingen registerombytning, ingen indirection. Adresser/values i requestet er nøjagtigt hvad der sendes til RTU-slaven.
 - **Åbn ÉN vedvarende TCP-forbindelse pr. kanal og genbrug den** til alle transaktioner. Boardets TCP-server har ét sekventielt kø pr. kanal — mange kortvarige forbindelser (åbn/luk pr. request) er ikke understøttet godt og bør undgås (se BUGS.md v0.9.0.1 for baggrund; roden er rettet, men mange samtidige korte forbindelser er stadig ineffektivt).
-- Understøttede function codes: **FC01, FC02, FC03, FC04, FC05, FC06, FC16**. Andet giver en gateway-exception (se nedenfor).
+- Understøttede function codes (fw 0.28.0+): **FC01, FC02, FC03, FC04, FC05, FC06, FC15, FC16**. Andet giver en gateway-exception (se nedenfor). **Denne liste er ikke længere den autoritative kilde** — den kan ændre sig mellem firmware-versioner; forespørg `GET /api/capabilities` (nedenfor, §4.7) for det aktuelle, tilsluttede boards faktiske support i stedet for at anteage denne statiske tekst.
 
 ### 3.3 Fejlhåndtering — to forskellige slags "fejl"
 
@@ -227,7 +227,33 @@ Exception-/fejl-svar: samme form som `/read` (afsnit 4.5).
 
 **Bemærk:** ikke alle slave-devices understøtter alle function codes — nogle svarer med en ægte Modbus-exception (`Illegal Function`, kode 1), andre svarer slet ikke (giver en `502 channel_error` med `MB_TIMEOUT`). Begge er set og verificeret i praksis (se CHANGELOG.md v0.11.0).
 
-### 4.7 OTA-firmwareopdatering
+### 4.7 `GET /api/capabilities` — deklareret function-code-support (fw 0.28.0+)
+
+Statisk erklæring — svarer øjeblikkeligt, ingen Modbus-bustrafik, ingen sideeffekter. Implementeret efter PLC-side-teamets `DESIGN_GUIDE_MODBUS_EXPANSION_FC_CAPABILITIES.md`.
+
+```json
+{
+  "api_version": 1,
+  "fw_version": "0.28.0",
+  "modbus_tcp": {
+    "supported_function_codes": [1, 2, 3, 4, 5, 6, 15, 16],
+    "max_read_quantity": 2000,
+    "max_write_quantity": 1968
+  },
+  "rest_diagnostic": {
+    "supported_function_codes": [1, 2, 3, 4, 5, 6, 15, 16],
+    "max_read_quantity": 2000,
+    "max_write_quantity": 32
+  }
+}
+```
+
+- `modbus_tcp` og `rest_diagnostic` er BEVIDST separate — de kan afvige. Her ses det allerede: `max_write_quantity` er 1968 for `modbus_tcp` (Modbus-spec'ens rå FC15/16-grænse) men 32 for `rest_diagnostic` (et lavere, eksplicit håndhævet loft, `MB_DIAG_MAX_READ_QUANTITY`/`MB_DIAG_MAX_WRITE_VALUES` i boardets kildekode) — brug ALDRIG `modbus_tcp`s grænser til at validere et `/read`/`/write`-kald (§4.5/4.6).
+- `fw_version` er den samme værdi som `/api/status` (§4.2) rapporterer — brug den til at opdage om en tidligere cachet capabilities-snapshot er forældet efter en firmware-opdatering.
+- PLC-siden cacher dette pr. board (ved provisionering + ved `fw_version`-mismatch mod `/api/status`) i stedet for at forespørge det ved hver visning — se PLC-repoets `loadExpCapabilities()`/`renderExpCapabilities()` (`web/system.html`).
+- Ældre firmware (før 0.28.0) har ikke dette endpoint — `404`. PLC-siden falder da tilbage til det empiriske "Funktions-test"-panel (§4.5/4.6, live-afprøvning).
+
+### 4.8 OTA-firmwareopdatering
 
 - **`POST /api/ota`** — rå binær body (`.bin`-filen direkte, IKKE multipart — samme mønster som `curl --data-binary @firmware.bin`). Skrives chunket til den inaktive OTA-partition og verificeres automatisk (checksum). Svar ved succes:
   ```json

@@ -1,6 +1,8 @@
 # Design Guide: Function Code Capability Reporting (Modbus Expansion Board)
 
-**Status:** Designforslag — ikke implementeret på boardet. Til brug for expansion-board-udviklingsteamet (søster-repo "HypervisionPLC Extension Board").
+**Status:** ✅ Implementeret af expansion-board-teamet (fw 0.28.0) — `GET /api/capabilities` findes nu, se PLC_INTEGRATION_MANUAL.md §4.7 for den faktiske, live kontrakt. PLC-siden er koblet på (v7.9.68.3): boardets deklarerede FC-support vises under System → Modbus Expansion Boards → "Kanaler", uden bus-trafik.
+**Afvigelse fra det oprindelige forslag i §1 nedenfor** (bevidst, board-teamets valg): `rest_diagnostic` har egne `max_read_quantity`/`max_write_quantity`-felter (ikke kun `modbus_tcp`), fordi REST-diagnoselagets faktiske, håndhævede lofter (2000/32) reelt afviger fra Modbus TCP-datavejens rå spec-grænser (2000/1968) — se den opdaterede §1-eksempel.
+**§2 (dedikeret "unsupported function code"-fejlkode) er stadig et åbent forslag, ikke implementeret** — `/api/capabilities` løser selve opdagelsesbehovet, så §2 er nu en lavere-prioritets, uafhængig forbedring.
 **Målgruppe:** En udvikler (menneske eller Claude-session) der arbejder i expansion-board-firmwarens repo.
 **Ophav:** Hypervision PLC-projektet, efter at PLC-siden (v7.9.68.0) fik tre nye ST Logic-funktioner (`MB_WRITE_COILS`, `MBX_WRITE_HOLDINGS`, `MBX_WRITE_COILS` — FC15/FC16) og et empirisk "Funktions-test"-panel (v7.9.68.2, System-siden → Modbus Expansion Boards) til at afprøve hvilke function codes et tilsluttet board rent faktisk understøtter. Dette dokument beskriver den **rigtige** løsning på det problem, det empiriske testpanel kun kan tilnærme.
 **Afhængigheder:** Ingen kodeadgang til PLC-repoet nødvendig — kun `PLC_INTEGRATION_MANUAL.md` (allerede i jeres besiddelse, det ER jeres egen kontrakt) og dette dokument.
@@ -28,17 +30,20 @@ GET /api/capabilities
 
 {
   "api_version": 1,
-  "fw_version": "0.13.0",
+  "fw_version": "0.28.0",
   "modbus_tcp": {
-    "supported_function_codes": [1, 2, 3, 4, 5, 6, 16],
+    "supported_function_codes": [1, 2, 3, 4, 5, 6, 15, 16],
     "max_read_quantity": 2000,
-    "max_write_quantity": 32
+    "max_write_quantity": 1968
   },
   "rest_diagnostic": {
-    "supported_function_codes": [1, 2, 3, 4, 5, 6, 16]
+    "supported_function_codes": [1, 2, 3, 4, 5, 6, 15, 16],
+    "max_read_quantity": 2000,
+    "max_write_quantity": 32
   }
 }
 ```
+*(Dette er nu den FAKTISKE, implementerede kontrakt, fw 0.28.0 — se PLC_INTEGRATION_MANUAL.md §4.7. Oprindeligt forslag havde ikke `max_read_quantity`/`max_write_quantity` under `rest_diagnostic`; board-teamet tilføjede dem bevidst, fordi REST-diagnoselagets egne, håndhævede lofter reelt afviger fra Modbus TCP-datavejens — se statuslinjen øverst.)*
 
 **Designvalg og begrundelse:**
 

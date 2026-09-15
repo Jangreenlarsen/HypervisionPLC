@@ -854,6 +854,7 @@ static const api_route_info_t API_ROUTES[] = {
   {"DELETE", "/api/expansion/boards/{id}",          "Remove Modbus Expansion Board (FEAT-409)"},
   {"POST",   "/api/expansion/boards/{id}/status",   "Start async board status check (FEAT-409)"},
   {"POST",   "/api/expansion/boards/{id}/channels", "Start async channel list fetch (FEAT-409)"},
+  {"POST",   "/api/expansion/boards/{id}/capabilities", "Start async function-code capability fetch (FEAT-414, v7.9.68.3)"},
   {"POST",   "/api/expansion/boards/{id}/channels/{n}/read",  "Start async diagnostic Modbus read (FEAT-409)"},
   {"POST",   "/api/expansion/boards/{id}/channels/{n}/write", "Start async diagnostic Modbus write (FEAT-409)"},
   {"GET",    "/api/expansion/action-status",        "Poll result of the last started expansion-board call (FEAT-409)"},
@@ -5701,6 +5702,7 @@ esp_err_t api_handler_expansion_board_delete(httpd_req_t *req)
 
 // POST /api/expansion/boards/{id}/status              — start status-kald
 // POST /api/expansion/boards/{id}/channels             — start kanal-liste-kald
+// POST /api/expansion/boards/{id}/capabilities         — start capability-kald (v7.9.68.3)
 // POST /api/expansion/boards/{id}/channels/{n}/read    — start diagnostisk laesning
 // POST /api/expansion/boards/{id}/channels/{n}/write   — start diagnostisk skrivning
 esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
@@ -5732,6 +5734,18 @@ esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
     }
     if (expansion_api_is_busy()) return api_send_error(req, 409, "Et andet expansion-board-kald er allerede i gang");
     if (!expansion_api_start_channels((uint8_t)idx)) return api_send_error(req, 500, "Kunne ikke starte kald");
+    return api_send_json(req, "{\"status\":\"started\"}");
+  }
+
+  // v7.9.68.3: GET /api/capabilities — statisk, deklareret FC-support
+  consumed = 0;
+  if (sscanf(tail, "%d/capabilities%n", &idx, &consumed) == 1 && tail[consumed] == '\0') {
+    CHECK_AUTH(req);
+    if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
+      return api_send_error(req, 404, "Board ikke fundet");
+    }
+    if (expansion_api_is_busy()) return api_send_error(req, 409, "Et andet expansion-board-kald er allerede i gang");
+    if (!expansion_api_start_capabilities((uint8_t)idx)) return api_send_error(req, 500, "Kunne ikke starte kald");
     return api_send_json(req, "{\"status\":\"started\"}");
   }
 

@@ -236,11 +236,15 @@
 
 <div id="expChannelsPanel" style="display:none;margin-top:18px;border-top:1px solid #313244;padding-top:12px">
 <h3 style="font-size:13px;color:#89b4fa;margin:0 0 8px" id="expChannelsTitle">Kanaler</h3>
+<div id="expCapabilitiesBody" style="margin-bottom:12px;font-size:11px"></div>
 <div id="expChannelsBody" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px"></div>
+</div>
 
 <h3 style="font-size:13px;color:#89b4fa;margin:18px 0 8px;padding-top:12px;border-top:1px solid #313244">Test funktions-register (diagnostisk læs/skriv)</h3>
 <p style="font-size:11px;color:#6c7086;margin-bottom:8px">Udfører ÉN Modbus-transaktion direkte mod den valgte kanal — til test/fejlsøgning. PLC'ens egen, høj-frekvente drift bruger Modbus TCP direkte, ikke dette panel.</p>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:10px">
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Board</label>
+<select id="expTestBoard" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"><option value="">Ingen boards</option></select></div>
 <div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Kanal</label>
 <select id="expTestChannel" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"><option value="1">A</option><option value="2">B</option></select></div>
 <div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Function code</label>
@@ -267,10 +271,9 @@
 <pre id="expTestResult" style="background:#11111b;border:1px solid #313244;border-radius:4px;padding:8px;font-size:11px;color:#a6e3a1;white-space:pre-wrap;word-break:break-all;margin-top:8px;display:none"></pre>
 
 <h3 style="font-size:13px;color:#89b4fa;margin:18px 0 8px;padding-top:12px;border-top:1px solid #313244">Funktions-test (capability probe)</h3>
-<p style="font-size:11px;color:#6c7086;margin-bottom:8px">Afprøver ALLE function codes (FC01-06, FC15, FC16) i træk mod Kanal/Slave-ID/Adresse ovenfor. <strong style="color:#f9e2af">FC05/06/15/16 er RIGTIGE skrivninger</strong> — brug kun en adresse du ved er et ubrugt/fiktivt testregister, ALDRIG en adresse der styrer rigtigt udstyr. Boardet har ingen API til at rapportere understøttede function codes (se design-guide), så dette er den eneste måde at afklare det empirisk i dag.</p>
+<p style="font-size:11px;color:#6c7086;margin-bottom:8px">Afprøver ALLE function codes (FC01-06, FC15, FC16) i træk mod Board/Kanal/Slave-ID/Adresse ovenfor. <strong style="color:#f9e2af">FC05/06/15/16 er RIGTIGE skrivninger</strong> — brug kun en adresse du ved er et ubrugt/fiktivt testregister, ALDRIG en adresse der styrer rigtigt udstyr. Boardets EGEN, deklarerede support vises uden bus-trafik under "Kanaler" pr. board (`/api/capabilities`) — brug dette panel til at bekræfte end-to-end mod den faktiske fysiske slave, ikke som eneste kilde til viden om support.</p>
 <div class="btn-row"><button class="btn btn-danger btn-sm" onclick="runExpCapabilityTest()">Test alle funktioner</button></div>
 <div id="expCapResult" style="margin-top:8px;display:none"></div>
-</div>
 </div>
 
 <div class="section-hdr">HTTP & Sikkerhed</div>
@@ -1364,7 +1367,15 @@ function loadExpBoardTypes(){
 function loadExpBoards(){
   api('/api/expansion/boards').then(r=>r.json()).then(d=>{
     const tbody=$('expBoardsBody');
-    if(!d.boards||d.boards.length===0){tbody.innerHTML='<tr><td colspan="7" style="color:#6c7086;text-align:center">Ingen boards konfigureret</td></tr>';return}
+    const testSel=$('expTestBoard');
+    const prevSel=testSel.value;
+    if(!d.boards||d.boards.length===0){
+      tbody.innerHTML='<tr><td colspan="7" style="color:#6c7086;text-align:center">Ingen boards konfigureret</td></tr>';
+      testSel.innerHTML='<option value="">Ingen boards</option>';
+      return;
+    }
+    testSel.innerHTML=d.boards.map(b=>'<option value="'+b.id+'">#'+b.number+' — '+b.name+'</option>').join('');
+    if(d.boards.some(b=>String(b.id)===prevSel))testSel.value=prevSel;
     tbody.innerHTML=d.boards.map(b=>{
       const nameEsc=b.name.replace(/'/g,"\\'");
       const typeLabel=_expTypeLabels[b.type]||b.type;
@@ -1462,13 +1473,52 @@ function showExpChannels(id,name){
   $('expChannelsPanel').style.display='block';
   $('expChannelsTitle').textContent='Kanaler for "'+name+'" (#'+id+')';
   $('expChannelsBody').innerHTML='<p style="color:#6c7086">Henter kanaler...</p>';
+  $('expCapabilitiesBody').innerHTML='';
   api('/api/expansion/boards/'+id+'/channels',{method:'POST'}).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
     if(!ok)throw new Error(j.error||'Fejl');
     pollExpAction(d=>{
       if(d.error||!d.transport_ok){$('expChannelsBody').innerHTML='<p style="color:#f38ba8">Kunne ikke hente kanaler: '+(d.error||'boardet svarede ikke')+'</p>';return}
       renderExpChannels(id,d.response||[]);
+      // Kædet EFTER kanal-kaldet er helt færdigt — kun ét expansion-board-kald
+      // ad gangen (delt async-resultat-slot, se expansion_api_client.h).
+      loadExpCapabilities(id);
     });
   }).catch(e=>{$('expChannelsBody').innerHTML='<p style="color:#f38ba8">Fejl: '+e.message+'</p>'});
+}
+
+// v7.9.68.3: GET /api/capabilities (DESIGN_GUIDE_MODBUS_EXPANSION_FC_CAPABILITIES.md)
+// — statisk deklareret FC-support, ingen bus-trafik/sideeffekter. Erstatter IKKE
+// det empiriske "Funktions-test"-panel (som stadig bekræfter end-to-end mod den
+// faktiske fysiske slave), men viser boardets egen, autoritative erklæring uden
+// at skulle sende en eneste Modbus-transaktion.
+function loadExpCapabilities(id){
+  const el=$('expCapabilitiesBody');
+  el.innerHTML='<span style="color:#6c7086">Henter funktions-support...</span>';
+  api('/api/expansion/boards/'+id+'/capabilities',{method:'POST'}).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+    if(!ok)throw new Error(j.error||'Fejl');
+    pollExpAction(d=>{
+      if(d.error||!d.transport_ok){
+        el.innerHTML='<span style="color:#6c7086">Funktions-support ikke tilgængelig (ældre boardfirmware uden /api/capabilities?)</span>';
+        return;
+      }
+      renderExpCapabilities(d.response||{});
+    });
+  }).catch(()=>{el.innerHTML='';});
+}
+
+const EXP_FC_NAMES={1:'FC01',2:'FC02',3:'FC03',4:'FC04',5:'FC05',6:'FC06',15:'FC15',16:'FC16'};
+function expFcBadges(codes){
+  if(!Array.isArray(codes)||codes.length===0)return '<span style="color:#6c7086">Ingen</span>';
+  return codes.map(c=>'<span style="display:inline-block;background:#313244;border:1px solid #45475a;border-radius:3px;padding:1px 6px;margin:0 3px 3px 0;color:#a6e3a1">'+(EXP_FC_NAMES[c]||('FC'+c))+'</span>').join('');
+}
+function renderExpCapabilities(caps){
+  const el=$('expCapabilitiesBody');
+  if(!caps.modbus_tcp&&!caps.rest_diagnostic){el.innerHTML='<span style="color:#6c7086">Boardet rapporterede ingen capabilities (ældre firmware?)</span>';return;}
+  const mt=caps.modbus_tcp||{},rd=caps.rest_diagnostic||{};
+  el.innerHTML=
+    '<div style="color:#a6adc8;margin-bottom:4px">Understøttede function codes — fw '+(caps.fw_version||'?')+' (deklareret af boardet, ikke live-testet):</div>'+
+    '<div style="margin-bottom:2px"><strong style="color:#cdd6f4">Modbus TCP</strong> (maks '+(mt.max_read_quantity!==undefined?mt.max_read_quantity:'?')+' læs / '+(mt.max_write_quantity!==undefined?mt.max_write_quantity:'?')+' skriv pr. kald): '+expFcBadges(mt.supported_function_codes)+'</div>'+
+    '<div><strong style="color:#cdd6f4">REST-diagnose</strong> (maks '+(rd.max_read_quantity!==undefined?rd.max_read_quantity:'?')+' læs / '+(rd.max_write_quantity!==undefined?rd.max_write_quantity:'?')+' skriv pr. kald): '+expFcBadges(rd.supported_function_codes)+'</div>';
 }
 
 function renderExpChannels(boardId,channels){
@@ -1480,7 +1530,9 @@ function renderExpChannels(boardId,channels){
       '<div style="font-weight:600;color:#89b4fa;margin-bottom:6px">Kanal '+chLabel(c.channel)+' — <span style="color:'+(c.status==='ok'?'#a6e3a1':(c.status==='disabled'?'#6c7086':'#f38ba8'))+'">'+c.status+'</span></div>'+
       '<label style="display:flex;align-items:center;gap:6px;margin-bottom:6px;cursor:pointer;font-size:12px"><input type="checkbox" id="'+pre+'en"'+(c.enabled?' checked':'')+'> Aktiveret</label>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;font-size:11px">'+
-      '<div><label style="color:#a6adc8">Mode</label><select id="'+pre+'mode" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"><option value="rs485"'+(c.mode==='rs485'?' selected':'')+'>RS485</option><option value="rs232"'+(c.mode==='rs232'?' selected':'')+'>RS232</option></select></div>'+
+      '<div><label style="color:#a6adc8" title="Fysisk RS485/RS232-valg sidder på boardets hardware — kan ikke ændres herfra">Mode</label>'+
+      '<div style="width:100%;padding:3px;color:#cdd6f4">'+(c.mode==='rs485'?'RS485':'RS232')+'</div>'+
+      '<input type="hidden" id="'+pre+'mode" value="'+c.mode+'"></div>'+
       '<div><label style="color:#a6adc8">Baudrate</label><input type="number" id="'+pre+'baud" value="'+c.baudrate+'" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"></div>'+
       '<div><label style="color:#a6adc8">Paritet</label><select id="'+pre+'parity" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"><option value="none"'+(c.parity==='none'?' selected':'')+'>None</option><option value="even"'+(c.parity==='even'?' selected':'')+'>Even</option><option value="odd"'+(c.parity==='odd'?' selected':'')+'>Odd</option></select></div>'+
       '<div><label style="color:#a6adc8">Stopbits</label><input type="number" id="'+pre+'stop" min="1" max="2" value="'+c.stop_bits+'" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"></div>'+
@@ -1525,8 +1577,16 @@ function updateExpTestFields(){
   $('expTestValWrap').style.display=isWrite?'block':'none';
 }
 
+// Test-panelernes eget board-valg (uafhængigt af "Kanaler"-visningens
+// expCurrentBoardId) — se expTestBoard-select, udfyldt af loadExpBoards().
+function expTestBoardId(){
+  const v=$('expTestBoard').value;
+  return v?parseInt(v,10):null;
+}
+
 function runExpTest(){
-  if(expCurrentBoardId===null){showAlert('expBoardsAlert','err','Vælg et board (klik "Kanaler") først');return}
+  const boardId=expTestBoardId();
+  if(boardId===null){showAlert('expBoardsAlert','err','Vælg et board i test-panelet først');return}
   const channel=parseInt($('expTestChannel').value,10);
   const fc=parseInt($('expTestFc').value,10);
   const slave_id=parseInt($('expTestSlave').value,10);
@@ -1537,10 +1597,10 @@ function runExpTest(){
 
   let url,body;
   if(!isWrite){
-    url='/api/expansion/boards/'+expCurrentBoardId+'/channels/'+channel+'/read';
+    url='/api/expansion/boards/'+boardId+'/channels/'+channel+'/read';
     body={function_code:fc,slave_id,address,quantity:parseInt($('expTestQty').value,10)||1};
   }else{
-    url='/api/expansion/boards/'+expCurrentBoardId+'/channels/'+channel+'/write';
+    url='/api/expansion/boards/'+boardId+'/channels/'+channel+'/write';
     const raw=$('expTestVal').value.trim();
     if(fc===16){
       body={function_code:fc,slave_id,address,values:raw.split(',').map(s=>parseInt(s.trim(),10))};
@@ -1581,36 +1641,37 @@ const EXP_CAP_TESTS=[
 ];
 
 function runExpCapabilityTest(){
-  if(expCurrentBoardId===null){showAlert('expBoardsAlert','err','Vælg et board (klik "Kanaler") først');return}
+  const boardId=expTestBoardId();
+  if(boardId===null){showAlert('expBoardsAlert','err','Vælg et board i test-panelet først');return}
   const channel=parseInt($('expTestChannel').value,10);
   const slave_id=parseInt($('expTestSlave').value,10);
   const address=parseInt($('expTestAddr').value,10);
   askConfirm('Test alle function codes',
     'Dette sender RIGTIGE Modbus-skrivninger (FC05/06/15/16) til slave-ID '+slave_id+', adresse '+address+' på kanal '+$('expTestChannel').selectedOptions[0].text+
     '. Brug KUN en adresse du ved er et ubrugt/fiktivt testregister — ALDRIG én der styrer rigtigt udstyr. Fortsæt?',
-    ()=>startExpCapabilityTest(channel,slave_id,address));
+    ()=>startExpCapabilityTest(boardId,channel,slave_id,address));
 }
 
-function startExpCapabilityTest(channel,slave_id,address){
+function startExpCapabilityTest(boardId,channel,slave_id,address){
   const resEl=$('expCapResult');
   resEl.style.display='block';
   resEl.innerHTML='<p style="color:#6c7086">Tester...</p>';
-  runExpCapStep(0,channel,slave_id,address,[],resEl);
+  runExpCapStep(0,boardId,channel,slave_id,address,[],resEl);
 }
 
-function runExpCapStep(i,channel,slave_id,address,results,resEl){
+function runExpCapStep(i,boardId,channel,slave_id,address,results,resEl){
   if(i>=EXP_CAP_TESTS.length){renderExpCapResults(results,resEl);return}
   const t=EXP_CAP_TESTS[i];
   let url,body;
   if(t.kind==='read'){
-    url='/api/expansion/boards/'+expCurrentBoardId+'/channels/'+channel+'/read';
+    url='/api/expansion/boards/'+boardId+'/channels/'+channel+'/read';
     body={function_code:t.fc,slave_id,address,quantity:t.quantity};
   }else{
-    url='/api/expansion/boards/'+expCurrentBoardId+'/channels/'+channel+'/write';
+    url='/api/expansion/boards/'+boardId+'/channels/'+channel+'/write';
     body=(t.fc===15||t.fc===16)?{function_code:t.fc,slave_id,address,values:t.values}:{function_code:t.fc,slave_id,address,value:t.value};
   }
   resEl.innerHTML='<p style="color:#6c7086">Tester '+t.name+' ('+(i+1)+'/'+EXP_CAP_TESTS.length+')...</p>';
-  const next=()=>runExpCapStep(i+1,channel,slave_id,address,results,resEl);
+  const next=()=>runExpCapStep(i+1,boardId,channel,slave_id,address,results,resEl);
   api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
       if(!ok){results.push({t,verdict:'plc_error',detail:{message:j.error||'HTTP-fejl'}});next();return}

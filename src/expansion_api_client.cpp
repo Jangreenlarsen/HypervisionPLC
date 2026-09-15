@@ -297,6 +297,14 @@ bool expansion_api_start_channels(uint8_t board_index) {
   return expansion_api_spawn();
 }
 
+// v7.9.68.3: static, declared function-code support — see
+// DESIGN_GUIDE_MODBUS_EXPANSION_FC_CAPABILITIES.md. No bus traffic, no
+// side effects, same "simple GET, async, polled" shape as expansion_api_start_status().
+bool expansion_api_start_capabilities(uint8_t board_index) {
+  if (!expansion_api_begin(board_index, "GET", "/api/capabilities", NULL, "capabilities")) return false;
+  return expansion_api_spawn();
+}
+
 bool expansion_api_start_config_push(uint8_t board_index, uint8_t channel,
                                       bool enabled, const char *mode, uint32_t baudrate,
                                       const char *parity, uint8_t stop_bits,
