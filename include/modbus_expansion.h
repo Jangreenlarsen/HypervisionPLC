@@ -40,6 +40,20 @@ mb_error_code_t modbus_expansion_write_coils(uint8_t board, uint8_t channel, uin
 // mod en forkert/afmeldt destination.
 void modbus_expansion_close(uint8_t board, uint8_t channel);
 
+// v7.9.68.7: read-only snapshot af den vedvarende forbindelses-pool, til
+// Dashboardets "TCP/UDP forbindelser"-kort (se web/dashboard.html's
+// fetchConnections()) — ren diagnostik, ingen sideeffekt på selve poolen.
+typedef struct {
+  uint8_t  board;             // 1-8 (samme nummerering som expansion_api_client.h's board-CRUD)
+  uint8_t  channel;           // 1-8 (A=1, B=2, ...)
+  bool     connected;         // WiFiClient::connected() på snapshot-tidspunktet
+  uint32_t last_activity_ms;  // millis() ved seneste transaktion på denne forbindelse
+} mbx_connection_info_t;
+
+// Skriver op til max_out poolede (in_use) forbindelser til out[] og
+// returnerer det faktiske antal skrevet (0..min(MODBUS_EXPANSION_MAX_CONNECTIONS, max_out)).
+uint8_t modbus_expansion_get_connections(mbx_connection_info_t *out, uint8_t max_out);
+
 /**
  * Realistisk forbindelses-loft (IKKE et arkitektonisk loft på 64 kanaler —
  * blot hvor mange samtidige TCP-sockets DENNE firmware/ESP-IDF-build reelt

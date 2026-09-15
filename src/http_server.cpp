@@ -637,6 +637,7 @@ extern esp_err_t api_handler_expansion_board_put(httpd_req_t *req);
 extern esp_err_t api_handler_expansion_board_delete(httpd_req_t *req);
 extern esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req);
 extern esp_err_t api_handler_expansion_action_status_get(httpd_req_t *req);
+extern esp_err_t api_handler_expansion_connections_get(httpd_req_t *req);
 static const httpd_uri_t uri_expansion_board_types_get = {
   .uri      = "/api/expansion/board-types",
   .method   = HTTP_GET,
@@ -677,6 +678,12 @@ static const httpd_uri_t uri_expansion_action_status_get = {
   .uri      = "/api/expansion/action-status",
   .method   = HTTP_GET,
   .handler  = api_handler_expansion_action_status_get,
+  .user_ctx = NULL
+};
+static const httpd_uri_t uri_expansion_connections_get = {
+  .uri      = "/api/expansion/connections",
+  .method   = HTTP_GET,
+  .handler  = api_handler_expansion_connections_get,
   .user_ctx = NULL
 };
 
@@ -1508,6 +1515,7 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_expansion_board_delete);
   httpd_register_uri_handler(http_state.server, &uri_expansion_board_action_post);
   httpd_register_uri_handler(http_state.server, &uri_expansion_action_status_get);
+  httpd_register_uri_handler(http_state.server, &uri_expansion_connections_get);
   httpd_register_uri_handler(http_state.server, &uri_acl_draft_get);
   httpd_register_uri_handler(http_state.server, &uri_acl_draft_begin);
   httpd_register_uri_handler(http_state.server, &uri_acl_draft_delete);

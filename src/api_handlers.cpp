@@ -56,6 +56,7 @@
 #include "rbac.h"
 #include "ip_acl.h"
 #include "expansion_api_client.h"  // FEAT-409
+#include "modbus_expansion.h"      // v7.9.68.7: connection-pool snapshot for dashboard
 #include "network_config.h"  // network_config_ip_to_str()
 #include "mb_async.h"
 #include "mb_activity_log.h"
@@ -855,6 +856,7 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/expansion/boards/{id}/status",   "Start async board status check (FEAT-409)"},
   {"POST",   "/api/expansion/boards/{id}/channels", "Start async channel list fetch (FEAT-409)"},
   {"POST",   "/api/expansion/boards/{id}/capabilities", "Start async function-code capability fetch (FEAT-414, v7.9.68.3)"},
+  {"GET",    "/api/expansion/connections",          "Modbus TCP connection-pool snapshot (v7.9.68.7)"},
   {"POST",   "/api/expansion/boards/{id}/channels/{n}/read",  "Start async diagnostic Modbus read (FEAT-409)"},
   {"POST",   "/api/expansion/boards/{id}/channels/{n}/write", "Start async diagnostic Modbus write (FEAT-409)"},
   {"GET",    "/api/expansion/action-status",        "Poll result of the last started expansion-board call (FEAT-409)"},
@@ -5817,6 +5819,35 @@ esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
   }
 
   return api_send_error(req, 400, "Invalid URI");
+}
+
+// GET /api/expansion/connections — v7.9.68.7: read-only snapshot af den
+// vedvarende Modbus TCP-forbindelses-pool (modbus_expansion.cpp) til
+// Dashboardets "TCP/UDP forbindelser"-kort. Modsat resten af expansion-
+// board-endpointsne ovenfor er dette IKKE et async board-kald (intet
+// netværkskald til boardet selv) — svarer altid øjeblikkeligt fra lokal state.
+esp_err_t api_handler_expansion_connections_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  mbx_connection_info_t conns[MODBUS_EXPANSION_MAX_CONNECTIONS];
+  uint8_t n = modbus_expansion_get_connections(conns, MODBUS_EXPANSION_MAX_CONNECTIONS);
+
+  JsonDocument doc;
+  JsonArray arr = doc["connections"].to<JsonArray>();
+  uint32_t now = millis();
+  for (uint8_t i = 0; i < n; i++) {
+    JsonObject c = arr.add<JsonObject>();
+    c["board"] = conns[i].board;
+    c["channel"] = conns[i].channel;
+    c["connected"] = conns[i].connected;
+    c["idle_ms"] = (uint32_t)(now - conns[i].last_activity_ms);
+  }
+
+  char buf[512];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
 }
 
 // GET /api/expansion/action-status — poller resultatet af det seneste

@@ -434,7 +434,7 @@
 
 <!-- FEAT-075: TCP Forbindelsesmonitor -->
 <div class="card" data-card-id="tcpmonitor" data-tab="connections">
-<h2>TCP Forbindelser <span class="badge badge-off" id="badgeTcp">0</span></h2>
+<h2>TCP/UDP Forbindelser <span class="badge badge-off" id="badgeTcp">0</span></h2>
 <div id="tcpConnBody"><span class="empty-msg">Ingen aktive forbindelser</span></div>
 </div>
 
@@ -1667,11 +1667,30 @@ async function fetchConnections(){
       rows.push({proto:'HTTP',dir:'&#8592;ind',ip:'*',user:'-',up:_tcpHttpTotal+' req',info:rate+' ok'+(errN>0?', '+errN+' fejl':''),dot:'dot-g'});
     }
 
-    // NTP (udgående)
+    // NTP (udgående, UDP)
     if(_tcpNtpOn){
       const st=_tcpNtpSync?'synced':'venter';
-      rows.push({proto:'NTP',dir:'&#8594;ud',ip:_tcpNtpServer||'-',user:'-',up:_tcpNtpSyncs+' syncs',info:st});
+      rows.push({proto:'NTP',dir:'&#8594;ud',ip:_tcpNtpServer||'-',user:'-',up:_tcpNtpSyncs+' syncs',info:st,dot:_tcpNtpSync?'dot-g':'dot-y'});
     }
+
+    // v7.9.68.7: Modbus TCP (udgående, expansion-board data-plan — vedvarende
+    // forbindelser, én pr. (board,kanal) i brug, se modbus_expansion.cpp).
+    // Board-navn slås op i _expBoardList (samme cache som Modbus Expansion
+    // Boards-kortet bruger) hvis den allerede er hentet i denne session.
+    try{
+      const r=await dashFetch('/api/expansion/connections',opts);
+      if(r.ok){
+        const d=await r.json();
+        if(d.connections){for(const c of d.connections){
+          const b=(_expBoardList||[]).find(x=>x.number===c.board);
+          const name=b?('#'+c.board+' '+b.name):('#'+c.board);
+          const chLabel=c.channel===1?'A':(c.channel===2?'B':String(c.channel));
+          rows.push({proto:'Modbus TCP',dir:'&#8594;ud',ip:name+' kanal '+chLabel,user:'-',
+            up:fmtUp(Math.floor(c.idle_ms/1000))+' siden aktiv',
+            info:c.connected?'forbundet':'afbrudt',dot:c.connected?'dot-g':'dot-r'});
+        }}
+      }
+    }catch(e){}
 
     const el=$('tcpConnBody');
     const total=rows.length;
@@ -2717,7 +2736,7 @@ function restoreCardOrder(){
 }
 
 // === Dashboard Settings Page ===
-const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',mbactivity:'Modbus Aktivitetslog',syslog:'Hændelseslog',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O',analogio:'Analog I/O',bushealth:'RS-485 Bus Health',trendrec:'Trend Recorder',modbusexpansion:'Modbus Expansion Boards'};
+const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',mbactivity:'Modbus Aktivitetslog',syslog:'Hændelseslog',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP/UDP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O',analogio:'Analog I/O',bushealth:'RS-485 Bus Health',trendrec:'Trend Recorder',modbusexpansion:'Modbus Expansion Boards'};
 const _tabNames={overview:'Overblik',modbus:'Modbus',connections:'Forbindelser',app:'Applikation'};
 // FEAT-096/099: 'bushealth'/'trendrec' TILFØJET SIDST — BUG-365: denne
 // rækkefølge må kun UDVIDES, aldrig omrokeres, da Custom-fane-medlemskab

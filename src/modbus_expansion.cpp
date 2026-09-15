@@ -99,6 +99,19 @@ void modbus_expansion_close(uint8_t board, uint8_t channel) {
   }
 }
 
+uint8_t modbus_expansion_get_connections(mbx_connection_info_t *out, uint8_t max_out) {
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < MODBUS_EXPANSION_MAX_CONNECTIONS && n < max_out; i++) {
+    if (!g_mbx_conn[i].in_use) continue;
+    out[n].board = g_mbx_conn[i].board;
+    out[n].channel = g_mbx_conn[i].channel;
+    out[n].connected = g_mbx_conn[i].client.connected();
+    out[n].last_activity_ms = g_mbx_conn[i].last_activity_ms;
+    n++;
+  }
+  return n;
+}
+
 // Selve transaktionen: bygger [MBAP(7)][PDU], sender, modtager svar, pakker
 // svar-PDU'en ud. Returnerer MB_OK/MB_TIMEOUT/MB_CRC_ERROR/MB_EXCEPTION/
 // MB_INVALID_ADDRESS(boardet ikke fundet)/MB_BUS_BUSY(kunne ikke forbinde).
