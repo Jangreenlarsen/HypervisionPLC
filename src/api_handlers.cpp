@@ -846,8 +846,6 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/system/ota",                    "Upload firmware (OTA, FEAT-031)"},
   {"GET",    "/api/system/ota/status",              "OTA progress status (FEAT-031)"},
   {"POST",   "/api/system/ota/rollback",           "Rollback firmware (FEAT-031)"},
-  {"GET",    "/api/system/ota/github-check",        "Check GitHub Releases for newer firmware (FEAT-169)"},
-  {"POST",   "/api/system/ota/github-install",      "Download+install latest GitHub release (FEAT-169)"},
   {"GET",    "/api/expansion/board-types",          "List known Modbus Expansion Board types (FEAT-409c)"},
   {"GET",    "/api/expansion/boards",               "List Modbus Expansion Boards (FEAT-409)"},
   {"POST",   "/api/expansion/boards",               "Add Modbus Expansion Board (FEAT-409)"},

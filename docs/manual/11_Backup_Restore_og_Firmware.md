@@ -43,19 +43,6 @@ Firmware kan opdateres over netværket uden at skulle koble USB til igen:
 
 > **Adgangskontrol:** OTA-upload/rollback kræver eksplicit skriverettighed (rettet i BUG-355) — en bruger med kun læse-adgang kan ikke flashe firmware. **Stadig ingen kryptografisk firmware-signaturverifikation** — se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #2.
 
-### 11.3a Opdatering direkte fra GitHub (FEAT-169)
-
-> **⚠ Midlertidigt deaktiveret i web-GUI'et (BUG-377):** "Tjek for opdatering"-knappen får enheden til at genstarte uventet ved brug — årsagen er endnu ikke fundet (seks hypoteser afprøvet og afkræftet: stack, heap, CPU-prioritet, forbindelses-oprydning, forbindelses-levetid, CA-certifikatkæde — se BUGS_INDEX.md BUG-377 for den fulde undersøgelse). Knappen er deaktiveret i GUI'et indtil videre. REST-endpoints'ene nedenfor findes stadig (til fortsat fejlsøgning, fx med seriel-konsol-adgang), men **brug IKKE denne funktion i produktion** — brug Manuel `.bin`-upload (§11.3) i stedet, som er upåvirket.
-
-Som alternativ til manuel `.bin`-upload kan `/system`-sidens OTA-kort hente og installere den nyeste offentliggjorte version direkte fra projektets GitHub Releases:
-
-1. Klik **"Tjek for opdatering"** — enheden slår op mod `api.github.com` og viser nuværende vs. seneste udgivne version.
-2. Er der en nyere version, vises en **"Installér"**-knap med filstørrelsen. Klik for at bekræfte, hente og flashe — samme automatiske rollback-beskyttelse som ved manuel upload gælder uændret.
-
-**Bevidst kun manuelt** — enheden slår aldrig selv op i baggrunden uopfordret; det er en aktiv handling hver gang, samme filosofi som resten af sikkerhedsmodellen i dette kapitel. Kræver at enheden reelt har internetadgang (`api.github.com` + `objects.githubusercontent.com`) — irrelevant/virker ikke på en fuldstændig LAN-isoleret installation, hvor manuel upload forbliver vejen frem.
-
-TLS-forbindelsen bruger bundlede, ægte rod-CA-certifikater (ikke en usikker/uverificeret forbindelse) — se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #19 for den fulde afvejning omkring cert-pinning. Se [`../RELEASE_PROCEDURE.md`](../RELEASE_PROCEDURE.md) for hvordan nye versioner bliver gjort tilgængelige som en GitHub Release i første omgang.
-
 **Status og fremgang under upload:**
 ```bash
 curl -u admin:modbus123 http://192.168.1.100/api/system/ota/status

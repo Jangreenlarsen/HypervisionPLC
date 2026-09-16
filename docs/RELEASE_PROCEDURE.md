@@ -1,10 +1,14 @@
 # Release-procedure (GitHub Releases)
 
-FEAT-169 tilføjede muligheden for at enheder selv kan hente og installere nye
-firmwareversioner direkte fra GitHub Releases (`/system`-siden → "Opdater fra
-GitHub"). Denne fil beskriver den anden halvdel: hvordan en bygget firmware
-rent faktisk bliver publiceret som en release, så der er noget for enhederne
-at finde.
+Denne fil beskriver hvordan en bygget firmware bliver publiceret som en
+GitHub Release, så brugere kan hente `.bin`-filen og installere den via
+`/ota`-sidens manuelle upload (se [kapitel 11](manual/11_Backup_Restore_og_Firmware.md)).
+
+> **Historisk note:** FEAT-169 (fjernet i v7.9.68.9, se BUGS_INDEX.md) lod
+> enheden selv hente og installere den nyeste release direkte fra GitHub.
+> Den funktion er fjernet (flash-optimering — se BUGS_INDEX.md FEAT-169).
+> Releases publiceres stadig via denne procedure, men udelukkende til
+> MANUEL download+upload nu.
 
 ## Hvornår cutter man en release?
 
@@ -54,14 +58,11 @@ Bekræft med `gh auth status`.
 3. **Verificér** at releasen ser rigtig ud på GitHub (`gh release view v<version>`
    eller i browseren), og at asset'et hedder `firmware.bin`.
 
-## Kritisk: asset-navnet skal være `firmware.bin`
+## Asset-navnet `firmware.bin`
 
-`api_handler_ota_github_check()` (`src/ota_handler.cpp`,
-`GITHUB_RELEASE_ASSET_NAME`) leder specifikt efter en asset ved navn
-`firmware.bin` i den seneste release. Uploades et andet filnavn, finder
-enhedernes "Tjek for opdatering"-knap ingen installérbar asset, selvom
-releasen findes. Ændres navngivningen i det ene sted, skal den ændres i det
-andet også.
+Ren navnekonvention nu (ikke længere håndhævet af nogen kode, siden FEAT-169
+er fjernet) — hold fast i `firmware.bin` for genkendelighed på tværs af
+releases, så brugere ved hvad de skal downloade uden at gætte.
 
 ## Versionering af git-tags (bemærk et historisk skift)
 
@@ -69,13 +70,3 @@ andet også.
 fra før `PROJECT_VERSION`-formatet (`X.Y.Z.W`, fire tal) blev indført. Fra og
 med denne procedure følger ALLE nye tags nøjagtigt `PROJECT_VERSION` — `git tag
 v7.9.10.27` svarer 1:1 til `constants.h`, ingen oversættelse nødvendig.
-
-## Hvis GitHub-OTA nogensinde holder op med at virke
-
-`certs/github_ca_bundle.pem` indeholder to pinnede rod-CA'er (se
-SECURITY_INDEX.md for den fulde afvejning). Roterer GitHub/Let's
-Encrypt/Sectigo en dag netop disse rod-ankre (usandsynligt på kort sigt, men
-ikke udelukket), holder GitHub-OTA op med at virke, indtil en ny firmware med
-et opdateret bundle er installeret — **manuel `.bin`-upload er altid en
-fungerende fallback-vej** uanset dette, og kræver ingen af GitHub-deletene
-ovenfor.

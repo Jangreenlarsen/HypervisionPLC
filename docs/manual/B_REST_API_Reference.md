@@ -149,7 +149,7 @@ Register-adresser er faste i denne version (ikke bruger-omkonfigurerbare) — se
 
 ## Modbus Expansion Board (FEAT-409)
 
-PLC-siden af integrationen mod eksterne "HypervisionPLC Extension Boards" (se [kapitel 6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)). Alle disse endpoints er PLC'ens EGNE (brugt af `web/system.html`'s "Modbus Expansion Boards"-kort) — de kalder VIDERE til det pågældende boards eget management-API (Bearer-token, plain HTTP, port 8080) i en baggrundstask, og svarer derfor straks med `{"status":"started"}` for selve netværkskaldet; resultatet hentes efterfølgende via `GET /api/expansion/action-status` (samme "start async, poll bagefter"-mønster som `GET/POST /api/system/ota/github-check`, se B.15).
+PLC-siden af integrationen mod eksterne "HypervisionPLC Extension Boards" (se [kapitel 6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)). Alle disse endpoints er PLC'ens EGNE (brugt af `web/system.html`'s "Modbus Expansion Boards"-kort) — de kalder VIDERE til det pågældende boards eget management-API (Bearer-token, plain HTTP, port 8080) i en baggrundstask, og svarer derfor straks med `{"status":"started"}` for selve netværkskaldet; resultatet hentes efterfølgende via `GET /api/expansion/action-status` (samme "start async, poll bagefter"-mønster andre langsomme baggrundskald i dette API bruger).
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|

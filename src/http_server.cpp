@@ -1003,36 +1003,6 @@ static const httpd_uri_t uri_ota_rollback = {
   .handler  = api_handler_ota_rollback,
   .user_ctx = NULL
 };
-// FEAT-169: GitHub Releases-baseret OTA — begge exact routes, ingen wildcard
-// i denne gruppe i forvejen, saa ingen shadowing-risiko (jf. BUG-354/BUG-362a).
-// BUG-377: samme URI, to metoder — POST starter (svarer straks), GET poller
-// resultatet. Ingen af dem blokerer laengere forbindelsen (se ota_handler.h).
-static const httpd_uri_t uri_ota_github_check_start = {
-  .uri      = "/api/system/ota/github-check",
-  .method   = HTTP_POST,
-  .handler  = api_handler_ota_github_check_start,
-  .user_ctx = NULL
-};
-static const httpd_uri_t uri_ota_github_check_poll = {
-  .uri      = "/api/system/ota/github-check",
-  .method   = HTTP_GET,
-  .handler  = api_handler_ota_github_check_poll,
-  .user_ctx = NULL
-};
-static const httpd_uri_t uri_ota_github_install = {
-  .uri      = "/api/system/ota/github-install",
-  .method   = HTTP_POST,
-  .handler  = api_handler_ota_github_install,
-  .user_ctx = NULL
-};
-// MIDLERTIDIG DIAGNOSTIK — se ota_handler.cpp's GH_STAGE-kommentar. Fjernes
-// igen naar github-check-crashet er fundet og rettet.
-static const httpd_uri_t uri_ota_github_debug = {
-  .uri      = "/api/system/ota/github-debug",
-  .method   = HTTP_GET,
-  .handler  = api_handler_ota_github_debug,
-  .user_ctx = NULL
-};
 static const httpd_uri_t uri_ota_page = {
   .uri      = "/ota",
   .method   = HTTP_GET,
@@ -1588,10 +1558,6 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_ota_status);
   httpd_register_uri_handler(http_state.server, &uri_ota_rollback);
   httpd_register_uri_handler(http_state.server, &uri_ota_upload);
-  httpd_register_uri_handler(http_state.server, &uri_ota_github_check_start);
-  httpd_register_uri_handler(http_state.server, &uri_ota_github_check_poll);
-  httpd_register_uri_handler(http_state.server, &uri_ota_github_debug);
-  httpd_register_uri_handler(http_state.server, &uri_ota_github_install);
   httpd_register_uri_handler(http_state.server, &uri_ota_page);
   httpd_register_uri_handler(http_state.server, &uri_cli_page);
   httpd_register_uri_handler(http_state.server, &uri_logs_page);

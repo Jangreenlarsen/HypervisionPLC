@@ -8,10 +8,10 @@
 #   - Alle aendringer for denne version er COMMITTET OG PUSHET foer scriptet
 #     koeres — scriptet committer/pusher IKKE kildekode selv (kun den nye
 #     git-tag), det er en bevidst adskilt, brugerstyret handling.
-#   - Asset-navnet ("firmware.bin") er PRAeCIS det
-#     api_handler_ota_github_check() (src/ota_handler.cpp,
-#     GITHUB_RELEASE_ASSET_NAME) leder efter i release-assets — aendr ALDRIG
-#     navngivningen her uden ogsaa at aendre det tilsvarende sted i firmwaren.
+#   - Asset-navnet ("firmware.bin") er ren navnekonvention (ikke haandhaevet
+#     af nogen kode laengere — FEAT-169s device-side GitHub-OTA, som lod
+#     asset-navnet betyde noget, er fjernet i v7.9.68.9). Releases bruges nu
+#     udelukkende til manuel download+upload via /ota-siden.
 #
 # Brug:
 #   scripts/publish_release.sh
