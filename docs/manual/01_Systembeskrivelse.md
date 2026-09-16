@@ -14,7 +14,7 @@ Hypervision PLC er en **letvægts, netværkstilkoblet PLC** bygget på ESP32-pla
 
 Det hele er tilgængeligt både klassisk (RS-485/Modbus) og moderne (REST API, webdashboard, WiFi/Ethernet) — samme enhed kan stå i et rack og tale RTU til et ældre SCADA-system, samtidig med at et Node-RED-flow eller en Python-service læser og skriver data over HTTP.
 
-![Monitor Dashboard — Overblik-fanen med System- og Netværks-status](assets/screenshots/dashboard_overview.png)
+![Monitor Dashboard — Alle-fanen med et samlet overblik over alle kort](assets/screenshots/dashboard_overview.png)
 
 ## 1.2 Hvilket problem løser den?
 

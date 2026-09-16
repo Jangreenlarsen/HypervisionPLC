@@ -159,7 +159,7 @@ Begge dele var tidligere kun tilgængelige via CLI. Ændringer aktiveres med det
 
 En fuld terminal-emulering i browseren, med samme kommandosæt som seriel/telnet-konsollen (se [kapitel 5](05_CLI_Konsol.md)). Praktisk når man er logget ind via HTTPS og ikke ønsker at åbne en separat telnet-session — og det eneste af de tre konsol-adgange der kan beskyttes af TLS.
 
-![Web-CLI — samme kommandosæt som seriel/telnet, her "show logic 1"](assets/screenshots/cli_page.png)
+![Web-CLI — samme kommandosæt som seriel/telnet, her "sh modbus"](assets/screenshots/cli_page.png)
 
 ## 4.5 Real-time opdatering (SSE)
 
