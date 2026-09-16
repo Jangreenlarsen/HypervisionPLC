@@ -131,6 +131,7 @@ static bool mbx_pq_insert(mbx_async_request_t *req) {
   }
 
   req->insert_seq = g_mbx_async.pq_seq++;
+  req->enqueued_ms = millis();  // BUG-416: starvation-aging reference point
 
   if (g_mbx_async.pq_count < MBX_ASYNC_QUEUE_SIZE) {
     g_mbx_async.pq_buf[g_mbx_async.pq_count] = *req;
@@ -175,6 +176,57 @@ static bool mbx_pq_insert(mbx_async_request_t *req) {
   return true;
 }
 
+// BUG-416: a REFRESH request that has waited too long is treated as FRESH
+// for selection purposes, so its (much older) insert_seq wins ties against
+// newly-arrived FRESH requests instead of losing to them forever. See
+// MBX_STARVATION_AGE_MS's comment in modbus_expansion_async.h.
+static inline uint8_t mbx_effective_priority(const mbx_async_request_t *r, uint32_t now_ms) {
+  if (r->priority > MBX_PRIO_READ_FRESH && (now_ms - r->enqueued_ms) >= MBX_STARVATION_AGE_MS) {
+    return MBX_PRIO_READ_FRESH;
+  }
+  return r->priority;
+}
+
+// BUG-417: true if some OTHER worker already has this exact (board,kanal)
+// in flight. Caller must hold pq_mutex — inflight[] shares that lock rather
+// than its own, since claiming a slot happens atomically with dequeue.
+static inline bool mbx_channel_is_inflight_locked(uint8_t board, uint8_t channel) {
+  for (uint8_t i = 0; i < MBX_ASYNC_WORKER_COUNT; i++) {
+    if (g_mbx_async.inflight[i].board == board && g_mbx_async.inflight[i].channel == channel) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// BUG-419: public, properly-locked wrapper around the check above, for
+// modbus_expansion.cpp's connection-slot eviction (a different translation
+// unit — cannot call the static/inline helper or touch pq_mutex directly).
+bool modbus_expansion_async_is_channel_inflight(uint8_t board, uint8_t channel) {
+  if (xSemaphoreTake(g_mbx_async.pq_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+    return true;  // Fail-safe: if we can't even check, never treat it as evictable
+  }
+  bool result = mbx_channel_is_inflight_locked(board, channel);
+  xSemaphoreGive(g_mbx_async.pq_mutex);
+  return result;
+}
+
+// BUG-417: releases a worker's claim on (board,kanal) once it has finished
+// processing a request for it (success, error, or backoff-skip) — called
+// from modbus_expansion_async_task_func() at every exit point of the
+// per-request work, never left claimed across loop iterations.
+static void mbx_inflight_clear(uint8_t board, uint8_t channel) {
+  if (xSemaphoreTake(g_mbx_async.pq_mutex, pdMS_TO_TICKS(50)) != pdTRUE) return;
+  for (uint8_t i = 0; i < MBX_ASYNC_WORKER_COUNT; i++) {
+    if (g_mbx_async.inflight[i].board == board && g_mbx_async.inflight[i].channel == channel) {
+      g_mbx_async.inflight[i].board = 0;
+      g_mbx_async.inflight[i].channel = 0;
+      break;
+    }
+  }
+  xSemaphoreGive(g_mbx_async.pq_mutex);
+}
+
 static bool mbx_pq_dequeue(mbx_async_request_t *out) {
   if (xSemaphoreTake(g_mbx_async.pq_mutex, pdMS_TO_TICKS(10)) != pdTRUE) {
     return false;
@@ -184,16 +236,44 @@ static bool mbx_pq_dequeue(mbx_async_request_t *out) {
     return false;
   }
 
-  int best = 0;
-  for (uint8_t i = 1; i < g_mbx_async.pq_count; i++) {
-    uint8_t bp = g_mbx_async.pq_buf[best].priority;
-    uint8_t ip = g_mbx_async.pq_buf[i].priority;
-    if (ip < bp || (ip == bp && g_mbx_async.pq_buf[i].insert_seq < g_mbx_async.pq_buf[best].insert_seq)) {
+  // BUG-417: pick the best request among those NOT already claimed by
+  // another worker (different (board,kanal) pairs are independent buses and
+  // may run concurrently; the SAME pair must stay strictly serial like RTU).
+  uint32_t now_ms = millis();
+  int best = -1;
+  uint8_t best_eff = 0;
+  for (uint8_t i = 0; i < g_mbx_async.pq_count; i++) {
+    if (mbx_channel_is_inflight_locked(g_mbx_async.pq_buf[i].board, g_mbx_async.pq_buf[i].channel)) {
+      continue;
+    }
+    uint8_t ip = mbx_effective_priority(&g_mbx_async.pq_buf[i], now_ms);
+    if (best < 0 || ip < best_eff || (ip == best_eff && g_mbx_async.pq_buf[i].insert_seq < g_mbx_async.pq_buf[best].insert_seq)) {
       best = i;
+      best_eff = ip;
     }
   }
 
+  if (best < 0) {
+    // Everything queued right now targets a (board,kanal) another worker is
+    // already servicing — nothing for this worker to do yet.
+    xSemaphoreGive(g_mbx_async.pq_mutex);
+    return false;
+  }
+
   *out = g_mbx_async.pq_buf[best];
+
+  // Claim the channel atomically with removing it from the queue — there is
+  // always a free inflight[] slot here since this worker holds none yet
+  // (cleared before its previous dequeue) and there are only
+  // MBX_ASYNC_WORKER_COUNT workers total.
+  for (uint8_t i = 0; i < MBX_ASYNC_WORKER_COUNT; i++) {
+    if (g_mbx_async.inflight[i].board == 0) {
+      g_mbx_async.inflight[i].board = out->board;
+      g_mbx_async.inflight[i].channel = out->channel;
+      break;
+    }
+  }
+
   g_mbx_async.pq_count--;
   if ((uint8_t)best < g_mbx_async.pq_count) {
     g_mbx_async.pq_buf[best] = g_mbx_async.pq_buf[g_mbx_async.pq_count];
@@ -209,12 +289,23 @@ static bool mbx_pq_dequeue(mbx_async_request_t *out) {
 
 bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address) {
   mbx_cache_entry_t *entry = mbx_cache_find(board, channel, slave_id, address, (uint8_t)type);
-  if (entry && entry->status == MBX_CACHE_PENDING) {
+  // BUG-419: snapshot status under the spinlock instead of reading
+  // entry->status directly — this function runs on ST Logic's task (Core 1)
+  // while the worker(s) update the SAME entry's status from Core 0, so an
+  // unlocked read here races the worker's locked write (see
+  // modbus_expansion_async_task_func()'s cache-update section).
+  mbx_cache_status_t status = MBX_CACHE_EMPTY;
+  if (entry) {
+    portENTER_CRITICAL(&mbx_cache_spinlock);
+    status = entry->status;
+    portEXIT_CRITICAL(&mbx_cache_spinlock);
+  }
+  if (entry && status == MBX_CACHE_PENDING) {
     return true;  // Allerede i kø (deduplikering)
   }
 
   uint8_t prio = MBX_PRIO_READ_FRESH;
-  if (entry && entry->status == MBX_CACHE_VALID) {
+  if (entry && status == MBX_CACHE_VALID) {
     prio = MBX_PRIO_READ_REFRESH;
   }
 
@@ -250,7 +341,15 @@ bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, u
 bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, st_value_t value) {
   uint8_t read_type = (type == MBX_REQ_WRITE_COIL) ? (uint8_t)MBX_REQ_READ_COIL : (uint8_t)MBX_REQ_READ_HOLDING;
   mbx_cache_entry_t *cached = mbx_cache_find(board, channel, slave_id, address, read_type);
-  if (cached && cached->status == MBX_CACHE_VALID && cached->value.int_val == value.int_val) {
+  // BUG-419: same cross-core race as modbus_expansion_async_queue_read() —
+  // snapshot both fields under the spinlock instead of reading them live.
+  bool same_value_already_written = false;
+  if (cached) {
+    portENTER_CRITICAL(&mbx_cache_spinlock);
+    same_value_already_written = (cached->status == MBX_CACHE_VALID && cached->value.int_val == value.int_val);
+    portEXIT_CRITICAL(&mbx_cache_spinlock);
+  }
+  if (same_value_already_written) {
     return true;  // Samme vaerdi allerede bekraeftet skrevet — skip (samme dedup som mb_async)
   }
 
@@ -324,7 +423,15 @@ bool modbus_expansion_async_queue_write_multi_coils(uint8_t board, uint8_t chann
   return mbx_pq_insert(&req);
 }
 
-bool modbus_expansion_async_is_busy() { return g_mbx_async.pq_count > 0; }
+bool modbus_expansion_async_is_busy() {
+  // BUG-417: with a worker pool, the queue can be empty (pq_count==0) while
+  // one or more workers are still mid-transaction — that's still "busy".
+  if (g_mbx_async.pq_count > 0) return true;
+  for (uint8_t i = 0; i < MBX_ASYNC_WORKER_COUNT; i++) {
+    if (g_mbx_async.inflight[i].board != 0) return true;
+  }
+  return false;
+}
 uint8_t modbus_expansion_async_queue_depth() { return g_mbx_async.pq_count; }
 
 /* ============================================================================
@@ -437,6 +544,7 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
           }
           g_mbx_async.total_errors++;
           g_mbx_async.total_timeouts++;
+          mbx_inflight_clear(req.board, req.channel);  // BUG-417
           continue;
         }
         g_mbx_async.slave_backoff[bo_idx].last_attempt_ms = millis();
@@ -538,6 +646,8 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
       g_mbx_async.total_errors++;
       if (err == MB_TIMEOUT) g_mbx_async.total_timeouts++;
     }
+
+    mbx_inflight_clear(req.board, req.channel);  // BUG-417
   }
 
   vTaskDelete(NULL);
@@ -560,31 +670,39 @@ void modbus_expansion_async_init() {
 
   g_mbx_async.task_running = true;
 
-  BaseType_t ret = xTaskCreatePinnedToCore(
-    modbus_expansion_async_task_func,
-    "mbx_async",
-    MBX_ASYNC_TASK_STACK,
-    NULL,
-    MBX_ASYNC_TASK_PRIO,
-    &g_mbx_async.task_handle,
-    MBX_ASYNC_TASK_CORE
-  );
+  // BUG-417: a pool of workers, not just one — different (board,kanal)
+  // pairs are independent buses and can be serviced concurrently; the
+  // mbx_pq_dequeue()/inflight[] pairing above still keeps any SINGLE
+  // (board,kanal) strictly serial across all of them.
+  char task_name[16];
+  for (uint8_t i = 0; i < MBX_ASYNC_WORKER_COUNT; i++) {
+    snprintf(task_name, sizeof(task_name), "mbx_async%u", (unsigned)i);
+    BaseType_t ret = xTaskCreatePinnedToCore(
+      modbus_expansion_async_task_func,
+      task_name,
+      MBX_ASYNC_TASK_STACK,
+      NULL,
+      MBX_ASYNC_TASK_PRIO,
+      &g_mbx_async.task_handles[i],
+      MBX_ASYNC_TASK_CORE
+    );
 
-  if (ret != pdPASS) {
-    Serial.println("[MBX_ASYNC] FEJL: Kunne ikke starte background task");
-    g_mbx_async.task_running = false;
-    return;
+    if (ret != pdPASS) {
+      Serial.printf("[MBX_ASYNC] FEJL: Kunne ikke starte worker-task %u\n", (unsigned)i);
+      g_mbx_async.task_running = false;
+      return;
+    }
   }
 
-  Serial.printf("[MBX_ASYNC] Startet: Core %d, stack %d, prio-queue %d, cache max %d\n",
-                MBX_ASYNC_TASK_CORE, MBX_ASYNC_TASK_STACK, MBX_ASYNC_QUEUE_SIZE, MBX_ASYNC_CACHE_MAX_ENTRIES);
+  Serial.printf("[MBX_ASYNC] Startet: %d workers, Core %d, stack %d/worker, prio-queue %d, cache max %d\n",
+                MBX_ASYNC_WORKER_COUNT, MBX_ASYNC_TASK_CORE, MBX_ASYNC_TASK_STACK, MBX_ASYNC_QUEUE_SIZE, MBX_ASYNC_CACHE_MAX_ENTRIES);
 }
 
 void modbus_expansion_async_deinit() {
   g_mbx_async.task_running = false;
-  if (g_mbx_async.task_handle) {
-    vTaskDelay(pdMS_TO_TICKS(200));
-    g_mbx_async.task_handle = NULL;
+  vTaskDelay(pdMS_TO_TICKS(200));  // let every worker's while(task_running) loop exit + self-delete
+  for (uint8_t i = 0; i < MBX_ASYNC_WORKER_COUNT; i++) {
+    g_mbx_async.task_handles[i] = NULL;
   }
   if (g_mbx_async.pq_mutex) { vSemaphoreDelete(g_mbx_async.pq_mutex); g_mbx_async.pq_mutex = NULL; }
   if (g_mbx_async.pq_semaphore) { vSemaphoreDelete(g_mbx_async.pq_semaphore); g_mbx_async.pq_semaphore = NULL; }

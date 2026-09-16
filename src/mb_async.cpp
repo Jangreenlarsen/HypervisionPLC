@@ -183,6 +183,7 @@ static bool mb_pq_insert(mb_async_request_t *req) {
   }
 
   req->insert_seq = g_mb_async.pq_seq++;
+  req->enqueued_ms = millis();  // BUG-416: starvation-aging reference point
 
   // Use runtime queue limit (clamped to compile-time max)
   uint8_t q_limit = g_modbus_master_config.queue_max_size;
@@ -250,6 +251,17 @@ static bool mb_pq_insert(mb_async_request_t *req) {
   return true;
 }
 
+// BUG-416: a REFRESH request that has waited too long is treated as FRESH
+// for selection purposes, so its (much older) insert_seq wins ties against
+// newly-arrived FRESH requests instead of losing to them forever. See
+// MB_STARVATION_AGE_MS's comment in mb_async.h for the full scenario.
+static inline uint8_t mb_effective_priority(const mb_async_request_t *r, uint32_t now_ms) {
+  if (r->priority > MB_PRIO_READ_FRESH && (now_ms - r->enqueued_ms) >= MB_STARVATION_AGE_MS) {
+    return MB_PRIO_READ_FRESH;
+  }
+  return r->priority;
+}
+
 static bool mb_pq_dequeue(mb_async_request_t *out) {
   if (xSemaphoreTake(g_mb_async.pq_mutex, pdMS_TO_TICKS(10)) != pdTRUE) {
     return false;
@@ -260,13 +272,15 @@ static bool mb_pq_dequeue(mb_async_request_t *out) {
     return false;
   }
 
-  // Find highest priority (lowest value), oldest (lowest insert_seq)
+  // Find highest EFFECTIVE priority (lowest value), oldest (lowest insert_seq)
+  uint32_t now_ms = millis();
   int best = 0;
+  uint8_t best_eff = mb_effective_priority(&g_mb_async.pq_buf[0], now_ms);
   for (uint8_t i = 1; i < g_mb_async.pq_count; i++) {
-    uint8_t bp = g_mb_async.pq_buf[best].priority;
-    uint8_t ip = g_mb_async.pq_buf[i].priority;
-    if (ip < bp || (ip == bp && g_mb_async.pq_buf[i].insert_seq < g_mb_async.pq_buf[best].insert_seq)) {
+    uint8_t ip = mb_effective_priority(&g_mb_async.pq_buf[i], now_ms);
+    if (ip < best_eff || (ip == best_eff && g_mb_async.pq_buf[i].insert_seq < g_mb_async.pq_buf[best].insert_seq)) {
       best = i;
+      best_eff = ip;
     }
   }
 

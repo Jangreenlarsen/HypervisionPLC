@@ -44,6 +44,7 @@
 #include "ntp_driver.h"        // v7.8.1 - NTP time synchronization
 #include "mb_async.h"          // v7.7.0 - Async Modbus Master background task
 #include "modbus_expansion_async.h"  // FEAT-410 - Async Modbus Expansion Master background task
+#include "modbus_expansion.h"  // BUG-419 - modbus_expansion_init() (connection-pool mutex)
 #include "mb_activity_log.h"   // FEAT-149 - Wire-level Modbus activity log
 #include "trend_recorder.h"    // FEAT-099 - Periodic register trend recorder
 #include "system_log.h"        // FEAT-086/089 - Event + register-change log
@@ -169,6 +170,7 @@ void setup() {
   // data-plan) — uafhængig af Master #1/mb_async ovenfor, starter altid
   // (billigt at have kørende idle, matcher mb_async's eget mønster).
   Serial.print("Ax"); Serial.flush();
+  modbus_expansion_init();        // BUG-419: connection-pool mutex, before the worker(s) can use it
   modbus_expansion_async_init();
 
   Serial.print("H"); Serial.flush();   // Heartbeat

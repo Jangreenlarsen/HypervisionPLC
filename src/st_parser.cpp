@@ -137,33 +137,38 @@ static uint16_t g_ast_pool_used = 0;
 static bool ast_pool_init(void) {
   if (g_ast_pool) return true;  // Already initialized
 
-  // Use largest contiguous free block (not total free heap) to handle fragmentation.
-  // Reserve 24KB for compiler (~4KB) + bytecode buffer (~8KB) + function registry (~8KB) + overhead
-  // BUG-409: MALLOC_CAP_8BIT alone also matches PSRAM on boards that have it
-  // (ES32D26) -- but g_ast_pool is allocated via plain malloc() below, which
-  // stays in internal DRAM, so sizing the pool off a PSRAM-inflated "largest
-  // block" would wildly overestimate ideal_nodes against a pool that can't
-  // actually grow that big (the try_sizes fallback loop masked this from ever
-  // crashing, but the pool was never sized as intended).
-  uint32_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
-  uint32_t reserve = 24000;
-  uint32_t available = (largest_block > reserve) ? (largest_block - reserve) : 0;
-  uint16_t ideal_nodes = available / sizeof(st_ast_node_t);
+  // BUG-418: moved from internal DRAM (plain malloc()) to PSRAM. This pool
+  // used to compete directly with internal RAM (worker task stacks,
+  // TLS/socket buffers, the compiler's own LATER internal allocations —
+  // bytecode buffer/function registry) for the same tight ~24-32KB region —
+  // BUG-417 showed that a modest, unrelated internal-RAM increase elsewhere
+  // (3 extra 6KB Modbus Expansion worker task stacks) was enough to make
+  // ast_pool_init() fail outright on this device ("Insufficient heap for
+  // AST pool"), since ES32D26's internal heap runs chronically tight
+  // (see BUGS_INDEX.md FEAT-145/146/411). Compilation is a one-shot,
+  // non-ISR, UI-triggered operation (not timing-critical) — same category
+  // as ST Logic's existing PSRAM-backed source-code pool — so PSRAM's extra
+  // access latency is irrelevant here, and the pool no longer needs to
+  // economize against a handful of KB the way it did in internal RAM.
+  uint32_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+  uint16_t ideal_nodes = (uint16_t)(largest_block / sizeof(st_ast_node_t));
   if (ideal_nodes > 512) ideal_nodes = 512;
 
-  // Try decreasing sizes until malloc succeeds (fragmentation-safe)
+  // Try decreasing sizes until malloc succeeds (fragmentation-safe, same
+  // pattern as before — PSRAM fragmentation is rarer at ~4MB, but not
+  // impossible with other long-lived PSRAM allocations already in use).
   static const uint16_t try_sizes[] = {512, 256, 128, 64, 32};
   for (int i = 0; i < 5; i++) {
     uint16_t nodes = try_sizes[i];
     if (nodes > ideal_nodes) continue;  // Skip sizes too large for available memory
-    g_ast_pool = (st_ast_node_t *)malloc(nodes * sizeof(st_ast_node_t));
+    g_ast_pool = (st_ast_node_t *)heap_caps_malloc(nodes * sizeof(st_ast_node_t), MALLOC_CAP_SPIRAM);
     if (g_ast_pool) {
       g_ast_pool_capacity = nodes;
       g_ast_pool_used = 0;
       return true;
     }
   }
-  return false;  // Even 32 nodes couldn't be allocated (~7.7KB)
+  return false;  // Even 32 nodes couldn't be allocated in PSRAM (~7.7KB) — PSRAM itself exhausted
 }
 
 void ast_pool_free(void) {
@@ -180,7 +185,8 @@ bool ast_pool_init_with_size(uint16_t max_nodes) {
   if (max_nodes == 0) return false;
   if (max_nodes > 512) max_nodes = 512;
 
-  g_ast_pool = (st_ast_node_t *)malloc(max_nodes * sizeof(st_ast_node_t));
+  // BUG-418: PSRAM, not internal DRAM — see ast_pool_init()'s comment above.
+  g_ast_pool = (st_ast_node_t *)heap_caps_malloc(max_nodes * sizeof(st_ast_node_t), MALLOC_CAP_SPIRAM);
   if (!g_ast_pool) return false;
 
   g_ast_pool_capacity = max_nodes;

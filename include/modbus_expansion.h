@@ -23,6 +23,12 @@
 #include <stdbool.h>
 #include "types.h"  // mb_error_code_t
 
+// BUG-419: creates the connection-pool mutex (g_mbx_conn_mutex) that guards
+// mbx_get_or_evict_slot() against concurrent workers racing on the same
+// slot. Must run before any modbus_expansion_async worker task starts —
+// call from main.cpp's setup() alongside/before modbus_expansion_async_init().
+void modbus_expansion_init();
+
 mb_error_code_t modbus_expansion_read_coil(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, bool *result);
 mb_error_code_t modbus_expansion_read_input(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, bool *result);
 mb_error_code_t modbus_expansion_read_holding(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint16_t *result);

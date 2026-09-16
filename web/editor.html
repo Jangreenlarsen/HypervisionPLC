@@ -921,9 +921,13 @@ function updatePool(res){
     const hpct=Math.min(100,Math.max(0,100-((lb/65536*100)|0)));
     document.getElementById('heapFill').style.width=hpct+'%';
     document.getElementById('heapFill').style.background=lb<20000?'#f38ba8':lb<35000?'#fab387':'#a6e3a1';
-    document.getElementById('heapText').textContent=((lb/1024)|0)+'KB blok / ~'+nodes+' nodes';
+    // BUG-418: AST-poolen flyttet til PSRAM (~4MB, rigeligt) -- "nodes" og
+    // "lb" (intern RAM, stadig relevant for compilerens OVRIGE allokeringer:
+    // bytecode-buffer/funktions-registry) er derfor to adskilte tal nu,
+    // ikke laengere samme hukommelsespulje som foer BUG-418.
+    document.getElementById('heapText').textContent=((lb/1024)|0)+'KB intern / ~'+nodes+' AST-nodes (PSRAM)';
     document.getElementById('heapFill').parentElement.title=
-      'Heap fri: '+((hf/1024)|0)+'KB | Storste blok: '+((lb/1024)|0)+'KB | Max AST nodes: '+nodes+' | Node: '+res.ast_node_size+' bytes';
+      'Heap fri: '+((hf/1024)|0)+'KB | Storste INTERNE blok: '+((lb/1024)|0)+'KB | Max AST nodes (PSRAM): '+nodes+' | Node: '+res.ast_node_size+' bytes';
   }
 }
 

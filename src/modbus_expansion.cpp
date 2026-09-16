@@ -17,7 +17,10 @@
 
 #include <Arduino.h>
 #include <WiFiClient.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include "modbus_expansion.h"
+#include "modbus_expansion_async.h"
 #include "expansion_api_client.h"
 #include "config_struct.h"
 #include "network_config.h"
@@ -46,6 +49,28 @@ typedef struct {
 
 static mbx_connection_t g_mbx_conn[MODBUS_EXPANSION_MAX_CONNECTIONS];
 
+// BUG-419: g_mbx_conn[] was written under the original assumption of a
+// single calling task (true before BUG-417) — the slot-scan-then-claim
+// sequence below is a classic TOCTOU race once genuinely concurrent workers
+// (different (board,kanal) pairs, on different cores) can call this at the
+// same time: both could see the same slot as free, or pick the same LRU
+// eviction victim, and both then write into it — corrupting whichever
+// connection loses the race, exactly the kind of state that produced
+// BUG-419's permanent hang (a worker left holding a WiFiClient another
+// worker had since reassigned/stopped). This mutex makes the ENTIRE
+// find-or-claim-or-evict decision atomic. It is a real FreeRTOS mutex, not
+// a portMUX spinlock, because eviction needs to call
+// modbus_expansion_async_is_channel_inflight() (itself takes a mutex) —
+// nesting a blocking-capable call inside a spinlock's interrupts-disabled
+// section is not safe on this platform.
+static SemaphoreHandle_t g_mbx_conn_mutex = NULL;
+
+void modbus_expansion_init() {
+  if (!g_mbx_conn_mutex) {
+    g_mbx_conn_mutex = xSemaphoreCreateMutex();
+  }
+}
+
 static mbx_connection_t *mbx_find_connection(uint8_t board, uint8_t channel) {
   for (uint8_t i = 0; i < MODBUS_EXPANSION_MAX_CONNECTIONS; i++) {
     if (g_mbx_conn[i].in_use && g_mbx_conn[i].board == board && g_mbx_conn[i].channel == channel) {
@@ -55,9 +80,19 @@ static mbx_connection_t *mbx_find_connection(uint8_t board, uint8_t channel) {
   return NULL;
 }
 
+// Returns NULL only when every slot is both full AND actively in flight
+// right now (caller must treat that as "try again shortly", never as a
+// license to touch an unallocated connection).
 static mbx_connection_t *mbx_get_or_evict_slot(uint8_t board, uint8_t channel) {
+  if (!g_mbx_conn_mutex || xSemaphoreTake(g_mbx_conn_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    return NULL;
+  }
+
   mbx_connection_t *existing = mbx_find_connection(board, channel);
-  if (existing) return existing;
+  if (existing) {
+    xSemaphoreGive(g_mbx_conn_mutex);
+    return existing;
+  }
 
   for (uint8_t i = 0; i < MODBUS_EXPANSION_MAX_CONNECTIONS; i++) {
     if (!g_mbx_conn[i].in_use) {
@@ -65,21 +100,34 @@ static mbx_connection_t *mbx_get_or_evict_slot(uint8_t board, uint8_t channel) {
       g_mbx_conn[i].board = board;
       g_mbx_conn[i].channel = channel;
       g_mbx_conn[i].next_transaction_id = 1;
+      xSemaphoreGive(g_mbx_conn_mutex);
       return &g_mbx_conn[i];
     }
   }
 
-  // Alle slots optaget — evict den mindst for nylig brugte (LRU). Sjældent i
-  // praksis med kun ét board/2 kanaler i dag, men gør systemet robust hvis
-  // flere boards/kanaler tages i brug end MODBUS_EXPANSION_MAX_CONNECTIONS.
-  uint8_t oldest_idx = 0;
+  // Alle slots optaget — evict den mindst for nylig brugte (LRU) BLANDT DEM
+  // DER IKKE ER I FLIGHT LIGE NU. Sjældent i praksis med kun ét board/2
+  // kanaler i dag, men gør systemet robust hvis flere boards/kanaler tages i
+  // brug end MODBUS_EXPANSION_MAX_CONNECTIONS. BUG-419: springer bevidst
+  // in-flight forbindelser over — at evict'e én midt i en transaktion ville
+  // rive tæppet væk under den worker, der stadig bruger den (samme klasse
+  // fejl som selve hovedbuggen).
+  uint8_t oldest_idx = 255;
   uint32_t oldest_ms = UINT32_MAX;
   for (uint8_t i = 0; i < MODBUS_EXPANSION_MAX_CONNECTIONS; i++) {
+    if (modbus_expansion_async_is_channel_inflight(g_mbx_conn[i].board, g_mbx_conn[i].channel)) continue;
     if (g_mbx_conn[i].last_activity_ms < oldest_ms) {
       oldest_ms = g_mbx_conn[i].last_activity_ms;
       oldest_idx = i;
     }
   }
+
+  if (oldest_idx == 255) {
+    // Every connection is actively in flight — nothing safe to evict.
+    xSemaphoreGive(g_mbx_conn_mutex);
+    return NULL;
+  }
+
   g_mbx_conn[oldest_idx].client.stop();
   ESP_LOGI(TAG, "Evicting connection to board=%u ch=%u for board=%u ch=%u (alle %d slots optaget)",
            g_mbx_conn[oldest_idx].board, g_mbx_conn[oldest_idx].channel, board, channel,
@@ -88,6 +136,7 @@ static mbx_connection_t *mbx_get_or_evict_slot(uint8_t board, uint8_t channel) {
   g_mbx_conn[oldest_idx].board = board;
   g_mbx_conn[oldest_idx].channel = channel;
   g_mbx_conn[oldest_idx].next_transaction_id = 1;
+  xSemaphoreGive(g_mbx_conn_mutex);
   return &g_mbx_conn[oldest_idx];
 }
 
@@ -133,6 +182,11 @@ static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slav
   uint16_t port = 502 + (channel - 1);
 
   mbx_connection_t *conn = mbx_get_or_evict_slot(board, channel);
+  if (!conn) {
+    // BUG-419: every connection slot is full AND actively in flight, or the
+    // pool mutex itself couldn't be taken in time — never dereference NULL.
+    return MB_BUS_BUSY;
+  }
 
   if (!conn->client.connected()) {
     if (!conn->client.connect(ip_str, port, MBX_CONNECT_TIMEOUT_MS)) {

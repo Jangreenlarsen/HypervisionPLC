@@ -38,6 +38,57 @@
 #define MBX_ASYNC_TASK_STACK        6144   // Lidt mere end mb_async's 4096 — Modbus TCP-transaktionen (modbus_expansion.cpp) bruger WiFiClient, som fylder lidt mere på stakken end UART-kaldene gjorde
 #define MBX_ASYNC_TASK_PRIO             3
 #define MBX_ASYNC_TASK_CORE             0
+// BUG-417: modbus_expansion_async.cpp startede historisk (som mb_async.cpp)
+// KUN 1 baggrundstask, der behandler forespørgsler strengt seriel — korrekt
+// for mb_async.cpp (kun ÉN fysisk RS485-bus, kan fysisk ikke sende to rammer
+// samtidig), men FORKERT her: hvert board har FLERE elektrisk uafhængige
+// kanaler (A/B, potentielt flere), som sagtens kan afvikles samtidig. Med
+// kun 1 task blokerede en enkelt time'ende kanal (500+ ms) ALLE andre
+// boards/kanaler fra at komme til, uanset at de reelt er separate buse.
+// Fix: en lille FAST pulje af baggrundstasks (ikke én pr. teoretisk
+// kanal-slot — op til 8 boards × 8 kanaler ville være 64 tasks × 6KB stak =
+// urealistisk meget RAM for et scenarie ingen reelt har) + en "in-flight"-
+// tabel (se mbx_async_state_t.inflight nedenfor) der forhindrer to workers i
+// at ramme SAMME (board,kanal) samtidig — det ville stadig være forkert,
+// da EN enkelt fysisk bus godt kan collidere med sig selv. 4 workers dækker
+// realistiske opsætninger (typisk 1-2 boards × 2 kanaler) komfortabelt.
+//
+// RUNDTUR (v7.9.68.11→12): dette blev sat MIDLERTIDIGT til 1 igen, fordi
+// hver ekstra worker koster en ~6KB task-stak fra INTERN heap, og et bruger-
+// rapporteret "Insufficient heap for AST pool" viste at ES32D26's interne
+// heap var for tæt presset til det — ST-compilerens AST-node-pool
+// (st_parser.cpp) krævede dengang op til ~24-32KB SAMMENHÆNGENDE intern
+// heap for overhovedet at allokere, og konkurrerede direkte med disse
+// worker-stakke om den samme knappe interne hukommelse. Den RIGTIGE fix
+// (BUG-418) var ikke at fjerne parallelismen, men at flytte AST-poolen til
+// PSRAM (~4MB, rigeligt, og compilering er en enkeltstående, ikke-ISR,
+// UI-udløst handling — samme kategori som ST Logics eksisterende PSRAM-
+// baserede kildekode-pool) — se ast_pool_init()/ast_pool_init_with_size()
+// i st_parser.cpp. Efter den fix konkurrerer AST-poolen (den suverænt
+// største enkeltstående interne allokering compileren lavede) ikke længere
+// om intern RAM overhovedet, og disse 4 workers' stakke er igen trygge.
+// BUG-419: 4 workers bragte HELE kø-motoren i en permanent deadlock ved live
+// test — "Requests total" frøs helt, mens "queue full drops" fortsatte med
+// at stige 1:1 med hver ny ST-forespørgsel (ingen worker behandlede køen
+// længere, men ST blev ved med forgæves at forsøge). Overlevede Stop/Start/
+// Reinit (global motor-state) — krævede fuld enheds-genstart. Rodårsagen
+// blev sporet til `modbus_expansion.cpp`s `g_mbx_conn[]`-forbindelsespulje:
+// skrevet under antagelsen om ÉN kaldende task, INGEN egen synkronisering —
+// BUG-417's in-flight-tabel beskyttede kun KØ-laget, ikke selve
+// forbindelses-/transport-laget nedenunder (find-eller-opret-slot var et
+// klassisk TOCTOU-race mellem samtidige workers på FORSKELLIGE kanaler).
+// **Fix** (samme BUG-419): `g_mbx_conn_mutex` gør find/claim/evict atomisk
+// (`modbus_expansion.cpp`), og eviction springer nu bevidst forbindelser
+// over der er in-flight lige nu (kalder denne fils nye
+// `modbus_expansion_async_is_channel_inflight()`) — ingen worker kan længere
+// få tæppet revet væk under sig af en anden. Sat til 2 som en FORSIGTIG
+// genindførsel, brugeren bekræftede stabil drift (Requests total blev ved
+// med at stige, ingen fastfrysning) — hævet til 4 igen (v7.9.68.15) på
+// brugerens udtrykkelige ønske om at teste den fulde værdi. Se stadig
+// `show modbus-expansion queue`s "Requests total" som lakmustest hvis
+// mistanke om gentagelse opstår — den må ALDRIG fryse mens "queue full
+// drops"/"cache hits" fortsætter med at stige.
+#define MBX_ASYNC_WORKER_COUNT          4
 #define MBX_SLAVE_BACKOFF_MAX          16   // (board,kanal,slave)-triplets, ikke kun slave — se .cpp
 #define MBX_BACKOFF_INITIAL_MS         50
 #define MBX_BACKOFF_MAX_MS           2000
@@ -46,6 +97,15 @@
 #define MBX_PENDING_STALE_MIN_MS      3000
 #define MBX_PENDING_SWEEP_INTERVAL_MS 1000
 #define MBX_MULTI_POOL_SIZE  4   // Ring-buffer slots for FC15/FC16 write values (mirrors MB_MULTI_REG_POOL_SIZE)
+// BUG-416 (samme rodårsag som mb_async.h's MB_STARVATION_AGE_MS — se den
+// kommentar for den fulde forklaring): en REFRESH-forespørgsel (klienten har
+// allerede en cachet værdi) er kun FRESH-prioritet FØR dens første succes —
+// en (board,kanal,slave) der ALDRIG svarer, forbliver derfor for evigt på
+// FRESH og vinder enhver prioritets-uafgørelse mod enhver ANDEN kanals
+// REFRESH-læsninger, uendeligt. En REFRESH, der har ventet længere end dette,
+// behandles som FRESH ved valg — dens (langt ældre) insert_seq vinder så
+// uafgørelser mod nyligt ankomne FRESH-forespørgsler.
+#define MBX_STARVATION_AGE_MS  2000
 
 typedef enum {
   MBX_REQ_READ_COIL = 1,
@@ -99,6 +159,7 @@ typedef struct {
   uint8_t   multi_pool_slot;    // index into g_mbx_multi_write_*_pool (v7.9.68.0)
   uint8_t   priority;
   uint16_t  insert_seq;
+  uint32_t  enqueued_ms;         // BUG-416: millis() at insert, for starvation aging
 } mbx_async_request_t;
 
 typedef struct {
@@ -111,9 +172,18 @@ typedef struct {
 
   SemaphoreHandle_t pq_mutex;
   SemaphoreHandle_t pq_semaphore;
-  TaskHandle_t      task_handle;
+  TaskHandle_t      task_handles[MBX_ASYNC_WORKER_COUNT];  // BUG-417: was a single task_handle
   volatile bool     task_running;
   volatile bool     paused;
+
+  // BUG-417: (board,kanal)-par der lige nu behandles af en af de
+  // MBX_ASYNC_WORKER_COUNT workers — forhindrer to workers i at ramme samme
+  // fysiske bus samtidig. Beskyttet af pq_mutex (samme lås som selve køen,
+  // da mærkning sker atomisk sammen med dequeue, se mbx_pq_dequeue()).
+  struct {
+    uint8_t board;    // 0 = ledig plads
+    uint8_t channel;
+  } inflight[MBX_ASYNC_WORKER_COUNT];
 
   struct {
     uint8_t  board;         // 0 = unused slot
@@ -156,6 +226,12 @@ bool modbus_expansion_async_queue_write_multi_coils(uint8_t board, uint8_t chann
 
 bool modbus_expansion_async_is_busy();
 uint8_t modbus_expansion_async_queue_depth();
+
+// BUG-419: lets modbus_expansion.cpp's connection-slot eviction check
+// whether a (board,kanal) is actively being serviced by a worker right now,
+// so it never evicts (and thereby corrupts) a connection that's mid-
+// transaction — see modbus_expansion.cpp's mbx_get_or_evict_slot().
+bool modbus_expansion_async_is_channel_inflight(uint8_t board, uint8_t channel);
 const mbx_async_state_t *modbus_expansion_async_get_state();
 void modbus_expansion_async_reset_cache();
 void modbus_expansion_async_reset_stats();

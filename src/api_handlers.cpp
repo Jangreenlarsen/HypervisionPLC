@@ -1639,8 +1639,9 @@ esp_err_t api_handler_logic(httpd_req_t *req)
   // BUG-409: MALLOC_CAP_8BIT alone also matches PSRAM on boards that have it
   // (ES32D26) -- paired with heap_free above (internal-only), that made this
   // look like a many-megabyte "largest block" next to a ~90KB free heap.
-  // The AST pool below is allocated via plain malloc(), which stays internal,
-  // so report the same internal-only figure it actually sizes against.
+  // Still reported as internal-only here — general internal-RAM headroom
+  // (task stacks, sockets, TLS, etc.) is a useful figure on its own, even
+  // though it no longer gates the AST pool specifically (see max_ast_nodes).
   res["largest_block"] = (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
   res["min_free"] = (uint32_t)esp_get_minimum_free_heap_size();
   uint32_t pool_used = 0, pool_free = 0, pool_largest = 0;
@@ -1648,11 +1649,13 @@ esp_err_t api_handler_logic(httpd_req_t *req)
   res["pool_total"] = (uint32_t)ST_LOGIC_POOL_SIZE;
   res["pool_used"] = pool_used;
   res["pool_free"] = pool_free;
-  // Estimated max AST nodes that can be allocated (node_size ~84 bytes + 24KB reserve for compiler)
-  uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
-  uint32_t available_for_ast = (largest > 24576) ? (largest - 24576) : 0;
+  // BUG-418: AST node pool moved to PSRAM (st_parser.cpp's ast_pool_init()) —
+  // estimate against PSRAM's largest free block now, since that's what
+  // actually gates whether compilation can allocate its AST pool, not the
+  // internal-RAM figure above.
+  uint32_t largest_psram = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
   res["ast_node_size"] = (uint32_t)sizeof(st_ast_node_t);
-  res["max_ast_nodes"] = (available_for_ast > 0) ? (uint32_t)(available_for_ast / sizeof(st_ast_node_t)) : 0;
+  res["max_ast_nodes"] = (uint32_t)(largest_psram / sizeof(st_ast_node_t));
 
   JsonArray programs = doc["programs"].to<JsonArray>();
 

@@ -220,6 +220,14 @@ void cli_cmd_show_modbus_expansion(uint8_t argc, char **argv) {
     debug_println("");
     debug_println("=== MODBUS EXPANSION DATA-PLAN (MBX_*) ===");
     debug_printf("  Queue depth: %u / %u (high watermark: %u)\n", st->pq_count, MBX_ASYNC_QUEUE_SIZE, st->queue_high_watermark);
+    debug_print("  In-flight (board/kanal pr. worker, BUG-417): ");
+    bool any_inflight = false;
+    for (uint8_t i = 0; i < MBX_ASYNC_WORKER_COUNT; i++) {
+      if (st->inflight[i].board == 0) continue;
+      any_inflight = true;
+      debug_printf("[board=%u kanal=%u] ", st->inflight[i].board, st->inflight[i].channel);
+    }
+    debug_println(any_inflight ? "" : "(ingen)");
     debug_printf("  Cache entries: %u / %u\n", st->entry_count, MBX_ASYNC_CACHE_MAX_ENTRIES);
     debug_printf("  Cache hits/misses: %lu / %lu\n", (unsigned long)st->cache_hits, (unsigned long)st->cache_misses);
     debug_printf("  Requests total: %lu (fejl: %lu, timeout: %lu)\n",

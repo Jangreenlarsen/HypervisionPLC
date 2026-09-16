@@ -43,6 +43,17 @@
 #define MB_PENDING_STALE_FACTOR   5     // × timeout_ms
 #define MB_PENDING_STALE_MIN_MS   3000  // ...but never less than this
 #define MB_PENDING_SWEEP_INTERVAL_MS 1000  // How often the sweeper runs
+/* BUG-416: a REFRESH request (client already has a cached value) is only
+ * ever queued at MB_PRIO_READ_FRESH BEFORE its first success — once a slave
+ * answers once, every later re-queue for that address is REFRESH and thus
+ * strictly lower priority than FRESH. A permanently unreachable slave's
+ * reads never leave FRESH (they never reach a cached value), so they win
+ * every priority tie against ANY OTHER slave's REFRESH reads forever,
+ * starving otherwise-healthy slaves for as long as the failing one keeps
+ * being re-queued. A REFRESH request waiting longer than this is treated as
+ * FRESH for selection purposes — its (much older) insert_seq then wins ties
+ * against newly-arrived FRESH requests, bounding worst-case starvation. */
+#define MB_STARVATION_AGE_MS  2000
 
 /* ============================================================================
  * TYPES
@@ -100,7 +111,8 @@ typedef struct {
   uint8_t           priority;         // mb_request_priority_t (v7.9.7: priority queue)
   uint16_t          insert_seq;       // insertion order for FIFO within same priority
   uint8_t           source;           // mb_activity_source_t, snapshotted at enqueue time (FEAT-149)
-} mb_async_request_t;                 // 14 bytes
+  uint32_t          enqueued_ms;      // BUG-416: millis() at insert, for starvation aging
+} mb_async_request_t;                 // 18 bytes
 
 typedef struct {
   // Cache
