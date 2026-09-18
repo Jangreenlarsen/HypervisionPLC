@@ -8,7 +8,7 @@
 
 #include <Arduino.h>
 #include <nvs_flash.h>
-#include <driver/gpio.h>  // BUG-423: gpio_install_isr_service()
+#include <driver/gpio.h>  // BUG-421: gpio_install_isr_service()
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "constants.h"
@@ -51,28 +51,6 @@
 #include "system_log.h"        // FEAT-086/089 - Event + register-change log
 #include "api_audit_log.h"     // FEAT-033 - Request audit log
 #include <esp_ota_ops.h>       // v7.5.0 - FEAT-031 OTA boot validation
-#include <esp_heap_caps.h>     // BUG-423: heap-integrity checkpoints around Ethernet startup
-
-// BUG-423: prints a labeled heap-integrity check. Kept as a permanent,
-// low-cost sanity check around Ethernet startup (see ethernet_driver.cpp
-// for the full BUG-423 writeup and the actual fix).
-static void heap_checkpoint(const char *label) {
-  bool ok = heap_caps_check_integrity_all(true);
-  Serial.printf("[HEAPCHK] %s: %s\n", label, ok ? "OK" : "CORRUPT!!");
-  Serial.flush();
-
-  // BUG-423 FOLLOW-UP: "show status" crashes in heap_caps_get_info() even
-  // when heap_caps_check_integrity_all() above reports OK - exercise the
-  // exact same call here too, to bracket where this specific corruption
-  // (not caught by the integrity check) actually appears.
-  Serial.printf("[GETINFO] %s: probing...\n", label);
-  Serial.flush();
-  multi_heap_info_t info;
-  heap_caps_get_info(&info, MALLOC_CAP_SPIRAM);
-  Serial.printf("[GETINFO] %s: OK (free=%u largest=%u)\n", label,
-                (unsigned)info.total_free_bytes, (unsigned)info.largest_free_block);
-  Serial.flush();
-}
 
 // ============================================================================
 // GLOBAL CONSOLE
@@ -88,12 +66,10 @@ void setup() {
   // Disable brownout detector (38-pin boards with weak USB power)
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
-  // BUG-421/423: install the GPIO ISR service before any subsystem needs
-  // it (the W5500 MAC driver's interrupt-driven RX/link detection requires
+  // BUG-421: install the GPIO ISR service before any subsystem needs it
+  // (the W5500 MAC driver's interrupt-driven RX/link detection requires
   // this to already be installed, or it fails and takes boot down with it —
-  // see ethernet_driver.cpp). Harmless this early; a race-condition theory
-  // for BUG-423 that motivated moving it here was ruled out (see BUG-423),
-  // but there's no reason to move it back either.
+  // see ethernet_driver.cpp).
   gpio_install_isr_service(0);
 
   // Initialize serial ports
@@ -276,9 +252,7 @@ void setup() {
     // Start Ethernet if enabled (independent of Wi-Fi)
     if (g_persist_config.network.ethernet.enabled) {
       Serial.println("Starting Ethernet (W5500)");
-      heap_checkpoint("right before network_manager_start_ethernet");
       network_manager_start_ethernet(&g_persist_config.network);
-      heap_checkpoint("after network_manager_start_ethernet");
     }
   } else {
     Serial.println("ERROR: Failed to initialize network manager");
@@ -367,35 +341,28 @@ void setup() {
 
   cli_shell_init(g_serial_console);  // CLI system (last, shows prompt)
 
-  // BUG-423 (root cause, corrected): esp_ota_mark_app_valid_cancel_rollback()
-  // was found to reliably corrupt the PSRAM heap on EVERY boot — live-traced
-  // via heap_caps_check_integrity_all()/heap_caps_get_info() bracketing:
-  // clean immediately before the call, crashing/corrupted immediately after.
-  // This is what the entire earlier BUG-423 Ethernet investigation actually
-  // chased without knowing it — the malloc+free "fix" in ethernet_driver.cpp
-  // never addressed the real cause, it just changed heap layout enough to
-  // avoid ONE downstream symptom (the cli_history assert); "show status"
-  // (ESP.getPsramSize()/getFreePsram(), a more thorough PSRAM heap walk)
-  // still crashed on it every time regardless of that "fix" being in place.
-  // This function's only real job is to write ESP_OTA_IMG_VALID over
-  // ESP_OTA_IMG_PENDING_VERIFY so the bootloader's rollback-on-crash safety
-  // net doesn't revert a bad OTA update — that write is a no-op (and should
-  // never even touch flash/heap) for any OTHER state, which is what every
-  // boot in this project actually is (we've never completed a real OTA
-  // cycle that leaves a partition PENDING_VERIFY; every image so far was
-  // written directly via esptool serial flashing). Calling it unconditionally
-  // on every boot regardless of actual state is what exposed whatever bug
-  // is triggered by that no-op path. Guarding the call behind an explicit
-  // state check confines it to the one case it actually needs to run.
-  esp_ota_img_states_t ota_state = ESP_OTA_IMG_UNDEFINED;
-  const esp_partition_t *running = esp_ota_get_running_partition();
-  if (running && esp_ota_get_state_partition(running, &ota_state) == ESP_OK
-      && ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
-    heap_checkpoint("before esp_ota_mark_app_valid_cancel_rollback (PENDING_VERIFY)");
-    esp_ota_mark_app_valid_cancel_rollback();
-    ESP_LOGI("MAIN", "Firmware validated (OTA rollback cancelled)");
-    heap_checkpoint("after esp_ota_mark_app_valid_cancel_rollback");
-  }
+  // BUG-423: esp_ota_get_state_partition() (a READ, not
+  // esp_ota_mark_app_valid_cancel_rollback()'s write) was live-traced to
+  // reliably corrupt the PSRAM heap on this ESP-IDF version, 100%
+  // reproducible — see BUGS_INDEX.md for the full bisection trail.
+  //
+  // Given this, the whole esp_ota_get_running_partition() /
+  // esp_ota_get_state_partition() / esp_ota_mark_app_valid_cancel_rollback()
+  // family is avoided entirely here rather than guarded — guarding one call
+  // behind a state check just moved the corruption onto the check itself.
+  // This device has never completed a genuine OTA cycle (every image so far
+  // was written directly via esptool serial flashing), so skipping this is a
+  // no-op in practice today. KNOWN LIMITATION: if a real OTA update DOES
+  // happen via this project's own OTA feature in the future, the new image
+  // will stay in ESP_OTA_IMG_PENDING_VERIFY state forever (never confirmed),
+  // which means any LATER crash — even one unrelated to the new firmware —
+  // would trigger the bootloader's automatic rollback to the other
+  // partition. A future fix should read/write the otadata partition
+  // directly via esp_partition_read()/esp_partition_write() (bypassing
+  // esp_ota_ops.c's buggy wrapper) instead of re-enabling these calls.
+  // api_handler_ota_rollback() (src/ota_handler.cpp) also calls
+  // esp_ota_get_state_partition() — that's a rare, user-triggered action
+  // (not hit on every boot), left as-is for now but carries the same risk.
 }
 
 // ============================================================================
@@ -403,25 +370,6 @@ void setup() {
 // ============================================================================
 
 void loop() {
-  // BUG-423 FOLLOW-UP: periodic runtime heap-corruption watch. Boot-time
-  // checkpoints (setup()) all report clean, yet "show status" crashes deep
-  // in heap_caps_get_info()/TLSF minutes into uptime — so whatever corrupts
-  // the PSRAM heap happens DURING normal runtime, not during Ethernet init.
-  // Poll every 5s to narrow down when it first appears.
-  {
-    static uint32_t last_check_ms = 0;
-    uint32_t now = millis();
-    if (now - last_check_ms >= 5000) {
-      last_check_ms = now;
-      multi_heap_info_t info;
-      heap_caps_get_info(&info, MALLOC_CAP_SPIRAM);
-      Serial.printf("[RUNTIME-GETINFO] t=%lus free=%u largest=%u\n",
-                    (unsigned long)(now / 1000),
-                    (unsigned)info.total_free_bytes, (unsigned)info.largest_free_block);
-      Serial.flush();
-    }
-  }
-
   // Network subsystem (v3.0+ Wi-Fi auto-reconnect, Telnet server)
   network_manager_loop();
   cli_remote_loop();

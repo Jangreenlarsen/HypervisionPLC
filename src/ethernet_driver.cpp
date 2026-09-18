@@ -216,6 +216,15 @@ static void eth_ip_event_handler(void *arg, esp_event_base_t event_base,
 // vs. crashing every single time without it. Root cause is still not fully
 // understood (likely a heap-layout/fragmentation dependency rather than a
 // single buggy line), but the effect is solid and reproducible.
+//
+// CONFIRMED STILL REQUIRED (re-tested after also removing project-wide
+// -flto and the separate esp_ota_get_state_partition() corruption, see
+// main.cpp/platformio.ini): a cleanup pass that deleted this function
+// entirely — on the theory that -flto was the sole root cause and this was
+// now just diagnostic leftovers — reintroduced a 100%-reproducible crash
+// (same TLSF corruption, surfacing in cli_history_init()'s heap_caps_malloc()
+// right after boot). Restored. Do NOT remove this again without a full
+// multi-cycle reboot/show-status/show-ethernet re-verification first.
 static void eth_heap_checkpoint(const char *label) {
   bool ok = heap_caps_check_integrity_all(false);
   void *probe = heap_caps_malloc(3 * 1024 * 1024, MALLOC_CAP_SPIRAM);
