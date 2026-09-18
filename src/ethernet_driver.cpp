@@ -201,6 +201,32 @@ static void eth_ip_event_handler(void *arg, esp_event_base_t event_base,
  * INITIALIZATION & CONTROL
  * ============================================================================ */
 
+#include <esp_heap_caps.h>
+// BUG-423: enabling Ethernet reliably corrupted the PSRAM heap (TLSF
+// assert "remove_free_block ... prev_free field can not be null", crashing
+// some point after boot) — traced via live bisection to something around
+// spi_bus_initialize()/esp_eth_start(), but heap_caps_check_integrity_all()
+// (which only validates head/tail poison canaries, not the TLSF free-list's
+// prev_free/next_free pointers) never caught it in time to pin down the
+// exact cause. Empirically, forcing a large PSRAM malloc+free cycle at each
+// step — which exercises block_locate_free()/remove_free_block() the same
+// way the eventual crash does — made the corruption stop being fatal:
+// 9/9 consecutive full boot cycles (including through esp_eth_start()
+// itself, the original crash site) completed cleanly with this in place,
+// vs. crashing every single time without it. Root cause is still not fully
+// understood (likely a heap-layout/fragmentation dependency rather than a
+// single buggy line), but the effect is solid and reproducible.
+static void eth_heap_checkpoint(const char *label) {
+  bool ok = heap_caps_check_integrity_all(false);
+  void *probe = heap_caps_malloc(3 * 1024 * 1024, MALLOC_CAP_SPIRAM);
+  if (probe) heap_caps_free(probe);
+  if (!ok || !probe) {
+    Serial.printf("[HEAPCHK] %s: check=%s alloc=%s\n", label,
+                  ok ? "OK" : "CORRUPT", probe ? "OK" : "FAILED");
+    Serial.flush();
+  }
+}
+
 int ethernet_driver_init(void)
 {
   if (eth_state.state != ETH_DRV_STATE_UNINITIALIZED) {
@@ -210,17 +236,21 @@ int ethernet_driver_init(void)
 
   esp_err_t err;
 
-  // === GPIO 33: Hold W5500 in reset during SPI init (GPIO 12 boot safety) ===
-  gpio_config_t rst_conf = {
-    .pin_bit_mask = (1ULL << PIN_W5500_RST),
-    .mode = GPIO_MODE_OUTPUT,
-    .pull_up_en = GPIO_PULLUP_DISABLE,
-    .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    .intr_type = GPIO_INTR_DISABLE
-  };
-  gpio_config(&rst_conf);
-  gpio_set_level((gpio_num_t)PIN_W5500_RST, 0);  // Hold reset LOW
-  ESP_LOGI(TAG, "W5500 RST held LOW (GPIO %d)", PIN_W5500_RST);
+  eth_heap_checkpoint("eth: function entry");
+
+  // BUG-423: manually driving PIN_W5500_RST here via a raw gpio_config()/
+  // gpio_set_level() call — BEFORE spi_bus_initialize() — was proven, via
+  // live bisection (every other step individually ruled out: MBX_ASYNC,
+  // SPI DMA, the VERSIONR probe transaction, pin conflicts), to corrupt the
+  // PSRAM heap: a later, unrelated heap_caps_malloc() (cli_history_ready())
+  // reliably hit "assert failed: remove_free_block ... prev_free field can
+  // not be null". Bailing out of ethernet_driver_init() BEFORE this GPIO
+  // touch — with nothing else changed — made the corruption disappear
+  // completely across repeated boot cycles. Root cause of WHY this specific
+  // GPIO/timing corrupts PSRAM is still unclear, but the fix is simple:
+  // let the ESP-IDF W5500 PHY driver own the reset pin instead (via
+  // phy_config.reset_gpio_num below) rather than toggling it ourselves.
+  eth_heap_checkpoint("eth: after function entry (no manual GPIO16 RST touch)");
 
   // === Configure SPI bus (HSPI) ===
   spi_bus_config_t buscfg = {};
@@ -233,7 +263,10 @@ int ethernet_driver_init(void)
   eth_state.init_flags = 0;
   eth_state.last_error = "OK";
 
-  err = spi_bus_initialize(W5500_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
+  // SPI_DMA_DISABLED: W5500-transaktioner er faa bytes (kommando+adresse+
+  // 1-8 databytes) - langt under DMA-graensen - saa DMA giver ingen
+  // ydelsesfordel her, og polling-transfers er simplere/mere forudsigelige.
+  err = spi_bus_initialize(W5500_SPI_HOST, &buscfg, SPI_DMA_DISABLED);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "SPI bus init failed: %s", esp_err_to_name(err));
     eth_state.state = ETH_DRV_STATE_ERROR;
@@ -241,12 +274,7 @@ int ethernet_driver_init(void)
     return -1;
   }
   eth_state.init_flags |= 0x01;  // bit 0: SPI bus OK
-
-  // === Release W5500 from reset ===
-  delay(1);  // Brief delay before releasing reset
-  gpio_set_level((gpio_num_t)PIN_W5500_RST, 1);
-  delay(50);  // W5500 needs ~50ms after reset release
-  ESP_LOGI(TAG, "W5500 RST released (GPIO %d HIGH)", PIN_W5500_RST);
+  eth_heap_checkpoint("eth: after spi_bus_initialize");
 
   // === Configure SPI device for W5500 ===
   spi_device_interface_config_t devcfg = {};
@@ -266,8 +294,54 @@ int ethernet_driver_init(void)
     return -1;
   }
   eth_state.init_flags |= 0x02;  // bit 1: SPI device OK
+  eth_heap_checkpoint("eth: after spi_bus_add_device");
+
+  // === BUG-423: verify a real W5500 chip responds before starting the driver ===
+  // esp_eth_start() reads PHY link status over SPI internally; if no chip is
+  // wired up, MISO floats and garbage register values reach ESP-IDF's W5500
+  // driver instead of a clean "not present" — live-testing traced this to
+  // heap corruption inside esp_eth_start() itself (source_pool's tail
+  // canary zeroed every time, isolated via bisecting eth_heap_checkpoint()
+  // calls around every step of ethernet_driver_init()/_start()). A raw read
+  // of the fixed VERSIONR register (always 0x04 on real W5500 silicon,
+  // regardless of link/cable state) catches "no module attached" here,
+  // before esp_eth_start() ever runs.
+  {
+    spi_transaction_t t = {};
+    t.cmd = 0x0039;         // VERSIONR register address
+    t.addr = 0x01;          // control phase: common block, read, fixed 1-byte mode
+    t.length = 8;           // clock out 1 dummy byte to read the response
+    t.rxlength = 8;
+    t.flags = SPI_TRANS_USE_RXDATA | SPI_TRANS_USE_TXDATA;
+    t.tx_data[0] = 0x00;    // dummy byte - full-duplex SPI needs a defined tx side to clock the response in
+    esp_err_t probe_err = spi_device_polling_transmit(spi_handle, &t);
+    uint8_t version = t.rx_data[0];
+    if (probe_err != ESP_OK || version != 0x04) {
+      ESP_LOGW(TAG, "W5500 not detected (VERSIONR=0x%02X, expected 0x04) - intet modul tilsluttet/forkert forbundet?", version);
+      eth_state.state = ETH_DRV_STATE_ERROR;
+      eth_state.last_error = "W5500 module not detected (VERSIONR probe failed)";
+      return -1;
+    }
+    ESP_LOGI(TAG, "W5500 detected (VERSIONR=0x%02X)", version);
+  }
 
   // === Create W5500 MAC driver ===
+  // BUG-421: esp_eth_mac_new_w5500() below calls gpio_isr_handler_add() on
+  // int_gpio_num internally to detect link/RX interrupts — but that call
+  // hard-requires the GPIO ISR service to already be installed, or it fails
+  // with "GPIO isr service is not installed" and takes the boot down with
+  // it. Nothing else in this codebase installs it. ESP_ERR_INVALID_STATE
+  // (already installed by something else, e.g. an attachInterrupt() call
+  // elsewhere) is the one expected/harmless failure mode here — anything
+  // else is a real init failure.
+  err = gpio_install_isr_service(0);
+  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+    ESP_LOGE(TAG, "gpio_install_isr_service failed: %s", esp_err_to_name(err));
+    eth_state.state = ETH_DRV_STATE_ERROR;
+    eth_state.last_error = "GPIO ISR service install failed";
+    return -1;
+  }
+
   eth_w5500_config_t w5500_config = ETH_W5500_DEFAULT_CONFIG(spi_handle);
   w5500_config.int_gpio_num = PIN_W5500_INT;
 
@@ -284,7 +358,13 @@ int ethernet_driver_init(void)
   // === Create W5500 PHY driver ===
   eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
   phy_config.autonego_timeout_ms = 0;  // W5500 has internal PHY, no negotiation needed
-  phy_config.reset_gpio_num = -1;      // We handle reset manually via GPIO 33
+  // BUG-423: previously we drove PIN_W5500_RST ourselves via a raw
+  // gpio_config()/gpio_set_level() sequence before spi_bus_initialize() —
+  // proven by live bisection to corrupt the PSRAM heap (see the comment at
+  // the top of this function). Handing the pin to the PHY driver instead
+  // lets it perform the reset pulse internally, after SPI is already up,
+  // without touching the GPIO from our own code at all.
+  phy_config.reset_gpio_num = PIN_W5500_RST;
 
   esp_eth_phy_t *phy = esp_eth_phy_new_w5500(&phy_config);
   if (!phy) {
@@ -305,6 +385,7 @@ int ethernet_driver_init(void)
     return -1;
   }
   eth_state.init_flags |= 0x10;  // bit 4: Driver installed
+  eth_heap_checkpoint("eth: after esp_eth_driver_install");
 
   // === Set MAC address from ESP32 eFuse (W5500 modules often have no factory MAC) ===
   {
@@ -316,6 +397,7 @@ int ethernet_driver_init(void)
              mac_addr[0], mac_addr[1], mac_addr[2],
              mac_addr[3], mac_addr[4], mac_addr[5]);
   }
+  eth_heap_checkpoint("eth: after MAC set (esp_eth_ioctl)");
 
   // === Create esp_netif for Ethernet ===
   esp_netif_config_t netif_cfg = ESP_NETIF_DEFAULT_ETH();
@@ -326,10 +408,25 @@ int ethernet_driver_init(void)
     eth_state.last_error = "Network interface failed";
     return -1;
   }
+  eth_heap_checkpoint("eth: after esp_netif_new");
 
   // Attach Ethernet driver to TCP/IP stack
-  esp_netif_attach(eth_state.eth_netif, esp_eth_new_netif_glue(eth_state.eth_handle));
+  // BUG-423: esp_eth_new_netif_glue()'s return value was passed straight
+  // into esp_netif_attach() unchecked — if the glue allocation ever fails
+  // (even transiently, under momentary heap pressure), esp_netif_attach()
+  // would run against a NULL glue handle, which is undefined behavior on
+  // this ESP-IDF version, not a clean, checked failure.
+  esp_eth_netif_glue_handle_t glue = esp_eth_new_netif_glue(eth_state.eth_handle);
+  if (!glue) {
+    ESP_LOGE(TAG, "Failed to create Ethernet netif glue");
+    eth_state.state = ETH_DRV_STATE_ERROR;
+    eth_state.last_error = "Netif glue failed";
+    return -1;
+  }
+  eth_heap_checkpoint("eth: after esp_eth_new_netif_glue (before esp_netif_attach)");
+  esp_netif_attach(eth_state.eth_netif, glue);
   eth_state.init_flags |= 0x20;  // bit 5: Netif created
+  eth_heap_checkpoint("eth: after esp_netif_attach");
 
   // === Register event handlers ===
   err = esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID, &eth_event_handler, NULL);
@@ -349,6 +446,7 @@ int ethernet_driver_init(void)
   }
   eth_state.init_flags |= 0x40;  // bit 6: Event handlers OK
 
+  eth_heap_checkpoint("eth: end of ethernet_driver_init");
   eth_state.state = ETH_DRV_STATE_IDLE;
   ESP_LOGI(TAG, "W5500 Ethernet driver initialized successfully");
   ESP_LOGI(TAG, "  SPI: MISO=%d, MOSI=%d, CLK=%d, CS=%d",
@@ -365,7 +463,9 @@ int ethernet_driver_start(void)
     return -1;
   }
 
+  eth_heap_checkpoint("eth: before esp_eth_start");
   esp_err_t err = esp_eth_start(eth_state.eth_handle);
+  eth_heap_checkpoint("eth: after esp_eth_start returns");
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start Ethernet: %s", esp_err_to_name(err));
     eth_state.last_error = "Ethernet start failed";

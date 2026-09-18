@@ -8,6 +8,7 @@
 
 #include <Arduino.h>
 #include <nvs_flash.h>
+#include <driver/gpio.h>  // BUG-423: gpio_install_isr_service()
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "constants.h"
@@ -50,6 +51,16 @@
 #include "system_log.h"        // FEAT-086/089 - Event + register-change log
 #include "api_audit_log.h"     // FEAT-033 - Request audit log
 #include <esp_ota_ops.h>       // v7.5.0 - FEAT-031 OTA boot validation
+#include <esp_heap_caps.h>     // BUG-423: heap-integrity checkpoints around Ethernet startup
+
+// BUG-423: prints a labeled heap-integrity check. Kept as a permanent,
+// low-cost sanity check around Ethernet startup (see ethernet_driver.cpp
+// for the full BUG-423 writeup and the actual fix).
+static void heap_checkpoint(const char *label) {
+  bool ok = heap_caps_check_integrity_all(true);
+  Serial.printf("[HEAPCHK] %s: %s\n", label, ok ? "OK" : "CORRUPT!!");
+  Serial.flush();
+}
 
 // ============================================================================
 // GLOBAL CONSOLE
@@ -64,6 +75,14 @@ Console *g_serial_console = NULL;  // Used by cli_commands.cpp to detect Serial 
 void setup() {
   // Disable brownout detector (38-pin boards with weak USB power)
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
+  // BUG-421/423: install the GPIO ISR service before any subsystem needs
+  // it (the W5500 MAC driver's interrupt-driven RX/link detection requires
+  // this to already be installed, or it fails and takes boot down with it —
+  // see ethernet_driver.cpp). Harmless this early; a race-condition theory
+  // for BUG-423 that motivated moving it here was ruled out (see BUG-423),
+  // but there's no reason to move it back either.
+  gpio_install_isr_service(0);
 
   // Initialize serial ports
   Serial.begin(SERIAL_BAUD_DEBUG);      // USB debug (UART0)
@@ -245,7 +264,9 @@ void setup() {
     // Start Ethernet if enabled (independent of Wi-Fi)
     if (g_persist_config.network.ethernet.enabled) {
       Serial.println("Starting Ethernet (W5500)");
+      heap_checkpoint("right before network_manager_start_ethernet");
       network_manager_start_ethernet(&g_persist_config.network);
+      heap_checkpoint("after network_manager_start_ethernet");
     }
   } else {
     Serial.println("ERROR: Failed to initialize network manager");

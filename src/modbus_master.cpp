@@ -207,7 +207,23 @@ void modbus_master_reconfigure() {
   } else { // None
     uart_config = (g_modbus_master_config.stop_bits == 2) ? SERIAL_8N2 : SERIAL_8N1;
   }
-  uart1_stop();
+  // BUG-422: uart1_stop() used to run here before uart1_init_ex() — but on
+  // ES32D26, GPIO1/3 are hardcoded to shares_usb=true, so stop() ends
+  // ModbusSlaveSerial AND immediately calls Serial.begin() to reclaim the
+  // pins for the USB console, only for uart1_init_ex() (microseconds
+  // later, no delay) to tear the SAME pins back off Serial and reinstall
+  // ModbusSlaveSerial's own driver on them. Two independent UART driver
+  // installs on identical physical pins back-to-back, with the GPIO matrix
+  // changing owners mid-sequence, corrupted the heap — it crashed not here
+  // but at the NEXT unrelated calloc (uart_driver_install's ring buffers),
+  // the classic signature of trashed TLSF metadata. uart1_init_ex()
+  // already safely re-inits an ALREADY-ACTIVE UART on its own (same
+  // pattern MbTempBaud already relies on for temporary baud changes,
+  // cli_commands_modbus_master.cpp, with no stop() call either) — the stop
+  // here was both unnecessary and actively harmful. uart1_stop()'s USB-
+  // reclaim logic stays correct for its real use, permanent disable
+  // (modbus_master_set_enabled(false)) — only this reconfigure-time call
+  // is removed.
   uart1_init_ex(g_modbus_master_config.baudrate, uart_config);
   // DIR pin setup
   pinMode(uart_get_master_dir_pin(), OUTPUT);

@@ -1263,24 +1263,34 @@ void cli_cmd_show_config(const char *section) {
   debug_print("  ethernet: ");
   debug_println(g_persist_config.network.ethernet.enabled ? "enabled" : "disabled");
 
-  // RS485 UART pin config
-  debug_println("  [RS485 UART1]");
+  // RS485 UART pin config — BUG-420: boardet har KUN én fysisk RS485-
+  // transceiver (delt med USB-debug-serial); "UART1"/"UART2" her er hvilken
+  // ESP32 hardware-UART-periferi (Serial1_inst/Serial2_inst) der er valgt
+  // til at drive DEN ene fysiske port (se modbus_slave_uart/
+  // modbus_master_uart), ikke to uafhængige busser. Begge felter
+  // (uart1_*_pin/uart2_*_pin) er reelt uafhængige override-slots — man kan
+  // fint sætte forskellige pins for hver periferi hvis boardet fysisk
+  // understøtter det — men når INGEN override er sat, er der kun ét
+  // board-default-pinsæt at falde tilbage til (ingen PIN_UART2_*-konstant
+  // findes), så begge sektioner viste tidligere identisk tekst uden
+  // forklaring — så ud som en pinkonflikt, men er ikke én.
+  debug_println("  [RS485 - UART1-periferi]");
   if (g_persist_config.uart1_tx_pin != 0xFF) {
     debug_printf("    TX=GPIO%u  RX=GPIO%u", g_persist_config.uart1_tx_pin, g_persist_config.uart1_rx_pin);
     if (g_persist_config.uart1_dir_pin != 0xFF)
       debug_printf("  DIR=GPIO%u", g_persist_config.uart1_dir_pin);
     debug_println("");
   } else {
-    debug_printf("    (board default: TX=GPIO%u RX=GPIO%u DIR=GPIO%u)\n", PIN_UART1_TX, PIN_UART1_RX, PIN_RS485_DIR);
+    debug_printf("    (delt fysisk RS485-connector, board default: TX=GPIO%u RX=GPIO%u DIR=GPIO%u)\n", PIN_UART1_TX, PIN_UART1_RX, PIN_RS485_DIR);
   }
-  debug_println("  [RS485 UART2]");
+  debug_println("  [RS485 - UART2-periferi]");
   if (g_persist_config.uart2_tx_pin != 0xFF) {
     debug_printf("    TX=GPIO%u  RX=GPIO%u", g_persist_config.uart2_tx_pin, g_persist_config.uart2_rx_pin);
     if (g_persist_config.uart2_dir_pin != 0xFF)
       debug_printf("  DIR=GPIO%u", g_persist_config.uart2_dir_pin);
     debug_println("");
   } else {
-    debug_printf("    (board default: TX=GPIO%u RX=GPIO%u DIR=GPIO%u)\n", PIN_UART1_TX, PIN_UART1_RX, PIN_RS485_DIR);
+    debug_printf("    (delt fysisk RS485-connector, SAMME pins som UART1-periferiens board default: TX=GPIO%u RX=GPIO%u DIR=GPIO%u)\n", PIN_UART1_TX, PIN_UART1_RX, PIN_RS485_DIR);
   }
 
   } // end show_modules
