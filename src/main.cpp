@@ -60,6 +60,18 @@ static void heap_checkpoint(const char *label) {
   bool ok = heap_caps_check_integrity_all(true);
   Serial.printf("[HEAPCHK] %s: %s\n", label, ok ? "OK" : "CORRUPT!!");
   Serial.flush();
+
+  // BUG-423 FOLLOW-UP: "show status" crashes in heap_caps_get_info() even
+  // when heap_caps_check_integrity_all() above reports OK - exercise the
+  // exact same call here too, to bracket where this specific corruption
+  // (not caught by the integrity check) actually appears.
+  Serial.printf("[GETINFO] %s: probing...\n", label);
+  Serial.flush();
+  multi_heap_info_t info;
+  heap_caps_get_info(&info, MALLOC_CAP_SPIRAM);
+  Serial.printf("[GETINFO] %s: OK (free=%u largest=%u)\n", label,
+                (unsigned)info.total_free_bytes, (unsigned)info.largest_free_block);
+  Serial.flush();
 }
 
 // ============================================================================
@@ -355,10 +367,35 @@ void setup() {
 
   cli_shell_init(g_serial_console);  // CLI system (last, shows prompt)
 
-  // FEAT-031: OTA boot validation — confirm firmware is working
-  // If this was an OTA update, mark it valid so bootloader won't rollback
-  esp_ota_mark_app_valid_cancel_rollback();
-  ESP_LOGI("MAIN", "Firmware validated (OTA rollback cancelled)");
+  // BUG-423 (root cause, corrected): esp_ota_mark_app_valid_cancel_rollback()
+  // was found to reliably corrupt the PSRAM heap on EVERY boot — live-traced
+  // via heap_caps_check_integrity_all()/heap_caps_get_info() bracketing:
+  // clean immediately before the call, crashing/corrupted immediately after.
+  // This is what the entire earlier BUG-423 Ethernet investigation actually
+  // chased without knowing it — the malloc+free "fix" in ethernet_driver.cpp
+  // never addressed the real cause, it just changed heap layout enough to
+  // avoid ONE downstream symptom (the cli_history assert); "show status"
+  // (ESP.getPsramSize()/getFreePsram(), a more thorough PSRAM heap walk)
+  // still crashed on it every time regardless of that "fix" being in place.
+  // This function's only real job is to write ESP_OTA_IMG_VALID over
+  // ESP_OTA_IMG_PENDING_VERIFY so the bootloader's rollback-on-crash safety
+  // net doesn't revert a bad OTA update — that write is a no-op (and should
+  // never even touch flash/heap) for any OTHER state, which is what every
+  // boot in this project actually is (we've never completed a real OTA
+  // cycle that leaves a partition PENDING_VERIFY; every image so far was
+  // written directly via esptool serial flashing). Calling it unconditionally
+  // on every boot regardless of actual state is what exposed whatever bug
+  // is triggered by that no-op path. Guarding the call behind an explicit
+  // state check confines it to the one case it actually needs to run.
+  esp_ota_img_states_t ota_state = ESP_OTA_IMG_UNDEFINED;
+  const esp_partition_t *running = esp_ota_get_running_partition();
+  if (running && esp_ota_get_state_partition(running, &ota_state) == ESP_OK
+      && ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+    heap_checkpoint("before esp_ota_mark_app_valid_cancel_rollback (PENDING_VERIFY)");
+    esp_ota_mark_app_valid_cancel_rollback();
+    ESP_LOGI("MAIN", "Firmware validated (OTA rollback cancelled)");
+    heap_checkpoint("after esp_ota_mark_app_valid_cancel_rollback");
+  }
 }
 
 // ============================================================================
@@ -366,6 +403,25 @@ void setup() {
 // ============================================================================
 
 void loop() {
+  // BUG-423 FOLLOW-UP: periodic runtime heap-corruption watch. Boot-time
+  // checkpoints (setup()) all report clean, yet "show status" crashes deep
+  // in heap_caps_get_info()/TLSF minutes into uptime — so whatever corrupts
+  // the PSRAM heap happens DURING normal runtime, not during Ethernet init.
+  // Poll every 5s to narrow down when it first appears.
+  {
+    static uint32_t last_check_ms = 0;
+    uint32_t now = millis();
+    if (now - last_check_ms >= 5000) {
+      last_check_ms = now;
+      multi_heap_info_t info;
+      heap_caps_get_info(&info, MALLOC_CAP_SPIRAM);
+      Serial.printf("[RUNTIME-GETINFO] t=%lus free=%u largest=%u\n",
+                    (unsigned long)(now / 1000),
+                    (unsigned)info.total_free_bytes, (unsigned)info.largest_free_block);
+      Serial.flush();
+    }
+  }
+
   // Network subsystem (v3.0+ Wi-Fi auto-reconnect, Telnet server)
   network_manager_loop();
   cli_remote_loop();
