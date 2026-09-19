@@ -1775,6 +1775,8 @@ bool cli_parser_execute(char* line) {
             g_persist_config.modbus_slave_uart, g_persist_config.modbus_master_uart);
 #if MODBUS_SINGLE_TRANSCEIVER
           debug_println("  (ES32D26: kun en RS485 — slave ELLER master, ikke begge)");
+          debug_println("  (uartN her er et pin-override-slot-navn, ikke en separat UART-");
+          debug_println("   perifer-instans — ES32D26 har fysisk kun ét UART0-perifer)");
 #endif
           debug_println("");
           return true;

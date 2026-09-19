@@ -1357,6 +1357,13 @@ void cli_cmd_show_config(const char *section) {
   else if (g_persist_config.modbus_mode == MODBUS_MODE_OFF) debug_println("off");
   else debug_println("slave");
 
+  // BUG-423 opfolgning: "uartN" her er IKKE en fysisk UART-perifer-instans -
+  // det er blot navnet paa hvilket pin-override-slot (uart1_*_pin/
+  // uart2_*_pin) der konsulteres for RX/TX-pins; se PIN_UART1_TX/RX i
+  // constants.h. Paa ES32D26 er der reelt kun ét fysisk UART0-perifer
+  // (delt mellem USB-konsol og RS485). Kommandoerne herunder er stadig den
+  // korrekte, virkende syntax til at genskabe konfigurationen - navnet
+  // "uart2" maa ikke laeses som "et andet fysisk UART-perifer".
   debug_print("set modbus slave uart uart");
   debug_print_uint(g_persist_config.modbus_slave_uart);
   debug_println("");
