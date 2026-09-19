@@ -1263,35 +1263,26 @@ void cli_cmd_show_config(const char *section) {
   debug_print("  ethernet: ");
   debug_println(g_persist_config.network.ethernet.enabled ? "enabled" : "disabled");
 
-  // RS485 UART pin config — BUG-420: boardet har KUN én fysisk RS485-
-  // transceiver (delt med USB-debug-serial); "UART1"/"UART2" her er hvilken
-  // ESP32 hardware-UART-periferi (Serial1_inst/Serial2_inst) der er valgt
-  // til at drive DEN ene fysiske port (se modbus_slave_uart/
-  // modbus_master_uart), ikke to uafhængige busser. Begge felter
-  // (uart1_*_pin/uart2_*_pin) er reelt uafhængige override-slots — man kan
-  // fint sætte forskellige pins for hver periferi hvis boardet fysisk
-  // understøtter det — men når INGEN override er sat, er der kun ét
-  // board-default-pinsæt at falde tilbage til (ingen PIN_UART2_*-konstant
-  // findes), så begge sektioner viste tidligere identisk tekst uden
-  // forklaring — så ud som en pinkonflikt, men er ikke én.
-  debug_println("  [RS485 - UART1-periferi]");
+  // RS485/USB UART pin config — BUG-423 opfolgning: boardet har KUN ét
+  // fysisk UART-perifer (ESP32 hardware UART0, GPIO1/GPIO3) — der findes
+  // ikke separate "UART1"/"UART2"-perifer-slots på dette board, uanset hvad
+  // tidligere tekst her og andre steder i projektet har kaldt dem. Samme
+  // fysiske pinpar er ENTEN USB-konsollen (UART0 i dens sædvanlige rolle)
+  // ELLER RS485-transceiveren — aldrig begge samtidig. Valget sker ved boot
+  // (se det 5-sekunders vindue i setup(), src/main.cpp).
+  debug_println("  [USB Console - UART0-periferi]");
+  debug_printf("    (Delt fysisk USB, board default: TX=GPIO%u RX=GPIO%u DIR=GPIO%u)\n",
+               PIN_UART1_TX, PIN_UART1_RX, PIN_RS485_DIR);
+  debug_println("  [RS485 - UART0-periferi]");
   if (g_persist_config.uart1_tx_pin != 0xFF) {
     debug_printf("    TX=GPIO%u  RX=GPIO%u", g_persist_config.uart1_tx_pin, g_persist_config.uart1_rx_pin);
     if (g_persist_config.uart1_dir_pin != 0xFF)
       debug_printf("  DIR=GPIO%u", g_persist_config.uart1_dir_pin);
     debug_println("");
   } else {
-    debug_printf("    (delt fysisk RS485-connector, board default: TX=GPIO%u RX=GPIO%u DIR=GPIO%u)\n", PIN_UART1_TX, PIN_UART1_RX, PIN_RS485_DIR);
+    debug_printf("    (Delt fysisk RS485-connector, board default: TX=GPIO%u RX=GPIO%u DIR=GPIO%u)\n", PIN_UART1_TX, PIN_UART1_RX, PIN_RS485_DIR);
   }
-  debug_println("  [RS485 - UART2-periferi]");
-  if (g_persist_config.uart2_tx_pin != 0xFF) {
-    debug_printf("    TX=GPIO%u  RX=GPIO%u", g_persist_config.uart2_tx_pin, g_persist_config.uart2_rx_pin);
-    if (g_persist_config.uart2_dir_pin != 0xFF)
-      debug_printf("  DIR=GPIO%u", g_persist_config.uart2_dir_pin);
-    debug_println("");
-  } else {
-    debug_printf("    (delt fysisk RS485-connector, SAMME pins som UART1-periferiens board default: TX=GPIO%u RX=GPIO%u DIR=GPIO%u)\n", PIN_UART1_TX, PIN_UART1_RX, PIN_RS485_DIR);
-  }
+  debug_println("  Note: for at bruge USB er der et 5 sek delay under boot hvor man kan vaelge USB console frem for RS485-transceiveren.");
 
   } // end show_modules
 
@@ -5086,6 +5077,8 @@ void cli_cmd_show_status(void) {
     debug_println("[WATCHDOG]");
     debug_printf("  Enabled: %s  reboots=%lu\n",
                  wd->enabled ? "YES" : "NO", (unsigned long)wd->reboot_counter);
+    debug_printf("  Last reset reason: %s\n",
+                 watchdog_reset_reason_to_str(wd->last_reset_reason));
     if (wd->last_error[0]) {
       debug_printf("  Last error: %s\n", wd->last_error);
     }

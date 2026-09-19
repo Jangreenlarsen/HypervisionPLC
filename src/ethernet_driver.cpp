@@ -305,6 +305,19 @@ int ethernet_driver_init(void)
   eth_state.init_flags |= 0x02;  // bit 1: SPI device OK
   eth_heap_checkpoint("eth: after spi_bus_add_device");
 
+  // BUG-423: a software RST-deassert here (gpio_config()+gpio_set_level() on
+  // PIN_W5500_RST, to work around the pin floating low before the PHY driver
+  // takes ownership of it) was tried and REVERTED — live-testing showed it
+  // reintroduces the exact same TLSF/PSRAM heap corruption this file's other
+  // BUG-423 fixes eliminated (3/13 boot cycles crashed in cli_cmd_show_status()
+  // -> ESP.getPsramSize() -> heap_caps_get_info(), same signature as before),
+  // confirming the original finding that touching this GPIO manually anywhere
+  // in this path is unsafe, not just when done before spi_bus_initialize().
+  // Fixed on the hardware side instead: a 1k pull-up resistor between RST and
+  // 3.3V keeps the pin deasserted by default without any software involvement.
+  // Do NOT re-add a manual GPIO touch on PIN_W5500_RST without a full 13+
+  // cycle re-verification.
+
   // === BUG-423: verify a real W5500 chip responds before starting the driver ===
   // esp_eth_start() reads PHY link status over SPI internally; if no chip is
   // wired up, MISO floats and garbage register values reach ESP-IDF's W5500
@@ -325,6 +338,21 @@ int ethernet_driver_init(void)
     t.tx_data[0] = 0x00;    // dummy byte - full-duplex SPI needs a defined tx side to clock the response in
     esp_err_t probe_err = spi_device_polling_transmit(spi_handle, &t);
     uint8_t version = t.rx_data[0];
+    // BUG-423 opfolgning: ESP_LOGW her viste sig ikke synlig paa konsollen
+    // (formentlig filtreret af log-runtime niveau uafhaengigt af den
+    // compile-time LOG_LOCAL_LEVEL=WARN) - brug Serial.printf direkte,
+    // samme moenster som eth_heap_checkpoint() ovenfor, saa den faktiske
+    // VERSIONR-byte er synlig ved fejlsoegning af rigtig, tilsluttet hardware.
+    // Live-testet med et fysisk, strømsat W5500-modul (LED tændt, kontinuitet
+    // OK): probe returnerede konsekvent 0x00 (ingen buskfejl, men heller ingen
+    // reel data fra chippen — bekræftet med en write+read-back-test på et
+    // andet register, som heller ikke kom tilbage). Konklusionen var IKKE en
+    // software- eller ledningsfejl, men et forkert ESP32-board — sagen er
+    // sat på pause af brugeren. VERSIONR-adresse/kontrolbyte-logikken herunder
+    // er verificeret korrekt mod W5500-datasheetet og er ikke mistænkt.
+    Serial.printf("[ETH] VERSIONR probe: err=%s version=0x%02X (forventet 0x04)\n",
+                  esp_err_to_name(probe_err), version);
+    Serial.flush();
     if (probe_err != ESP_OK || version != 0x04) {
       ESP_LOGW(TAG, "W5500 not detected (VERSIONR=0x%02X, expected 0x04) - intet modul tilsluttet/forkert forbundet?", version);
       eth_state.state = ETH_DRV_STATE_ERROR;

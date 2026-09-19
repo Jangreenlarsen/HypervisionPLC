@@ -80,6 +80,14 @@ void watchdog_set_timeout(uint32_t timeout_ms);
 WatchdogState* watchdog_get_state(void);
 
 /**
+ * @brief Convert an esp_reset_reason_t value (as stored in
+ *        WatchdogState.last_reset_reason) to a human-readable string
+ * @param reason_val Value from WatchdogState.last_reset_reason
+ * @return Reset reason string
+ */
+const char* watchdog_reset_reason_to_str(uint32_t reason_val);
+
+/**
  * @brief Track Modbus RX activity (optional health monitoring)
  *
  * Call this when Modbus frame is successfully received.

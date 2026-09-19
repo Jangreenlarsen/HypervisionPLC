@@ -46,8 +46,8 @@ static uint32_t g_watchdog_timeout_ms = WATCHDOG_TIMEOUT_MS;
  * @brief Get ESP32 reset reason as string
  * @return Reset reason string
  */
-static const char* watchdog_get_reset_reason_str(void) {
-  esp_reset_reason_t reason = esp_reset_reason();
+const char* watchdog_reset_reason_to_str(uint32_t reason_val) {
+  esp_reset_reason_t reason = (esp_reset_reason_t)reason_val;
 
   switch (reason) {
     case ESP_RST_UNKNOWN:    return "Unknown";
@@ -98,7 +98,7 @@ void watchdog_init(void) {
 
   // Log reset reason
   debug_print("WATCHDOG: Reset reason: ");
-  debug_println(watchdog_get_reset_reason_str());
+  debug_println(watchdog_reset_reason_to_str(g_watchdog_state.last_reset_reason));
   debug_print("WATCHDOG: Reboot counter: ");
   debug_print_uint(g_watchdog_state.reboot_counter);
   debug_println("");

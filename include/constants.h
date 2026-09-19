@@ -453,12 +453,32 @@ typedef enum {
   #define PIN_I2C_SDA         -1
   #define PIN_I2C_SCL         -1
   // W5500 SPI (ekstern modul, bruger ledige GPIOs: 4, 5, 16, 17, 18, 19)
+  //
+  // BUG-423 — MULIG SAMLENDE RODAARSAG (identificeret af bruger, IKKE
+  // eksperimentelt bekraeftet med pin-flytning endnu): GPIO16 og GPIO17
+  // bruges INTERNT af mange ESP32-WROVER-moduler til modulets PSRAM-chip
+  // (dedikeret SPI-forbindelse mellem WROVER-modulet og dets ombord-PSRAM,
+  // uafhaengigt af hvad brugeren selv kabler op udenpaa modulet). Denne
+  // firmware er udviklet/testet paa et ESP32-WROVER-DEV-board (ikke et
+  // ESP32-DevKitC/WROOM-board), hvor GPIO16 (PIN_W5500_RST) og GPIO17
+  // (PIN_SPI_MOSI) derfor IKKE er frie GPIO'er, som antaget her, men er
+  // fysisk delt med PSRAM'ens egen SPI-bus. At bruge dem til W5500's
+  // RST/MOSI kan forklare HELE denne bugs mangeaarige, uforklarlige,
+  // heap-layout-afhaengige PSRAM/TLSF-korruption (baade boot- og
+  // runtime-varianten) bedre end nogen af de tidligere teorier — en
+  // GPIO-konflikt paa selve PSRAM-busen ville netop give netop den slags
+  // intermitterende, layout-foelsomme korruption der er set hele vejen
+  // igennem. ANBEFALET NAESTE SKRIDT: flyt PIN_W5500_RST og PIN_SPI_MOSI
+  // vaek fra GPIO16/17 til andre ledige GPIO'er og genverificer hele
+  // BUG-423-testprotokollen (boot- og runtime-cyklusser) for at bekraefte
+  // dette empirisk. Ikke gjort endnu — kun dokumenteret her efter brugerens
+  // opdagelse.
   #define PIN_SPI_MISO        19    // VSPI MISO (ledig)
-  #define PIN_SPI_MOSI        17    // Remapped MOSI (ledig)
+  #define PIN_SPI_MOSI        17    // Remapped MOSI (⚠️ muligvis delt med WROVER PSRAM, se ovenfor)
   #define PIN_SPI_CLK         18    // VSPI CLK  (ledig)
   #define PIN_SPI_CS          5     // Chip Select (ledig, ⚠️ strapping pin)
   #define PIN_W5500_INT       4     // Interrupt (ledig)
-  #define PIN_W5500_RST       16    // Hardware Reset (ledig)
+  #define PIN_W5500_RST       16    // Hardware Reset (⚠️ muligvis delt med WROVER PSRAM, se ovenfor)
   // BUG-423: skiftet fra SPI3_HOST (VSPI) til SPI2_HOST (HSPI) under
   // fejlsøgning af PSRAM-heap-korruption ved Ethernet-aktivering. Alle
   // W5500-ben er alligevel GPIO-matrix-remappede her (ingen af dem er nogen
@@ -469,6 +489,11 @@ typedef enum {
   // konfiguration, den endelige fix er verificeret med (9/9 rene boots).
   #define W5500_SPI_HOST      SPI2_HOST   // HSPI
   #define W5500_SPI_CLOCK_HZ  (8 * 1000 * 1000)   // 8 MHz (ekstern modul)
+  // BUG-423 opfolgning: VERSIONR-probe rapporterer "no SPI response" med et
+  // fysisk tilsluttet, strømsat modul (LED tændt, kontinuitet OK på alle
+  // ben, 3.3V-modul). Testet ned til 1 MHz — ingen forskel, så det er ikke
+  // signalintegritet/clock-hastighed. Se BUGS_INDEX.md for videre
+  // undersøgelse.
   // Analog Inputs — Spænding (onboard signal conditioning)
   #define PIN_AI_V1           14    // Vi1: 0-10V (ADC2_CH6, ⚠️ ikke med WiFi)
   #define PIN_AI_V2           33    // Vi2: 0-10V (ADC1_CH5, ✅ OK med WiFi)
@@ -660,7 +685,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.68.21"
+#define PROJECT_VERSION     "7.9.68.23"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:

@@ -1862,7 +1862,8 @@ bool cli_parser_execute(char* line) {
 
         if (uart_num != 1 && uart_num != 2) {
           debug_println("SET MODUL RS485: kun uart1 eller uart2");
-          debug_println("  (UART0 er reserveret til USB console)");
+          debug_println("  (uart1/uart2 er pin-override-slots, ikke separate UART-perifer-instanser");
+          debug_println("   pa alle boards - se 'show modules' for hvad der reelt er tilsluttet)");
           return false;
         }
 

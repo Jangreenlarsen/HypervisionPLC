@@ -7,6 +7,7 @@
  */
 
 #include <Arduino.h>
+#include <esp_system.h>
 #include <nvs_flash.h>
 #include <driver/gpio.h>  // BUG-421: gpio_install_isr_service()
 #include "soc/soc.h"
@@ -80,6 +81,11 @@ void setup() {
   Serial.printf("Version: %s Build #%d\n", PROJECT_VERSION, BUILD_NUMBER);
   Serial.printf("Built: %s\n", BUILD_TIMESTAMP);
   Serial.printf("Git: %s@%s\n", GIT_BRANCH, GIT_HASH);
+  // BUG-423 opfolgning: "show status" crasher minutter inde i oppetiden uden
+  // nogen panic-backtrace paa konsollen (ren, hurtig genstart) - print den
+  // faktiske reset-aarsag saa vi kan se om det er ESP_RST_PANIC/TASK_WDT/
+  // INT_WDT/WDT/BROWNOUT/osv. i stedet for at gaette ud fra fravaeret af tekst.
+  Serial.printf("Reset reason: %d\n", (int)esp_reset_reason());
   Serial.println("");
 
   // Initialize NVS flash (for configuration persistence)
@@ -213,8 +219,11 @@ void setup() {
   }
 
   Serial.println("\nSetup complete.");
-  Serial.println("Modbus RTU Server ready on UART1 (GPIO4/5, 9600 baud)");
-  Serial.println("RS485 DIR control on GPIO15");
+  // Kun ét fysisk UART-perifer (UART0, GPIO1/GPIO3), delt mellem USB-
+  // konsollen og RS485-transceiveren — ikke separate "UART1/UART2".
+  Serial.printf("Modbus RTU Server ready on UART0 (RS485, GPIO%d/%d, 9600 baud)\n",
+                 PIN_UART1_TX, PIN_UART1_RX);
+  Serial.printf("RS485 DIR control on GPIO%d\n", PIN_RS485_DIR);
   Serial.println("Registers: 256 holding (0-255), 256 input (0-255)");
   Serial.println("  ST Logic status: Input registers 200-251");
   Serial.println("  ST Logic control: Holding registers 200-235");
