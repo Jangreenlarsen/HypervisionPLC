@@ -28,6 +28,20 @@
 .sub-tabs button{padding:3px 12px;font-size:11px;font-weight:600;background:#313244;color:#a6adc8;border:1px solid transparent;border-radius:4px;cursor:pointer;transition:all .15s}
 .sub-tabs button:hover{background:#45475a;color:#cdd6f4}
 .sub-tabs button.active{background:#1e1e2e;color:#89b4fa;border-color:#89b4fa}
+/* FEAT-418: gemte kort-layouts */
+.layout-tools{margin-left:auto;position:relative;display:flex;gap:6px;align-items:center}
+.layout-presets{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:340px;max-width:calc(100vw - 32px);background:#1e1e2e;border:1px solid #45475a;border-radius:6px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:12px;color:#cdd6f4}
+.layout-presets.show{display:block}
+.layout-presets .lp-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6c7086;margin-bottom:4px}
+.layout-presets .lp-row{display:flex;gap:6px;align-items:center}
+.layout-presets input{flex:1;min-width:0;padding:4px 6px;background:#11111b;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;font-size:12px}
+.layout-presets .lp-hint{font-size:10px;color:#6c7086;margin-top:4px}
+.layout-presets .lp-item{display:flex;gap:6px;align-items:center;padding:5px 0;border-top:1px solid #313244}
+.layout-presets .lp-item.other{opacity:.6}
+.layout-presets .lp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.layout-presets .lp-meta{display:block;font-size:10px;color:#6c7086}
+.layout-presets .lp-empty{color:#6c7086;padding:4px 0}
+.layout-presets .lp-foot{margin-top:8px;padding-top:8px;border-top:1px solid #313244;justify-content:flex-end}
 /* FEAT-160: fast 12-kolonners grid — hvert kort placeres med en inline
    grid-column/grid-row (fra gridLayout{}) i stedet for browser-auto-placering.
    .card-wide-klassen (stadig i HTML'en paa mbactivity/alarms/syslog) bruges
@@ -150,7 +164,18 @@
 <button onclick="showSubTab('connections',this)">Forbindelser</button>
 <button onclick="showSubTab('app',this)">Applikation</button>
 <button onclick="showSubTab('custom',this)" title="Dine egne valgte kort — vælges på Indstillinger-siden. Et kort her forsvinder ikke fra sin normale fane.">Custom</button>
-<button style="margin-left:auto" onclick="if(confirm('Auto-organisér kort-layoutet for denne fane og skærmstørrelse? Dit nuværende layout overskrives med et pænt standard-layout.'))resetGridLayout()" title="Nulstiller til et pænt, automatisk pakket standard-layout for DENNE fane og skærmstørrelse — samme som 'Nulstil layout' på Indstillinger-siden">⊞ Auto-organisér</button>
+<span class="layout-tools">
+<button onclick="autoOrganizeLayout()" title="Pakker kortene tæt med mindst mulige huller — for DENNE fane og skærmstørrelse">⊞ Auto-organisér</button>
+<button id="layoutPresetBtn" onclick="toggleLayoutPresets(event)" title="Gem det aktuelle layout under et navn, og hent gemte layouts frem igen">💾 Layouts ▾</button>
+<div class="layout-presets" id="layoutPresets" onclick="event.stopPropagation()">
+<div class="lp-title">Gem aktuelt layout</div>
+<div class="lp-row"><input id="layoutPresetName" maxlength="40" placeholder="Navn, fx Drift eller Fejlsøgning" onkeydown="if(event.key==='Enter')saveLayoutPreset()"><button onclick="saveLayoutPreset()">Gem</button></div>
+<div class="lp-hint" id="layoutPresetCtx"></div>
+<div class="lp-title" style="margin-top:8px">Gemte layouts</div>
+<div id="layoutPresetList"></div>
+<div class="lp-row lp-foot"><button onclick="exportLayoutPresets()" title="Download alle gemte layouts som JSON-fil (fx for at flytte dem til en anden browser/PC)">⭳ Eksportér</button><button onclick="$('layoutPresetFile').click()" title="Indlæs layouts fra en tidligere eksporteret JSON-fil">⭱ Importér</button><input type="file" id="layoutPresetFile" accept=".json,application/json" style="display:none" onchange="importLayoutPresets(this)"></div>
+</div>
+</span>
 </div>
 
 <!-- Metrics Page -->
@@ -2343,6 +2368,131 @@ function resetGridLayout(){
   try{localStorage.removeItem(_gridLayoutKey());}catch(e){}
   applyGridLayout();
 }
+// FEAT-418: "Auto-organisér" med bekræftelse — nævner at man kan gemme det
+// nuværende layout først, så det ikke går tabt.
+function autoOrganizeLayout(){
+  if(!confirm('Auto-organisér kort-layoutet for denne fane og skærmstørrelse?\n\nKortene pakkes tæt med mindst mulige huller. Dit nuværende layout overskrives — gem det først under "💾 Layouts", hvis du vil kunne hente det frem igen.'))return;
+  resetGridLayout();
+}
+// FEAT-418: navngivne, gemte layouts. Gemmes i browserens localStorage
+// (samme sted som selve det aktive layout, se _gridLayoutKey()) — ikke i
+// NVS, da et layout er et rent browser-/skærm-anliggende og kan fylde
+// flere KB. Eksport/import som JSON-fil gør det muligt at flytte dem
+// mellem browsere/PC'er. Hvert layout husker den fane + skærmstørrelse det
+// blev gemt fra; det kan indlæses på en anden fane, hvor kort uden gemt
+// position så pakkes ind i den ledige plads.
+const _LAYOUT_PRESETS_KEY='hfplc_grid_presets';
+const _SUBTAB_NAMES={all:'Alle',overview:'Overblik',modbus:'Modbus',connections:'Forbindelser',app:'Applikation',custom:'Custom'};
+function _loadLayoutPresets(){
+  try{const a=JSON.parse(localStorage.getItem(_LAYOUT_PRESETS_KEY)||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}
+}
+function _storeLayoutPresets(list){
+  try{localStorage.setItem(_LAYOUT_PRESETS_KEY,JSON.stringify(list));return true;}
+  catch(e){alert('Kunne ikke gemme layouts i browseren: '+e.message);return false;}
+}
+function _validLayoutMap(m){
+  if(!m||typeof m!=='object'||Array.isArray(m))return false;
+  return Object.values(m).every(p=>p&&[p.x,p.y,p.w,p.h].every(v=>Number.isInteger(v)&&v>=0)&&p.w>=1&&p.h>=1&&p.x+p.w<=GRID_COLS);
+}
+function toggleLayoutPresets(e){
+  if(e)e.stopPropagation();
+  const box=$('layoutPresets');
+  box.classList.toggle('show');
+  if(box.classList.contains('show')){renderLayoutPresets();$('layoutPresetName').focus();}
+}
+document.addEventListener('click',()=>{const b=$('layoutPresets');if(b)b.classList.remove('show');});
+function renderLayoutPresets(){
+  const bp=_sizeBreakpoint(),tab=_activeSubTab;
+  $('layoutPresetCtx').textContent='Gemmes for fanen "'+(_SUBTAB_NAMES[tab]||tab)+'" · '+bp;
+  const list=_loadLayoutPresets();
+  const box=$('layoutPresetList');
+  box.innerHTML='';
+  if(!list.length){
+    const d=document.createElement('div');d.className='lp-empty';d.textContent='Ingen gemte layouts endnu';box.appendChild(d);return;
+  }
+  // Layouts for den aktuelle fane + skærmstørrelse øverst, nyeste først
+  const order=list.map((p,i)=>({p,i,match:p.tab===tab&&p.bp===bp}));
+  order.sort((a,b)=>(b.match-a.match)||((b.p.ts||0)-(a.p.ts||0)));
+  order.forEach(({p,i,match})=>{
+    const row=document.createElement('div');
+    row.className='lp-item'+(match?'':' other');
+    const name=document.createElement('span');name.className='lp-name';
+    name.textContent=p.name;
+    name.title=p.name;
+    const meta=document.createElement('span');meta.className='lp-meta';
+    meta.textContent=(_SUBTAB_NAMES[p.tab]||p.tab)+' · '+p.bp+(p.ts?' · '+new Date(p.ts).toLocaleString('da-DK',{dateStyle:'short',timeStyle:'short'}):'');
+    name.appendChild(meta);
+    const load=document.createElement('button');load.textContent='Indlæs';
+    load.title=match?'Anvend dette layout':'Gemt fra en anden fane/skærmstørrelse — kort uden position pakkes automatisk ind';
+    load.onclick=()=>applyLayoutPreset(i);
+    const del=document.createElement('button');del.textContent='✕';del.title='Slet';
+    del.onclick=()=>deleteLayoutPreset(i);
+    row.append(name,load,del);
+    box.appendChild(row);
+  });
+}
+function saveLayoutPreset(){
+  const inp=$('layoutPresetName');
+  const name=inp.value.trim();
+  if(!name){inp.focus();return;}
+  const bp=_sizeBreakpoint(),tab=_activeSubTab;
+  const list=_loadLayoutPresets();
+  const idx=list.findIndex(p=>p.name===name&&p.tab===tab&&p.bp===bp);
+  if(idx>=0&&!confirm('Der findes allerede et layout "'+name+'" for denne fane og skærmstørrelse. Overskriv?'))return;
+  // Kun de synlige korts positioner — det er dem layoutet reelt består af.
+  const layout={};
+  visibleCards().forEach(c=>{const p=gridLayout[c.dataset.cardId];if(p)layout[c.dataset.cardId]={x:p.x,y:p.y,w:p.w,h:p.h};});
+  const entry={name,tab,bp,ts:Date.now(),layout};
+  if(idx>=0)list[idx]=entry;else list.push(entry);
+  if(_storeLayoutPresets(list)){inp.value='';renderLayoutPresets();}
+}
+function applyLayoutPreset(i){
+  const p=_loadLayoutPresets()[i];
+  if(!p||!_validLayoutMap(p.layout))return;
+  gridLayout=JSON.parse(JSON.stringify(p.layout));
+  // Brugerens eget, gemte layout skal vises præcis som gemt — ikke
+  // "selvhelbredes" (BUG-360/411) til andre størrelser.
+  _selfHealedKeys[_gridLayoutKey()]=true;
+  saveGridLayoutToStorage();
+  applyGridLayout();
+  $('layoutPresets').classList.remove('show');
+}
+function deleteLayoutPreset(i){
+  const list=_loadLayoutPresets();
+  if(!list[i]||!confirm('Slet layoutet "'+list[i].name+'"?'))return;
+  list.splice(i,1);
+  if(_storeLayoutPresets(list))renderLayoutPresets();
+}
+function exportLayoutPresets(){
+  const list=_loadLayoutPresets();
+  if(!list.length){alert('Ingen gemte layouts at eksportere');return;}
+  const blob=new Blob([JSON.stringify({type:'hfplc_grid_presets',version:1,presets:list},null,1)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='monitor_layouts.json';
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function importLayoutPresets(inp){
+  const f=inp.files&&inp.files[0];
+  inp.value='';
+  if(!f)return;
+  f.text().then(txt=>{
+    const d=JSON.parse(txt);
+    const arr=Array.isArray(d)?d:(d&&d.presets);
+    if(!Array.isArray(arr))throw new Error('Ukendt filformat');
+    const list=_loadLayoutPresets();
+    let n=0;
+    arr.forEach(p=>{
+      if(!p||typeof p.name!=='string'||typeof p.tab!=='string'||typeof p.bp!=='string'||!_validLayoutMap(p.layout))return;
+      const e={name:p.name.slice(0,40),tab:p.tab,bp:p.bp,ts:Number(p.ts)||Date.now(),layout:p.layout};
+      const idx=list.findIndex(q=>q.name===e.name&&q.tab===e.tab&&q.bp===e.bp);
+      if(idx>=0)list[idx]=e;else list.push(e);
+      n++;
+    });
+    if(_storeLayoutPresets(list)){renderLayoutPresets();alert(n+' layout(s) importeret');}
+  }).catch(e=>alert('Import fejlede: '+e.message));
+}
 function visibleCards(){
   const grid=$('grid');
   if(!grid)return [];
@@ -2431,39 +2581,167 @@ function naturalCardCols(card){
   card.style.gridColumn=prevCol;
   return lo;
 }
-function computeDefaultLayout(cards){
-  // Hylde-pakning (som tekstombrydning): kort placeres fra venstre mod højre
-  // i deres EGEN naturlige minimums-bredde, og ombrydes til en ny "hylde"
-  // (række) når de ikke er plads nok tilbage — i stedet for den tidligere
-  // faste 2-spors halv/hel-bredde-opdeling, som efterlod kort enten for
-  // brede (halv-bredde-kort med lidt indhold) eller ikke reelt tætpakkede.
-  // Brede kort (.card-wide) får stadig altid deres egen fulde række.
-  let curX=0,curY=0,shelfH=0;
-  const layout={};
-  cards.forEach(card=>{
-    const id=card.dataset.cardId;
-    const wide=card.classList.contains('card-wide');
-    const w=wide?GRID_COLS:naturalCardCols(card);
-    // Anvend den lige udregnede bredde FØR højden måles — et kort kan
-    // ombryde sit indhold (og dermed have brug for mere højde) ved en
-    // smallere bredde end det tilfældigvis havde i forvejen (BUG-360's
-    // lektion: mål altid ved den bredde kortet REELT ender med at få).
-    const prevCol=card.style.gridColumn;
+// FEAT-418: "Auto-organisér" pakker nu kortene med mindst mulige huller.
+// Den tidligere hylde-pakning (som tekstombrydning) gjorde hver "hylde" lige
+// så høj som dens HØJESTE kort — alle lavere kort på samme hylde efterlod et
+// tomt hul under sig, og store kort (fx Modbus Master) kunne efterlade store
+// døde flader ved siden af sig. Ny algoritme i tre trin:
+//  1. Mål hvert kort ÉN gang: mindste bredde (naturalCardCols) + den reelle
+//     højde ved hver mulig bredde fra min op til 3x min (et kort bliver ofte
+//     lavere når det får lov at være bredere).
+//  2. Skyline-pakning: placér altid i det LAVESTE ledige "hak" i skyline'n og
+//     vælg det kort + den bredde der udfylder hakket bedst (fylder bredden
+//     helt, flugter bund med naboen, efterlader ikke en rest for smal til
+//     noget andet kort). Kører flere varianter af vægtningen og beholder den
+//     med færrest hul-celler / lavest samlet højde — ren beregning på de
+//     allerede målte tal, ingen ekstra reflows.
+//  3. Hul-lukning: kort vokser ind i tomme naboceller (til højre/venstre, og
+//     nedad hvis hullet er indesluttet af et kort længere nede) — maks 3x
+//     deres reelle behov, så BUG-360/411-selvhelbredelsen (4x) aldrig skrumper
+//     dem igen og genåbner hullerne.
+// Brede kort (.card-wide) lægges til sidst i fuld bredde under resten.
+// `existing` (valgfri): allerede placerede kort ({id:{x,y,w,h}}) der skal
+// pakkes UDEN OM — bruges når kun enkelte nye kort mangler en position.
+const _PACK_GROW_MAX=3;
+function _measureCardForPacking(card,idx){
+  const id=card.dataset.cardId;
+  const wide=card.classList.contains('card-wide');
+  const minW=wide?GRID_COLS:naturalCardCols(card);
+  const maxW=wide?GRID_COLS:Math.min(GRID_COLS,minW*_PACK_GROW_MAX);
+  const hAt={};
+  const prevCol=card.style.gridColumn;
+  for(let w=minW;w<=maxW;w++){
     card.style.gridColumn='1 / span '+w;
-    const h=naturalCardRows(card);
-    card.style.gridColumn=prevCol;
-    if(wide){
-      if(curX>0){curY+=shelfH;curX=0;shelfH=0;}
-      layout[id]={x:0,y:curY,w:GRID_COLS,h};
-      curY+=h;shelfH=0;
-    }else{
-      if(curX+w>GRID_COLS){curY+=shelfH;curX=0;shelfH=0;}
-      layout[id]={x:curX,y:curY,w,h};
-      curX+=w;
-      shelfH=Math.max(shelfH,h);
+    hAt[w]=naturalCardRows(card);
+  }
+  card.style.gridColumn=prevCol;
+  return {id,idx,wide,minW,maxW,hAt};
+}
+function _skylinePack(items,baseSky,opt){
+  const sky=baseSky.slice();
+  const out={};
+  const pending=items.filter(it=>!it.wide);
+  while(pending.length){
+    // Laveste (og derefter venstre-mest) hak i skyline'n
+    let y=Infinity,x0=0;
+    for(let c=0;c<GRID_COLS;c++)if(sky[c]<y){y=sky[c];x0=c;}
+    let x1=x0;
+    while(x1<GRID_COLS&&sky[x1]===y)x1++;
+    const segW=x1-x0;
+    const leftH=x0>0?sky[x0-1]:Infinity;
+    const rightH=x1<GRID_COLS?sky[x1]:Infinity;
+    // Mindste min-bredde blandt de ØVRIGE kort — en rest smallere end
+    // dette kan ingen andre udfylde, og bliver til et hul.
+    let m1=Infinity,m2=Infinity;
+    pending.forEach(it=>{if(it.minW<m1){m2=m1;m1=it.minW;}else if(it.minW<m2)m2=it.minW;});
+    let best=null,bestScore=Infinity;
+    pending.forEach(it=>{
+      const otherMin=(it.minW===m1)?m2:m1;
+      const top=Math.min(it.maxW,segW);
+      for(let w=it.minW;w<=top;w++){
+        const h=it.hAt[w];
+        const rem=segW-w;
+        const bottom=y+h;
+        let sc=0;
+        if(rem>0&&rem<otherMin)sc+=rem*opt.remPen;
+        sc+=(w-it.minW)*opt.widenPen;
+        if(bottom===leftH||bottom===rightH)sc-=opt.alignBonus;
+        sc-=w*h*opt.areaW;
+        sc+=it.idx*opt.orderW;
+        if(sc<bestScore){bestScore=sc;best={it,w,h};}
+      }
+    });
+    if(!best){
+      // Intet kort passer i hakket — løft det til den laveste nabo (efterlader
+      // et hul, som hul-lukningen i _fillLayoutHoles() forsøger at udfylde).
+      const ny=Math.min(leftH,rightH);
+      for(let c=x0;c<x1;c++)sky[c]=ny;
+      continue;
     }
+    out[best.it.id]={x:x0,y,w:best.w,h:best.h};
+    for(let c=x0;c<x0+best.w;c++)sky[c]=y+best.h;
+    pending.splice(pending.indexOf(best.it),1);
+  }
+  // Brede kort: fuld bredde, stablet under alt det øvrige
+  let top=Math.max(...sky);
+  items.filter(it=>it.wide).forEach(it=>{
+    const h=it.hAt[GRID_COLS];
+    out[it.id]={x:0,y:top,w:GRID_COLS,h};
+    top+=h;
   });
-  return layout;
+  return out;
+}
+function _fillLayoutHoles(layout,items,existing){
+  const all=Object.assign({},existing,layout);
+  let H=0;
+  const colBottom=new Array(GRID_COLS).fill(0);
+  Object.values(all).forEach(p=>{
+    H=Math.max(H,p.y+p.h);
+    for(let c=p.x;c<p.x+p.w&&c<GRID_COLS;c++)colBottom[c]=Math.max(colBottom[c],p.y+p.h);
+  });
+  const occ=[];
+  for(let r=0;r<H;r++)occ.push(new Array(GRID_COLS).fill(false));
+  Object.values(all).forEach(p=>{
+    for(let r=p.y;r<p.y+p.h&&r<H;r++)for(let c=p.x;c<p.x+p.w&&c<GRID_COLS;c++)occ[r][c]=true;
+  });
+  const colFree=(c,r0,r1)=>{for(let r=r0;r<r1;r++)if(occ[r][c])return false;return true;};
+  const claimCol=(c,r0,r1)=>{for(let r=r0;r<r1;r++)occ[r][c]=true;};
+  const grow=items.filter(it=>!it.wide&&layout[it.id]);
+  // Bredde først (et bredere kort kan blive lavere), derefter højde.
+  let changed=true;
+  while(changed){
+    changed=false;
+    grow.forEach(it=>{
+      const p=layout[it.id];
+      const capW=Math.min(GRID_COLS,it.minW*_PACK_GROW_MAX);
+      if(p.w<capW&&p.x+p.w<GRID_COLS&&colFree(p.x+p.w,p.y,p.y+p.h)){
+        claimCol(p.x+p.w,p.y,p.y+p.h);p.w++;changed=true;
+      }else if(p.w<capW&&p.x>0&&colFree(p.x-1,p.y,p.y+p.h)){
+        claimCol(p.x-1,p.y,p.y+p.h);p.x--;p.w++;changed=true;
+      }
+    });
+  }
+  changed=true;
+  while(changed){
+    changed=false;
+    grow.forEach(it=>{
+      const p=layout[it.id];
+      const need=it.hAt[Math.min(p.w,it.maxW)]||p.h;
+      if(p.h>=need*_PACK_GROW_MAX||p.y+p.h>=H)return;
+      const r=p.y+p.h;
+      for(let c=p.x;c<p.x+p.w;c++){
+        if(occ[r][c]||r>=colBottom[c])return; // kun INDESLUTTEDE huller — ikke den åbne bund
+      }
+      for(let c=p.x;c<p.x+p.w;c++)occ[r][c]=true;
+      p.h++;changed=true;
+    });
+  }
+  let holes=0;
+  for(let c=0;c<GRID_COLS;c++)for(let r=0;r<colBottom[c];r++)if(!occ[r][c])holes++;
+  return {holes,H};
+}
+function computeDefaultLayout(cards,existing){
+  existing=existing||{};
+  const baseSky=new Array(GRID_COLS).fill(0);
+  Object.values(existing).forEach(p=>{
+    for(let c=p.x;c<p.x+p.w&&c<GRID_COLS;c++)baseSky[c]=Math.max(baseSky[c],p.y+p.h);
+  });
+  const items=cards.map((card,i)=>_measureCardForPacking(card,i));
+  const variants=[
+    {remPen:1000,widenPen:4,alignBonus:25,areaW:0.10,orderW:0.5},
+    {remPen:1000,widenPen:2,alignBonus:40,areaW:0.05,orderW:0.5},
+    {remPen:1000,widenPen:6,alignBonus:15,areaW:0.25,orderW:0.2},
+    {remPen:1000,widenPen:1,alignBonus:60,areaW:0.00,orderW:1.0},
+    {remPen:1000,widenPen:3,alignBonus:0, areaW:0.40,orderW:0.1},
+  ];
+  let best=null,bestScore=Infinity;
+  variants.forEach(opt=>{
+    const layout=_skylinePack(items,baseSky,opt);
+    const r=_fillLayoutHoles(layout,items,existing);
+    const sc=r.holes*4+r.H*GRID_COLS*0.5;
+    if(sc<bestScore){bestScore=sc;best=layout;}
+  });
+  return best||{};
 }
 function findCardAt(x,y,exclude){
   for(const c of visibleCards()){
@@ -2490,7 +2768,11 @@ function applyGridLayout(){
   if(_cardVisibilityReady){
     const missing=cards.filter(c=>!gridLayout[c.dataset.cardId]);
     if(missing.length){
-      Object.assign(gridLayout,computeDefaultLayout(missing));
+      // FEAT-418: pak de manglende kort UDEN OM de allerede placerede
+      // (tidligere startede de altid i y=0 og kunne overlappe).
+      const placed={};
+      cards.forEach(c=>{const p=gridLayout[c.dataset.cardId];if(p)placed[c.dataset.cardId]=p;});
+      Object.assign(gridLayout,computeDefaultLayout(missing,placed));
       saveGridLayoutToStorage();
     }
     // FEAT-161/BUG-360: selvhelbred allerede-gemte layouts fra FoeR denne
