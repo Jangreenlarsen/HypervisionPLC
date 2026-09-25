@@ -5608,6 +5608,32 @@ esp_err_t api_handler_expansion_boards_post(httpd_req_t *req)
   return api_send_json(req, buf);
 }
 
+// FEAT-419: erstatning for sscanf(s, "%d/channels/%d%n", ...) == N && s[n] == '\0'
+// — sscanf traekker libc's fulde scanf-motor (inkl. kommatal) med ind, ~15 KB
+// flash, for at parse et par heltal ud af en URI. '%d' i `pat` matcher et
+// heltal (strtol: samme whitespace/fortegns-regler som %d), alt andet skal
+// matche bogstaveligt, og HELE `s` skal forbruges. Op til 2 heltal (a, b).
+static bool uri_match_ints(const char *s, const char *pat, int *a, int *b)
+{
+  int *outs[2] = { a, b };
+  int n = 0;
+  while (*pat) {
+    if (pat[0] == '%' && pat[1] == 'd') {
+      char *end;
+      long v = strtol(s, &end, 10);
+      if (end == s || n >= 2) return false;
+      *outs[n++] = (int)v;
+      s = end;
+      pat += 2;
+    } else {
+      if (*s != *pat) return false;
+      s++;
+      pat++;
+    }
+  }
+  return *s == '\0';
+}
+
 // PUT /api/expansion/boards/{id} — redigér board-metadata (navn/IP/token).
 // PUT /api/expansion/boards/{id}/channels/{n} — push kanal-config til boardet.
 esp_err_t api_handler_expansion_board_put(httpd_req_t *req)
@@ -5619,8 +5645,8 @@ esp_err_t api_handler_expansion_board_put(httpd_req_t *req)
   if (strncmp(uri, prefix, strlen(prefix)) != 0) return api_send_error(req, 400, "Invalid URI");
   const char *tail = uri + strlen(prefix);
 
-  int idx = -1, channel = -1, consumed = 0;
-  if (sscanf(tail, "%d/channels/%d%n", &idx, &channel, &consumed) == 2 && tail[consumed] == '\0') {
+  int idx = -1, channel = -1;
+  if (uri_match_ints(tail, "%d/channels/%d", &idx, &channel)) {
     // Kanal-config-push — kræver skriverettighed (styrer fysisk RS485/RS232-hardware)
     CHECK_AUTH_WRITE(req);
     if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
@@ -5656,8 +5682,7 @@ esp_err_t api_handler_expansion_board_put(httpd_req_t *req)
     return api_send_json(req, "{\"status\":\"started\"}");
   }
 
-  consumed = 0;
-  if (sscanf(tail, "%d%n", &idx, &consumed) == 1 && tail[consumed] == '\0') {
+  if (uri_match_ints(tail, "%d", &idx, NULL)) {
     // Board-metadata-redigering
     CHECK_AUTH_WRITE(req);
 
@@ -5717,9 +5742,9 @@ esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
   if (strncmp(uri, prefix, strlen(prefix)) != 0) return api_send_error(req, 400, "Invalid URI");
   const char *tail = uri + strlen(prefix);
 
-  int idx = -1, channel = -1, consumed = 0;
+  int idx = -1, channel = -1;
 
-  if (sscanf(tail, "%d/status%n", &idx, &consumed) == 1 && tail[consumed] == '\0') {
+  if (uri_match_ints(tail, "%d/status", &idx, NULL)) {
     CHECK_AUTH(req);
     if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
       return api_send_error(req, 404, "Board ikke fundet");
@@ -5729,8 +5754,7 @@ esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
     return api_send_json(req, "{\"status\":\"started\"}");
   }
 
-  consumed = 0;
-  if (sscanf(tail, "%d/channels%n", &idx, &consumed) == 1 && tail[consumed] == '\0') {
+  if (uri_match_ints(tail, "%d/channels", &idx, NULL)) {
     CHECK_AUTH(req);
     if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
       return api_send_error(req, 404, "Board ikke fundet");
@@ -5741,8 +5765,7 @@ esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
   }
 
   // v7.9.68.3: GET /api/capabilities — statisk, deklareret FC-support
-  consumed = 0;
-  if (sscanf(tail, "%d/capabilities%n", &idx, &consumed) == 1 && tail[consumed] == '\0') {
+  if (uri_match_ints(tail, "%d/capabilities", &idx, NULL)) {
     CHECK_AUTH(req);
     if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
       return api_send_error(req, 404, "Board ikke fundet");
@@ -5752,15 +5775,11 @@ esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
     return api_send_json(req, "{\"status\":\"started\"}");
   }
 
-  consumed = 0;
   bool is_read = false, is_write = false;
-  if (sscanf(tail, "%d/channels/%d/read%n", &idx, &channel, &consumed) == 2 && tail[consumed] == '\0') {
+  if (uri_match_ints(tail, "%d/channels/%d/read", &idx, &channel)) {
     is_read = true;
-  } else {
-    consumed = 0;
-    if (sscanf(tail, "%d/channels/%d/write%n", &idx, &channel, &consumed) == 2 && tail[consumed] == '\0') {
-      is_write = true;
-    }
+  } else if (uri_match_ints(tail, "%d/channels/%d/write", &idx, &channel)) {
+    is_write = true;
   }
 
   if (is_read || is_write) {
@@ -6887,9 +6906,19 @@ static uint32_t parse_ip_field(JsonVariant v) {
   if (v.is<const char *>()) {
     const char *s = v.as<const char *>();
     if (s) {
-      uint8_t a = 0, b = 0, c = 0, d = 0;
-      sscanf(s, "%hhu.%hhu.%hhu.%hhu", &a, &b, &c, &d);
-      return (uint32_t)a | ((uint32_t)b << 8) | ((uint32_t)c << 16) | ((uint32_t)d << 24);
+      // FEAT-419: strtoul i stedet for sscanf("%hhu.%hhu.%hhu.%hhu") — samme
+      // resultat (manglende/ugyldige oktetter forbliver 0, stop ved foerste
+      // tegn der ikke er '.'), uden at traekke libc's scanf-motor ind.
+      uint8_t o[4] = {0, 0, 0, 0};
+      for (int i = 0; i < 4; i++) {
+        char *end;
+        unsigned long v = strtoul(s, &end, 10);
+        if (end == s) break;
+        o[i] = (uint8_t)v;
+        if (*end != '.') break;
+        s = end + 1;
+      }
+      return (uint32_t)o[0] | ((uint32_t)o[1] << 8) | ((uint32_t)o[2] << 16) | ((uint32_t)o[3] << 24);
     }
   }
   // Fallback: raw uint32_t (backward compatible with old backup format)
