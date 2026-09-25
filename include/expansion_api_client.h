@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <esp_http_server.h>
 
 /* ============================================================================
  * BOARD CRUD — opererer direkte på g_persist_config.expansion_boards[]
@@ -115,6 +116,29 @@ bool expansion_api_start_diag_write_multi(uint8_t board_index, uint8_t channel,
 bool expansion_api_start_diag_write_multi_coils(uint8_t board_index, uint8_t channel,
                                                  uint8_t slave_id, uint16_t address,
                                                  const bool *values, uint8_t count);
+
+/* FEAT-420: board-firmware-OTA (boardets kontrakt: PLC_INTEGRATION_MANUAL.md
+ * §4.7 i board-repoet). Async, samme moenster som expansion_api_start_status(). */
+bool expansion_api_start_ota_status(uint8_t board_index);   // GET  /api/ota/status
+bool expansion_api_start_ota_confirm(uint8_t board_index);  // POST /api/ota/confirm (idempotent)
+// POST /api/reboot. NB: mens boardet afventer bekraeftelse (pending_confirm)
+// ruller en reboot BEVIDST tilbage til den forrige firmware ("Rul tilbage nu").
+bool expansion_api_start_reboot(uint8_t board_index);
+
+// FEAT-420: SYNKRONT relay af en firmware-upload browser → PLC → board
+// (POST /api/ota paa boardet). Koerer paa den KALDENDE task (httpd) og
+// streamer req's body videre i bidder — filen gemmes aldrig paa PLC'en.
+// Beslaglaegger det faelles "in flight"-slot under hele relay'et. Bruger raa
+// lwIP-sockets (ingen HTTPClient/String), saa det er sikkert paa httpd's
+// 8192-byte stack; bufferen ligger paa heap.
+//   md5_hex:     valgfri, allerede valideret 32-tegns hex (NULL = udelad)
+//   resp_json:   faar boardets JSON-body, eller en synteseret
+//                {"ok":false,"error":...,"message":...}
+//   client_gone: saettes true hvis browseren forsvandt midt i uploadet —
+//                kalderen maa saa IKKE forsoege at sende et svar.
+// Returnerer den HTTP-status der skal sendes til browseren.
+int expansion_api_ota_relay(httpd_req_t *req, uint8_t board_index, const char *md5_hex,
+                            char *resp_json, size_t resp_size, bool *client_gone);
 
 // Kopierer det aktuelle resultat-snapshot til *out. Returnerer false hvis
 // intet kald er startet endnu (out->valid vil da også være false).

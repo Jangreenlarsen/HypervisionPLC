@@ -275,6 +275,40 @@ void cli_cmd_mbx_status(uint8_t argc, char **argv) {
   cli_cmd_show_modbus_expansion(argc, argv);
 }
 
+// FEAT-420: mbx <board> ota status | mbx <board> ota confirm | mbx <board> reboot
+// Til fejlsoegning af board-firmwareopdateringer — selve .bin-filen uploades
+// kun via web-UI'et (I/O-siden).
+void cli_cmd_mbx_ota(uint8_t argc, char **argv) {
+  if (argc < 2) return;
+  int idx = mbx_resolve_board(argv[0]);
+  if (idx < 0) { mbx_print_unknown_board(argv[0]); return; }
+
+  bool reboot = !strcasecmp(argv[1], "reboot");
+  bool status = !reboot && argc >= 3 && !strcasecmp(argv[2], "status");
+  bool confirm = !reboot && argc >= 3 && !strcasecmp(argv[2], "confirm");
+  if (!reboot && !status && !confirm) {
+    debug_println("Brug: mbx <board> ota status | mbx <board> ota confirm | mbx <board> reboot");
+    return;
+  }
+  if (expansion_api_is_busy()) {
+    debug_println("FEJL: Et andet expansion-board-kald er allerede i gang — vent til det er faerdigt");
+    return;
+  }
+
+  bool started = reboot  ? expansion_api_start_reboot((uint8_t)idx) :
+                 status  ? expansion_api_start_ota_status((uint8_t)idx) :
+                           expansion_api_start_ota_confirm((uint8_t)idx);
+  if (!started) {
+    debug_println("FEJL: Kunne ikke starte kald mod boardet");
+    return;
+  }
+  mbx_print_result(reboot ? "reboot" : (status ? "ota status" : "ota confirm"));
+  if (reboot) {
+    debug_println("NB: Afventede boardet bekraeftelse af ny firmware (pending_confirm), ruller");
+    debug_println("    denne genstart boardet tilbage til den forrige firmware.");
+  }
+}
+
 void cli_cmd_mbx_read(uint8_t argc, char **argv) {
   // mbx <board> <kanal> read <fc> <slave_id> <address> [quantity]
   if (argc < 5) {

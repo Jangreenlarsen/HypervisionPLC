@@ -90,14 +90,27 @@ Både Slave- og Master-siden logges live i **Modbus Aktivitetsloggen** i dashboa
 
 Et "HypervisionPLC Extension Board" er et separat, fysisk board med sine egne RS485/RS232-kanaler (kanal A + B), som PLC'en administrerer over netværket — al konfiguration og diagnose sker herfra, boardet har ingen egen driftsbrugerflade (kun en engangs seriel opsætning ved installation).
 
-**System-siden → "Modbus Expansion Boards"-kortet:**
+**I/O-siden → "Modbus Expansion Boards"-kortet** (flyttet fra System-siden i v7.9.68.24):
 
 - **Tilføj et board**: et fast **board nr (1-8)** du selv vælger (anbefaling: match fysisk mærkning i skabet/panelet — nummeret kan ikke ændres bagefter, kun fjernes og tilføjes igen), en **type** (i dag kun "Modbus Expansion, 2× RS485/RS232" — flere board-typer, fx rene digitale ind-/udgangs-expansion-boards, forventes tilføjet efterhånden som de findes som fysisk hardware), navn (frit valgt label), IP-adresse, og det Bearer-token boardets serielle opsætnings-CLI viser (kommandoen `status` på boardet selv). Tokenet vises aldrig igen af PLC'en efter det er gemt — hav det klar fra boardets egen skærm.
 - **Test forbindelse**: henter boardets live status (firmware-version, oppetid, antal kanaler) — bekræfter at IP og token er korrekte.
 - **Kanaler**: viser og redigerer kanal A/B's konfiguration (mode RS485/RS232, baudrate, paritet, stopbits, timeout) direkte fra boardet — ændringer gemmes atomisk (alle felter i ét kald, aldrig delvist). Statistik (antal forespørgsler/fejl) vises live.
+- **Firmware** (kolonne, FEAT-420): boardets kørende firmware (`running_version`). Afventer en ny firmware bekræftelse, vises en advarsel med sekunder til automatisk rollback samt knapperne **Bekræft** og **Rul tilbage nu**; blev seneste opdatering rullet tilbage, vises det også.
+- **Opdatér firmware…** (FEAT-420): opdaterer boardets firmware fra en `.bin`-fil, se nedenfor.
 - **Test funktions-register**: et diagnostisk panel til at afprøve en enkelt Modbus-transaktion (læs/skriv holding-register, coil, osv.) mod en given slave på den valgte kanal — til opsætning/fejlsøgning, ikke til løbende drift.
 
 ![System-siden — Modbus Expansion Boards-kortet, med et tilsluttet board](assets/screenshots/system_modbus.png)
+
+**Firmwareopdatering af et board (FEAT-420):** vælg **Opdatér firmware…** ud for boardet og en `.bin`-fil. Browseren tjekker først, at filen er en ESP32-firmware og indeholder Expansion Boardets identitets-markør (PLC'ens egen `.bin` afvises med det samme), og viser en bekræftelsesdialog med nuværende og ny version. Derefter kører PLC'en hele forløbet automatisk, med en fremdriftsbjælke og en tekst pr. trin:
+
+1. **Uploader…** — filen sendes til PLC'en, som streamer den direkte videre til boardet (den gemmes ikke på PLC'en, og browseren taler aldrig med boardet selv — tokenet forlader aldrig PLC'en). En MD5-kontrolsum beregnes i browseren og verificeres af boardet, så en beskadiget overførsel opdages hele vejen.
+2. **Genstarter boardet…** — den nye firmware aktiveres. Boardets Modbus-kanaler er utilgængelige i ca. 5-15 s.
+3. **Venter på boardet…** — PLC'en spørger hvert 3. sekund (højst 90 s), om den nye firmware kører.
+4. **Kontrollerer…** — sundhedstjek: boardets status og kanal-liste skal svare korrekt. Fejler det, ruller PLC'en straks boardet tilbage til den forrige firmware.
+5. **Bekræfter…** — først nu bekræftes den nye firmware. En firmware der **ikke** bekræftes inden 10 minutter (eller som crasher ved opstart) ruller boardet selv tilbage — en opdatering kan derfor ikke efterlade et board uden netværk.
+6. Kapabiliteter hentes igen, og kanal-config fra før opdateringen genskrives, hvis den nye firmware har ændret den.
+
+Luk ikke siden under selve uploadet (typisk 10-60 s). PLC'ens web-UI er optaget, mens uploadet står på — ligesom ved PLC'ens egen firmwareopdatering. Planlæg opdateringer uden for kritisk drift. Fejlbeskeder viser altid boardets egen forklaring. Lukkes browseren midt i uploadet, kasserer boardet det og kører uændret videre.
 
 **Kontinuerlig datatrafik i ST Logic (FEAT-410):** den løbende, høj-frekvente Modbus-trafik mod feltbusserne bag et expansion-board går via Modbus TCP direkte til boardet (ikke gennem PLC'ens web-UI), og kan læses/skrives fra ST Logic-programmer med `MBX_*`-funktionsfamilien — samme non-blocking cache/kø-mønster som den lokale RS485-bus' `MB_*`-funktioner (se [Appendiks D.5.9b](D_ST_Logic_Funktionsreference.md#d59b-modbus-expansion-board-mbx_-feat-410)), blot med et ekstra `board`- og `kanal`-argument foran. **v7.9.68.0:** multi-register/coil WRITE tilføjet (`MBX_WRITE_HOLDINGS`/FC16, `MBX_WRITE_COILS`/FC15) — multi-**read** (`MBX_READ_HOLDINGS`) findes stadig ikke. Kø/cache-diagnostik: `show modbus-expansion queue` (se [Appendiks A](A_CLI_Kommando_Reference.md#modbus-expansion-board-feat-409)).
 

@@ -342,6 +342,9 @@ Administration af eksterne HypervisionPLC Extension Boards (se [kapitel 6.7](06_
 | `show modbus-expansion <board>` | Live status + kanal-detaljer hentet fra boardet selv |
 | `show modbus-expansion queue` | FEAT-410: kø/cache-diagnostik for den kontinuerlige `MBX_*`-datatrafik (kø-dybde, cache-hits/misses, fejl/timeouts, adaptiv backoff pr. board/kanal/slave) — se [Appendiks D.5.9b](D_ST_Logic_Funktionsreference.md#d59b-modbus-expansion-board-mbx_-feat-410) |
 | `mbx <board> status` | Alias for `show modbus-expansion <board>` |
+| `mbx <board> ota status` | Boardets firmware-/OTA-status: `running_version`, `pending_confirm`, `confirm_remaining_s`, `last_update_rolled_back` (FEAT-420) |
+| `mbx <board> ota confirm` | Bekræft en ny board-firmware, der afventer bekræftelse (annullerer automatisk rollback). Idempotent (FEAT-420) |
+| `mbx <board> reboot` | Genstart boardet. **NB:** afventer boardet bekræftelse af ny firmware, ruller genstarten tilbage til den forrige firmware (FEAT-420). Selve firmware-filen uploades kun via web-UI'et |
 | `mbx <board> <kanal> read <fc> <slave_id> <address> [quantity]` | Diagnostisk Modbus-læsning (FC01-04) direkte mod boardets kanal |
 | `mbx <board> <kanal> write <fc> <slave_id> <address> <value...>` | Diagnostisk Modbus-skrivning (FC05/06/16, sidstnævnte med flere værdier) |
 

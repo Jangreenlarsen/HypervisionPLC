@@ -393,6 +393,34 @@ int api_extract_id_from_uri(httpd_req_t *req, const char *prefix)
   return atoi(id_buf);
 }
 
+// BUG-376: statuslinje for en vilkårlig kode — httpd's egen mapning kender
+// kun 200/400/401/403/404/500 og falder ellers tilbage til "400 Bad Request".
+// static: httpd_resp_set_status() gemmer kun POINTEREN (kopierer ikke
+// strengen) og forventer den er gyldig frem til selve send-kaldet — en
+// stack-lokal buffer ville risikere at pege paa ugyldig hukommelse paa det
+// tidspunkt. `static` er sikkert fordi httpd-instansen koerer som ÉN
+// enkelt-traadet worker-task (jf. BUG-367s analyse).
+static const char *api_status_line(int status)
+{
+  static char status_line[40];
+  const char *status_text =
+    status == 400 ? "Bad Request" :
+    status == 401 ? "Unauthorized" :
+    status == 403 ? "Forbidden" :
+    status == 404 ? "Not Found" :
+    status == 408 ? "Request Timeout" :
+    status == 409 ? "Conflict" :
+    status == 411 ? "Length Required" :
+    status == 413 ? "Payload Too Large" :
+    status == 429 ? "Too Many Requests" :
+    status == 500 ? "Internal Server Error" :
+    status == 502 ? "Bad Gateway" :
+    status == 503 ? "Service Unavailable" :
+    status == 504 ? "Gateway Timeout" : "Error";
+  snprintf(status_line, sizeof(status_line), "%d %s", status, status_text);
+  return status_line;
+}
+
 esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
 {
   DebugFlags* dbg = debug_flags_get();
@@ -414,26 +442,8 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
   // status-linjen, selvom JSON-brødteksten (bygget separat ovenfor via
   // `status`-parameteren) korrekt viste den TILTAENKTE kode. Klienten saa
   // dermed altid HTTP 400 paa ledningen for disse, uanset hvad JSON'en sagde.
-  // static: httpd_resp_set_status() gemmer kun POINTEREN (kopierer ikke
-  // strengen) og forventer den er gyldig frem til selve send-kaldet
-  // (httpd_resp_sendstr() nedenfor) — en stack-lokal buffer ville risikere at
-  // pege paa ugyldig hukommelse paa det tidspunkt. `static` er sikkert her
-  // fordi denne httpd-instans koerer som ÉN enkelt-traadet worker-task
-  // (jf. BUG-367s analyse) — ingen samtidig genindtraeden er mulig.
-  static char status_line[40];
-  const char *status_text =
-    status == 400 ? "Bad Request" :
-    status == 401 ? "Unauthorized" :
-    status == 403 ? "Forbidden" :
-    status == 404 ? "Not Found" :
-    status == 409 ? "Conflict" :
-    status == 429 ? "Too Many Requests" :
-    status == 500 ? "Internal Server Error" :
-    status == 502 ? "Bad Gateway" :
-    status == 503 ? "Service Unavailable" :
-    status == 504 ? "Gateway Timeout" : "Error";
-  snprintf(status_line, sizeof(status_line), "%d %s", status, status_text);
-  httpd_resp_set_status(req, status_line);
+  // Mapningen ligger nu i api_status_line() (deles med api_send_json_status()).
+  httpd_resp_set_status(req, api_status_line(status));
 
   // For 401/403, capture client IP and username BEFORE sending response (socket may close after send)
   char fail_ip[16] = {0};
@@ -570,6 +580,29 @@ esp_err_t api_send_json(httpd_req_t *req, const char *json_str)
   http_server_stat_success();
   api_audit_log_add(req, 200, audit_ip, audit_user);
 
+  return ESP_OK;
+}
+
+// FEAT-420: som api_send_json(), men med vilkårlig HTTP-status og en færdig
+// JSON-body — bruges af Expansion Board-OTA-relay'et til at returnere
+// boardets EGEN status og {"ok":false,"error":...,"message":...}-svar uændret.
+esp_err_t api_send_json_status(httpd_req_t *req, int status, const char *json_str)
+{
+  if (status == 200) return api_send_json(req, json_str);
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_status(req, api_status_line(status));
+
+  char audit_ip[16], audit_user[24];
+  http_get_client_info(req, audit_ip, sizeof(audit_ip), audit_user, sizeof(audit_user));
+
+  httpd_resp_sendstr(req, json_str);
+  if (status >= 500) http_server_stat_server_error();
+  else if (status >= 400) http_server_stat_client_error();
+  else http_server_stat_success();
+  api_audit_log_add(req, status, audit_ip, audit_user);
   return ESP_OK;
 }
 
@@ -854,6 +887,10 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/expansion/boards/{id}/status",   "Start async board status check (FEAT-409)"},
   {"POST",   "/api/expansion/boards/{id}/channels", "Start async channel list fetch (FEAT-409)"},
   {"POST",   "/api/expansion/boards/{id}/capabilities", "Start async function-code capability fetch (FEAT-414, v7.9.68.3)"},
+  {"POST",   "/api/expansion/boards/{id}/ota",      "Upload board firmware (raw .bin body, optional X-Firmware-MD5), relayed synchronously (FEAT-420)"},
+  {"POST",   "/api/expansion/boards/{id}/ota-status",  "Start async board OTA status fetch (FEAT-420)"},
+  {"POST",   "/api/expansion/boards/{id}/ota-confirm", "Confirm new board firmware, cancels auto-rollback (FEAT-420)"},
+  {"POST",   "/api/expansion/boards/{id}/reboot",   "Reboot board - rolls back while pending_confirm (FEAT-420)"},
   {"GET",    "/api/expansion/connections",          "Modbus TCP connection-pool snapshot (v7.9.68.7)"},
   {"POST",   "/api/expansion/boards/{id}/channels/{n}/read",  "Start async diagnostic Modbus read (FEAT-409)"},
   {"POST",   "/api/expansion/boards/{id}/channels/{n}/write", "Start async diagnostic Modbus write (FEAT-409)"},
@@ -5728,9 +5765,112 @@ esp_err_t api_handler_expansion_board_delete(httpd_req_t *req)
   return api_send_json(req, "{\"status\":200,\"message\":\"Board fjernet. Brug 'Gem Config' for at persistere.\"}");
 }
 
+// Kopierer en simpel strengværdi ("key":"værdi", uden escapes) fra en
+// JSON-tekst — kun til log-linjer, hvor en fuld JsonDocument er overkill.
+static void json_copy_str_field(const char *json, const char *key, char *out, size_t out_size)
+{
+  char pat[24];
+  snprintf(pat, sizeof(pat), "\"%s\":\"", key);
+  const char *p = strstr(json, pat);
+  size_t n = 0;
+  if (p) {
+    p += strlen(pat);
+    while (p[n] && p[n] != '"' && n < out_size - 1) { out[n] = p[n]; n++; }
+  }
+  out[n] = '\0';
+}
+
+static bool is_hex32(const char *s)
+{
+  for (int i = 0; i < 32; i++) {
+    if (!isxdigit((unsigned char)s[i])) return false;
+  }
+  return s[32] == '\0';
+}
+
+// FEAT-420: POST /api/expansion/boards/{id}/ota — firmware-upload relay'es
+// synkront videre til boardets POST /api/ota (se expansion_api_ota_relay()).
+// Boardets egen status + JSON returneres til browseren (undtagen board-401/
+// 403, som bliver 502 — se relay_do()).
+static esp_err_t expansion_board_ota_relay(httpd_req_t *req, int idx)
+{
+  if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
+    return api_send_error(req, 404, "Board ikke fundet");
+  }
+  if (expansion_api_is_busy()) return api_send_error(req, 409, "Et andet expansion-board-kald er allerede i gang");
+  if (req->content_len == 0) {
+    return api_send_json_status(req, 411,
+      "{\"ok\":false,\"error\":\"length_required\",\"message\":\"Tom upload eller manglende Content-Length\"}");
+  }
+
+  // X-Firmware-MD5 indsaettes i den udgaaende request til boardet — valideres
+  // derfor strengt (kun 32 hex-tegn), saa en browser ikke kan injicere
+  // ekstra headere/CRLF i PLC'ens request.
+  char md5[33] = "";
+  size_t md5_len = httpd_req_get_hdr_value_len(req, "X-Firmware-MD5");
+  if (md5_len > 0) {
+    if (md5_len != 32 || httpd_req_get_hdr_value_str(req, "X-Firmware-MD5", md5, sizeof(md5)) != ESP_OK ||
+        !is_hex32(md5)) {
+      return api_send_json_status(req, 400,
+        "{\"ok\":false,\"error\":\"bad_md5\",\"message\":\"X-Firmware-MD5 skal vaere 32 hex-tegn\"}");
+    }
+  }
+
+  // Hentes FOER relay'et — Authorization-headeren kan ikke laeses efter svaret.
+  char ip[16], user[24];
+  http_get_client_info(req, ip, sizeof(ip), user, sizeof(user));
+
+  const size_t resp_size = 1536;
+  char *resp = (char *)malloc(resp_size);
+  if (!resp) return api_send_error(req, 500, "Out of memory");
+
+  bool client_gone = false;
+  int status = expansion_api_ota_relay(req, (uint8_t)idx, md5[0] ? md5 : NULL, resp, resp_size, &client_gone);
+
+  // Log: board, version, resultat — ALDRIG tokenet.
+  char version[32] = "";
+  char err[32] = "";
+  json_copy_str_field(resp, "new_version", version, sizeof(version));
+  if (status >= 300) json_copy_str_field(resp, "error", err, sizeof(err));
+  char msg[128];
+  snprintf(msg, sizeof(msg), "Expansion board #%d firmware-upload: HTTP %d%s%s%s%s", idx + 1, status,
+           version[0] ? ", version " : "", version, err[0] ? ", " : "", err);
+  system_log_add_event((uint8_t)SYSLOG_SRC_REST, user, ip, msg);
+
+  if (client_gone) {
+    free(resp);
+    return ESP_FAIL;  // browseren er vaek — httpd lukker socket'en
+  }
+  esp_err_t ret = api_send_json_status(req, status, resp);
+  free(resp);
+  return ret;
+}
+
+// FEAT-420: de simple, body-loese board-kald — samme forloeb for alle
+// (auth, board-opslag, "optaget"-tjek, start async kald, poll bagefter via
+// GET /api/expansion/action-status).
+typedef struct {
+  const char *pattern;
+  bool        write;   // true = CHECK_AUTH_WRITE (aendrer boardets tilstand)
+  bool      (*start)(uint8_t board_index);
+} ExpansionSimpleAction;
+
+static const ExpansionSimpleAction EXPANSION_SIMPLE_ACTIONS[] = {
+  { "%d/status",       false, expansion_api_start_status },
+  { "%d/channels",     false, expansion_api_start_channels },
+  { "%d/capabilities", false, expansion_api_start_capabilities },   // v7.9.68.3
+  { "%d/ota-status",   false, expansion_api_start_ota_status },     // FEAT-420
+  { "%d/ota-confirm",  true,  expansion_api_start_ota_confirm },    // FEAT-420
+  { "%d/reboot",       true,  expansion_api_start_reboot },         // FEAT-420 (ruller tilbage hvis pending_confirm)
+};
+
 // POST /api/expansion/boards/{id}/status              — start status-kald
 // POST /api/expansion/boards/{id}/channels             — start kanal-liste-kald
 // POST /api/expansion/boards/{id}/capabilities         — start capability-kald (v7.9.68.3)
+// POST /api/expansion/boards/{id}/ota-status           — start board-OTA-status-kald (FEAT-420)
+// POST /api/expansion/boards/{id}/ota-confirm          — bekraeft ny board-firmware (FEAT-420)
+// POST /api/expansion/boards/{id}/reboot               — genstart boardet (FEAT-420)
+// POST /api/expansion/boards/{id}/ota                  — firmware-upload, synkront relay (FEAT-420)
 // POST /api/expansion/boards/{id}/channels/{n}/read    — start diagnostisk laesning
 // POST /api/expansion/boards/{id}/channels/{n}/write   — start diagnostisk skrivning
 esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
@@ -5744,35 +5884,21 @@ esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
 
   int idx = -1, channel = -1;
 
-  if (uri_match_ints(tail, "%d/status", &idx, NULL)) {
-    CHECK_AUTH(req);
+  for (size_t i = 0; i < sizeof(EXPANSION_SIMPLE_ACTIONS) / sizeof(EXPANSION_SIMPLE_ACTIONS[0]); i++) {
+    const ExpansionSimpleAction *a = &EXPANSION_SIMPLE_ACTIONS[i];
+    if (!uri_match_ints(tail, a->pattern, &idx, NULL)) continue;
+    if (a->write) { CHECK_AUTH_WRITE(req); } else { CHECK_AUTH(req); }
     if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
       return api_send_error(req, 404, "Board ikke fundet");
     }
     if (expansion_api_is_busy()) return api_send_error(req, 409, "Et andet expansion-board-kald er allerede i gang");
-    if (!expansion_api_start_status((uint8_t)idx)) return api_send_error(req, 500, "Kunne ikke starte kald");
+    if (!a->start((uint8_t)idx)) return api_send_error(req, 500, "Kunne ikke starte kald");
     return api_send_json(req, "{\"status\":\"started\"}");
   }
 
-  if (uri_match_ints(tail, "%d/channels", &idx, NULL)) {
-    CHECK_AUTH(req);
-    if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
-      return api_send_error(req, 404, "Board ikke fundet");
-    }
-    if (expansion_api_is_busy()) return api_send_error(req, 409, "Et andet expansion-board-kald er allerede i gang");
-    if (!expansion_api_start_channels((uint8_t)idx)) return api_send_error(req, 500, "Kunne ikke starte kald");
-    return api_send_json(req, "{\"status\":\"started\"}");
-  }
-
-  // v7.9.68.3: GET /api/capabilities — statisk, deklareret FC-support
-  if (uri_match_ints(tail, "%d/capabilities", &idx, NULL)) {
-    CHECK_AUTH(req);
-    if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
-      return api_send_error(req, 404, "Board ikke fundet");
-    }
-    if (expansion_api_is_busy()) return api_send_error(req, 409, "Et andet expansion-board-kald er allerede i gang");
-    if (!expansion_api_start_capabilities((uint8_t)idx)) return api_send_error(req, 500, "Kunne ikke starte kald");
-    return api_send_json(req, "{\"status\":\"started\"}");
+  if (uri_match_ints(tail, "%d/ota", &idx, NULL)) {
+    CHECK_AUTH_WRITE(req);
+    return expansion_board_ota_relay(req, idx);
   }
 
   bool is_read = false, is_write = false;

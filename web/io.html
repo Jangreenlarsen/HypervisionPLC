@@ -145,10 +145,19 @@
 <h2>Modbus Expansion Boards</h2>
 <p>Eksterne HypervisionPLC Extension Boards (separate ESP32-boards med egne RS485/RS232-kanaler, kanal A+B pr. board). PLC'en taler til hvert board over dets eget REST management-API (Bearer-token) — boardet konfigureres UDELUKKENDE herfra, aldrig via sin egen serielle CLI (den er kun til første netværksopsætning).</p>
 <table class="tbl" id="expBoardsTable">
-<thead><tr><th>Nr</th><th>Navn</th><th>Type</th><th>IP</th><th>Token</th><th>Status</th><th></th></tr></thead>
-<tbody id="expBoardsBody"><tr><td colspan="7" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
+<thead><tr><th>Nr</th><th>Navn</th><th>Type</th><th>IP</th><th>Token</th><th>Status</th><th>Firmware</th><th></th></tr></thead>
+<tbody id="expBoardsBody"><tr><td colspan="8" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
 </table>
 <div class="alert" id="expBoardsAlert"></div>
+<!-- FEAT-420: board-firmwareopdatering — fremdrift for den igangværende opdatering/rollback -->
+<input type="file" id="expFwFile" accept=".bin,application/octet-stream" style="display:none" onchange="expFwFileChosen(this)">
+<div id="expFwPanel" style="display:none;margin-top:12px;background:#181825;border:1px solid #313244;border-radius:6px;padding:10px">
+<div style="font-weight:600;color:#89b4fa;margin-bottom:6px" id="expFwTitle">Firmwareopdatering</div>
+<div style="height:8px;background:#313244;border-radius:4px;overflow:hidden;margin-bottom:6px"><div id="expFwBar" style="height:100%;width:0;background:#89b4fa;transition:width .2s"></div></div>
+<div id="expFwStep" style="font-size:12px;color:#cdd6f4"></div>
+<div id="expFwLog" style="font-size:11px;color:#6c7086;margin-top:4px"></div>
+<p style="font-size:11px;color:#6c7086;margin-top:6px">Luk ikke siden under upload. En ny firmware, som ikke bekræftes inden 10 minutter, ruller boardet selv tilbage.</p>
+</div>
 
 <h3 style="font-size:13px;color:#89b4fa;margin:16px 0 8px;padding-top:12px;border-top:1px solid #313244" id="expFormTitle">Tilføj board</h3>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:10px">
@@ -756,23 +765,27 @@ function loadExpBoards(){
     const testSel=$('expTestBoard');
     const prevSel=testSel.value;
     if(!d.boards||d.boards.length===0){
-      tbody.innerHTML='<tr><td colspan="7" style="color:#6c7086;text-align:center">Ingen boards konfigureret</td></tr>';
+      tbody.innerHTML='<tr><td colspan="8" style="color:#6c7086;text-align:center">Ingen boards konfigureret</td></tr>';
       testSel.innerHTML='<option value="">Ingen boards</option>';
       return;
     }
     testSel.innerHTML=d.boards.map(b=>'<option value="'+b.id+'">#'+b.number+' — '+b.name+'</option>').join('');
+    _expBoards={};d.boards.forEach(b=>{_expBoards[b.id]={name:b.name,number:b.number}});
     if(d.boards.some(b=>String(b.id)===prevSel))testSel.value=prevSel;
     tbody.innerHTML=d.boards.map(b=>{
       const nameEsc=b.name.replace(/'/g,"\\'");
       const typeLabel=_expTypeLabels[b.type]||b.type;
       return '<tr><td>'+b.number+'</td><td>'+b.name+'</td><td style="font-size:11px">'+typeLabel+'</td><td>'+b.ip+'</td><td>'+(b.has_token?'<span style="color:#a6e3a1">Sat</span>':'<span style="color:#f38ba8">Mangler</span>')+
         '</td><td id="expStatus'+b.id+'" style="color:#6c7086">-</td>'+
+        '<td id="expFw'+b.id+'" style="font-size:11px">'+expFwCellHtml(b.id)+'</td>'+
         '<td><button class="btn btn-sm btn-primary" onclick="testExpBoardConnection('+b.id+')">Test forbindelse</button> '+
         '<button class="btn btn-sm btn-primary" onclick="showExpChannels('+b.id+',\''+nameEsc+'\')">Kanaler</button> '+
+        '<button class="btn btn-sm btn-primary" onclick="expFwPick('+b.id+')">Opdatér firmware…</button> '+
         '<button class="btn btn-sm btn-primary" onclick="editExpBoard('+b.id+','+b.number+',\''+nameEsc+'\',\''+b.ip+'\',\''+b.type+'\')">Redigér</button> '+
         '<button class="btn btn-sm btn-danger" onclick="deleteExpBoard('+b.id+',\''+nameEsc+'\')">Slet</button></td></tr>';
     }).join('');
-  }).catch(()=>{$('expBoardsBody').innerHTML='<tr><td colspan="7" style="color:#f38ba8;text-align:center">Kunne ikke hente boards</td></tr>'});
+    if(!_expFwBusy)loadExpFwStatuses(d.boards.map(b=>b.id));
+  }).catch(()=>{$('expBoardsBody').innerHTML='<tr><td colspan="8" style="color:#f38ba8;text-align:center">Kunne ikke hente boards</td></tr>'});
 }
 
 function clearExpForm(){
@@ -954,6 +967,346 @@ function saveExpChannelConfig(boardId,channel){
         else{resultEl.textContent='Boardet afviste (HTTP '+d.http_status+')';resultEl.style.color='#f38ba8';}
       });
     }).catch(e=>{resultEl.textContent='Fejl: '+e.message;resultEl.style.color='#f38ba8'});
+}
+
+// --- FEAT-420: Expansion Board firmwareopdatering (OTA) ---
+// Kontrakten er boardets (PLC_INTEGRATION_MANUAL.md §4.7 i board-repoet):
+// upload → reboot → vent på ny firmware → sundhedstjek → bekræft. En ny
+// firmware som ikke bekræftes inden 600 s, eller som crasher, ruller boardet
+// selv tilbage. Browseren taler KUN med PLC'en; PLC'en relay'er til boardet.
+const EXP_FW_MARKER='HVEXT-FWID:hypervisionplc-extension-board:';
+const EXP_KIND={'status':'status','channels':'channels','capabilities':'capabilities','ota-status':'ota_status','ota-confirm':'ota_confirm','reboot':'reboot'};
+let _expBoards={};       // id → {name, number}
+let _expFw={};           // id → seneste GET /api/ota/status-svar fra boardet
+let _expFwLoadGen=0;     // afbryder en igangværende baggrunds-indlæsning af firmware-status
+let _expFwBusy=false;    // en opdatering eller rollback kører
+
+const expSleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+// Starter ét async board-kald og venter på resultatet. Det fælles resultat-slot
+// på PLC'en tillader kun ét kald ad gangen (også dashboardets badge-poll og
+// firmware-status-indlæsningen), så 409 "optaget" prøves igen i op til 10 s.
+// Resultatet valideres mod board+kind, så et andet kald der nåede at starte
+// imellem ikke forveksles med vores.
+function expCallRaw(id,url,opts,kind){
+  return new Promise((resolve,reject)=>{
+    let tries=0;
+    const start=()=>{
+      api(url,opts).then(r=>r.json().then(j=>({status:r.status,j}))).then(({status,j})=>{
+        if(status===409&&tries++<20){setTimeout(start,500);return}
+        if(status!==200){reject(new Error(j.message||j.error||('HTTP '+status)));return}
+        pollExpAction(d=>{
+          if(d.error){reject(new Error(d.error));return}
+          if(d.board_id!==id||d.kind!==kind){if(tries++<20){setTimeout(start,500);return}reject(new Error('Resultatet blev overskrevet af et andet kald'));return}
+          resolve(d);
+        });
+      }).catch(reject);
+    };
+    start();
+  });
+}
+function expCall(id,action){
+  return expCallRaw(id,'/api/expansion/boards/'+id+'/'+action,{method:'POST'},EXP_KIND[action]);
+}
+const expOk=d=>d&&d.transport_ok&&d.http_status===200&&d.response;
+
+function expFwCellHtml(id){
+  const s=_expFw[id];
+  if(s===undefined)return '<span style="color:#6c7086">-</span>';
+  if(s===null)return '<span style="color:#6c7086">ikke tilgængelig</span>';
+  if(s.unsupported)return '<span style="color:#6c7086">ukendt (boardfirmware uden OTA)</span>';
+  let h='<span style="color:#cdd6f4">'+escHtml(s.running_version||'?')+'</span>';
+  if(s.pending_confirm){
+    h+='<div style="color:#f9e2af;margin-top:2px">⚠ Ny firmware afventer bekræftelse ('+(s.confirm_remaining_s||0)+' s til automatisk rollback)</div>'+
+      '<button class="btn btn-sm btn-success" style="margin-top:3px" onclick="expFwConfirm('+id+')">Bekræft</button> '+
+      '<button class="btn btn-sm btn-danger" style="margin-top:3px" onclick="expFwRollback('+id+')">Rul tilbage nu</button>';
+  }else if(s.last_update_rolled_back){
+    h+='<div style="color:#f38ba8;margin-top:2px">⚠ Seneste opdatering blev rullet tilbage</div>';
+  }
+  return h;
+}
+function renderExpFwCell(id){const el=$('expFw'+id);if(el)el.innerHTML=expFwCellHtml(id);}
+function escHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
+async function refreshExpFw(id){
+  try{
+    const d=await expCall(id,'ota-status');
+    if(expOk(d))_expFw[id]=d.response;
+    else if(d.transport_ok&&d.http_status===404)_expFw[id]={unsupported:true};
+    else _expFw[id]=null;
+  }catch(e){_expFw[id]=null}
+  renderExpFwCell(id);
+  return _expFw[id];
+}
+// Henter firmware-status for alle boards, ét ad gangen (samme sekventielle
+// princip som dashboardets board-badge, SECURITY_INDEX #20).
+async function loadExpFwStatuses(ids){
+  const gen=++_expFwLoadGen;
+  for(const id of ids){
+    if(gen!==_expFwLoadGen||_expFwBusy)return;
+    await refreshExpFw(id);
+  }
+}
+
+function expFwPanel(title){
+  $('expFwPanel').style.display='block';
+  $('expFwTitle').textContent=title;
+  $('expFwLog').innerHTML='';
+  expFwProgress(0);
+}
+function expFwStep(text,color){const el=$('expFwStep');el.textContent=text;el.style.color=color||'#cdd6f4';}
+function expFwNote(text){const d=document.createElement('div');d.textContent=text;$('expFwLog').appendChild(d);}
+function expFwProgress(pct){$('expFwBar').style.width=Math.max(0,Math.min(100,pct))+'%';}
+
+// Venter på at boardet kommer tilbage efter en genstart og har truffet sit
+// valg (ny firmware kører, eller rullet tilbage). Poll hver 3. s, maks. 90 s.
+// Et udfald accepteres først når boardet har været væk (eller efter 20 s) —
+// ellers kunne et svar fra FØR genstarten forveksles med resultatet.
+async function expFwAwaitBoot(id,decide){
+  const t0=Date.now();
+  let sawOffline=false;
+  while(Date.now()-t0<90000){
+    await expSleep(3000);
+    let d=null;
+    try{d=await expCall(id,'ota-status')}catch(e){}
+    if(!expOk(d)){sawOffline=true;expFwStep('Venter på at boardet starter… ('+Math.round((Date.now()-t0)/1000)+' s)');continue}
+    if(!sawOffline&&Date.now()-t0<20000)continue;
+    const r=decide(d.response);
+    if(r){_expFw[id]=d.response;renderExpFwCell(id);return {result:r,status:d.response}}
+  }
+  return {result:'timeout'};
+}
+
+function expFwPick(id){
+  if(_expFwBusy){showAlert('expBoardsAlert','err','En firmwareopdatering kører allerede');return}
+  const inp=$('expFwFile');inp.value='';inp.dataset.board=id;inp.click();
+}
+
+const EXP_FW_ERRTEXT={
+  ota_invalid_image:'Ikke en firmware-fil.',
+  ota_wrong_firmware:'Dette er ikke en Expansion Board-firmware.',
+  ota_too_large:'Filen er for stor til boardet — er det PLC\'ens egen firmware?',
+  ota_verify_failed:'Filen blev beskadiget under overførslen. Prøv igen.',
+  ota_pending_confirm:'Boardet har en ubekræftet opdatering. Bekræft eller rul tilbage først.',
+  ota_in_progress:'Boardet er allerede i gang med en anden upload.',
+  board_unreachable:'Boardet kunne ikke nås.',
+  upload_aborted:'Upload afbrudt. Boardet kører uændret videre.',
+  busy:'Et andet expansion-board-kald var i gang — prøv igen om lidt.'
+};
+
+async function expFwFileChosen(inp){
+  const id=parseInt(inp.dataset.board,10);
+  const file=inp.files&&inp.files[0];
+  if(!file||isNaN(id))return;
+  const board=_expBoards[id]||{name:'#'+id};
+  const buf=await file.arrayBuffer();
+  const u8=new Uint8Array(buf);
+  if(u8.length===0||u8[0]!==0xE9){showAlert('expBoardsAlert','err','Ikke en firmware-fil ('+file.name+')');return}
+  const txt=new TextDecoder('latin1').decode(u8);
+  const k=txt.indexOf(EXP_FW_MARKER);
+  const end=k>=0?txt.indexOf(';',k):-1;
+  const newVer=(k>=0&&end>k)?txt.substring(k+EXP_FW_MARKER.length,end):'';
+  if(!newVer||newVer.length>40||!/^[\w.\-]+$/.test(newVer)){
+    showAlert('expBoardsAlert','err','Dette er ikke en Expansion Board-firmware ('+file.name+')');return;
+  }
+  let cur=_expFw[id];
+  if(!cur||cur.unsupported){cur=await refreshExpFw(id)}
+  if(!cur||cur.unsupported){showAlert('expBoardsAlert','err','Kunne ikke læse boardets firmware-status — tjek forbindelsen ("Test forbindelse")');return}
+  if(cur.pending_confirm){showAlert('expBoardsAlert','err',EXP_FW_ERRTEXT.ota_pending_confirm);return}
+  askConfirm('Opdatér firmware','Opdatér board "'+board.name+'" fra '+(cur.running_version||'?')+' til '+newVer+'? Boardets Modbus-kanaler er utilgængelige i ca. 15 s under genstart.',
+    ()=>expFwRun(id,buf,newVer,cur.running_version||'?'));
+}
+
+function expFwUpload(id,buf,md5){
+  return new Promise(resolve=>{
+    const xhr=new XMLHttpRequest();
+    xhr.open('POST','/api/expansion/boards/'+id+'/ota',true);
+    xhr.setRequestHeader('Content-Type','application/octet-stream');
+    xhr.setRequestHeader('X-Firmware-MD5',md5);
+    xhr.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.round(e.loaded*100/e.total);expFwProgress(p*0.7);expFwStep('Uploader… '+p+' %')}};
+    xhr.onload=()=>{let j={};try{j=JSON.parse(xhr.responseText)}catch(e){}resolve({status:xhr.status,j})};
+    xhr.onerror=()=>resolve({status:0,j:{}});
+    xhr.send(new Blob([buf]));
+  });
+}
+
+async function expFwRun(id,buf,newVer,oldVer){
+  _expFwBusy=true;_expFwLoadGen++;
+  const board=_expBoards[id]||{name:'#'+id};
+  expFwPanel('Firmwareopdatering — "'+board.name+'": '+oldVer+' → '+newVer);
+  const fail=msg=>{expFwStep(msg,'#f38ba8');};
+  try{
+    expFwStep('Forbereder…');
+    const md5=md5Hex(buf);
+    // Kanal-config før opdateringen — genskrives bagefter, hvis den nye
+    // firmware ikke har bevaret den (manualens §6.3).
+    let chSnap=null;
+    try{const d=await expCall(id,'channels');if(expOk(d)&&Array.isArray(d.response))chSnap=d.response}catch(e){}
+    if(!chSnap)expFwNote('Kunne ikke læse kanal-config før opdateringen — den genskrives ikke automatisk bagefter.');
+
+    // 1. Upload (PLC'en relay'er synkront til boardet). 409 fra PLC'en betyder
+    // at et andet board-kald lige nåede at starte — prøv igen.
+    let up;
+    for(let i=0;i<4;i++){
+      expFwStep('Uploader… 0 %');
+      up=await expFwUpload(id,buf,md5);
+      if(up.status!==409||up.j.ok===false)break;
+      await expSleep(1500);
+    }
+    if(up.status===401){$('loginModal').classList.add('show');fail('Log ind igen og prøv forfra.');return}
+    if(up.status===0){fail('Upload afbrudt. Boardet kører uændret videre på '+oldVer+'.');return}
+    if(up.status!==200||up.j.ok===false){
+      const code=up.j.error||'';
+      const friendly=EXP_FW_ERRTEXT[code]||'Opdateringen blev afvist.';
+      fail(friendly+(up.j.message?' ('+up.j.message+')':(code&&!EXP_FW_ERRTEXT[code]?' ('+code+')':'')));
+      return;
+    }
+    const target=up.j.new_version||newVer;
+    expFwNote('Uploadet og verificeret'+(up.j.md5_verified?' (MD5 ✓)':'')+': '+target);
+
+    // 2. Aktivér
+    expFwStep('Genstarter boardet…');expFwProgress(75);
+    let rb=null;
+    try{rb=await expCall(id,'reboot')}catch(e){}
+    if(!rb||!rb.transport_ok||rb.http_status!==200){
+      fail('Kunne ikke genstarte boardet. Den nye firmware er uploadet men ikke aktiveret — prøv "Opdatér firmware…" igen.');return;
+    }
+
+    // 3. Vent og afgør udfaldet
+    expFwStep('Venter på boardet…');expFwProgress(80);
+    const boot=await expFwAwaitBoot(id,s=>{
+      if(s.running_version===target&&s.pending_confirm)return 'pending';
+      if(s.running_version===target&&!s.pending_confirm)return 'confirmed';
+      if(s.running_version!==target&&s.last_update_rolled_back)return 'rolledback';
+      return null;
+    });
+    if(boot.result==='timeout'){
+      expFwStep('Boardet svarer ikke. Det ruller selv tilbage inden 10 minutter — læs status igen derefter.','#f9e2af');return;
+    }
+    if(boot.result==='rolledback'){fail('Opdateringen fejlede, og boardet rullede selv tilbage til '+boot.status.running_version+'.');return}
+
+    if(boot.result==='pending'){
+      // 4. Sundhedstjek før bekræftelse
+      expFwStep('Kontrollerer…');expFwProgress(88);
+      let healthy=false;
+      try{
+        const st=await expCall(id,'status');
+        if(expOk(st)&&st.response.api_version!==undefined&&st.response.api_version!==''){
+          const ch=await expCall(id,'channels');
+          healthy=expOk(ch)&&Array.isArray(ch.response);
+        }
+      }catch(e){}
+      if(!healthy){
+        // 7. Rul tilbage nu — reboot mens pending_confirm = rollback
+        expFwStep('Den nye firmware svarer ikke korrekt. Ruller tilbage…','#f9e2af');
+        try{await expCall(id,'reboot')}catch(e){}
+        const back=await expFwAwaitBoot(id,s=>s.running_version!==target?'back':null);
+        if(back.result==='back')fail('Den nye firmware svarede ikke korrekt og er rullet tilbage. Boardet kører '+back.status.running_version+'.');
+        else fail('Den nye firmware svarede ikke korrekt. Boardet ruller selv tilbage inden 10 minutter — læs status igen derefter.');
+        return;
+      }
+      // 5. Bekræft
+      expFwStep('Bekræfter…');expFwProgress(93);
+      let ok=false,lastErr='';
+      for(let i=0;i<3&&!ok;i++){
+        try{
+          const c=await expCall(id,'ota-confirm');
+          ok=expOk(c);
+          if(!ok)lastErr=(c.response&&c.response.message)||('HTTP '+c.http_status);
+        }catch(e){lastErr=e.message}
+        if(!ok)await expSleep(1000);
+      }
+      if(!ok){fail('Bekræftelse fejlede ('+lastErr+'). Tryk "Bekræft" ved boardet, ellers ruller det tilbage inden 10 minutter.');await refreshExpFw(id);return}
+    }
+
+    // 6. Capabilities igen + genskriv kanal-config hvis den nye firmware har ændret den
+    expFwStep('Opdaterer kapabiliteter og kanal-config…');expFwProgress(97);
+    try{await expCall(id,'capabilities')}catch(e){}
+    if(chSnap)await expFwRestoreChannels(id,chSnap);
+    await refreshExpFw(id);
+    expFwProgress(100);
+    expFwStep('Opdateret til '+target+' ✓','#a6e3a1');
+    if(expCurrentBoardId===id&&$('expChannelsPanel').style.display!=='none')showExpChannels(id,board.name);
+  }catch(e){
+    fail('Uventet fejl: '+e.message);
+  }finally{
+    _expFwBusy=false;
+  }
+}
+
+const EXP_CH_FIELDS=['enabled','mode','baudrate','parity','stop_bits','timeout_ms','inter_frame_delay_ms'];
+async function expFwRestoreChannels(id,snap){
+  let now=null;
+  try{const d=await expCall(id,'channels');if(expOk(d)&&Array.isArray(d.response))now=d.response}catch(e){}
+  if(!now){expFwNote('Kunne ikke læse kanal-config efter opdateringen — tjek kanalerne manuelt.');return}
+  for(const old of snap){
+    const cur=now.find(c=>c.channel===old.channel);
+    if(cur&&EXP_CH_FIELDS.every(f=>cur[f]===old[f]))continue;
+    const body={};EXP_CH_FIELDS.forEach(f=>body[f]=old[f]);
+    try{
+      const d=await expCallRaw(id,'/api/expansion/boards/'+id+'/channels/'+old.channel,
+        {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)},'config');
+      expFwNote('Kanal '+(old.channel===1?'A':old.channel===2?'B':old.channel)+': config genskrevet'+(d.transport_ok&&d.http_status<300?' ✓':' — FEJL (HTTP '+d.http_status+')'));
+    }catch(e){expFwNote('Kanal '+old.channel+': kunne ikke genskrive config ('+e.message+')')}
+  }
+}
+
+function expFwConfirm(id){
+  if(_expFwBusy)return;
+  _expFwBusy=true;
+  expCall(id,'ota-confirm').then(d=>{
+    if(expOk(d))showAlert('expBoardsAlert','ok','Firmware bekræftet'+(d.response.running_version?' ('+d.response.running_version+')':''));
+    else showAlert('expBoardsAlert','err','Bekræftelse fejlede: '+((d.response&&d.response.message)||('HTTP '+d.http_status)));
+  }).catch(e=>showAlert('expBoardsAlert','err','Fejl: '+e.message))
+    .finally(()=>{_expFwBusy=false;refreshExpFw(id)});
+}
+
+function expFwRollback(id){
+  if(_expFwBusy)return;
+  const board=_expBoards[id]||{name:'#'+id};
+  const pendingVer=(_expFw[id]&&_expFw[id].running_version)||'';
+  askConfirm('Rul tilbage nu','Rul board "'+board.name+'" tilbage til den forrige firmware? Boardet genstarter (ca. 15 s uden Modbus-kanaler).',async()=>{
+    _expFwBusy=true;_expFwLoadGen++;
+    expFwPanel('Rollback — "'+board.name+'"');
+    try{
+      expFwStep('Genstarter boardet…');expFwProgress(30);
+      const rb=await expCall(id,'reboot');
+      if(!rb.transport_ok||rb.http_status!==200){expFwStep('Kunne ikke genstarte boardet.','#f38ba8');return}
+      expFwStep('Venter på boardet…');expFwProgress(60);
+      const back=await expFwAwaitBoot(id,s=>(s.running_version!==pendingVer||!s.pending_confirm)?'back':null);
+      expFwProgress(100);
+      if(back.result==='back')expFwStep('Boardet kører '+back.status.running_version+(back.status.last_update_rolled_back?' (rullet tilbage)':'')+'.','#a6e3a1');
+      else expFwStep('Boardet svarer ikke. Læs status igen om lidt.','#f9e2af');
+    }catch(e){expFwStep('Fejl: '+e.message,'#f38ba8')}
+    finally{_expFwBusy=false;refreshExpFw(id)}
+  });
+}
+// FEAT-420: MD5 af en hel fil (ArrayBuffer) — WebCrypto understøtter ikke MD5.
+// Sendes som X-Firmware-MD5, så boardet kan verificere hele vejen browser → PLC → board.
+function md5Hex(buf){
+  const u8=new Uint8Array(buf),n=u8.length,blocks=((n+8)>>>6)+1;
+  const x=new Int32Array(blocks*16);
+  for(let i=0;i<n;i++)x[i>>2]|=u8[i]<<((i&3)*8);
+  x[n>>2]|=0x80<<((n&3)*8);
+  x[blocks*16-2]=(n*8)>>>0;
+  x[blocks*16-1]=Math.floor(n/0x20000000);
+  const S=[7,12,17,22,5,9,14,20,4,11,16,23,6,10,15,21],K=new Int32Array(64);
+  for(let i=0;i<64;i++)K[i]=Math.floor(Math.abs(Math.sin(i+1))*4294967296);
+  let a=0x67452301,b=0xefcdab89|0,c=0x98badcfe|0,d=0x10325476;
+  for(let o=0;o<x.length;o+=16){
+    let A=a,B=b,C=c,D=d;
+    for(let i=0;i<64;i++){
+      let f,g;
+      if(i<16){f=(B&C)|(~B&D);g=i}
+      else if(i<32){f=(D&B)|(~D&C);g=(5*i+1)&15}
+      else if(i<48){f=B^C^D;g=(3*i+5)&15}
+      else{f=C^(B|~D);g=(7*i)&15}
+      const s=S[(i>>4)*4+(i&3)],t=D,sum=(A+f+K[i]+x[o+g])|0;
+      D=C;C=B;B=(B+((sum<<s)|(sum>>>(32-s))))|0;A=t;
+    }
+    a=(a+A)|0;b=(b+B)|0;c=(c+C)|0;d=(d+D)|0;
+  }
+  return [a,b,c,d].map(v=>{let h='';for(let i=0;i<4;i++)h+=((v>>>(i*8))&255).toString(16).padStart(2,'0');return h}).join('');
 }
 
 function updateExpTestFields(){

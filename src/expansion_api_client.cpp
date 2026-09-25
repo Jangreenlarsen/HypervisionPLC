@@ -25,6 +25,10 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
+#include <lwip/sockets.h>
+#include <lwip/inet.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <string.h>
 #include "expansion_api_client.h"
 #include "config_struct.h"
@@ -182,6 +186,21 @@ struct ExpansionApiPendingRequest {
 };
 static ExpansionApiPendingRequest g_pending;
 
+// Nulstiller resultat-slottet og markerer det "in flight" for board_index/kind.
+// Kalderen har allerede tjekket at intet andet kald er i gang.
+static void expansion_api_claim_slot(uint8_t board_index, const char *kind) {
+  memset(&g_expansion_api_result, 0, sizeof(g_expansion_api_result));
+  g_expansion_api_result.valid = true;
+  g_expansion_api_result.in_progress = true;
+  g_expansion_api_result.board_index = board_index;
+  strncpy(g_expansion_api_result.kind, kind, sizeof(g_expansion_api_result.kind) - 1);
+
+  if (!g_expansion_api_sem) {
+    g_expansion_api_sem = xSemaphoreCreateBinary();
+  }
+  xSemaphoreTake(g_expansion_api_sem, 0);  // dræn evt. gammelt signal fra et timeout'et forsøg
+}
+
 static bool expansion_api_begin(uint8_t board_index, const char *method, const char *path,
                                  const char *body, const char *kind) {
   if (board_index >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[board_index].configured) {
@@ -202,17 +221,7 @@ static bool expansion_api_begin(uint8_t board_index, const char *method, const c
   if (body) strncpy(g_pending.body, body, sizeof(g_pending.body) - 1);
   strncpy(g_pending.kind, kind, sizeof(g_pending.kind) - 1);
 
-  memset(&g_expansion_api_result, 0, sizeof(g_expansion_api_result));
-  g_expansion_api_result.valid = true;
-  g_expansion_api_result.in_progress = true;
-  g_expansion_api_result.board_index = board_index;
-  strncpy(g_expansion_api_result.kind, kind, sizeof(g_expansion_api_result.kind) - 1);
-
-  if (!g_expansion_api_sem) {
-    g_expansion_api_sem = xSemaphoreCreateBinary();
-  }
-  xSemaphoreTake(g_expansion_api_sem, 0);  // dræn evt. gammelt signal fra et timeout'et forsøg
-
+  expansion_api_claim_slot(board_index, kind);
   return true;
 }
 
@@ -302,6 +311,24 @@ bool expansion_api_start_channels(uint8_t board_index) {
 // side effects, same "simple GET, async, polled" shape as expansion_api_start_status().
 bool expansion_api_start_capabilities(uint8_t board_index) {
   if (!expansion_api_begin(board_index, "GET", "/api/capabilities", NULL, "capabilities")) return false;
+  return expansion_api_spawn();
+}
+
+// FEAT-420: board-firmware-OTA — status/bekraeft/reboot. Alle tre er simple
+// kald uden request-body; se expansion_api_client.h for reboot-semantikken
+// mens boardet afventer bekraeftelse.
+bool expansion_api_start_ota_status(uint8_t board_index) {
+  if (!expansion_api_begin(board_index, "GET", "/api/ota/status", NULL, "ota_status")) return false;
+  return expansion_api_spawn();
+}
+
+bool expansion_api_start_ota_confirm(uint8_t board_index) {
+  if (!expansion_api_begin(board_index, "POST", "/api/ota/confirm", NULL, "ota_confirm")) return false;
+  return expansion_api_spawn();
+}
+
+bool expansion_api_start_reboot(uint8_t board_index) {
+  if (!expansion_api_begin(board_index, "POST", "/api/reboot", NULL, "reboot")) return false;
   return expansion_api_spawn();
 }
 
@@ -409,6 +436,305 @@ bool expansion_api_start_diag_write_multi_coils(uint8_t board_index, uint8_t cha
 
   if (!expansion_api_begin(board_index, "POST", path, body, "write")) return false;
   return expansion_api_spawn();
+}
+
+/* ============================================================================
+ * FEAT-420: BOARD-FIRMWARE-OTA — synkront relay browser → PLC → board
+ * ============================================================================
+ * Boardets kontrakt (POST /api/ota): raa .bin som body, Content-Length
+ * paakraevet (boardet understoetter ikke chunked upload), valgfri
+ * X-Firmware-MD5. Boardet svarer foerst naar sidste byte er skrevet og
+ * verificeret — eller TIDLIGT med en afvisning (401/409/413/...) foer det har
+ * laest hele bodyen. Afbrydes forbindelsen midt i uploadet, kasserer boardet
+ * det og bliver paa sin nuvaerende firmware.
+ */
+
+#define EXP_OTA_BOARD_PORT            8080
+#define EXP_OTA_RELAY_CHUNK           2048
+#define EXP_OTA_CONNECT_TIMEOUT_MS    3000
+#define EXP_OTA_IO_TIMEOUT_S          60   // pr. send/recv, baade mod boardet og browseren
+#define EXP_OTA_RESPONSE_TIMEOUT_S    30   // boardets slutsvar (verificerer efter sidste byte)
+#define EXP_OTA_BROWSER_MAX_TIMEOUTS  2    // 2 x 60 s uden data fra browseren → afbryd
+
+static void relay_error_json(char *out, size_t out_size, const char *code, const char *msg) {
+  snprintf(out, out_size, "{\"ok\":false,\"error\":\"%s\",\"message\":\"%s\"}", code, msg);
+}
+
+static int relay_connect(const char *ip) {
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(EXP_OTA_BOARD_PORT);
+  if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) return -1;
+
+  int s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (s < 0) return -1;
+
+  // Ikke-blokerende connect, saa et slukket board giver fejl efter 3 s i
+  // stedet for lwIP's langt laengere standard-connect-timeout.
+  int flags = fcntl(s, F_GETFL, 0);
+  fcntl(s, F_SETFL, flags | O_NONBLOCK);
+  int r = connect(s, (struct sockaddr *)&addr, sizeof(addr));
+  if (r < 0 && errno != EINPROGRESS) { close(s); return -1; }
+  if (r < 0) {
+    fd_set wfds;
+    FD_ZERO(&wfds);
+    FD_SET(s, &wfds);
+    struct timeval tv = { EXP_OTA_CONNECT_TIMEOUT_MS / 1000, (EXP_OTA_CONNECT_TIMEOUT_MS % 1000) * 1000 };
+    if (select(s + 1, NULL, &wfds, NULL, &tv) <= 0) { close(s); return -1; }
+    int err = 0;
+    socklen_t len = sizeof(err);
+    if (getsockopt(s, SOL_SOCKET, SO_ERROR, &err, &len) != 0 || err != 0) { close(s); return -1; }
+  }
+  fcntl(s, F_SETFL, flags);
+
+  struct timeval io = { EXP_OTA_IO_TIMEOUT_S, 0 };
+  setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &io, sizeof(io));
+  setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &io, sizeof(io));
+  return s;
+}
+
+static bool relay_send_all(int s, const char *buf, size_t len) {
+  while (len > 0) {
+    int n = send(s, buf, len, 0);
+    if (n <= 0) return false;
+    buf += n;
+    len -= (size_t)n;
+  }
+  return true;
+}
+
+// true hvis boardet allerede har sendt noget (et tidligt afvisningssvar)
+// eller lukket forbindelsen — saa stopper vi med at videresende.
+static bool relay_board_has_data(int s) {
+  fd_set rfds;
+  FD_ZERO(&rfds);
+  FD_SET(s, &rfds);
+  struct timeval tv = { 0, 0 };
+  return select(s + 1, &rfds, NULL, NULL, &tv) > 0;
+}
+
+// Finder værdien af en header (case-insensitivt) i en NUL-termineret
+// header-blok. Returnerer pointer til værdien (efter ':' og mellemrum) eller NULL.
+static const char *relay_find_header(const char *hdrs, const char *hdr_end, const char *name) {
+  size_t nlen = strlen(name);
+  const char *line = strstr(hdrs, "\r\n");
+  while (line && line < hdr_end) {
+    line += 2;
+    if (strncasecmp(line, name, nlen) == 0 && line[nlen] == ':') {
+      const char *v = line + nlen + 1;
+      while (*v == ' ') v++;
+      return v;
+    }
+    line = strstr(line, "\r\n");
+  }
+  return NULL;
+}
+
+// Afkoder en chunked body in-place. Returnerer den afkodede laengde.
+static size_t relay_dechunk(char *body, size_t len) {
+  char *src = body, *dst = body, *end = body + len;
+  while (src < end) {
+    char *line_end = strstr(src, "\r\n");
+    if (!line_end || line_end >= end) break;
+    unsigned long sz = strtoul(src, NULL, 16);
+    src = line_end + 2;
+    if (sz == 0) break;
+    if (sz > (size_t)(end - src)) sz = (size_t)(end - src);
+    memmove(dst, src, sz);
+    dst += sz;
+    src += sz + 2;  // spring chunk'ens afsluttende CRLF over
+  }
+  *dst = '\0';
+  return (size_t)(dst - body);
+}
+
+// Laeser boardets HTTP-svar ind i buf (NUL-termineret). Stopper naar
+// Content-Length/chunked-slutningen er naaet, forbindelsen lukkes eller
+// timeout. Returnerer HTTP-status og saetter *body, eller -1.
+static int relay_read_response(int s, char *buf, size_t buf_size, char **body) {
+  struct timeval tv = { EXP_OTA_RESPONSE_TIMEOUT_S, 0 };
+  setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+  size_t used = 0;
+  char *hdr_end = NULL;
+  long content_len = -1;
+  bool chunked = false;
+  while (used < buf_size - 1) {
+    int n = recv(s, buf + used, buf_size - 1 - used, 0);
+    if (n <= 0) break;
+    used += (size_t)n;
+    buf[used] = '\0';
+    if (!hdr_end && (hdr_end = strstr(buf, "\r\n\r\n")) != NULL) {
+      const char *cl = relay_find_header(buf, hdr_end, "Content-Length");
+      if (cl) content_len = strtol(cl, NULL, 10);
+      const char *te = relay_find_header(buf, hdr_end, "Transfer-Encoding");
+      chunked = te && strncasecmp(te, "chunked", 7) == 0;
+    }
+    if (hdr_end) {
+      const char *b = hdr_end + 4;
+      size_t have = used - (size_t)(b - buf);
+      if (!chunked && content_len >= 0 && have >= (size_t)content_len) break;
+      if (chunked && (strncmp(b, "0\r\n\r\n", 5) == 0 || strstr(b, "\r\n0\r\n\r\n"))) break;
+    }
+  }
+  buf[used] = '\0';
+  if (!hdr_end || strncmp(buf, "HTTP/1.", 7) != 0 || used < 12) return -1;
+  int status = (int)strtol(buf + 9, NULL, 10);
+  if (status < 100 || status > 599) return -1;
+
+  *body = hdr_end + 4;
+  size_t body_len = used - (size_t)(*body - buf);
+  if (chunked) {
+    relay_dechunk(*body, body_len);
+  } else if (content_len >= 0 && body_len > (size_t)content_len) {
+    (*body)[content_len] = '\0';
+  }
+  return status;
+}
+
+// Selve I/O'en. ip/token er kopier taget ved relay-start (samme race-
+// beskyttelse som g_pending). Returnerer HTTP-status til browseren.
+static int relay_do(httpd_req_t *req, const char *ip, const char *token, const char *md5_hex,
+                    char *resp_json, size_t resp_size, bool *client_gone, bool *transport_ok) {
+  const size_t total = req->content_len;
+
+  int s = relay_connect(ip);
+  if (s < 0) {
+    relay_error_json(resp_json, resp_size, "board_unreachable",
+                     "Kunne ikke forbinde til boardet paa port 8080 - tjek IP og at boardet er taendt");
+    return 502;
+  }
+
+  char *buf = (char *)malloc(EXP_OTA_RELAY_CHUNK + 1);
+  if (!buf) {
+    close(s);
+    relay_error_json(resp_json, resp_size, "internal_error", "PLC'en kunne ikke allokere upload-buffer");
+    return 500;
+  }
+
+  int hl = snprintf(buf, EXP_OTA_RELAY_CHUNK,
+                    "POST /api/ota HTTP/1.1\r\n"
+                    "Host: %s:%d\r\n"
+                    "Authorization: Bearer %s\r\n"
+                    "Content-Type: application/octet-stream\r\n"
+                    "Content-Length: %u\r\n"
+                    "%s%s%s"
+                    "Connection: close\r\n\r\n",
+                    ip, EXP_OTA_BOARD_PORT, token, (unsigned)total,
+                    md5_hex ? "X-Firmware-MD5: " : "", md5_hex ? md5_hex : "", md5_hex ? "\r\n" : "");
+  bool sent = relay_send_all(s, buf, (size_t)hl);
+  memset(buf, 0, (size_t)hl);  // tokenet skal ikke blive liggende i heap'en
+  if (!sent) {
+    free(buf);
+    close(s);
+    relay_error_json(resp_json, resp_size, "board_write_failed",
+                     "Forbindelsen til boardet blev afbrudt - boardet koerer uaendret videre");
+    return 502;
+  }
+  *transport_ok = true;
+
+  // Browseren kan vaere langsom om at levere bidderne mens boardet skriver
+  // flash — samme 60 s som PLC'ens egen OTA-upload (ota_handler.cpp).
+  struct timeval rt = { EXP_OTA_IO_TIMEOUT_S, 0 };
+  setsockopt(httpd_req_to_sockfd(req), SOL_SOCKET, SO_RCVTIMEO, &rt, sizeof(rt));
+
+  size_t forwarded = 0;
+  int browser_timeouts = 0;
+  while (forwarded < total) {
+    size_t want = total - forwarded;
+    if (want > EXP_OTA_RELAY_CHUNK) want = EXP_OTA_RELAY_CHUNK;
+    int n = httpd_req_recv(req, buf, want);
+    if (n == HTTPD_SOCK_ERR_TIMEOUT) {
+      if (++browser_timeouts > EXP_OTA_BROWSER_MAX_TIMEOUTS) {
+        free(buf);
+        close(s);
+        relay_error_json(resp_json, resp_size, "upload_timeout",
+                         "Ingen data fra browseren i 2 minutter - upload afbrudt, boardet koerer uaendret videre");
+        return 408;
+      }
+      continue;
+    }
+    if (n <= 0) {
+      // Browseren forsvandt. Lukning af forbindelsen faar boardet til at
+      // kassere det halve upload og blive paa sin nuvaerende firmware.
+      free(buf);
+      close(s);
+      *client_gone = true;
+      relay_error_json(resp_json, resp_size, "upload_aborted",
+                       "Upload afbrudt - boardet koerer uaendret videre");
+      return 400;
+    }
+    browser_timeouts = 0;
+    if (relay_board_has_data(s)) break;  // tidligt svar fra boardet (afvisning)
+    if (!relay_send_all(s, buf, (size_t)n)) {
+      if (relay_board_has_data(s)) break;
+      free(buf);
+      close(s);
+      relay_error_json(resp_json, resp_size, "board_write_failed",
+                       "Forbindelsen til boardet blev afbrudt under upload - boardet koerer uaendret videre");
+      return 502;
+    }
+    forwarded += (size_t)n;
+  }
+
+  char *body = NULL;
+  int status = relay_read_response(s, buf, EXP_OTA_RELAY_CHUNK + 1, &body);
+  close(s);
+  if (status < 0) {
+    free(buf);
+    relay_error_json(resp_json, resp_size, "board_no_response",
+                     "Boardet svarede ikke efter uploadet - laes boardets OTA-status for at se udfaldet");
+    return 504;
+  }
+  if (body && body[0]) {
+    strncpy(resp_json, body, resp_size - 1);
+    resp_json[resp_size - 1] = '\0';
+  } else {
+    snprintf(resp_json, resp_size, "{\"ok\":%s,\"message\":\"Boardet svarede HTTP %d uden indhold\"}",
+             status < 300 ? "true" : "false", status);
+  }
+  free(buf);
+
+  // Et 401/403 fra BOARDET (forkert token) maa ikke naa browseren som 401 —
+  // PLC'ens web-UI tolker 401 som "log ind igen" og taeller det som et
+  // fejlet PLC-login. Boardets JSON-body (med dets message) sendes uaendret.
+  if (status == 401 || status == 403) return 502;
+  return status;
+}
+
+int expansion_api_ota_relay(httpd_req_t *req, uint8_t board_index, const char *md5_hex,
+                            char *resp_json, size_t resp_size, bool *client_gone) {
+  *client_gone = false;
+  if (board_index >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[board_index].configured) {
+    relay_error_json(resp_json, resp_size, "board_not_found", "Board ikke fundet");
+    return 404;
+  }
+  if (g_expansion_api_result.in_progress) {
+    relay_error_json(resp_json, resp_size, "busy", "Et andet expansion-board-kald er allerede i gang");
+    return 409;
+  }
+
+  char ip[16];
+  char token[EXPANSION_TOKEN_MAX];
+  network_config_ip_to_str(g_persist_config.expansion_boards[board_index].ip, ip);
+  strncpy(token, g_persist_config.expansion_boards[board_index].token, sizeof(token) - 1);
+  token[sizeof(token) - 1] = '\0';
+
+  expansion_api_claim_slot(board_index, "ota");
+  bool transport_ok = false;
+  int status = relay_do(req, ip, token, md5_hex, resp_json, resp_size, client_gone, &transport_ok);
+  memset(token, 0, sizeof(token));
+
+  g_expansion_api_result.transport_ok = transport_ok;
+  g_expansion_api_result.http_status = status;
+  strncpy(g_expansion_api_result.response_json, resp_json, sizeof(g_expansion_api_result.response_json) - 1);
+  g_expansion_api_result.done = true;
+  g_expansion_api_result.in_progress = false;
+  xSemaphoreGive(g_expansion_api_sem);
+
+  ESP_LOGI(TAG, "Board %u OTA-relay: %u bytes -> http=%d", board_index, (unsigned)req->content_len, status);
+  return status;
 }
 
 bool expansion_api_poll(ExpansionApiResult *out) {

@@ -440,4 +440,12 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg);
  */
 esp_err_t api_send_json(httpd_req_t *req, const char *json_str);
 
+/**
+ * Send a ready-made JSON body with an arbitrary HTTP status (FEAT-420)
+ * @param req HTTP request
+ * @param status HTTP status code
+ * @param json_str JSON string to send
+ */
+esp_err_t api_send_json_status(httpd_req_t *req, int status, const char *json_str);
+
 #endif // API_HANDLERS_H

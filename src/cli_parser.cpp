@@ -528,6 +528,8 @@ static void print_modbus_expansion_help(void) {
   debug_println("  show modbus-expansion <board>              - Live status+kanaler fra boardet");
   debug_println("  show modbus-expansion queue                - Kø/cache-diagnostik for MBX_*-trafikken");
   debug_println("  mbx <board> status                        - Alias for 'show modbus-expansion <board>'");
+  debug_println("  mbx <board> ota status|confirm            - Boardets firmware-/OTA-status, bekraeft ny firmware (FEAT-420)");
+  debug_println("  mbx <board> reboot                        - Genstart boardet (ruller tilbage hvis ny firmware er ubekraeftet)");
   debug_println("  mbx <board> <kanal> read <fc> <slave> <addr> [qty]     - Diagnostisk læsning");
   debug_println("  mbx <board> <kanal> write <fc> <slave> <addr> <val...> - Diagnostisk skrivning");
   debug_println("");
@@ -3130,6 +3132,7 @@ bool cli_parser_execute(char* line) {
     // subcommands"-moenster som "MB" ovenfor.
     if (argc < 2) {
       debug_println("Brug: mbx <board> status");
+      debug_println("      mbx <board> ota status | ota confirm | reboot");
       debug_println("      mbx <board> <kanal> read <fc> <slave_id> <address> [quantity]");
       debug_println("      mbx <board> <kanal> write <fc> <slave_id> <address> <value...>");
       debug_println("  <board>: index eller navn (se 'show modbus-expansion')");
@@ -3142,6 +3145,12 @@ bool cli_parser_execute(char* line) {
       return true;
     }
 
+    // FEAT-420: board-firmwareopdatering (status/bekraeft/genstart)
+    if (argc >= 3 && (!strcasecmp(argv[2], "ota") || !strcasecmp(argv[2], "reboot"))) {
+      cli_cmd_mbx_ota(argc - 1, argv + 1);
+      return true;
+    }
+
     if (argc >= 4 && !strcasecmp(argv[3], "read")) {
       cli_cmd_mbx_read(argc - 1, argv + 1);
       return true;
@@ -3151,7 +3160,7 @@ bool cli_parser_execute(char* line) {
       return true;
     }
 
-    debug_println("MBX: ukendt kommando (brug: status, read, write)");
+    debug_println("MBX: ukendt kommando (brug: status, ota, reboot, read, write)");
     return false;
 
   } else {
