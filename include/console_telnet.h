@@ -32,4 +32,12 @@ Console* console_telnet_create(TelnetServer *telnet_server);
  */
 void console_telnet_destroy(Console *console);
 
+/**
+ * FEAT-421: returnerer Telnet-serveren bag en konsol, eller NULL hvis
+ * konsollen ikke er en Telnet-konsol (Serial, web-CLI's buffer-konsol).
+ * Serveren er persistent (network_manager ejer den) — i modsaetning til
+ * selve Console-objektet, som kun lever under een kommando.
+ */
+TelnetServer* console_telnet_get_server(Console *console);
+
 #endif // CONSOLE_TELNET_H

@@ -6,6 +6,7 @@
  */
 
 #include "console_serial.h"
+#include "uart_driver.h"  // BUG-424
 #include <Arduino.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -26,6 +27,7 @@ typedef struct {
 
 static int serial_read_char(void *ctx, char *out_char) {
   if (!out_char) return -1;
+  if (uart_rs485_owns_usb_pins()) return 0;  // BUG-424
 
   if (Serial.available() > 0) {
     int ch = Serial.read();
@@ -39,24 +41,28 @@ static int serial_read_char(void *ctx, char *out_char) {
 }
 
 static int serial_write_char(void *ctx, char ch) {
+  if (uart_rs485_owns_usb_pins()) return 1;  // BUG-424
   Serial.write(ch);
   return 1;
 }
 
 static int serial_write_str(void *ctx, const char *str) {
   if (!str) return -1;
+  if (uart_rs485_owns_usb_pins()) return strlen(str);  // BUG-424
   Serial.print(str);
   return strlen(str);
 }
 
 static int serial_write_line(void *ctx, const char *str) {
   if (!str) return -1;
+  if (uart_rs485_owns_usb_pins()) return strlen(str) + 2;  // BUG-424
   Serial.println(str);
   return strlen(str) + 2;  // +2 for \r\n
 }
 
 static int serial_write_fmt(void *ctx, const char *fmt, ...) {
   if (!fmt) return -1;
+  if (uart_rs485_owns_usb_pins()) return 0;  // BUG-424
 
   char buffer[256];
   va_list args;
@@ -73,6 +79,7 @@ static int serial_write_fmt(void *ctx, const char *fmt, ...) {
 }
 
 static int serial_has_input(void *ctx) {
+  if (uart_rs485_owns_usb_pins()) return 0;  // BUG-424
   return Serial.available() > 0 ? 1 : 0;
 }
 
@@ -82,6 +89,7 @@ static int serial_is_connected(void *ctx) {
 }
 
 static int serial_flush(void *ctx) {
+  if (uart_rs485_owns_usb_pins()) return 0;  // BUG-424
   Serial.flush();
   return 0;
 }

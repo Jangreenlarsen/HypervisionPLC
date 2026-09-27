@@ -76,7 +76,7 @@ show modbus-master                        (status + kø-/cache-statistik)
 
 **Prioritering:** skrivninger (Write) prioriteres altid over læsninger; blandt læsninger prioriteres "første læsning" (intet cachet endnu) over "opdatering af allerede kendt værdi". Er køen fuld, fortrænges den laveste-prioritets ventende request — se [§13.4](13_Fejlfinding.md#modbus-master-holder-op-med-at-opdatere-en-bestemt-adresse) hvis en bestemt adresse holder op med at opdatere.
 
-**Manuelt afprøve Master:** se [`mb read`/`mb write`](05_CLI_Konsol.md#54-mb--modbus-master-fra-kommandolinjen) i CLI-kapitlet, eller den manuelle Read/Write-formular i dashboardets Modbus Master-kort ([§4.2](04_Web_Dashboard_og_Monitor.md)).
+**Manuelt afprøve Master:** se [`mb read`/`mb write`](05_CLI_Konsol.md#54-mb--modbus-master-fra-kommandolinjen) i CLI-kapitlet, eller vælg **Intern Modbus** som board i I/O-sidens test-panel (under Modbus Expansion Boards, se §6.7).
 
 **Fra ST Logic:** se [kapitel 8](08_ST_Logic_Programmering.md#modbus-master-fra-st-logic) for `MB_READ_HOLDING`/`MB_WRITE_HOLDING` m.fl.
 
@@ -97,7 +97,7 @@ Et "HypervisionPLC Extension Board" er et separat, fysisk board med sine egne RS
 - **Kanaler**: viser og redigerer kanal A/B's konfiguration (mode RS485/RS232, baudrate, paritet, stopbits, timeout) direkte fra boardet — ændringer gemmes atomisk (alle felter i ét kald, aldrig delvist). Statistik (antal forespørgsler/fejl) vises live.
 - **Firmware** (kolonne, FEAT-420): boardets kørende firmware (`running_version`). Afventer en ny firmware bekræftelse, vises en advarsel med sekunder til automatisk rollback samt knapperne **Bekræft** og **Rul tilbage nu**; blev seneste opdatering rullet tilbage, vises det også.
 - **Opdatér firmware…** (FEAT-420): opdaterer boardets firmware fra en `.bin`-fil, se nedenfor.
-- **Test funktions-register**: et diagnostisk panel til at afprøve en enkelt Modbus-transaktion (læs/skriv holding-register, coil, osv.) mod en given slave på den valgte kanal — til opsætning/fejlsøgning, ikke til løbende drift.
+- **Test funktions-register**: et diagnostisk panel til at afprøve en enkelt Modbus-transaktion (læs/skriv holding-register, coil, osv.) mod en given slave på den valgte kanal — til opsætning/fejlsøgning, ikke til løbende drift. Board-listen har altid **Intern Modbus (PLC'ens RS485)** som sidste valg (FEAT-422, flyttet fra Monitor-sidens Modbus Master-kort): så går transaktionen ud på PLC'ens EGEN RS485-bus via Modbus Master (`/api/modbus/master/rw`, kræver at Master er aktiveret). Kanal-feltet skjules, kun FC01-06 kan vælges, og der læses/skrives én værdi ad gangen gennem samme kø/cache som ST Logic (en læsning kan derfor vise en cachet værdi; alderen vises). "Funktions-test (capability probe)" findes kun for expansion boards.
 
 ![System-siden — Modbus Expansion Boards-kortet, med et tilsluttet board](assets/screenshots/system_modbus.png)
 

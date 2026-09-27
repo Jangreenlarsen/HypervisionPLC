@@ -72,6 +72,37 @@ mb reset stats                 Nulstil statistiktællere
 
 Disse kommandoer går gennem samme asynkrone kø/cache som ST Logic's Modbus-kald, og optræder derfor også i Modbus Aktivitetsloggen ([§4.2](04_Web_Dashboard_og_Monitor.md#4-2-dashboard--layout-og-faner)) med kilde `cli`.
 
+### Live-debug af Modbus-trafikken (`debug modbus`)
+
+Samme funktion som på Expansion Boardet: al Modbus Master-trafik på RS485-bussen — fra ST Logic, dashboardet og `mb`-kommandoerne — vises live i konsollen, én linje pr. trin med tidsstempel (oppetid `D:HH:MM:SS.mmm`):
+
+```
+debug modbus level 1           Slå til (1-8, højere = flere detaljer)
+no debug modbus                Slå fra
+```
+
+```
+DEBUG [0:00:12:03.410] mb_master >TX> start: FC: 03, Slave: 15, Len: 8, Kilde: ST
+DEBUG [0:00:12:03.410] mb_master >TX> decode: ID: 0F (15), FC03 Read Holding Registers, Addr: 0, Qty: 1, CRC: 84 E4
+DEBUG [0:00:12:03.431] mb_master <RX< decode: ID: 0F (15), FC03 Read Holding Registers, Bytes: 2, Regs: 244, CRC: ..., Status: MB_OK
+DEBUG [0:00:12:03.431] mb_master <RX< result: MB_OK (modtog 7 byte(s), 21ms)
+```
+
+| Level | Viser |
+|---|---|
+| 1 | start, decode af request/svar, resultat (inkl. TIMEOUT/CRC/EXCEPTION) |
+| 2 | + støj-bytes tømt fra bussen før afsendelse |
+| 3 | + DE/RE-retningsskift |
+| 4–5 | + ventetid pr. modtaget byte |
+| 6 | + CRC-tjek (modtaget/beregnet) |
+| 7 | + rå TX-hex |
+| 8 | + rå RX-hex |
+
+- **Kun via Telnet.** På ES32D26 deler USB-konsollen forbindelse (GPIO1/3) med RS485, så kommandoen afvises fra seriel-konsollen. Web-CLI'en kan ikke vise live output og afviser også.
+- Output går til den Telnet-session, der slog debug til. Debug slås automatisk fra, når sessionen lukkes, og efter reboot (gemmes ikke).
+- Påvirker ikke bussens timing: trafikken opsamles som rå bytes og formateres først i hovedløkken. Ved meget trafik på høje levels kan linjer blive sprunget over (vises som `dropped`).
+- `show debug` viser om det er slået til. Kræver skriverettighed (RBAC).
+
 Findes der et Modbus Expansion Board på netværket ([§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)), er der en tilsvarende `mbx <board> <kanal> read|write ...`-kommandofamilie til at afprøve DETS kanaler manuelt — se [Appendiks A](A_CLI_Kommando_Reference.md#modbus-expansion-board-feat-409).
 
 ## 5.5 Fuld kommandoreference

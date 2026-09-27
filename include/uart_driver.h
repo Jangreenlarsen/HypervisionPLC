@@ -67,6 +67,15 @@ void uart1_stop(void);
 bool uart1_is_active(void);
 
 /**
+ * BUG-424: TRUE naar Modbus-UART'en (slave ELLER master paa ES32D26 — begge
+ * bruger uart1_*) er aktiv paa GPIO1/3 eller ER UART0. USB-seriel-konsollen
+ * maa saa hverken laese (den stjaeler slavens svar-bytes naar Modbus-UART'en
+ * er UART0, og faar ellers RS485-trafikken ind som tastetryk) eller skrive
+ * (tekst i den faelles TX-FIFO sendes ud paa bussen foran naeste frame).
+ */
+bool uart_rs485_owns_usb_pins(void);
+
+/**
  * @brief Get resolved RS485 DIR pin for Modbus Slave
  * Returns configured pin or board default from constants.h
  */

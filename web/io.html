@@ -185,11 +185,11 @@
 </div>
 
 <h3 style="font-size:13px;color:#89b4fa;margin:18px 0 8px;padding-top:12px;border-top:1px solid #313244">Test funktions-register (diagnostisk læs/skriv)</h3>
-<p style="font-size:11px;color:#6c7086;margin-bottom:8px">Udfører ÉN Modbus-transaktion direkte mod den valgte kanal — til test/fejlsøgning. PLC'ens egen, høj-frekvente drift bruger Modbus TCP direkte, ikke dette panel.</p>
+<p style="font-size:11px;color:#6c7086;margin-bottom:8px">Udfører ÉN Modbus-transaktion direkte mod den valgte kanal — til test/fejlsøgning. PLC'ens egen, høj-frekvente drift bruger Modbus TCP direkte, ikke dette panel. Vælg <strong>Intern Modbus</strong> som board for at teste en slave på PLC'ens egen RS485-bus (via Modbus Master, som skal være aktiveret; FC01-06, én værdi ad gangen, samme kø/cache som ST Logic).</p>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:10px">
 <div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Board</label>
-<select id="expTestBoard" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"><option value="">Ingen boards</option></select></div>
-<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Kanal</label>
+<select id="expTestBoard" onchange="updateExpTestFields()" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"><option value="internal">Intern Modbus (PLC'ens RS485)</option></select></div>
+<div id="expTestChannelWrap"><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Kanal</label>
 <select id="expTestChannel" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"><option value="1">A</option><option value="2">B</option></select></div>
 <div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Function code</label>
 <select id="expTestFc" onchange="updateExpTestFields()" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px">
@@ -766,12 +766,14 @@ function loadExpBoards(){
     const prevSel=testSel.value;
     if(!d.boards||d.boards.length===0){
       tbody.innerHTML='<tr><td colspan="8" style="color:#6c7086;text-align:center">Ingen boards konfigureret</td></tr>';
-      testSel.innerHTML='<option value="">Ingen boards</option>';
+      testSel.innerHTML=EXP_TEST_INTERNAL_OPT;
+      updateExpTestFields();
       return;
     }
-    testSel.innerHTML=d.boards.map(b=>'<option value="'+b.id+'">#'+b.number+' — '+b.name+'</option>').join('');
+    testSel.innerHTML=d.boards.map(b=>'<option value="'+b.id+'">#'+b.number+' — '+b.name+'</option>').join('')+EXP_TEST_INTERNAL_OPT;
     _expBoards={};d.boards.forEach(b=>{_expBoards[b.id]={name:b.name,number:b.number}});
-    if(d.boards.some(b=>String(b.id)===prevSel))testSel.value=prevSel;
+    if(prevSel==='internal'||d.boards.some(b=>String(b.id)===prevSel))testSel.value=prevSel;
+    updateExpTestFields();
     tbody.innerHTML=d.boards.map(b=>{
       const nameEsc=b.name.replace(/'/g,"\\'");
       const typeLabel=_expTypeLabels[b.type]||b.type;
@@ -1309,21 +1311,76 @@ function md5Hex(buf){
   return [a,b,c,d].map(v=>{let h='';for(let i=0;i<4;i++)h+=((v>>>(i*8))&255).toString(16).padStart(2,'0');return h}).join('');
 }
 
+// FEAT-422: "Intern Modbus" = PLC'ens egen RS485-bus via Modbus Master
+// (/api/modbus/master/rw, flyttet hertil fra Monitor-siden). Altid sidste
+// valg i Board-listen, ogsaa naar der ingen expansion boards er.
+const EXP_TEST_INTERNAL_OPT='<option value="internal">Intern Modbus (PLC\'ens RS485)</option>';
+function expTestIsInternal(){return $('expTestBoard').value==='internal'}
+
 function updateExpTestFields(){
-  const fc=parseInt($('expTestFc').value,10);
+  const internal=expTestIsInternal();
+  // Intern: ingen kanal, kun FC01-06 og én værdi (endpointet kender ikke antal/FC15/16)
+  $('expTestChannelWrap').style.display=internal?'none':'block';
+  const fcSel=$('expTestFc');
+  for(const o of fcSel.options){const n=parseInt(o.value,10);o.disabled=internal&&(n===15||n===16)}
+  if(internal&&(fcSel.value==='15'||fcSel.value==='16'))fcSel.value='3';
+  const fc=parseInt(fcSel.value,10);
   const isWrite=(fc===5||fc===6||fc===15||fc===16);
-  $('expTestQtyWrap').style.display=isWrite?'none':'block';
+  $('expTestQtyWrap').style.display=(isWrite||internal)?'none':'block';
   $('expTestValWrap').style.display=isWrite?'block':'none';
+}
+
+function runInternalTest(){
+  const fc=parseInt($('expTestFc').value,10);
+  const slave=parseInt($('expTestSlave').value,10);
+  const addr=parseInt($('expTestAddr').value,10);
+  const resEl=$('expTestResult');
+  const show=(txt,ok)=>{resEl.style.display='block';resEl.style.color=ok===undefined?'#6c7086':(ok?'#a6e3a1':'#f38ba8');resEl.textContent=txt};
+  const map={1:['read','coil'],2:['read','input'],3:['read','holding'],4:['read','input-reg'],5:['write','coil'],6:['write','holding']};
+  if(!map[fc]){show('Intern Modbus understøtter kun FC01-06',false);return}
+  if(!(slave>=1&&slave<=247)){show('Fejl: Slave-ID skal være 1-247',false);return}
+  if(!(addr>=0&&addr<=65535)){show('Fejl: adresse skal være 0-65535',false);return}
+  const [op,type]=map[fc];
+  const body={op,type,slave,addr};
+  if(op==='write'){
+    const raw=$('expTestVal').value.trim().toLowerCase();
+    const v=(fc===5)?((raw==='1'||raw==='on'||raw==='true')?1:(raw==='0'||raw==='off'||raw==='false')?0:NaN):parseInt(raw,10);
+    if(isNaN(v)||v<0||v>65535){show(fc===5?'Fejl: værdi skal være 0/1 (on/off)':'Fejl: værdi skal være 0-65535',false);return}
+    body.value=v;
+  }
+  const label='Intern Modbus: FC'+String(fc).padStart(2,'0')+' slave='+slave+' addr='+addr+(op==='write'?' value='+body.value:'');
+  const post=b=>api('/api/modbus/master/rw',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})
+    .then(r=>{
+      if(r.status===403)throw new Error('Skriverettigheder kræves');
+      return r.json().then(j=>{if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j});
+    });
+  const valTxt=d=>'Værdi: '+d.value+' ('+d.hex+')  signed: '+d.signed+'\nCache-alder: '+d.age_ms+' ms';
+  const poll=n=>{
+    if(n>6){show(label+'\nIntet svar inden 3 s — tjek at Modbus Master er aktiveret, slave-ID, baudrate og kabling (Telnet: "debug modbus level 1")',false);return}
+    post({op:'read',type,slave,addr}).then(d=>{
+      if(d.status==='ok')show(label+'\n'+valTxt(d),true);
+      else if(d.status==='pending')setTimeout(()=>poll(n+1),500);
+      else show(label+'\n'+(d.message||d.status),false);
+    }).catch(e=>show(label+'\nFejl: '+e.message,false));
+  };
+  show(label+'\nSender via kø...');
+  post(body).then(d=>{
+    if(d.status==='ok')show(label+'\n'+valTxt(d),true);
+    else if(op==='read'&&d.status==='pending'){show(label+'\n'+d.message+' — venter på svar...');setTimeout(()=>poll(1),500)}
+    else if(d.status==='queued')show(label+'\nSkrivning sat i kø — bekræft evt. med en læsning',true);
+    else show(label+'\n'+(d.message||JSON.stringify(d)),false);
+  }).catch(e=>show(label+'\nFejl: '+e.message,false));
 }
 
 // Test-panelernes eget board-valg (uafhængigt af "Kanaler"-visningens
 // expCurrentBoardId) — se expTestBoard-select, udfyldt af loadExpBoards().
 function expTestBoardId(){
   const v=$('expTestBoard').value;
-  return v?parseInt(v,10):null;
+  return (v&&v!=='internal')?parseInt(v,10):null;
 }
 
 function runExpTest(){
+  if(expTestIsInternal()){runInternalTest();return}
   const boardId=expTestBoardId();
   if(boardId===null){showAlert('expBoardsAlert','err','Vælg et board i test-panelet først');return}
   const channel=parseInt($('expTestChannel').value,10);
@@ -1380,6 +1437,7 @@ const EXP_CAP_TESTS=[
 ];
 
 function runExpCapabilityTest(){
+  if(expTestIsInternal()){showAlert('expBoardsAlert','err','Funktions-testen findes kun for expansion boards — brug "Kør" ovenfor til Intern Modbus');return}
   const boardId=expTestBoardId();
   if(boardId===null){showAlert('expBoardsAlert','err','Vælg et board i test-panelet først');return}
   const channel=parseInt($('expTestChannel').value,10);
@@ -1534,6 +1592,7 @@ function saveTransceiver(){
 
 function loadAll(){
   loadModbusSlave();loadModbusMaster();loadTransceiver();
+  updateExpTestFields();  // FEAT-422: korrekte felter selv hvis boards ikke kan hentes
   loadExpBoardTypes().then(loadExpBoards);
   buildCards();
   for(let i=1;i<=4;i++){loadCounter(i);loadTimer(i);}

@@ -159,6 +159,11 @@ bool uart1_is_active(void) {
   return modbus_slave_uart_active;
 }
 
+bool uart_rs485_owns_usb_pins(void) {
+  if (!modbus_slave_uart_active) return false;
+  return (active_rx_pin == 3 && active_tx_pin == 1) || (modbus_slave_uart_num == 0);
+}
+
 /* ============================================================================
  * UART0 (DEBUG) OPERATIONS
  * ============================================================================ */

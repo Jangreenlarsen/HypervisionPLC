@@ -115,6 +115,13 @@ static int telnet_flush(void *ctx) {
  * CONSOLE CREATION/DESTRUCTION
  * ============================================================================ */
 
+TelnetServer* console_telnet_get_server(Console *console) {
+  if (!console || !console->context || console->write_line != telnet_write_line) {
+    return NULL;
+  }
+  return ((TelnetConsoleContext*)console->context)->telnet_server;
+}
+
 Console* console_telnet_create(TelnetServer *telnet_server) {
   if (!telnet_server) {
     return NULL;

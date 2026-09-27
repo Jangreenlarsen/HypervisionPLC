@@ -273,29 +273,6 @@
 <div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
 <div id="mcBackoff" style="margin-top:6px"></div>
 <div style="border-top:1px solid #313244;margin-top:8px;padding-top:6px;text-align:center"><button id="btnResetMasterStats" onclick="resetMasterStats()" style="background:#45475a;color:#cdd6f4;border:1px solid #585b70;border-radius:4px;padding:4px 14px;cursor:pointer;font-size:12px">Nulstil statistik</button></div>
-<!-- FEAT-135: mb read/write mini-form -->
-<div style="border-top:1px solid #313244;margin-top:8px;padding-top:6px">
-<div style="font-size:11px;color:#89b4fa;margin-bottom:4px;font-weight:600">Modbus manuel Read/Write</div>
-<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:4px">
-<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px">FC Type</div>
-<select id="mbOp" onchange="updateMbForm()" style="padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
-<option value="read holding">Read Holding (FC03)</option>
-<option value="read input-reg">Read Input Reg (FC04)</option>
-<option value="read coil">Read Coil (FC01)</option>
-<option value="read input">Read Discrete In (FC02)</option>
-<option value="write holding">Write Holding (FC06)</option>
-<option value="write coil">Write Coil (FC05)</option>
-</select></div>
-<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px">Slave ID</div>
-<input type="number" id="mbSlave" value="1" min="1" max="247" title="Slave ID" style="width:55px;padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px"></div>
-<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px">Adresse</div>
-<input type="number" id="mbAddr" value="0" min="0" max="65535" title="Addr" style="width:60px;padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px"></div>
-<div><div style="font-size:10px;color:#a6adc8;margin-bottom:2px" id="mbValLabel">Antal</div>
-<input type="number" id="mbVal" value="1" title="Count (read) / Value (write)" style="width:55px;padding:2px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px"></div>
-<button onclick="doMbCmd()" style="padding:2px 10px;background:#89b4fa;color:#1e1e2e;border:none;border-radius:3px;cursor:pointer;font-size:10px;font-weight:600;align-self:flex-end">Udfør</button>
-</div>
-<pre id="mbResult" style="font-size:10px;background:#11111b;color:#a6adc8;padding:4px 6px;border-radius:3px;max-height:100px;overflow-y:auto;margin:0;white-space:pre-wrap;font-family:'Cascadia Code',monospace;user-select:text;cursor:text">(klar)</pre>
-</div>
 </div>
 </div>
 
@@ -3155,105 +3132,7 @@ function resetSettings(){
   setTimeout(()=>{msg.style.display='none';},3000);
 }
 
-// FEAT-135: Modbus Master mini-form handler
-// Matches CLI syntax in cli_commands_modbus_master.cpp:
-//   mb read coil     <slave> <addr>
-//   mb read input    <slave> <addr>
-//   mb read holding  <slave> <addr> [count=1..16]
-//   mb read input-reg <slave> <addr>
-//   mb write coil    <slave> <addr> <0|1>
-//   mb write holding <slave> <addr> <value 0..65535>
-function updateMbForm(){
-  const op=$('mbOp').value;
-  const valInp=$('mbVal');
-  const lbl=$('mbValLabel');
-  if(op.startsWith('write')){lbl.textContent='Værdi';}else if(op==='read holding'){lbl.textContent='Antal';}else{lbl.textContent='Antal';}
-  if(op==='read holding'){
-    valInp.title='Count (1-16)';
-    valInp.placeholder='count';
-    valInp.disabled=false;
-    if(parseInt(valInp.value)>16||parseInt(valInp.value)<1)valInp.value=1;
-  }else if(op==='write holding'){
-    valInp.title='Value (0-65535)';
-    valInp.placeholder='value';
-    valInp.disabled=false;
-  }else if(op==='write coil'){
-    valInp.title='Value (0 eller 1)';
-    valInp.placeholder='0/1';
-    valInp.disabled=false;
-    if(parseInt(valInp.value)!==0&&parseInt(valInp.value)!==1)valInp.value=1;
-  }else{
-    // read coil / read input / read input-reg — ingen værdi
-    valInp.title='(ikke brugt)';
-    valInp.placeholder='-';
-    valInp.disabled=true;
-  }
-}
-async function doMbCmd(){
-  const opFull=$('mbOp').value;
-  const slave=parseInt($('mbSlave').value)||1;
-  const addr=parseInt($('mbAddr').value)||0;
-  const valRaw=$('mbVal').value;
-  const result=$('mbResult');
-  // Parse "read holding" → op="read", type="holding"
-  const parts=opFull.split(' ');
-  const op=parts[0];
-  const type=parts.slice(1).join(' ')||'holding';
-
-  if(op==='write'){
-    const v=parseInt(valRaw);
-    if(type==='holding'&&(isNaN(v)||v<0||v>65535)){result.textContent='Fejl: value skal være 0-65535';return;}
-    if(type==='coil'&&v!==0&&v!==1){result.textContent='Fejl: coil value skal være 0 eller 1';return;}
-  }
-
-  const label=opFull+' slave='+slave+' addr='+addr;
-  result.textContent='> '+label+'\nSender via kø...';
-  try{
-    var auth=authGet();
-    var opts={method:'POST',headers:{'Content-Type':'application/json'}};
-    if(auth)opts.headers['Authorization']=auth;
-    var body={op:op,type:type,slave:slave,addr:addr};
-    if(op==='write')body.value=parseInt(valRaw)||0;
-    opts.body=JSON.stringify(body);
-    const r=await fetch('/api/modbus/master/rw',opts);
-    if(r.status===401){result.textContent='> '+label+'\nFejl: Login kræves';return;}
-    if(r.status===403){result.textContent='> '+label+'\nFejl: Skriv-rettigheder kræves';return;}
-    if(!r.ok){result.textContent='> '+label+'\nHTTP '+r.status;return;}
-    const d=await r.json();
-    if(d.status==='ok'){
-      result.textContent='> '+label+'\nVærdi: '+d.value+' ('+d.hex+') signed: '+d.signed+'\nCache alder: '+d.age_ms+'ms';
-    }else if(d.status==='pending'||d.status==='queued'){
-      result.textContent='> '+label+'\n'+d.message+'\nVenter på svar...';
-      // Poll for result after async queue processes
-      setTimeout(()=>doMbPoll(op,type,slave,addr,label),500);
-    }else{
-      result.textContent='> '+label+'\n'+(d.message||JSON.stringify(d));
-    }
-  }catch(e){
-    result.textContent='> '+label+'\nNetværksfejl: '+e.message;
-  }
-}
-async function doMbPoll(op,type,slave,addr,label,attempt){
-  attempt=attempt||1;
-  if(attempt>6)return; // max 3s
-  try{
-    var auth=authGet();
-    var opts={method:'POST',headers:{'Content-Type':'application/json'}};
-    if(auth)opts.headers['Authorization']=auth;
-    opts.body=JSON.stringify({op:'read',type:type,slave:slave,addr:addr});
-    const r=await fetch('/api/modbus/master/rw',opts);
-    if(!r.ok)return;
-    const d=await r.json();
-    const result=$('mbResult');
-    if(d.status==='ok'){
-      result.textContent='> '+label+'\nVærdi: '+d.value+' ('+d.hex+') signed: '+d.signed+'\nCache alder: '+d.age_ms+'ms';
-    }else if(d.status==='pending'){
-      setTimeout(()=>doMbPoll(op,type,slave,addr,label,attempt+1),500);
-    }else{
-      result.textContent='> '+label+'\n'+(d.message||d.status);
-    }
-  }catch(e){}
-}
+// FEAT-422: "Modbus manuel Read/Write" er flyttet til I/O-siden (sektionen "Intern Modbus")
 
 function resetMasterStats(){
   var auth=authGet();
@@ -3429,7 +3308,6 @@ function init(){
 
   initDragDrop();
   applySubTab();
-  updateMbForm();
   // BUG-369: disse fetch-kald blev tidligere fyret helt samtidigt ved
   // side-indlaesning (+ updateUserBadge() og sseConnect()s eget kald,
   // se laengere nede) — op til 9 samtidige HTTPS-forbindelsesforsoeg paa

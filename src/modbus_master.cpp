@@ -8,6 +8,7 @@
 #include "modbus_master.h"
 #include "mb_async.h"
 #include "mb_activity_log.h"
+#include "mb_debug.h"
 #include "uart_driver.h"
 #include "config_struct.h"
 #include <HardwareSerial.h>
@@ -354,6 +355,21 @@ static void mb_log_master_activity(const uint8_t *request, uint8_t request_len,
                        slave_id, fc, address, count, value, (int16_t)err);
 }
 
+/**
+ * @brief FEAT-421: faelles afslutning for alle retur-veje i
+ * modbus_master_send_request() — activity-log (FEAT-149) + live
+ * `debug modbus` (kun en memcpy ind i ringbufferen, ingen formatering her).
+ */
+static void mb_master_finish(const mb_debug_txn_t *txn,
+                             const uint8_t *request, uint8_t request_len,
+                             const uint8_t *response, uint8_t response_len,
+                             mb_error_code_t err) {
+  mb_log_master_activity(request, request_len, response, response_len, err);
+  if (mb_debug_level() > 0) {
+    mb_debug_capture(txn, request, request_len, response, response_len, err);
+  }
+}
+
 mb_error_code_t modbus_master_send_request(
   const uint8_t *request,
   uint8_t request_len,
@@ -361,8 +377,18 @@ mb_error_code_t modbus_master_send_request(
   uint8_t *response_len,
   uint8_t max_response_len
 ) {
+  // FEAT-421: debug-kontekst for denne transaktion (se mb_debug.h)
+  mb_debug_txn_t dbg_txn = {
+    .t_start_ms = millis(),
+    .source = g_mb_activity_current_source,
+    .drained = 0,
+    .dir_pin = uart_get_master_dir_pin(),
+    .baudrate = g_modbus_master_config.baudrate
+  };
+  uint8_t *rx_wait = mb_debug_rx_wait_buf();
+
   if (!g_modbus_master_config.enabled) {
-    mb_log_master_activity(request, request_len, NULL, 0, MB_NOT_ENABLED);
+    mb_master_finish(&dbg_txn, request, request_len, NULL, 0, MB_NOT_ENABLED);
     return MB_NOT_ENABLED;
   }
 
@@ -381,16 +407,23 @@ mb_error_code_t modbus_master_send_request(
     // mod den asynkrone task identisk ud som en scanning af en tom bus —
     // observeret som falsk "0 slaver fundet" paa en bus med 2 kendte enheder.
     g_modbus_bus_busy_errors++;
-    mb_log_master_activity(request, request_len, NULL, 0, MB_BUS_BUSY);
+    mb_master_finish(&dbg_txn, request, request_len, NULL, 0, MB_BUS_BUSY);
     return MB_BUS_BUSY;  // Bussen var optaget af en anden transaktion i >2s
   }
 
+  dbg_txn.t_start_ms = millis();  // FEAT-421: maal fra bussen er vores
+
   // Flush RX buffer
 #if MODBUS_SINGLE_TRANSCEIVER
+  {
+    uint16_t pending = uart1_available();
+    dbg_txn.drained = (uint8_t)(pending > 255 ? 255 : pending);
+  }
   uart1_flush_rx();
 #else
   while (ModbusSerial.available()) {
     ModbusSerial.read();
+    if (dbg_txn.drained < 255) dbg_txn.drained++;
   }
 #endif
 
@@ -440,11 +473,16 @@ mb_error_code_t modbus_master_send_request(
     if (uart1_available()) {
       int b = uart1_read();
       if (b >= 0) {
+        // FEAT-421: kun registreret (ingen I/O i RX-loekken — ville aendre timingen)
+        uint32_t waited = millis() - start_time;
+        rx_wait[bytes_received] = (uint8_t)(waited > 255 ? 255 : waited);
         response[bytes_received++] = (uint8_t)b;
         start_time = millis();
       }
 #else
     if (ModbusSerial.available()) {
+      uint32_t waited = millis() - start_time;  // FEAT-421
+      rx_wait[bytes_received] = (uint8_t)(waited > 255 ? 255 : waited);
       response[bytes_received++] = ModbusSerial.read();
       start_time = millis(); // Reset for inter-character timeout
 #endif
@@ -532,7 +570,7 @@ mb_error_code_t modbus_master_send_request(
     g_modbus_master_config.last_error_slave_id = req_slave_id;
     g_modbus_master_config.last_error_address = req_address;
     g_modbus_master_config.last_error_type = MB_TIMEOUT;
-    mb_log_master_activity(request, request_len, response, bytes_received, MB_TIMEOUT);
+    mb_master_finish(&dbg_txn, request, request_len, response, bytes_received, MB_TIMEOUT);
     return MB_TIMEOUT;
   }
 
@@ -546,14 +584,14 @@ mb_error_code_t modbus_master_send_request(
       g_modbus_master_config.last_error_slave_id = req_slave_id;
       g_modbus_master_config.last_error_address = req_address;
       g_modbus_master_config.last_error_type = MB_CRC_ERROR;
-      mb_log_master_activity(request, request_len, response, bytes_received, MB_CRC_ERROR);
+      mb_master_finish(&dbg_txn, request, request_len, response, bytes_received, MB_CRC_ERROR);
       return MB_CRC_ERROR;
     }
   } else {
     g_modbus_master_config.last_error_slave_id = req_slave_id;
     g_modbus_master_config.last_error_address = req_address;
     g_modbus_master_config.last_error_type = MB_CRC_ERROR;
-    mb_log_master_activity(request, request_len, response, bytes_received, MB_CRC_ERROR);
+    mb_master_finish(&dbg_txn, request, request_len, response, bytes_received, MB_CRC_ERROR);
     return MB_CRC_ERROR;
   }
 
@@ -563,12 +601,12 @@ mb_error_code_t modbus_master_send_request(
     g_modbus_master_config.last_error_slave_id = req_slave_id;
     g_modbus_master_config.last_error_address = req_address;
     g_modbus_master_config.last_error_type = MB_EXCEPTION;
-    mb_log_master_activity(request, request_len, response, bytes_received, MB_EXCEPTION);
+    mb_master_finish(&dbg_txn, request, request_len, response, bytes_received, MB_EXCEPTION);
     return MB_EXCEPTION;
   }
 
   g_modbus_master_config.successful_requests++;
-  mb_log_master_activity(request, request_len, response, bytes_received, MB_OK);
+  mb_master_finish(&dbg_txn, request, request_len, response, bytes_received, MB_OK);
   return MB_OK;
 }
 

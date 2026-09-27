@@ -6,6 +6,7 @@
  * No business logic in this file.
  */
 
+#include "mb_debug.h"
 #include <Arduino.h>
 #include <esp_system.h>
 #include <nvs_flash.h>
@@ -402,6 +403,9 @@ void loop() {
   if (g_serial_console) {
     cli_shell_loop(g_serial_console);
   }
+
+  // FEAT-421: send opsamlet Modbus Master-debug til Telnet (no-op naar fra)
+  mb_debug_loop();
 
   // Background feature engines
   counter_engine_loop();

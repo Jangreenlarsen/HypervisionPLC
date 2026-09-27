@@ -323,6 +323,8 @@ Alle `mb`-kommandoer kræver `set modbus-master enabled on`. Baudrate kan oversk
 | `mb reset stats` | Nulstil master-statistik |
 | `mb reset cache` | Ryd async cache-entries |
 | `mb ?` / `mb help` | Detaljeret hjælp |
+| `debug modbus [master\|all] level <1-8>` | **FEAT-421.** Live Modbus Master-trafik i Telnet-sessionen (1 = start/decode/resultat … 8 = + rå hex). Ikke persisteret. Kun Telnet (afvises fra seriel-konsol på ES32D26 og fra web-CLI). Se [§5.4](05_CLI_Konsol.md#54-mb--modbus-master-fra-kommandolinjen) |
+| `no debug modbus` | Slå Modbus-debug fra (også `no debug all`) |
 
 Aliaser: `mb rd`=`mb read`, `mb wr`=`mb write`, `mb rst`=`mb reset`. `slave_id`: 1–247.
 

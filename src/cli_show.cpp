@@ -13,6 +13,7 @@
  * Context: Formatting optimized for 80-char serial terminals
  */
 
+#include "mb_debug.h"
 #include "cli_show.h"
 #include "counter_engine.h"
 #include "counter_config.h"
@@ -4526,6 +4527,8 @@ void cli_cmd_show_debug(void) {
 
   debug_print("  http_api:          ");
   debug_println(dbg->http_api ? "ENABLED" : "DISABLED");
+
+  mb_debug_print_status();  // FEAT-421
 
   debug_println("");
   debug_println("Use 'set debug <flag> <on|off>' to toggle debug flags");

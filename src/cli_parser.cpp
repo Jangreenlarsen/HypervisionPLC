@@ -15,6 +15,7 @@
  * Context: This is the CLI "router" - maps user input to handlers
  */
 
+#include "mb_debug.h"
 #include "cli_parser.h"
 #include "cli_shell.h"
 #include "cli_commands.h"
@@ -2658,6 +2659,15 @@ bool cli_parser_execute(char* line) {
     }
 
   } else if (!strcmp(cmd, "NO")) {
+    // FEAT-421: no debug modbus / no debug all
+    if (argc >= 2 && !strcmp(normalize_alias(argv[1]), "DEBUG")) {
+      if (argc >= 3 && (!strcasecmp(argv[2], "modbus") || !strcasecmp(argv[2], "all"))) {
+        cli_cmd_no_debug_modbus();
+        return true;
+      }
+      debug_println("Brug: no debug modbus");
+      return false;
+    }
     // no set <what> <params...>
     if (argc < 2) {
       debug_println("NO: missing argument (expected 'set')");
@@ -2891,6 +2901,8 @@ bool cli_parser_execute(char* line) {
     debug_println("  set wifi ?              - WiFi help");
     debug_println("  set ethernet ?          - Ethernet (W5500) help");
     debug_println("  set debug ?             - Debug help");
+    debug_println("  debug modbus level <1-8> - Live Modbus Master-trafik (Telnet)");
+    debug_println("  no debug modbus         - Slaa Modbus-debug fra");
     debug_println("  set persist ?           - Persistence help");
     debug_println("  set modbus mode <mode>  - Transceiver mode (slave/master/off)");
     debug_println("  set modbus-master ?     - Modbus master help");
@@ -3018,6 +3030,17 @@ bool cli_parser_execute(char* line) {
       debug_println("WRITE: ukendt argument (brug: reg, coil)");
       return false;
     }
+
+  } else if (!strcmp(cmd, "DEBUG")) {
+    // FEAT-421: debug modbus [master|all] level <1-8> — live RS485-trafik i Telnet
+    if (argc >= 2 && !strcasecmp(argv[1], "modbus")) {
+      cli_cmd_debug_modbus(argc - 1, argv + 1);
+      return true;
+    }
+    debug_println("Brug: debug modbus [master|all] level <1-8>   (Telnet)");
+    debug_println("      no debug modbus");
+    debug_println("      (runtime debug-flag: se 'set debug ?')");
+    return false;
 
   } else if (!strcmp(cmd, "MB")) {
     // mb <subcommand> — Remote Modbus Master read/write/scan/reset

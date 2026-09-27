@@ -33,7 +33,7 @@ Dashboardet er organiseret i **kort** (cards), grupperet under faner:
 
 - **Alle** — alle kort samlet
 - **Overblik** — System, Netværk, Alarm Historik, Hændelseslog
-- **Modbus** — Modbus Slave, Modbus Master (+ manuel Read/Write), Modbus Aktivitetslog, RTU-trafik, RS-485 Bus Health (FEAT-096)
+- **Modbus** — Modbus Slave, Modbus Master, Modbus Aktivitetslog, RTU-trafik, RS-485 Bus Health (FEAT-096)
 - **Forbindelser** — HTTP API/SSE, TCP/UDP-forbindelsesmonitor (inkl. Modbus TCP til expansion boards), NTP
 - **Applikation** — Tællere, Timere, ST Logic, Digital I/O, Trend Recorder (FEAT-099)
 - **Custom (FEAT-167)** — et uafhængigt, brugervalgt kort-sæt, se nedenfor
@@ -48,7 +48,7 @@ Dashboardet er organiseret i **kort** (cards), grupperet under faner:
 
 **Custom-fanen (FEAT-167):** på Indstillinger-siden kan hvert kort — uafhængigt af dets normale fane-tildeling — også markeres til at vise sig på en ny "Custom"-fane. Et kort her **forsvinder ikke** fra sin normale fane (fx et Modbus-kort markeret til Custom ses stadig under både "Modbus" og "Custom") — Custom er en ekstra, brugerdefineret samling ved siden af, ikke en omplacering. Custom-fanens layout er uafhængigt af de øvrige faners, ligesom enhver anden fane.
 
-**Mindstestørrelse (BUG-356):** kort med en indbygget rulleflade (Modbus Aktivitetslog, Alarm Historik, Hændelseslog, Trend Recorder, Modbus manuel Read/Write-resultatet) kan ikke resizes mindre end det de reelt kræver for at vise deres fulde indhold — rammen bliver rød og resize stopper, hvis du prøver at trække under den grænse. Standard-layoutet regner automatisk med denne mindstestørrelse fra starten, så en tabel der endnu ikke har hentet data, ikke låser kortet for lille til når data ankommer.
+**Mindstestørrelse (BUG-356):** kort med en indbygget rulleflade (Modbus Aktivitetslog, Alarm Historik, Hændelseslog, Trend Recorder) kan ikke resizes mindre end det de reelt kræver for at vise deres fulde indhold — rammen bliver rød og resize stopper, hvis du prøver at trække under den grænse. Standard-layoutet regner automatisk med denne mindstestørrelse fra starten, så en tabel der endnu ikke har hentet data, ikke låser kortet for lille til når data ankommer.
 
 **Pause under flyt/resize (BUG-359):** mens et kort aktivt flyttes eller resizes (venstreklik holdt nede), sættes ALLE periodiske dataopdateringer på pause — ellers ville kortet man er ved at placere kunne "snappe" tilbage til sin gamle position midt i trækket, og andre kort kunne hoppe i indhold/størrelse imens. Opdateringerne genoptages automatisk, så snart museknappen slippes.
 
@@ -58,7 +58,7 @@ Dashboardet er organiseret i **kort** (cards), grupperet under faner:
 
 **Netværk** — Wi-Fi/Ethernet-status, IP/gateway/DNS, Telnet-status, Wi-Fi-genforbindelser.
 
-**Modbus Slave / Modbus Master** — konfiguration og løbende statistik (requests, success rate, fejltyper). Master-kortet indeholder desuden cache-/kø-statistik (hit rate, kø-dybde, prioritets-drops) og en **manuel Read/Write-formular** til hurtige ad-hoc-forespørgsler uden at skulle bruge CLI.
+**Modbus Slave / Modbus Master** — konfiguration og løbende statistik (requests, success rate, fejltyper). Master-kortet indeholder desuden cache-/kø-statistik (hit rate, kø-dybde, prioritets-drops). Manuel læs/skriv mod slaver på bussen ligger på I/O-siden som **Intern Modbus** i test-panelet under Modbus Expansion Boards (FEAT-422, se [§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)).
 
 **Modbus Aktivitetslog** — et wire-level-vindue ind i hvad der rent faktisk sker på Modbus-interfacet lige nu: hver transaktion (Master *og* Slave-rolle) med rolle, kilde (ST Logic/CLI/dashboard/ekstern master), slave-ID, function code, adresse, værdi og status. RAM-only (nulstilles ved reboot), fungerer som et levende diagnoseværktøj — se [kapitel 13](13_Fejlfinding.md) for hvordan den bruges til fejlsøgning.
 
