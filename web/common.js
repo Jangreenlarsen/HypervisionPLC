@@ -214,14 +214,32 @@ function queuedFetch(url,opts){
 // timer, but ONLY while real user interaction (mouse/keyboard/touch/
 // scroll) has been seen recently -- a genuinely idle tab still logs out
 // after ~30 min, unchanged.
-let _lastUserActivityMs=Date.now();
+//
+// BUG-427: two holes made users get logged out well before 30 min idle:
+//  1. The session COOKIE was only ever set at login (Max-Age=1800) -- the
+//     browser deleted it 30 min after LOGIN regardless of activity; pinging
+//     /api/status renewed the server-side window but never the cookie.
+//     Now POST /api/session/renew re-sets the cookie with a fresh Max-Age.
+//  2. The 5-min setInterval restarted on every page navigation, so a user
+//     switching pages more often than every 5 min never pinged at all.
+//     Now a 60-s check with the last-renew time shared across pages/tabs
+//     (localStorage) renews at most every 4 min, and only if there has been
+//     real user activity since the last renew -- so an idle browser is
+//     logged out ~25-30 min after the last activity, as intended.
+let _lastUserActivityMs=Date.now();  // page load/navigation counts as activity
 ['mousedown','mousemove','keydown','touchstart','scroll'].forEach(evt=>{
   document.addEventListener(evt,()=>{_lastUserActivityMs=Date.now()},{passive:true});
 });
-setInterval(()=>{
-  // 25 min, safely under the server's 30-min TTL so the renewal always
-  // lands before expiry even with this check's own 5-min granularity.
-  if(Date.now()-_lastUserActivityMs<25*60*1000){
-    fetch('/api/status',{credentials:'same-origin'}).catch(()=>{});
-  }
-},5*60*1000);
+function _sessLastRenew(){try{return parseInt(localStorage.getItem('hfplc_sess_renew')||'0',10)||0}catch(e){return 0}}
+function _sessSetRenew(t){try{localStorage.setItem('hfplc_sess_renew',String(t))}catch(e){}}
+let _sessRenewLocal=0;  // fallback if localStorage is unavailable
+function _sessionKeepalive(){
+  const now=Date.now();
+  const last=Math.max(_sessLastRenew(),_sessRenewLocal);
+  if(_lastUserActivityMs<=last)return;          // no activity since last renew -> let it idle out
+  if(last&&now-last<4*60*1000)return;          // renewed recently (this or another page/tab); never -> renew now
+  _sessRenewLocal=now;_sessSetRenew(now);
+  fetch('/api/session/renew',{method:'POST',credentials:'same-origin'}).catch(()=>{});
+}
+setTimeout(_sessionKeepalive,5000);
+setInterval(_sessionKeepalive,60*1000);

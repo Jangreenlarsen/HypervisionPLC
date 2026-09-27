@@ -907,6 +907,14 @@ static const httpd_uri_t uri_logout = {
   .handler  = api_handler_logout,
   .user_ctx = NULL
 };
+// BUG-427: keepalive fornyer session-cookien (se api_handler_session_renew)
+extern esp_err_t api_handler_session_renew(httpd_req_t *req);
+static const httpd_uri_t uri_session_renew = {
+  .uri      = "/api/session/renew",
+  .method   = HTTP_POST,
+  .handler  = api_handler_session_renew,
+  .user_ctx = NULL
+};
 
 // v7.3.1: Web CLI + Bindings + Monitor
 extern esp_err_t api_handler_cli_exec(httpd_req_t *req);
@@ -1546,6 +1554,7 @@ int http_server_start(const HttpConfig *config)
   // BUG-353: REST API auth-modernisering fase 2 — session-tokens
   httpd_register_uri_handler(http_state.server, &uri_login);
   httpd_register_uri_handler(http_state.server, &uri_logout);
+  httpd_register_uri_handler(http_state.server, &uri_session_renew);  // BUG-427
   httpd_register_uri_handler(http_state.server, &uri_cli_exec);
   httpd_register_uri_handler(http_state.server, &uri_bindings_list);
   httpd_register_uri_handler(http_state.server, &uri_bindings_delete);

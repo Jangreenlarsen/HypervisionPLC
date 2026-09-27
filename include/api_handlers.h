@@ -391,6 +391,7 @@ esp_err_t api_handler_schema(httpd_req_t *req);
 /* BUG-353: REST API auth-modernisering fase 2 — session-tokens */
 esp_err_t api_handler_login(httpd_req_t *req);
 esp_err_t api_handler_logout(httpd_req_t *req);
+esp_err_t api_handler_session_renew(httpd_req_t *req);  // BUG-427
 
 /** FEAT-022: Persistence Group Management API */
 esp_err_t api_handler_persist_groups_list(httpd_req_t *req);

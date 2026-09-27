@@ -824,6 +824,7 @@ static const api_route_info_t API_ROUTES[] = {
   {"GET",    "/api/user/me",                       "Current session info"},
   {"POST",   "/api/login",                         "Authenticate, issue session token"},
   {"POST",   "/api/logout",                        "Invalidate session token"},
+  {"POST",   "/api/session/renew",                 "Renew session cookie (keepalive, BUG-427)"},
   {"POST",   "/api/system/reboot",                 "Reboot ESP32"},
   {"POST",   "/api/system/save",                   "Save config to NVS"},
   {"POST",   "/api/system/load",                   "Load config from NVS"},
@@ -5022,6 +5023,38 @@ esp_err_t api_handler_logout(httpd_req_t *req)
 
   http_server_stat_success();
   return api_send_json(req, "{\"status\":\"ok\"}");
+}
+
+/**
+ * POST /api/session/renew — BUG-427: forny session-cookiens levetid.
+ *
+ * Serverens session er et 30-min GLIDENDE vindue (fornyes ved ethvert
+ * autentificeret kald, rbac_session_token_check()), men cookien blev kun
+ * sat EN gang, ved login, med Max-Age=1800 — browseren slettede den derfor
+ * 30 min efter LOGIN uanset aktivitet, og naeste kald fik 401. common.js'
+ * keepalive kalder dette endpoint mens brugeren er aktiv; CHECK_AUTH
+ * fornyer serverens vindue, og her gensaettes cookien med samme token og
+ * en frisk Max-Age. Bearer-klienter (ingen cookie) faar blot {"ok":true}.
+ */
+esp_err_t api_handler_session_renew(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  char cookie_token[24];  // RBAC_SESSION_TOKEN_LEN, not exposed via rbac.h
+  bool renewed = false;
+  if (rbac_extract_cookie_token(req, cookie_token, sizeof(cookie_token))) {
+    // static: se api_handler_login() — httpd_resp_set_hdr() gemmer kun pointeren
+    static char renew_cookie_hdr[96];
+    snprintf(renew_cookie_hdr, sizeof(renew_cookie_hdr),
+             "hfplc_session=%s; Path=/; Max-Age=1800; SameSite=Lax; HttpOnly", cookie_token);
+    httpd_resp_set_hdr(req, "Set-Cookie", renew_cookie_hdr);
+    renewed = true;
+  }
+
+  http_server_stat_success();
+  return api_send_json(req, renewed ? "{\"ok\":true,\"cookie_renewed\":true,\"ttl_s\":1800}"
+                                    : "{\"ok\":true,\"cookie_renewed\":false,\"ttl_s\":1800}");
 }
 
 esp_err_t api_handler_cli_exec(httpd_req_t *req)
