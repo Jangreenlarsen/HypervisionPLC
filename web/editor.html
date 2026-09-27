@@ -116,6 +116,14 @@
 .trend-labels .tmax{color:#a6e3a1}.trend-labels .tmin{color:#f38ba8}
 .trend-time{font-size:10px;color:#89b4fa;font-family:monospace;min-width:46px;text-align:center}
 .trend-color-sel{font-size:9px;padding:1px 2px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;max-width:52px}
+/* FEAT-423: skalering pr. trend (Auto / fast min-max) + persistent kurve-holder */
+.spark-wrap{flex:1;min-width:0}
+.spark-wrap .spark{width:100%}
+.trend-scale{display:flex;flex-direction:column;gap:2px}
+.trend-scale select,.trend-scale input{font-size:9px;padding:1px 2px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px}
+.trend-scale select{max-width:58px}
+.trend-scale input{width:52px}
+.trend-scale input.bad{border-color:#f38ba8}
 .trend-paused{color:#f9e2af;font-weight:600}
 .speed-ctrl{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 .speed-ctrl label{font-size:12px;color:#a6adc8}
@@ -450,6 +458,23 @@ function setVarColor(name,color){
   saveVarColors();
 }
 loadVarColors();
+// FEAT-423: skalering pr. trend. Noeglet som varColors (SLOT+':'+navn).
+// Mangler noeglen = Auto (min/max fra de viste data, som hidtil).
+// {min:number,max:number} = fast Y-akse; punkter udenfor klippes til kanten.
+let varScales={};
+function loadVarScales(){
+  try{const s=localStorage.getItem('hfplc_st_trend_scales');varScales=s?JSON.parse(s):{};}catch(e){varScales={};}
+}
+function saveVarScales(){
+  try{localStorage.setItem('hfplc_st_trend_scales',JSON.stringify(varScales));}catch(e){}
+}
+loadVarScales();
+// FEAT-423 / BUG (farve-dropdown lukkede): raekkerne bygges nu KUN naar
+// variabel-listen aendrer sig; hver polling-tick opdaterer blot vaerdi,
+// kurve, labels og tid. Tidligere blev hele tbody genskabt hvert tick
+// (innerHTML=''), saa en aaben <select> eller et input med fokus blev
+// fjernet fra DOM'en midt i brugerens valg.
+let monRows=null;  // {sig:string, rows:{navn:{...element-refs}}}
 let monBusy=false;  // guard against overlapping refreshes
 let dbgMode='off';  // current debug mode: off, paused, step, run
 let lastExecCount=0;  // track execution count for trend gating
@@ -1238,17 +1263,67 @@ function varColorSelectHtml(name,current){
 }
 function onVarColorChange(e){
   setVarColor(e.target.dataset.varName,e.target.value);
-  // Ingen instant genoptegning noedvendig — naeste polling-tick (senest om
-  // monInterval ms) laeser varColors paa ny og tegner kurven med den nye
-  // farve. En ren visuel praeference, ikke tidskritisk.
+  // FEAT-423: tegn straks (kontrollerne overlever nu tick'ene, se monRows)
+  redrawTrend(e.target.dataset.varName);
+}
+// FEAT-423: skalering — select Auto/Manuel + min/max-felter
+function varScaleHtml(name){
+  const safeName=name.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+  const sc=varScales[SLOT+':'+name];
+  const man=!!sc;
+  const vmin=man?sc.min:'',vmax=man?sc.max:'';
+  return '<div class="trend-scale" data-var-name="'+safeName+'">'
+    +'<select onchange="onVarScaleMode(event)" title="Y-akse for '+safeName+'">'
+    +'<option value="auto"'+(man?'':' selected')+'>Auto</option>'
+    +'<option value="man"'+(man?' selected':'')+'>Min/Max</option></select>'
+    +'<input type="number" step="any" class="sc-max" placeholder="max" title="Y-akse max" value="'+vmax+'" onchange="onVarScaleInput(event)" style="display:'+(man?'block':'none')+'">'
+    +'<input type="number" step="any" class="sc-min" placeholder="min" title="Y-akse min" value="'+vmin+'" onchange="onVarScaleInput(event)" style="display:'+(man?'block':'none')+'">'
+    +'</div>';
+}
+function scaleBoxOf(el){return el.closest('.trend-scale')}
+function onVarScaleMode(e){
+  const box=scaleBoxOf(e.target),name=box.dataset.varName;
+  const man=e.target.value==='man';
+  const iMin=box.querySelector('.sc-min'),iMax=box.querySelector('.sc-max');
+  iMin.style.display=iMax.style.display=man?'block':'none';
+  if(!man){
+    delete varScales[SLOT+':'+name];saveVarScales();
+    iMin.classList.remove('bad');iMax.classList.remove('bad');
+  }else{
+    // Forudfyld med det aktuelle, auto-beregnede interval
+    const h=varHistory[name]||[];
+    if(h.length&&iMin.value===''&&iMax.value===''){
+      const vals=h.map(x=>x.v);
+      iMin.value=+Math.min(...vals).toFixed(3);iMax.value=+Math.max(...vals).toFixed(3);
+    }
+    applyScaleInputs(box);
+  }
+  redrawTrend(name);
+}
+function onVarScaleInput(e){
+  const box=scaleBoxOf(e.target);
+  applyScaleInputs(box);
+  redrawTrend(box.dataset.varName);
+}
+function applyScaleInputs(box){
+  const name=box.dataset.varName;
+  const iMin=box.querySelector('.sc-min'),iMax=box.querySelector('.sc-max');
+  const mn=parseFloat(iMin.value),mx=parseFloat(iMax.value);
+  const ok=isFinite(mn)&&isFinite(mx)&&mx>mn;
+  iMin.classList.toggle('bad',!ok);iMax.classList.toggle('bad',!ok);
+  // Ugyldigt interval = auto indtil det er rettet (men valget Min/Max bevares i UI'et)
+  if(ok){varScales[SLOT+':'+name]={min:mn,max:mx};}else{delete varScales[SLOT+':'+name];}
+  saveVarScales();
 }
 function stopMonitor(){if(monTimer){clearInterval(monTimer);monTimer=null;}}
 
-function sparkSVG(entries,w,h,color){
+function sparkSVG(entries,w,h,color,scale){
   if(!entries||entries.length<2)return{svg:'',min:0,max:0};
   const vals=entries.map(e=>e.v);
-  const mn=Math.min(...vals),mx=Math.max(...vals);
+  // FEAT-423: fast skala (scale={min,max}) eller Auto (data-min/max)
+  const mn=scale?scale.min:Math.min(...vals),mx=scale?scale.max:Math.max(...vals);
   const range=mx-mn||1;
+  const clampY=y=>Math.max(0,Math.min(h,y));
   // X-akse: FAST tidsvindue (HIST_LEN×monInterval — den fulde, konfigurerede
   // historik-laengde), IKKE det aktuelt tilgaengelige datas egen span. Foer
   // denne rettelse blev t0/tRange udregnet fra det AeLDSTE punkt der reelt
@@ -1264,11 +1339,11 @@ function sparkSVG(entries,w,h,color){
   const t0=tEnd-tRange;
   const pts=entries.map((e,i)=>{
     const x=((e.t-t0)/tRange)*w;
-    const y=h-((e.v-mn)/range)*h;
+    const y=clampY(h-((e.v-mn)/range)*h);
     return x.toFixed(1)+','+y.toFixed(1);
   }).join(' ');
   const cur=vals[vals.length-1];
-  const curY=h-((cur-mn)/range)*h;
+  const curY=clampY(h-((cur-mn)/range)*h);
   // Grid lines (oscilloscope style). BUG-405: vector-effect="non-scaling-stroke"
   // holder streg-tykkelsen konstant i skaerm-pixels uanset hvor meget SVG'en
   // reelt bliver strakt (se forklaring ved selve <svg>-tagget nedenfor) —
@@ -1297,6 +1372,62 @@ function sparkSVG(entries,w,h,color){
     +'<circle cx="'+w+'" cy="'+curY.toFixed(1)+'" r="2.5" fill="'+clr+'"/>'
     +'</svg>';
   return{svg:svg,min:mn,max:mx};
+}
+
+// FEAT-423: byg tabel-raekkerne EN gang pr. variabel-liste (navn+type+slot).
+// Kaldes hvert tick, men goer kun noget naar listen reelt har aendret sig
+// eller tbody er blevet ryddet et andet sted (slot-skift, nulstil m.m.).
+function ensureMonRows(body,vars){
+  const sig=SLOT+'|'+vars.map(v=>v.name+':'+v.type).join(',');
+  if(monRows&&monRows.sig===sig&&body.firstChild&&monRows.first===body.firstChild)return;
+  body.innerHTML='';
+  monRows={sig:sig,rows:{},first:null};
+  vars.forEach(v=>{
+    const tr=document.createElement('tr');
+    const tdName=document.createElement('td');tdName.textContent=v.name;
+    const tdType=document.createElement('td');tdType.textContent=v.type;
+    const tdVal=document.createElement('td');tdVal.style.fontFamily='monospace';
+    const tdTrend=document.createElement('td');
+    tr.append(tdName,tdType,tdVal,tdTrend);
+    const row={valTd:tdVal,cell:null,paused:false};
+    if(v.type!=='STRING'){
+      const varColor=varColors[SLOT+':'+v.name]||'';
+      tdTrend.innerHTML='<div class="trend-cell" style="display:none">'
+        +'<div class="trend-labels"><span class="tmax"></span><span class="tmin"></span></div>'
+        +'<div class="spark-wrap"></div><div class="trend-time"></div>'
+        +varColorSelectHtml(v.name,varColor)+varScaleHtml(v.name)+'</div>';
+      const cell=tdTrend.firstChild;
+      row.cell=cell;
+      row.tmax=cell.querySelector('.tmax');row.tmin=cell.querySelector('.tmin');
+      row.wrap=cell.querySelector('.spark-wrap');row.time=cell.querySelector('.trend-time');
+    }
+    monRows.rows[v.name]=row;
+    body.appendChild(tr);
+  });
+  monRows.first=body.firstChild;
+}
+// Tegn kurve/labels/tid for en variabel ud fra varHistory — kun de
+// dynamiske dele; select/inputs i cellen roeres ikke.
+function redrawTrend(name){
+  if(!monRows)return;
+  const r=monRows.rows[name];
+  if(!r||!r.cell)return;
+  const hist=varHistory[name]||[];
+  const color=varColors[SLOT+':'+name]||trendColor;
+  const scale=varScales[SLOT+':'+name]||null;
+  const trend=sparkSVG(hist,320,40,color,scale);
+  if(!trend.svg){r.cell.style.display='none';return;}
+  r.cell.style.display='flex';
+  r.wrap.innerHTML=trend.svg;
+  r.tmax.textContent=trend.max.toFixed(2);
+  r.tmin.textContent=trend.min.toFixed(2);
+  r.tmax.title=r.tmin.title=scale?'Fast skala (Min/Max)':'Auto-skala';
+  const spanSec=(hist[hist.length-1].t-hist[0].t)/1000;
+  const execSpan=hist[hist.length-1].exec-hist[0].exec;
+  let timeStr=(spanSec>=60?(spanSec/60).toFixed(1)+'m':spanSec.toFixed(0)+'s')+' #'+execSpan;
+  if(r.paused)timeStr+=' \u23F8';
+  r.time.textContent=timeStr;
+  r.time.className=r.paused?'trend-time trend-paused':'trend-time';
 }
 
 async function refreshMonitor(){
@@ -1349,9 +1480,9 @@ async function refreshMonitor(){
     const nowMs=Date.now();
 
     const body=document.getElementById('monBody');
-    body.innerHTML='';
     const vars=d.variables||[];
     document.getElementById('monEmpty').style.display=vars.length?'none':'block';
+    ensureMonRows(body,vars);
     vars.forEach(v=>{
       // FEAT-005: STRING har ingen meningsfuld numerisk trend — spring
       // historik-sporing/graf helt over (undgaar en flad, vildledende
@@ -1368,29 +1499,12 @@ async function refreshMonitor(){
         }
       }
 
-      const tr=document.createElement('tr');
-      const val=v.type==='BOOL'?(v.value?'TRUE':'FALSE'):v.value;
-      const hist=isString?[]:varHistory[v.name];
-      const varColor=varColors[SLOT+':'+v.name]||'';
-      const trend=isString?{svg:''}:sparkSVG(hist,320,40,varColor||trendColor);
-      // Calculate real elapsed time from timestamps
-      let timeStr;
-      if(hist.length>=2){
-        const spanMs=hist[hist.length-1].t-hist[0].t;
-        const spanSec=spanMs/1000;
-        const execSpan=hist[hist.length-1].exec-hist[0].exec;
-        const timeP=spanSec>=60?(spanSec/60).toFixed(1)+'m':spanSec.toFixed(0)+'s';
-        timeStr=timeP+' #'+execSpan;
-      }else{
-        timeStr='-';
-      }
-      if(trendPaused&&hist.length>=2) timeStr+=' \u23F8';
-      const labelsHtml=trend.svg?'<div class="trend-labels"><span class="tmax">'+trend.max.toFixed(2)+'</span><span class="tmin">'+trend.min.toFixed(2)+'</span></div>':'';
-      const timeClass=trendPaused?'trend-time trend-paused':'trend-time';
-      const colorSelHtml=trend.svg?varColorSelectHtml(v.name,varColor):'';
-      const trendHtml=trend.svg?'<div class="trend-cell">'+labelsHtml+trend.svg+'<div class="'+timeClass+'">'+timeStr+'</div>'+colorSelHtml+'</div>':'';
-      tr.innerHTML='<td>'+v.name+'</td><td>'+v.type+'</td><td style="font-family:monospace;color:'+(v.type==='BOOL'?(v.value?'#a6e3a1':'#6c7086'):'#f9e2af')+'">'+val+'</td><td>'+trendHtml+'</td>';
-      body.appendChild(tr);
+      const r=monRows.rows[v.name];
+      if(!r)return;
+      r.valTd.textContent=v.type==='BOOL'?(v.value?'TRUE':'FALSE'):v.value;
+      r.valTd.style.color=v.type==='BOOL'?(v.value?'#a6e3a1':'#6c7086'):'#f9e2af';
+      r.paused=trendPaused;
+      if(!isString)redrawTrend(v.name);
     });
   }catch(e){}
   monBusy=false;

@@ -346,10 +346,11 @@ bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t addr
   return true;
 }
 
-bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t address, st_value_t value) {
+bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t address, st_value_t value,
+                          bool force) {
   // Write deduplication: skip if cache shows same value already written successfully
   extern bool g_mb_cache_enabled;
-  if (g_mb_cache_enabled) {
+  if (g_mb_cache_enabled && !force) {
     uint8_t read_type = (type == MB_REQ_WRITE_COIL) ? (uint8_t)MB_REQ_READ_COIL : (uint8_t)MB_REQ_READ_HOLDING;
     mb_cache_entry_t *cached = mb_cache_find(slave_id, address, read_type);
     if (cached && cached->status == MB_CACHE_VALID &&
@@ -775,7 +776,11 @@ static void mb_async_task_func(void *pvParameters) {
       if (entry) {
         portENTER_CRITICAL(&mb_cache_spinlock);
         if (err == MB_OK) {
-          entry->value = result;
+          // BUG-426: for skrivninger er `result` kun et OK-flag (bool_val) —
+          // cachen skal have den SKREVNE vaerdi, ellers laeser ST/UI "1"
+          // tilbage fra registret, og write-dedup sammenligner mod forkert vaerdi.
+          bool is_write = (req.type == MB_REQ_WRITE_COIL || req.type == MB_REQ_WRITE_HOLDING);
+          entry->value = is_write ? req.write_value : result;
           entry->status = MB_CACHE_VALID;
         } else {
           entry->status = MB_CACHE_ERROR;

@@ -3368,6 +3368,16 @@ esp_err_t api_handler_modbus_post(httpd_req_t *req)
     const char *type = jdoc["type"] | "holding";
     uint8_t slave_id = jdoc["slave"] | 0;
     uint16_t addr = jdoc["addr"] | 0;
+    // BUG-425: en gyldig cache-post blev returneret UDEN at koe en ny
+    // laesning — uden et ST-program paa samme slave/adresse blev vaerdien
+    // derfor aldrig opdateret (set: "Cache-alder: 34861 ms"). Manuel test
+    // (I/O-sidens Intern Modbus) sender nu:
+    //   fresh:true -> koe ALTID en ny bus-laesning, svar "pending"
+    //   poll:true  -> ventende = "pending", faerdig = "ok", fejl rapporteres
+    //                 som "error" i stedet for at blive koeet igen i det uendelige
+    // Uden flagene: uaendret adfaerd (bagudkompatibelt for API-klienter).
+    bool fresh = jdoc["fresh"] | false;
+    bool poll = jdoc["poll"] | false;
 
     if (slave_id < 1 || slave_id > 247) return api_send_error(req, 400, "slave must be 1-247");
 
@@ -3385,7 +3395,20 @@ esp_err_t api_handler_modbus_post(httpd_req_t *req)
       uint8_t cache_type = (uint8_t)rtype;
       mb_cache_entry_t *entry = mb_cache_find(slave_id, addr, cache_type);
 
-      if (entry && entry->status == MB_CACHE_VALID) {
+      if (fresh) {
+        bool ok = mb_async_queue_read(rtype, slave_id, addr);
+        snprintf(resp, sizeof(resp), "{\"status\":\"%s\",\"message\":\"%s\"}",
+          ok ? "pending" : "error", ok ? "Bus-laesning sat i koe" : "Queue full");
+      } else if (poll && entry && entry->status == MB_CACHE_ERROR) {
+        int32_t e = entry->last_error;
+        const char *en = (e == MB_TIMEOUT) ? "TIMEOUT (slave svarer ikke)" :
+                         (e == MB_CRC_ERROR) ? "CRC-fejl" :
+                         (e == MB_EXCEPTION) ? "Modbus exception fra slave" :
+                         (e == MB_NOT_ENABLED) ? "Modbus Master er ikke aktiveret" :
+                         (e == MB_BUS_BUSY) ? "Bus optaget" : "Fejl";
+        snprintf(resp, sizeof(resp), "{\"status\":\"error\",\"error_code\":%d,\"message\":\"%s\"}",
+          (int)e, en);
+      } else if (entry && entry->status == MB_CACHE_VALID) {
         uint32_t age_ms = (uint32_t)(millis() - entry->last_update_ms);
         snprintf(resp, sizeof(resp),
           "{\"status\":\"ok\",\"value\":%d,\"hex\":\"0x%04X\",\"signed\":%d,\"age_ms\":%u,\"source\":\"cache\"}",
@@ -3408,7 +3431,7 @@ esp_err_t api_handler_modbus_post(httpd_req_t *req)
       st_value_t sv;
       memset(&sv, 0, sizeof(sv));
       sv.int_val = (int16_t)val;
-      bool ok = mb_async_queue_write(rtype, slave_id, addr, sv);
+      bool ok = mb_async_queue_write(rtype, slave_id, addr, sv, fresh);  // BUG-425: fresh = ingen dedup
       snprintf(resp, sizeof(resp), "{\"status\":\"%s\",\"message\":\"%s\",\"value\":%d}",
         ok ? "queued" : "error", ok ? "Write queued" : "Queue full", (int)val);
     } else {

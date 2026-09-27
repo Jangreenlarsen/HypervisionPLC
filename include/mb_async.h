@@ -233,7 +233,10 @@ bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t addr
  * @brief Queue a write request (non-blocking, always queued)
  * @return true if queued successfully
  */
-bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t address, st_value_t value);
+// BUG-425: force=true springer write-dedup over (manuel test fra web-UI skal
+// altid ud paa bussen, ogsaa naar cachen allerede viser samme vaerdi).
+bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t address, st_value_t value,
+                          bool force = false);
 
 /**
  * @brief Queue a multi-register read (FC03 with count > 1)

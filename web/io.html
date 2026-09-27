@@ -1341,7 +1341,8 @@ function runInternalTest(){
   if(!(slave>=1&&slave<=247)){show('Fejl: Slave-ID skal være 1-247',false);return}
   if(!(addr>=0&&addr<=65535)){show('Fejl: adresse skal være 0-65535',false);return}
   const [op,type]=map[fc];
-  const body={op,type,slave,addr};
+  // BUG-425: fresh = altid en ny bus-transaktion (ikke blot cache), også ved skrivning
+  const body={op,type,slave,addr,fresh:true};
   if(op==='write'){
     const raw=$('expTestVal').value.trim().toLowerCase();
     const v=(fc===5)?((raw==='1'||raw==='on'||raw==='true')?1:(raw==='0'||raw==='off'||raw==='false')?0:NaN):parseInt(raw,10);
@@ -1356,8 +1357,8 @@ function runInternalTest(){
     });
   const valTxt=d=>'Værdi: '+d.value+' ('+d.hex+')  signed: '+d.signed+'\nCache-alder: '+d.age_ms+' ms';
   const poll=n=>{
-    if(n>6){show(label+'\nIntet svar inden 3 s — tjek at Modbus Master er aktiveret, slave-ID, baudrate og kabling (Telnet: "debug modbus level 1")',false);return}
-    post({op:'read',type,slave,addr}).then(d=>{
+    if(n>10){show(label+'\nIntet svar inden 5 s — tjek at Modbus Master er aktiveret, slave-ID, baudrate og kabling (Telnet: "debug modbus level 1")',false);return}
+    post({op:'read',type,slave,addr,poll:true}).then(d=>{
       if(d.status==='ok')show(label+'\n'+valTxt(d),true);
       else if(d.status==='pending')setTimeout(()=>poll(n+1),500);
       else show(label+'\n'+(d.message||d.status),false);
@@ -1366,7 +1367,7 @@ function runInternalTest(){
   show(label+'\nSender via kø...');
   post(body).then(d=>{
     if(d.status==='ok')show(label+'\n'+valTxt(d),true);
-    else if(op==='read'&&d.status==='pending'){show(label+'\n'+d.message+' — venter på svar...');setTimeout(()=>poll(1),500)}
+    else if(op==='read'&&d.status==='pending'){show(label+'\n'+d.message+' — venter på svar...');setTimeout(()=>poll(1),300)}
     else if(d.status==='queued')show(label+'\nSkrivning sat i kø — bekræft evt. med en læsning',true);
     else show(label+'\n'+(d.message||JSON.stringify(d)),false);
   }).catch(e=>show(label+'\nFejl: '+e.message,false));

@@ -145,7 +145,7 @@ Editoren har 4 uafhængige program-faner (Logic1-4), vist øverst i deres egen r
 
 Live-visning af alle programvariabler mens programmet kører, med:
 - **Udførelser / Tid (ms) / Min-Max / Fejl / Overruns** — performance- og sundhedsstatistik
-- **Trend-kurver** pr. variabel, valgbar historik-længde og opdateringshastighed
+- **Trend-kurver** pr. variabel, valgbar historik-længde og opdateringshastighed. Ved hver kurve kan du vælge **farve** og **skalering** (FEAT-423): *Auto* (Y-aksen følger de viste data) eller *Min/Max* (fast Y-akse — to felter, forudfyldt med det aktuelle interval; punkter udenfor klippes til kanten; min ≥ max markeres rødt og giver Auto indtil rettet). Valgene gemmes i browseren pr. program-slot og variabel
 - **Debug-kontroller:** Pause Execute, Single Step, Single Cycle, Normal Execute — fuld single-step-debugger med PC-visning og breakpoints
 
 > **Fejlfindingstip:** stiger "Udførelser" støt, men ingen variabler ændrer sig og "Fejl" forbliver 0, er programmet ikke crashet — det venter typisk på noget der aldrig sker (f.eks. et Modbus-svar). Se [kapitel 13, afsnit "ST-program ser ud til at køre, men intet opdateres"](13_Fejlfinding.md#st-program-ser-ud-til-at-koere-men-intet-opdateres) for en systematisk fremgangsmåde.
