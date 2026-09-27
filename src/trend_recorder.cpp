@@ -5,6 +5,11 @@
 
 #include "trend_recorder.h"
 #include "registers.h"
+#include "mb_async.h"                 // FEAT-425: intern Modbus (RTU) cache/koe
+#include "modbus_expansion_async.h"   // FEAT-425: expansion board cache/koe
+#include "modbus_master.h"
+#include "mb_activity_log.h"
+#include "config_struct.h"
 #include <freertos/FreeRTOS.h>
 #include <esp_heap_caps.h>
 #include <string.h>
@@ -29,6 +34,8 @@ static uint32_t g_last_sample_ms = 0;
 // run on potentially different cores — same spinlock-per-ringbuffer pattern
 // as mb_activity_log.cpp's activity_log_spinlock.
 static portMUX_TYPE trend_spinlock = portMUX_INITIALIZER_UNLOCKED;
+
+static int32_t trend_read_point(const trend_point_t *p);  // FEAT-425: bruges af set_recording()
 
 void trend_recorder_init(void) {
   if (!sample_buf) {
@@ -78,6 +85,12 @@ bool trend_recorder_configure(const trend_point_t *points, uint8_t count, uint16
 void trend_recorder_set_recording(bool enabled) {
   if (enabled) {
     g_last_sample_ms = millis();  // BUG-guard: don't sample instantly on start, wait one full interval
+    // FEAT-425: koe en foerste laesning af de eksterne punkter nu, saa
+    // cachen har en vaerdi naar foerste sample tages et interval senere
+    // (ellers ville foerste sample altid vaere tom for eksterne punkter).
+    for (uint8_t i = 0; i < g_point_count; i++) {
+      if (g_points[i].source != TREND_SRC_LOCAL) (void)trend_read_point(&g_points[i]);
+    }
   }
   g_recording = enabled;
 }
@@ -93,7 +106,71 @@ void trend_recorder_clear(void) {
   portEXIT_CRITICAL(&trend_spinlock);
 }
 
+// FEAT-425: intern Modbus-slave via mb_async-cachen. Returnerer seneste
+// gyldige vaerdi (fra forrige sample-runde) og koeer en frisk laesning,
+// medmindre en allerede venter — samme logik som st_builtin_mb_read_*.
+static int32_t trend_read_rtu(const trend_point_t *p) {
+  // Samme vaern som ST's validate_slave_addr(): Master slaaet til OG async-tasken startet
+  if (!g_modbus_master_config.enabled || !mb_async_get_state()->pq_mutex) return TREND_VALUE_INVALID;
+  if (p->slave < 1 || p->slave > 247) return TREND_VALUE_INVALID;
+  mb_request_type_t t;
+  switch (p->reg_type) {
+    case TREND_REG_HR:   t = MB_REQ_READ_HOLDING;   break;
+    case TREND_REG_IR:   t = MB_REQ_READ_INPUT_REG; break;
+    case TREND_REG_COIL: t = MB_REQ_READ_COIL;      break;
+    case TREND_REG_DI:   t = MB_REQ_READ_INPUT;     break;
+    default:             return TREND_VALUE_INVALID;
+  }
+  mb_cache_entry_t *e = mb_cache_get_or_create(p->slave, p->addr, (uint8_t)t);
+  if (!e) return TREND_VALUE_INVALID;
+
+  portENTER_CRITICAL(&mb_cache_spinlock);
+  st_value_t v = e->value;
+  mb_cache_status_t st = e->status;
+  portEXIT_CRITICAL(&mb_cache_spinlock);
+
+  if (st != MB_CACHE_PENDING) {
+    g_mb_activity_next_source = MB_SRC_TREND;
+    mb_async_queue_read(t, p->slave, p->addr);
+  }
+  if (st != MB_CACHE_VALID) return TREND_VALUE_INVALID;
+  if (p->reg_type == TREND_REG_COIL || p->reg_type == TREND_REG_DI) return v.bool_val ? 1 : 0;
+  return (int32_t)(uint16_t)v.int_val;  // som lokale registre: 0..65535
+}
+
+// FEAT-425: kanal paa expansion board via modbus_expansion_async-cachen.
+static int32_t trend_read_mbx(const trend_point_t *p) {
+  if (p->board < 1 || p->board > EXPANSION_BOARD_MAX ||
+      !g_persist_config.expansion_boards[p->board - 1].configured) return TREND_VALUE_INVALID;
+  if (p->channel < 1 || p->channel > 8 || p->slave < 1 || p->slave > 247) return TREND_VALUE_INVALID;
+  if (!modbus_expansion_async_get_state()->pq_mutex) return TREND_VALUE_INVALID;  // koe ikke startet (deinit)
+  mbx_request_type_t t;
+  switch (p->reg_type) {
+    case TREND_REG_HR:   t = MBX_REQ_READ_HOLDING;   break;
+    case TREND_REG_IR:   t = MBX_REQ_READ_INPUT_REG; break;
+    case TREND_REG_COIL: t = MBX_REQ_READ_COIL;      break;
+    case TREND_REG_DI:   t = MBX_REQ_READ_INPUT;     break;
+    default:             return TREND_VALUE_INVALID;
+  }
+  mbx_cache_entry_t *e = mbx_cache_get_or_create(p->board, p->channel, p->slave, p->addr, (uint8_t)t);
+  if (!e) return TREND_VALUE_INVALID;
+
+  portENTER_CRITICAL(&mbx_cache_spinlock);
+  st_value_t v = e->value;
+  mbx_cache_status_t st = e->status;
+  portEXIT_CRITICAL(&mbx_cache_spinlock);
+
+  if (st != MBX_CACHE_PENDING) {
+    modbus_expansion_async_queue_read(t, p->board, p->channel, p->slave, p->addr);
+  }
+  if (st != MBX_CACHE_VALID) return TREND_VALUE_INVALID;
+  if (p->reg_type == TREND_REG_COIL || p->reg_type == TREND_REG_DI) return v.bool_val ? 1 : 0;
+  return (int32_t)(uint16_t)v.int_val;
+}
+
 static int32_t trend_read_point(const trend_point_t *p) {
+  if (p->source == TREND_SRC_RTU) return trend_read_rtu(p);
+  if (p->source == TREND_SRC_MBX) return trend_read_mbx(p);
   switch (p->reg_type) {
     case TREND_REG_HR:   return (int32_t)registers_get_holding_register(p->addr);
     case TREND_REG_IR:   return (int32_t)registers_get_input_register(p->addr);

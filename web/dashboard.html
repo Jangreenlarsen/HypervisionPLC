@@ -347,6 +347,14 @@
 </div>
 </div>
 <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+<select id="trendNewSrc" onchange="updateTrendSrcFields()" title="Hvor punktet læses fra" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="local">PLC (lokalt register)</option>
+<option value="rtu">Intern Modbus (RS485)</option>
+</select>
+<select id="trendNewCh" title="Kanal på expansion board" style="display:none;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="1">Kanal A</option><option value="2">Kanal B</option>
+</select>
+<input type="number" id="trendNewSlave" min="1" max="247" placeholder="Slave-ID" title="Slave-ID (1-247)" style="display:none;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
 <select id="trendNewType" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
 <option value="hr">Holding Reg</option>
 <option value="ir">Input Reg</option>
@@ -360,7 +368,7 @@
 </div>
 <div id="trendPointList" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>
 <div id="trendBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen punkter konfigureret endnu</span></div>
-<p style="font-size:9px;color:#6c7086;margin-top:6px">RAM-only — konfiguration og data nulstilles ved genstart. At tilføje/fjerne et punkt eller ændre interval stopper optagelsen og rydder allerede opsamlet data (en rekonfiguration er altid en frisk start).</p>
+<p style="font-size:9px;color:#6c7086;margin-top:6px">Kilder: PLC'ens egne registre, slaver på den interne RS485-bus (Intern Modbus — kræver at Modbus Master er aktiveret) og kanaler på expansion boards. Eksterne punkter læses via samme kø/cache som ST Logic: hver sample viser seneste svar (højst ét interval gammelt); "-" = intet gyldigt svar (endnu). RAM-only — konfiguration og data nulstilles ved genstart. At tilføje/fjerne et punkt eller ændre interval stopper optagelsen og rydder allerede opsamlet data (en rekonfiguration er altid en frisk start).</p>
 </div>
 
 <!-- HTTP API + SSE -->
@@ -707,6 +715,7 @@ function fetchExpansionList(){
       return;
     }
     _expBoardList=d.boards;
+    refreshTrendSrcOptions();  // FEAT-425: boards som trend-kilder
     list.innerHTML=d.boards.map(b=>'<div class="row"><span class="lbl">#'+b.number+' '+b.name+'</span><span class="val val-n" id="expDashBoard'+b.id+'">Tjekker...</span></div>').join('');
     _expCheckSequential(0);
   }).catch(()=>{_expCycleRunning=false});
@@ -1976,7 +1985,32 @@ let _trendPoints=[];       // lokalt spejl af server-config: [{type,addr}]
 let _trendRecording=false;
 let _trendPointTypeNames={hr:'HR',ir:'IR',coil:'Coil',di:'DI'};
 
-function trendPointLabel(p){return _trendPointTypeNames[p.type]+p.addr;}
+// FEAT-425: etiket med kilde — lokal "HR100", intern "RTU 90:HR0", board "B1A 9:HR1"
+function trendPointLabel(p){
+  const reg=_trendPointTypeNames[p.type]+p.addr;
+  if(p.src==='rtu')return 'RTU '+p.slave+':'+reg;
+  if(p.src==='mbx')return 'B'+p.board+String.fromCharCode(64+(p.ch||1))+' '+p.slave+':'+reg;
+  return reg;
+}
+// FEAT-425: kilde-listen = PLC + Intern Modbus + hvert konfigureret expansion board
+function refreshTrendSrcOptions(){
+  const sel=$('trendNewSrc');
+  if(!sel)return;
+  const cur=sel.value;
+  let h='<option value="local">PLC (lokalt register)</option><option value="rtu">Intern Modbus (RS485)</option>';
+  (_expBoardList||[]).forEach(b=>{
+    const nm=String(b.name||'').replace(/[<>&"]/g,'');
+    h+='<option value="mbx:'+b.number+'">Board #'+b.number+' — '+nm+'</option>';
+  });
+  sel.innerHTML=h;
+  if([...sel.options].some(o=>o.value===cur))sel.value=cur;
+  updateTrendSrcFields();
+}
+function updateTrendSrcFields(){
+  const src=$('trendNewSrc').value;
+  $('trendNewSlave').style.display=src==='local'?'none':'';
+  $('trendNewCh').style.display=src.startsWith('mbx:')?'':'none';
+}
 
 async function loadTrendConfig(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
@@ -2033,7 +2067,16 @@ function addTrendPoint(){
   const type=$('trendNewType').value;
   const addr=parseInt($('trendNewAddr').value);
   if(isNaN(addr)||addr<0||addr>65535){alert('Ugyldig adresse');return;}
-  _trendPoints.push({type:type,addr:addr});
+  const src=$('trendNewSrc').value;
+  const pt={type:type,addr:addr,src:'local'};
+  if(src!=='local'){
+    const slave=parseInt($('trendNewSlave').value);
+    if(isNaN(slave)||slave<1||slave>247){alert('Ugyldigt slave-ID (1-247)');return;}
+    pt.slave=slave;
+    if(src==='rtu'){pt.src='rtu';}
+    else{pt.src='mbx';pt.board=parseInt(src.slice(4));pt.ch=parseInt($('trendNewCh').value);}
+  }
+  _trendPoints.push(pt);
   $('trendNewAddr').value='';
   saveTrendConfig();
 }
@@ -2071,8 +2114,27 @@ async function fetchTrendData(){
     const r=await dashFetch('/api/trend/data',{});
     if(!r.ok)return;
     _trendLastData=await r.json();
+    _trendLastData._fetched=Date.now();  // FEAT-424: browser-reference uden NTP
     renderTrendTable();
   }catch(e){}
+}
+// FEAT-424: omregn en samples millis()-tidsstempel (s.t) til rigtig tid via
+// svarets reference: PLC'ens NTP-tid (now_epoch) hvis synkroniseret, ellers
+// browserens ur ved hentning (markeres "~"). Aeldre firmware uden now_ms -> null.
+function trendSampleEpochMs(d,s){
+  if(d.now_ms==null)return null;
+  const age=d.now_ms-s.t;
+  if(d.now_epoch>0)return d.now_epoch*1000-age;
+  return (d._fetched||Date.now())-age;
+}
+function trendTimeStr(d,s,withDate){
+  const ms=trendSampleEpochMs(d,s);
+  if(ms==null)return fmtUptime(s.t);
+  const t=new Date(ms),pad=n=>String(n).padStart(2,'0');
+  const hms=pad(t.getHours())+':'+pad(t.getMinutes())+':'+pad(t.getSeconds());
+  const date=withDate==='iso'?t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate())+' '
+    :(withDate?pad(t.getDate())+'.'+pad(t.getMonth()+1)+' ':'');
+  return (d.now_epoch>0?'':'~')+date+hms;
 }
 function renderTrendTable(){
   const el=$('trendBody');
@@ -2088,12 +2150,16 @@ function renderTrendTable(){
   }
   // Nyeste øverst, vis maks 100 rækker i UI (fuld eksport bruger altid alle)
   const rows=d.samples.slice(-100).reverse();
-  let h='<table class="tbl"><tr><th>Tid</th>';
+  // Dato med hvis bufferen spaender over flere doegn (720 samples x op til 60 s = 12 t)
+  const first=trendSampleEpochMs(d,d.samples[0]),last=trendSampleEpochMs(d,d.samples[d.samples.length-1]);
+  const multiDay=first!=null&&new Date(first).toDateString()!==new Date(last).toDateString();
+  const tidTitle=d.now_ms==null?'Tid siden opstart':(d.now_epoch>0?'PLC-tid (NTP)':'~ = beregnet ud fra browserens ur (PLC\'en har ikke NTP-tid)');
+  let h='<table class="tbl"><tr><th title="'+tidTitle+'">Tid</th>';
   for(const p of d.points)h+='<th>'+trendPointLabel(p)+'</th>';
   h+='</tr>';
   for(const s of rows){
-    h+='<tr><td style="font-size:10px">'+fmtUptime(s.t)+'</td>';
-    for(const v of s.v)h+='<td style="font-size:10px">'+v+'</td>';
+    h+='<tr><td style="font-size:10px;white-space:nowrap" title="Oppetid '+fmtUptime(s.t)+'">'+trendTimeStr(d,s,multiDay)+'</td>';
+    for(const v of s.v)h+='<td style="font-size:10px">'+(v==null?'<span style="color:#6c7086" title="Intet gyldigt svar">-</span>':v)+'</td>';
     h+='</tr>';
   }
   h+='</table>';
@@ -2106,10 +2172,13 @@ async function exportTrendCsv(){
     const r=await fetch('/api/trend/data',opts);
     if(!r.ok){alert('Kunne ikke hente trend-data til eksport');return;}
     const d=await r.json();
+    d._fetched=Date.now();
     if(!d.samples||!d.samples.length){alert('Ingen samples at eksportere');return;}
-    let csv='tid_ms;'+d.points.map(p=>trendPointLabel(p)).join(';')+'\n';
+    // FEAT-424: samme kolonne-moenster som de oevrige CSV-eksporter (tid;uptime_ms;epoch_s)
+    let csv='tid;uptime_ms;epoch_s;'+d.points.map(p=>trendPointLabel(p)).join(';')+'\n';
     for(const s of d.samples){
-      csv+=s.t+';'+s.v.join(';')+'\n';
+      const ms=trendSampleEpochMs(d,s);
+      csv+=trendTimeStr(d,s,'iso')+';'+s.t+';'+(ms!=null?Math.round(ms/1000):0)+';'+s.v.map(v=>v==null?'':v).join(';')+'\n';
     }
     const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
     const url=URL.createObjectURL(blob);

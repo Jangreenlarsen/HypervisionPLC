@@ -152,6 +152,7 @@ static const char *source_name(uint8_t s) {
     case MB_SRC_ST_LOGIC:  return "ST";
     case MB_SRC_CLI:       return "CLI";
     case MB_SRC_DASHBOARD: return "Dashboard";
+    case MB_SRC_TREND:     return "Trend";  // FEAT-425
     default:               return "?";
   }
 }

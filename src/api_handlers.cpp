@@ -9502,6 +9502,7 @@ esp_err_t api_handler_modbus_activity_get(httpd_req_t *req)
       case MB_SRC_ST_LOGIC:  src = "st_logic"; break;
       case MB_SRC_CLI:       src = "cli"; break;
       case MB_SRC_DASHBOARD: src = "dashboard"; break;
+      case MB_SRC_TREND:     src = "trend"; break;  // FEAT-425
       case MB_SRC_EXTERNAL:  src = "external"; break;
       default:               break;
     }
@@ -9866,6 +9867,23 @@ static const char *trend_reg_type_str(uint8_t t) {
     default:             return "?";
   }
 }
+// FEAT-425: punktets kilde i JSON: "local" (default, bagudkompatibelt),
+// "rtu" (intern Modbus, kraever slave) eller "mbx" (expansion board,
+// kraever board/ch/slave).
+static const char *trend_src_str(uint8_t s) {
+  switch (s) {
+    case TREND_SRC_RTU: return "rtu";
+    case TREND_SRC_MBX: return "mbx";
+    default:            return "local";
+  }
+}
+static void trend_point_to_json(const trend_point_t *pt, JsonObject p) {
+  p["type"] = trend_reg_type_str(pt->reg_type);
+  p["addr"] = pt->addr;
+  p["src"] = trend_src_str(pt->source);
+  if (pt->source != TREND_SRC_LOCAL) p["slave"] = pt->slave;
+  if (pt->source == TREND_SRC_MBX) { p["board"] = pt->board; p["ch"] = pt->channel; }
+}
 static bool trend_reg_type_parse(const char *s, uint8_t *out) {
   if (strcmp(s, "hr") == 0)   { *out = TREND_REG_HR; return true; }
   if (strcmp(s, "ir") == 0)   { *out = TREND_REG_IR; return true; }
@@ -9889,12 +9907,10 @@ esp_err_t api_handler_trend_config_get(httpd_req_t *req)
   doc["capacity"] = TREND_MAX_SAMPLES;
   JsonArray pts = doc["points"].to<JsonArray>();
   for (uint8_t i = 0; i < n; i++) {
-    JsonObject p = pts.add<JsonObject>();
-    p["type"] = trend_reg_type_str(points[i].reg_type);
-    p["addr"] = points[i].addr;
+    trend_point_to_json(&points[i], pts.add<JsonObject>());
   }
 
-  char buf[512];
+  char buf[1024];  // FEAT-425: 8 eksterne punkter fylder mere end 512
   serializeJson(doc, buf, sizeof(buf));
   return api_send_json(req, buf);
 }
@@ -9904,7 +9920,7 @@ esp_err_t api_handler_trend_config_post(httpd_req_t *req)
   http_server_stat_request();
   CHECK_AUTH_WRITE(req);
 
-  char content[512];
+  char content[1024];  // FEAT-425: 8 eksterne punkter fylder mere end 512
   int ret = httpd_req_recv(req, content, sizeof(content) - 1);
   if (ret <= 0) {
     return api_send_error(req, 400, "Failed to read request body");
@@ -9933,6 +9949,30 @@ esp_err_t api_handler_trend_config_post(httpd_req_t *req)
       }
       points[count].reg_type = reg_type;
       points[count].addr = p["addr"] | 0;
+      // FEAT-425: kilde
+      const char *src = p["src"] | "local";
+      points[count].source = TREND_SRC_LOCAL;
+      points[count].board = 0;
+      points[count].channel = 0;
+      points[count].slave = 0;
+      if (strcmp(src, "rtu") == 0 || strcmp(src, "mbx") == 0) {
+        int slave = p["slave"] | 0;
+        if (slave < 1 || slave > 247) return api_send_error(req, 400, "Ugyldig 'slave' (1-247)");
+        points[count].slave = (uint8_t)slave;
+        points[count].source = TREND_SRC_RTU;
+        if (strcmp(src, "mbx") == 0) {
+          int board = p["board"] | 0;
+          int ch = p["ch"] | 0;
+          if (board < 1 || board > EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[board - 1].configured)
+            return api_send_error(req, 400, "Ugyldigt 'board' (skal vaere et konfigureret board 1-8)");
+          if (ch < 1 || ch > 8) return api_send_error(req, 400, "Ugyldig 'ch' (1-8, A=1)");
+          points[count].source = TREND_SRC_MBX;
+          points[count].board = (uint8_t)board;
+          points[count].channel = (uint8_t)ch;
+        }
+      } else if (strcmp(src, "local") != 0) {
+        return api_send_error(req, 400, "Ugyldig 'src' (local/rtu/mbx)");
+      }
       count++;
     }
   }
@@ -9985,13 +10025,29 @@ esp_err_t api_handler_trend_data_get(httpd_req_t *req)
   httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
-  char head[256];
-  int pos = snprintf(head, sizeof(head), "{\"points\":[");
-  for (uint8_t i = 0; i < point_count; i++) {
-    pos += snprintf(head + pos, sizeof(head) - pos, "%s{\"type\":\"%s\",\"addr\":%u}",
-                     (i == 0) ? "" : ",", trend_reg_type_str(points[i].reg_type), points[i].addr);
+  // FEAT-424: reference-tidspunkt, saa browseren kan omregne hver samples
+  // millis()-tidsstempel til rigtig dato/tid: tid = now_epoch - (now_ms - t).
+  // now_epoch = 0 naar NTP ikke er synkroniseret (browseren bruger saa sit
+  // eget ur som reference). Ingen aendring i selve ringbufferen (RAM).
+  // Buffer-vaern: 8 punkter a ~34 tegn + praefiks kunne overstige de
+  // tidligere 256 bytes, og "sizeof(head) - pos" blev saa en kæmpe size_t.
+  char head[1024];  // FEAT-425: plads til 8 eksterne punkter (~75 tegn hver)
+  const unsigned long now_ms = (unsigned long)millis();
+  const unsigned long now_epoch = ntp_driver_is_synced() ? (unsigned long)ntp_driver_get_epoch() : 0UL;
+  int pos = snprintf(head, sizeof(head), "{\"now_ms\":%lu,\"now_epoch\":%lu,\"points\":[", now_ms, now_epoch);
+  for (uint8_t i = 0; i < point_count && pos > 0 && pos < (int)sizeof(head) - 64; i++) {
+    pos += snprintf(head + pos, sizeof(head) - pos, "%s{\"type\":\"%s\",\"addr\":%u,\"src\":\"%s\"",
+                     (i == 0) ? "" : ",", trend_reg_type_str(points[i].reg_type), points[i].addr,
+                     trend_src_str(points[i].source));
+    if (points[i].source != TREND_SRC_LOCAL)
+      pos += snprintf(head + pos, sizeof(head) - pos, ",\"slave\":%u", points[i].slave);
+    if (points[i].source == TREND_SRC_MBX)
+      pos += snprintf(head + pos, sizeof(head) - pos, ",\"board\":%u,\"ch\":%u", points[i].board, points[i].channel);
+    pos += snprintf(head + pos, sizeof(head) - pos, "}");
   }
-  pos += snprintf(head + pos, sizeof(head) - pos, "],\"samples\":[");
+  if (pos > 0 && pos < (int)sizeof(head)) {
+    snprintf(head + pos, sizeof(head) - pos, "],\"samples\":[");
+  }
   httpd_resp_send_chunk(req, head, HTTPD_RESP_USE_STRLEN);
 
   char item[256];
@@ -10001,7 +10057,11 @@ esp_err_t api_handler_trend_data_get(httpd_req_t *req)
 
     int p = snprintf(item, sizeof(item), "%s{\"t\":%lu,\"v\":[", (i == 0) ? "" : ",", (unsigned long)s.timestamp_ms);
     for (uint8_t k = 0; k < point_count; k++) {
-      p += snprintf(item + p, sizeof(item) - p, "%s%ld", (k == 0) ? "" : ",", (long)s.values[k]);
+      if (s.values[k] == TREND_VALUE_INVALID) {  // FEAT-425: ingen gyldig maaling
+        p += snprintf(item + p, sizeof(item) - p, "%snull", (k == 0) ? "" : ",");
+      } else {
+        p += snprintf(item + p, sizeof(item) - p, "%s%ld", (k == 0) ? "" : ",", (long)s.values[k]);
+      }
     }
     p += snprintf(item + p, sizeof(item) - p, "]}");
     httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);

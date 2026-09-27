@@ -47,7 +47,8 @@ typedef enum {
   MB_SRC_ST_LOGIC  = 1,   // ST Logic program's MB_* builtin
   MB_SRC_CLI       = 2,   // CLI `mb read`/`mb write`/`mb scan`
   MB_SRC_DASHBOARD = 3,   // Dashboard manual Read/Write mini-form (/api/modbus/master/rw)
-  MB_SRC_EXTERNAL  = 4    // SLAVE role: request came from an external master on the bus
+  MB_SRC_EXTERNAL  = 4,   // SLAVE role: request came from an external master on the bus
+  MB_SRC_TREND     = 5    // FEAT-425: Trend Recorder sampling an internal-bus slave
 } mb_activity_source_t;
 
 typedef struct {

@@ -245,6 +245,8 @@ PLC-siden af integrationen mod eksterne "HypervisionPLC Extension Boards" (se [k
 
 **Sikkerhedsmodel for RBAC-CRUD-endpoints:** `CHECK_AUTH_WRITE` (skriverettighed) er en BEVIDST parity-beslutning med CLI'ens egen eksisterende model — `rbac_cli_allowed()` lader allerede enhver CLI-rolle+skriverettigheds-bruger oprette/eskalere en admin-konto via `set user`. Se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #18.
 
+**Trend Recorder (FEAT-425):** hvert punkt i `POST /api/trend/config` / `GET /api/trend/config` / `GET /api/trend/data` har ud over `type` (hr/ir/coil/di) og `addr` et valgfrit `src`: `"local"` (default), `"rtu"` (kræver `slave` 1-247) eller `"mbx"` (kræver `board` 1-8 = konfigureret board-nr, `ch` 1-8 (A=1) og `slave`). Samples uden gyldig måling har værdien `null`. `GET /api/trend/data` har desuden `now_ms`/`now_epoch` (FEAT-424).
+
 **`POST /api/session/renew`** (CHECK_AUTH, BUG-427): fornyer serverens 30-min glidende session OG gensætter session-cookien (`hfplc_session`, `Max-Age=1800`) med samme token — kaldes af web-siderne (common.js) mens brugeren er aktiv. Svar `{"ok":true,"cookie_renewed":bool,"ttl_s":1800}`.
 
 Auth-model: HTTP Basic Auth-header, matchet mod enten RBAC-brugerdatabasen (op til 8 brugere, roller `api`/`cli`/`editor`/`monitor`, privilegie `read`/`write`/`read/write`) eller — hvis RBAC er deaktiveret — det gamle single-user `network.http.username`/`password`-par (svarer til en "virtual admin", uid=99, fuld adgang). **Siden BUG-353** accepteres desuden `Authorization: Bearer <token>` fra `/api/login` som et ligeværdigt alternativ til Basic Auth på **alle** endpoints — Basic Auth virker uændret og for evigt ved siden af, det er en tilføjelse, ikke en erstatning.

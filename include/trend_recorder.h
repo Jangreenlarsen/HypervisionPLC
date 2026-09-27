@@ -31,8 +31,28 @@ typedef enum {
   TREND_REG_DI   = 3   // Discrete input
 } trend_reg_type_t;
 
+// FEAT-425: hvor et punkt laeses fra. LOCAL = PLC'ens egne registre (som
+// hidtil, synkront). RTU = slave paa PLC'ens interne RS485-bus via Modbus
+// Master; MBX = kanal paa et eksternt expansion board (Modbus TCP). De to
+// eksterne laeses via de EKSISTERENDE async-caches (samme moenster som ST
+// Logic's MB_READ_*/MBX_READ_*): hver sample tager den seneste cachede
+// vaerdi og koeer en frisk laesning — aldrig blokerende i loop().
+typedef enum {
+  TREND_SRC_LOCAL = 0,
+  TREND_SRC_RTU   = 1,
+  TREND_SRC_MBX   = 2
+} trend_source_t;
+
+// Vaerdi uden gyldig maaling (ingen svar endnu, timeout, Master slaaet fra,
+// board ikke konfigureret) — sendes som JSON null / tom CSV-celle.
+#define TREND_VALUE_INVALID  ((int32_t)0x80000000)
+
 typedef struct {
   uint8_t  reg_type;   // trend_reg_type_t
+  uint8_t  source;     // trend_source_t (FEAT-425)
+  uint8_t  board;      // MBX: board nr 1-8
+  uint8_t  channel;    // MBX: kanal 1-8 (A=1, B=2)
+  uint8_t  slave;      // RTU/MBX: slave-ID 1-247
   uint16_t addr;
 } trend_point_t;
 
