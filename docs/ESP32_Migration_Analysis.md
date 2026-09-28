@@ -1,5 +1,9 @@
 # Analyse: Migrering fra Arduino Mega 2560 til ESP32
 
+<!-- DOC-STATUS: historisk -->
+> ⚠️ **Historisk dokument — vedligeholdes ikke længere.** Skrevet til en ældre firmwareversion og kan være forældet (CLI-syntaks, pins, endpoints, standardværdier). Den aktuelle, vedligeholdte dokumentation er [brugermanualen](manual/00_INDEKS.md) (CLI: appendiks A, REST: appendiks B, ST: appendiks D). Markeret ved dokumentationsgennemgang 2026-09-28.
+
+
 ## Executive Summary
 
 Migrering til ESP32 ville være en **major undertaking**, men med **signifikante fordele**. Det ville være en fuldstændig rebuild af hardware-lag og delvis refaktor af software, men kunne åbne op for moderne features som Wi-Fi, WebUI, og multi-tasking.

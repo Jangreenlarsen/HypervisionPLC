@@ -94,7 +94,7 @@ Eller via web-GUI'ets `/io`-side (GPIO Statisk Mapping-sektionen, FEAT-171).
 Dette er den vigtigste hardware-detalje at forstå før installation:
 
 - **ESP32-WROOM-32 (30/38-pin):** UART0 (USB-seriel) er Modbus **Slave**, UART1 (separate GPIO-pins) er Modbus **Master**. De to roller har **hver deres fysiske UART** og kan køre samtidig.
-- **ES32D26:** har kun **én** RS-485-transceiver ombord, delt mellem Slave- og Master-rollen (`MODBUS_SINGLE_TRANSCEIVER`). Systemet kan altså være **enten** Slave **eller** Master ad gangen på dette board — ikke begge samtidig — styret af `set modbus mode slave|master`. Samme fysiske pins (GPIO1/GPIO3) deles desuden med USB-seriel-konsollen ved boot; se boot-sekvensen i [kapitel 3](03_Installation_og_Foerste_Opstart.md#opstart-pa-es32d26--rs-485-vs-usb-konsol).
+- **ES32D26:** har kun **én** RS-485-transceiver ombord, delt mellem Slave- og Master-rollen (`MODBUS_SINGLE_TRANSCEIVER`). Systemet kan altså være **enten** Slave **eller** Master ad gangen på dette board — ikke begge samtidig — styret af `set modbus mode slave|master`. Samme fysiske pins (GPIO1/GPIO3) deles desuden med USB-seriel-konsollen ved boot; se boot-sekvensen i [kapitel 3](03_Installation_og_Foerste_Opstart.md#33-opstart-på-es32d26--rs-485-vs-usb-konsol).
 
 > **Vigtigt ved ES32D26:** hvis I har brug for at være Modbus Slave **og** Master samtidig, kræver det enten et separat RS-485-modul på en anden UART, eller en anden board-variant med to fysisk adskilte UART'er.
 

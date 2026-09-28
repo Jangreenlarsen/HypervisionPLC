@@ -25,16 +25,27 @@
 | IO39  | Ii2 — 4-20mA AI ✅ ADC1               |             |
 | IO36  | Ii3 — 4-20mA AI ✅ ADC1               |             |
 | IO35  | Ii4 — 4-20mA AI ✅ ADC1               |             |
-| IO25  | AO1 — Vo1/Io1 (DAC1)                   |             |
-| IO26  | AO2 — Vo2/Io2 (DAC2)                   |             |
+| IO25  | AO1 — Vo1/Io1 (DAC1) — **W5500 MOSI når Ethernet er aktiveret** |             |
+| IO26  | AO2 — Vo2/Io2 (DAC2) — **W5500 RST når Ethernet er aktiveret**  |             |
 
-## Ledige GPIOs — brugt til W5500 Ethernet
+## Reserveret af ESP32-WROVER-modulet — MÅ IKKE BRUGES
+
+| GPIO  | Bruges til | Note |
+|-------|------------|------|
+| IO6-IO11 | Intern SPI-flash | Gælder alle ESP32-moduler |
+| IO16, IO17 | Intern PSRAM (WROVER) | Var tidligere brugt til W5500 RST/MOSI — det var rodårsagen til Ethernet-crashene (BUG-423). Firmwaren afviser dem nu i GPIO-mappings (BUG-428) |
+
+## W5500 Ethernet (fra v7.9.68.33, BUG-423b)
 
 | GPIO  | W5500 Funktion | Note                                          |
 |-------|----------------|-----------------------------------------------|
-| IO19  | MISO           | VSPI default                                  |
-| IO17  | MOSI           | Remapped via GPIO matrix                      |
-| IO18  | SCK            | VSPI default                                  |
+| IO19  | MISO           | Tidligere ledig                               |
+| IO25  | MOSI           | = AO1/DAC1 — eksternt AO1-kredsløb frakobles  |
+| IO18  | SCK            | Tidligere ledig                               |
 | IO5   | CS (SCS)       | Strapping pin — intern pullup holder CS HIGH (inaktiv) ved boot |
 | IO4   | INT            | Interrupt, active LOW                         |
-| IO16  | RST            | Hardware reset, active LOW                    |
+| IO26  | RST            | = AO2/DAC2 — eksternt AO2-kredsløb frakobles  |
+
+Mens Ethernet er aktiveret, skriver firmwaren **ikke** til DAC'en (AO1/AO2 er reelt slået fra), da `dacWrite()` ellers ville overtage MOSI/RST. Med Ethernet slået fra kan AO1/AO2 bruges som før (hvis de analoge kredsløb er tilsluttet).
+
+**Reelt ledige GPIOs** (når Ethernet er slået fra): IO4, IO5 (strapping), IO18, IO19.

@@ -1,5 +1,9 @@
 # Dyb Analyse af ST Logic Subsystemet
 
+<!-- DOC-STATUS: historisk -->
+> ⚠️ **Historisk dokument — vedligeholdes ikke længere.** Skrevet til en ældre firmwareversion og kan være forældet (CLI-syntaks, pins, endpoints, standardværdier). Den aktuelle, vedligeholdte dokumentation er [brugermanualen](docs/manual/00_INDEKS.md) (CLI: appendiks A, REST: appendiks B, ST: appendiks D). Markeret ved dokumentationsgennemgang 2026-09-28.
+
+
 **Dato:** 2026-01-17
 **Projekt:** ESP32 Modbus RTU Server - ST Logic Engine
 **Version:** v5.1.7 (Build #1074+)

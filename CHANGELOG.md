@@ -4,6 +4,27 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.28 – 7.9.68.33] - 2026-09-27/28 (Modbus-diagnostik, Trend Recorder, sikkerhed, W5500-pins)
+
+> Versionerne 7.8.2 – 7.9.68.27 er ikke ført i denne fil — se `BUGS_INDEX.md` (én række pr. BUG/FEAT med version) og `git log`.
+
+### NEW FEATURES
+- **FEAT-421:** `debug modbus [master|all] level 1-8` / `no debug modbus` — live Modbus Master-trafik i Telnet (samme format som expansion boardet). Afvises fra seriel-konsol på ES32D26 og fra web-CLI.
+- **FEAT-422:** "Modbus manuel Read/Write" flyttet fra Monitor-siden til I/O-sidens test-panel som "Intern Modbus (PLC'ens RS485)".
+- **FEAT-423:** ST-monitorens trends: skalering pr. kurve (Auto eller fast Min/Max).
+- **FEAT-424:** Trend Recorder viser rigtig dato/tid (NTP, ellers browserens ur markeret `~`); CSV `tid;uptime_ms;epoch_s;...`.
+- **FEAT-425:** Trend Recorder kan optage fra slaver på den interne RS485-bus og fra kanaler på expansion boards.
+
+### BUG FIXES
+- **BUG-424:** ST/dashboard-læsninger fik timeout mens `mb scan` virkede — USB-konsollen læste samme UART som RS485 og stjal svar-bytes. Seriel-konsollen er nu passiv mens RS485 har GPIO1/3.
+- **BUG-425:** `/api/modbus/master/rw` returnerede en gyldig cache-post uden at køe en ny læsning; nye felter `fresh`/`poll`.
+- **BUG-426:** Cachen fik OK-flaget (1) i stedet for den skrevne værdi efter FC05/FC06.
+- **BUG-427:** Web-portalen loggede ud før 30 min idle — cookien blev aldrig fornyet; nyt `POST /api/session/renew` + robust keepalive.
+- **BUG-428:** GPIO-mappings på hardware-reserverede pins (bl.a. PSRAM GPIO16/17) blev accepteret og anvendt — nu afvist/ignoreret.
+- **BUG-423b:** W5500 MOSI/RST flyttet fra GPIO17/16 (WROVER-PSRAM, rodårsag til Ethernet-crashene) til GPIO25/26 (AO1/AO2, som slås fra mens Ethernet er aktiveret). **Kræver fysisk ombinding.**
+
+---
+
 ## [7.8.1] - 2026-04-01 (NTP Tidssynkronisering)
 
 ### NEW FEATURES

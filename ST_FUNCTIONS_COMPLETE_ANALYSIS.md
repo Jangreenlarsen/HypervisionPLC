@@ -1,5 +1,9 @@
 # ST Logic Functions - Komplet Analyse
 
+<!-- DOC-STATUS: historisk -->
+> ⚠️ **Historisk dokument — vedligeholdes ikke længere.** Skrevet til en ældre firmwareversion og kan være forældet (CLI-syntaks, pins, endpoints, standardværdier). Den aktuelle, vedligeholdte dokumentation er [brugermanualen](docs/manual/00_INDEKS.md) (CLI: appendiks A, REST: appendiks B, ST: appendiks D). Markeret ved dokumentationsgennemgang 2026-09-28.
+
+
 **Dato:** 2026-01-10
 **Build:** #1020+
 **Status:** Post-Implementation Review

@@ -14,6 +14,8 @@ Grundlæggende Wi-Fi-opsætning er dækket i [§3.4](03_Installation_og_Foerste_
 
 Kræver enten et eksternt W5500-SPI-modul (standard ESP32-varianter) eller er indbygget (Waveshare S3-ETH) — se [kapitel 2](02_Hardware_og_Moduler.md). Firmwaren skal desuden være bygget med `-DETHERNET_W5500_ENABLED` (standard i de fleste build-profiler).
 
+**ES32D26 (fra v7.9.68.33, BUG-423b):** W5500 tilsluttes MISO=GPIO19, MOSI=GPIO25, CLK=GPIO18, CS=GPIO5, INT=GPIO4, RST=GPIO26. GPIO25/26 er boardets analoge udgange AO1/AO2 — de eksterne analog-udgangskredsløb skal frakobles, og AO1/AO2 er slået fra i firmwaren så længe Ethernet er aktiveret. Brug **aldrig** GPIO16/17: på ESP32-WROVER er de forbundet til modulets PSRAM (det var årsagen til de tidligere Ethernet-crashes).
+
 ```
 set ethernet enable
 set ethernet dhcp on

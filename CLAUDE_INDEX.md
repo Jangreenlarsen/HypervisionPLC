@@ -31,10 +31,10 @@
 
 | Aspect | Details |
 |--------|---------|
-| **Microcontroller** | ESP32-WROOM-32 (240MHz dual-core) |
-| **Interface** | RS-485 Modbus RTU (UART0: Slave, UART1: Master) |
+| **Microcontroller** | ES32D26 (ESP32-WROVER, 4 MB PSRAM) — also ESP32-WROOM-32 / ESP32-S3 builds |
+| **Interface** | RS-485 Modbus RTU — on ES32D26 ONE shared transceiver (GPIO1/3/21, same pins as the USB console) runs as Slave OR Master; Modbus TCP to expansion boards |
 | **Architecture** | 50+ modular .cpp/.h files |
-| **Version** | v7.8.1 |
+| **Version** | v7.9.68.33 |
 | **Main Components** | Modbus Master/Slave, Counters, Timers, ST Logic, CLI, Ethernet (W5500) |
 
 **Key improvement:** Monolithic code → Modular architecture with hardware abstraction layers

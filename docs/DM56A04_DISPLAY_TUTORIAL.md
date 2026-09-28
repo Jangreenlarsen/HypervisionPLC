@@ -1,7 +1,7 @@
 # Tutorial: DM56A04 7-Segment RS485 Display via ST Logic
 
 **Dato:** 2026-03-24
-**Firmware:** v7.2.0 (Build #1540)
+**Firmware:** v7.2.0 (Build #1540) — gennemgået og rettet mod v7.9.68.33
 **Formål:** Opsætning og test af DM56A04 4×7-segment Modbus RTU display styret fra ESP32 via ST Logic og REST API.
 
 ---
@@ -205,9 +205,9 @@ ok := MB_WRITE_HOLDING(1, 7, counter);
 | `slave_id` | 1 | DM56A04 Modbus slave adresse |
 | `register` | 7 | Register 0x0007 = numerisk display |
 | `value` | counter | Heltalsværdi 0–9999 |
-| **Retur** | `ok` | `TRUE` = skrivning lykkedes, `FALSE` = fejl |
+| **Retur** | `ok` | `TRUE` = skrivningen er **sat i kø** (ikke at displayet har svaret), `FALSE` = kunne ikke køes |
 
-Funktionen sender Modbus FC06 (Write Single Holding Register) over RS485.
+Funktionen sætter en Modbus FC06 (Write Single Holding Register) i den asynkrone kø; selve RS485-transaktionen sker lidt senere i baggrunden. Brug `MB_ERROR()` til at se udfaldet af den seneste transaktion.
 
 ### 3.2 Timing
 
@@ -241,7 +241,7 @@ DM56A04 har 4 cifre → max 9999. Tælleren nulstilles ved overflow.
 | Display modtager data | ✅ OK | FC06 echo korrekt fra slave ID 1 |
 | Display viser tal | ✅ OK | Tæller op 0→1→2→...→9999→0 |
 | Wrap-around 9999→0 | ✅ OK | Korrekt nulstilling |
-| MB_WRITE_HOLDING retur | ✅ OK | `ok=TRUE` ved succesfuld skrivning |
+| MB_WRITE_HOLDING retur | ✅ OK | `ok=TRUE` (skrivning sat i kø) |
 
 ### 4.2 Observerede problemer under test
 
@@ -301,6 +301,13 @@ ok := MB_WRITE_HOLDING(1, 0, 72);  (* ASCII 'H' = 72 *)
 ```
 
 ---
+
+## 5.5 Kendte faldgruber (fundet i drift, v7.9.68.x)
+
+- **Samme værdi skrives ikke igen.** `MB_WRITE_HOLDING` springer en skrivning over, hvis cachen allerede har bekræftet præcis den værdi på registret (write-dedup). Skifter displayet mellem to kilder med samme værdi, bliver det stående på den forrige visning. Skriv i stedet ASCII-tegn til register 0-3 med `MB_WRITE_HOLDINGS(1, 0, 4) := txt;` (FC16 dedupliceres ikke).
+- **`/` giver REAL.** Til at dele et tal op i ASCII-cifre må man ikke bruge `(v / 10) MOD 10` — brug gentagen subtraktion. Se [manualens §8.7 "Faldgruber"](manual/08_ST_Logic_Programmering.md#faldgruber-ved-modbus-fra-st).
+- **Register 7 viser kun positive tal.** Negative værdier og "ingen føler" (`----`) skal skrives som ASCII i register 0-3.
+- **Sæt ikke Modbus-UART til UART0 på ES32D26 uden BUG-424-rettelsen** (v7.9.68.28+): før den stjal USB-konsollen svar-bytes fra RS485, så læsninger fra ST fik timeout, mens `mb scan` virkede.
 
 ## 6. FEJLFINDING
 

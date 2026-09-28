@@ -1,5 +1,9 @@
 # ESP32 Modbus RTU Server - Komplet Funktionsguide
 
+<!-- DOC-STATUS: historisk -->
+> ⚠️ **Historisk dokument — vedligeholdes ikke længere.** Skrevet til en ældre firmwareversion og kan være forældet (CLI-syntaks, pins, endpoints, standardværdier). Den aktuelle, vedligeholdte dokumentation er [brugermanualen](manual/00_INDEKS.md) (CLI: appendiks A, REST: appendiks B, ST: appendiks D). Markeret ved dokumentationsgennemgang 2026-09-28.
+
+
 **Version:** 2.0.0 | **Dato:** 2025-11-30 | **Platform:** ESP32-WROOM-32
 
 **Indholdsfortegnelse:**

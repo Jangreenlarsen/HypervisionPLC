@@ -107,6 +107,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `show rate-limit` | — | Rate limiting-status |
 | `show users [roles]` | `roles` viser tilgængelige RBAC-roller/privilegier | RBAC-brugerliste, eller (med `roles`) forklaring af roller/privilegier |
 | `show backup` | — | URL til backup/restore via HTTP API |
+| `show acl [draft]` | `draft` viser kladden (FEAT-402, ikke håndhævet) | IP Access Control List: til/fra, regler i rækkefølge, evt. ventende bekræftelse (FEAT-399/401) |
 
 ### Hardware / diverse
 
@@ -117,6 +118,8 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `show watchdog` / `wdg` | — | Watchdog-monitor-status (reboot-årsag, reboot-tæller) |
 | `show debug` / `dbg` | — | Debug-flag-status |
 | `show echo` | — | Remote echo on/off |
+| `show analog` | kun ES32D26 | Analog I/O: Vi1-4, Ii1-4 (rå + skaleret) og AO1-2 (FEAT-034-037) |
+| `show tasks` / `task` | — | FreeRTOS-tasks: tilstand, core, prioritet, fri stak (BUG-343-diagnostik — kør den MENS noget hænger) |
 
 ## A.4 `set <x>` — Konfigurationskommandoer
 
@@ -129,6 +132,11 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `set debug <flag> <on\|off>` | flag: `config-save`, `config-load`, `all` | Debug-logging-flag |
 | `set gpio <pin> input <idx>` | pin: 0–39 eller 100–255 (virtuel); idx: discrete input-index | Map GPIO-pin til discrete input |
 | `set gpio <pin> coil <idx>` | idx: coil-index | Map coil til GPIO-output |
+
+**Pin-validering (BUG-428):** pins som hardwaren allerede bruger afvises med en begrundelse — flash (6-11), PSRAM (16/17 på WROVER), ikke-eksisterende pins, og på ES32D26 også RS485/USB (1/3/21), 74HC595 (12/13/22/23), 74HC165 (0/2/15), analoge ind-/udgange og W5500-pins når Ethernet er aktiveret; GPIO34-39 kan kun være indgang. Allerede gemte mappings på sådanne pins ignoreres af firmwaren (og vises med advarsel på I/O-siden).
+
+| Kommando | Parametre | Beskrivelse |
+|---|---|---|
 | `set gpio 2 enable\|disable` | — | `enable` = frigiv GPIO2 til brugerkode (deaktiverer heartbeat-LED); `disable` = reservér til heartbeat (default) |
 
 ### Modbus — mode og hardware
@@ -142,6 +150,8 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `set modul ethernet <enable\|disable>` | — | Aktivér/deaktivér W5500 Ethernet (bruger GPIO 4,5,18,19,25,26 — AO1/AO2 er slået fra mens Ethernet er aktiveret, BUG-423) |
 | `set ao1 mode <voltage\|current>` | kun ES32D26 | Analog output 1: 0–10V eller 4–20mA |
 | `set ao2 mode <voltage\|current>` | kun ES32D26 | Analog output 2 |
+| `set analog <vi1-4\|ii1-4\|ao1-2> enabled on\|off` | kun ES32D26 | Slå en analog kanal til/fra (FEAT-034-037). AO1/AO2 skrives ikke mens Ethernet er aktiveret (BUG-423b) |
+| `set analog <kanal> scale\|offset <tal>` | kun ES32D26 | Kalibrering: skaleret = rå × scale + offset |
 
 ### Modbus Slave (`set modbus-slave <param> <værdi>`)
 
@@ -283,6 +293,16 @@ Max 8 grupper × 16 registre. ST Logic: `SAVE(0)`/`LOAD(0)` = alle grupper, `SAV
 | `set rbac enable\|disable` | Aktivér/deaktivér Role-Based Access Control (advarer hvis 0 brugere findes) |
 | `set user <navn> password <pw> roles <roller> privilege <priv>` | Opret/opdater bruger (maks 8). `roles`: kommasepareret `api,cli,editor,monitor` eller `all`. `privilege`: `read`, `write`, `read/write` (alias `rw`) |
 | `delete user <navn>` | Slet bruger |
+| `set acl enable\|disable` | IP Access Control List til/fra (FEAT-399). Kan gå i "afventer bekræftelse" — se `confirm acl` |
+| `set acl rule add <ip/cidr> service <http\|telnet\|sse\|all> action <allow\|deny> [disabled]` | Tilføj regel (først-match-vinder, rækkefølgen er afgørende) |
+| `set acl rule <index> edit <ip/cidr> service <svc> action <allow\|deny> [disabled]` | Ret en regel (FEAT-401) |
+| `set acl rule <index> move <ny-index>` | Flyt en regel (FEAT-401) |
+| `set acl rule <index> enable\|disable` | Slå en enkelt regel til/fra |
+| `delete acl rule <index>` | Slet en regel |
+| `confirm acl` | Bekræft en ventende ACL-ændring inden for 5 min (efter nyt login) — ellers rulles den automatisk tilbage |
+| `set acl draft begin\|apply\|discard\|enable\|disable` | Kladde-tilstand (FEAT-402): byg flere ændringer uden at de håndhæves, anvend dem atomisk med `apply` |
+| `set acl draft rule add\|<index> edit\|move\|enable\|disable …` | Samme regel-syntaks som ovenfor, på kladden |
+| `delete acl draft rule <index>` | Slet en kladde-regel |
 
 Roller: `api`=0x01 (REST API + SSE), `cli`=0x02 (CLI), `editor`=0x04 (`/editor`), `monitor`=0x08 (dashboard `/` + SSE-streams), `all`=0x0F. SSE kræver `api` **eller** `monitor`. Read-only brugere (uden write-privilegie) må kun bruge `show `, `sh `, `help`, `ping `, `?`.
 

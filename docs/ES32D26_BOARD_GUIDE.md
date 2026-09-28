@@ -104,14 +104,14 @@ Disse GPIOs er **ikke brugt** af ES32D26 boardet:
 
 | ESP32 GPIO | Status | Strapping | Anbefaling |
 |------------|--------|-----------|------------|
-| GPIO4 | Ledig | Nej | Fri til brug |
-| GPIO5 | Ledig | Ja (BOOT) | ⚠️ Intern pullup. Påvirker boot mode |
-| GPIO16 | Ledig | Nej | Fri til brug |
-| GPIO17 | Ledig | Nej | Fri til brug |
-| GPIO18 | Ledig | Nej | Fri til brug (VSPI CLK default) |
-| GPIO19 | Ledig | Nej | Fri til brug (VSPI MISO default) |
+| GPIO4 | Ledig | Nej | Fri til brug (W5500 INT hvis Ethernet) |
+| GPIO5 | Ledig | Ja (BOOT) | ⚠️ Intern pullup. Påvirker boot mode (W5500 CS hvis Ethernet) |
+| GPIO18 | Ledig | Nej | Fri til brug (W5500 SCK hvis Ethernet) |
+| GPIO19 | Ledig | Nej | Fri til brug (W5500 MISO hvis Ethernet) |
 
-**Totalt:** 6 frie GPIOs (4, 5, 16, 17, 18, 19). GPIO5 er strapping pin — brug med forsigtighed.
+**Totalt:** 4 frie GPIOs (4, 5, 18, 19). GPIO5 er strapping pin — brug med forsigtighed.
+
+> ⚠️ **GPIO16 og GPIO17 er IKKE ledige** på dette board: ESP32-WROVER-modulet bruger dem internt til sin PSRAM. Ældre udgaver af denne guide angav dem som frie og brugte dem til W5500 RST/MOSI — det var rodårsagen til Ethernet-crashene (BUG-423). Firmwaren afviser dem nu i GPIO-mappings (BUG-428).
 
 ---
 
@@ -119,16 +119,18 @@ Disse GPIOs er **ikke brugt** af ES32D26 boardet:
 
 ### Pin-Mapping (ledige GPIOs)
 
-W5500 modulet tilsluttes via de 6 ledige GPIOs:
+Fra v7.9.68.33 (BUG-423b) tilsluttes W5500 via de 4 ledige GPIOs **plus de to DAC-udgange** (AO1/AO2 — de eksterne analog-udgangskredsløb skal frakobles):
 
 | W5500 Pin | ESP32 GPIO | Funktion | Note |
 |-----------|-----------|----------|------|
-| MISO | GPIO19 | VSPI MISO | Ledig |
-| MOSI | GPIO17 | SPI MOSI (remapped) | Ledig |
-| SCK | GPIO18 | VSPI CLK | Ledig |
+| MISO | GPIO19 | SPI MISO (remapped) | Ledig |
+| MOSI | GPIO25 | SPI MOSI (remapped) | = AO1/DAC1 |
+| SCK | GPIO18 | SPI CLK (remapped) | Ledig |
 | CS (SCS) | GPIO5 | Chip Select | Strapping pin — intern pullup holder CS inaktiv ved boot |
 | INT | GPIO4 | Interrupt | Ledig |
-| RST | GPIO16 | Hardware Reset | Ledig |
+| RST | GPIO26 | Hardware Reset | = AO2/DAC2 |
+
+AO1/AO2 er slået fra i firmwaren, mens Ethernet er aktiveret (`analog_driver_flush_outputs()` skriver ikke til DAC'en).
 | VCC | — | 3.3V | 3V3 |
 | GND | — | Ground | GND |
 
@@ -140,10 +142,10 @@ W5500 modulet tilsluttes via de 6 ledige GPIOs:
     |           |               |          |
     | GPIO18 ---|---SCK-------->| SCK      |
     | GPIO19 ---|---MISO-----<--| MISO     |
-    | GPIO17 ---|---MOSI------->| MOSI     |
+    | GPIO25 ---|---MOSI------->| MOSI     |
     | GPIO5  ---|---CS--------->| SCS      |
     | GPIO4  ---|---INT------<--| INT      |
-    | GPIO16 ---|---RST-------->| RST      |
+    | GPIO26 ---|---RST-------->| RST      |
     |           |               |          |
     | 3V3  ----|---VCC-------->| VCC      |
     | GND  ----|---GND-------->| GND      |
@@ -162,7 +164,7 @@ W5500 modulet tilsluttes via de 6 ledige GPIOs:
 
 5. **SPI Clock:** 8 MHz (konservativ for eksternt modul med ledninger). Kan øges til 20 MHz med korte, gode forbindelser.
 
-6. **SPI Host:** VSPI (SPI3_HOST). MOSI er remapped fra GPIO23 (optaget af 74HC595) til GPIO17 via ESP32 GPIO matrix.
+6. **SPI Host:** HSPI (SPI2_HOST, se `W5500_SPI_HOST` i constants.h — skiftet fra VSPI under BUG-423). Alle W5500-ben er remappede via ESP32 GPIO-matrixen; MOSI ligger på GPIO25 (tidl. GPIO17 = PSRAM).
 
 ---
 

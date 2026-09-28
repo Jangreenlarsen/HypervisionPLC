@@ -47,7 +47,7 @@ const loginResp = await fetch('http://192.168.1.100/api/login', {
 const { token } = await loginResp.json();
 fetch('http://192.168.1.100/api/status', { headers: { Authorization: `Bearer ${token}` } });
 ```
-Tokenet er kortlivet (glidende 30-minutters inaktivitets-timeout, [§10.3](10_Sikkerhed_og_Adgangsstyring.md#103-standard-credentials-skal-aendres)) — genhent ved en 401 midt i en langvarig integration.
+Tokenet er kortlivet (glidende 30-minutters inaktivitets-timeout, [§10.3](10_Sikkerhed_og_Adgangsstyring.md#103-standard-credentials--skal-ændres)) — genhent ved en 401 midt i en langvarig integration.
 
 **`basic`-tilstand (ældre/valgfri adfærd) — direkte Basic-Auth på hvert kald, intet login-trin nødvendigt:**
 ```bash
@@ -57,7 +57,7 @@ curl -u admin:modbus123 http://192.168.1.100/api/status
 r = requests.get("http://192.168.1.100/api/status", auth=("admin", "modbus123"))
 ```
 
-> Skift `admin`/`modbus123` til jeres egne credentials — se [§3.6](03_Installation_og_Foerste_Opstart.md#haerdning-efter-installation). Send **aldrig** produktions-credentials over almindelig HTTP på et utillidsfuldt netværk; brug HTTPS ([kapitel 10](10_Sikkerhed_og_Adgangsstyring.md)).
+> Skift `admin`/`modbus123` til jeres egne credentials — se [§3.6](03_Installation_og_Foerste_Opstart.md#36-hærdning-efter-installation). Send **aldrig** produktions-credentials over almindelig HTTP på et utillidsfuldt netværk; brug HTTPS ([kapitel 10](10_Sikkerhed_og_Adgangsstyring.md)).
 
 ## 7.3 Rate limiting
 

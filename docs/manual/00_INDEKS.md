@@ -10,7 +10,7 @@
 
 ---
 
-**Version:** v7.9.64.0 · **Platform:** ESP32-WROOM-32 / ESP32-WROVER / ESP32-S3
+**Version:** v7.9.68.33 · **Platform:** ESP32-WROOM-32 / ESP32-WROVER / ESP32-S3
 
 </div>
 
@@ -69,15 +69,15 @@ Manualen er skrevet som en **modulær samling af selvstændige kapitler**, så d
 
 ## Hurtig-links til de mest almindelige opgaver
 
-- **Første opstart / glemt IP-adresse** → [Kapitel 3: Installation](03_Installation_og_Foerste_Opstart.md#tilslutning-via-seriel-konsol)
-- **Skifte standard-adgangskoder** → [Kapitel 3: Hærdning efter installation](03_Installation_og_Foerste_Opstart.md#haerdning-efter-installation)
-- **Skrive dit første ST Logic-program** → [Kapitel 8: Kom i gang](08_ST_Logic_Programmering.md#kom-i-gang-et-foerste-program)
-- **Læse/skrive et register via REST API** → [Kapitel 7: Register- og coil-endpoints](07_REST_API.md#registre-og-coils)
-- **Opsætte Modbus Master mod eksterne enheder** → [Kapitel 6: Master-rollen](06_Modbus_Interface.md#modbus-master)
+- **Første opstart / glemt IP-adresse** → [Kapitel 3: Installation](03_Installation_og_Foerste_Opstart.md#32-tilslutning-via-seriel-konsol)
+- **Skifte standard-adgangskoder** → [Kapitel 3: Hærdning efter installation](03_Installation_og_Foerste_Opstart.md#36-hærdning-efter-installation)
+- **Skrive dit første ST Logic-program** → [Kapitel 8: Kom i gang](08_ST_Logic_Programmering.md#86-kom-i-gang-et-første-program)
+- **Læse/skrive et register via REST API** → [Kapitel 7: Register- og coil-endpoints](07_REST_API.md#75-eksempel-læs-og-skriv-et-holding-register)
+- **Opsætte Modbus Master mod eksterne enheder** → [Kapitel 6: Master-rollen](06_Modbus_Interface.md#65-modbus-master--konfiguration)
 - **Tilslutte og styre et Modbus Expansion Board (MBX_*)** → [Kapitel 6.7: Modbus Expansion Boards](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)
 - **Bruge en GPIO-indgang (inkl. de multiplexede skifteregister-kanaler) fra ST Logic** → [Kapitel 8: GPIO-bindinger](08_ST_Logic_Programmering.md#813-gpio-indgange-i-st-logic-bindings-mode)
 - **Tillade/blokere adgang fra bestemte IP'er/subnet (IP ACL, permit/deny, kladde-tilstand)** → [Kapitel 10: IP Access Control List](10_Sikkerhed_og_Adgangsstyring.md#107-ip-access-control-list-feat-399401402)
-- **Opdatere firmware (OTA)** → [Kapitel 11: OTA-opdatering](11_Backup_Restore_og_Firmware.md#ota-firmwareopdatering)
+- **Opdatere firmware (OTA)** → [Kapitel 11: OTA-opdatering](11_Backup_Restore_og_Firmware.md#113-ota-firmwareopdatering)
 - **Enheden svarer ikke / mistænkelig opførsel** → [Kapitel 13: Fejlfinding](13_Fejlfinding.md)
 
 ---

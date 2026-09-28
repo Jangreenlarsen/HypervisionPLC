@@ -1,5 +1,9 @@
 # Modbus Master Async Cache — Funktionsbeskrivelse
 
+<!-- DOC-STATUS: historisk -->
+> ⚠️ **Historisk dokument — vedligeholdes ikke længere.** Skrevet til en ældre firmwareversion og kan være forældet (CLI-syntaks, pins, endpoints, standardværdier). Den aktuelle, vedligeholdte dokumentation er [brugermanualen](manual/00_INDEKS.md) (CLI: appendiks A, REST: appendiks B, ST: appendiks D). Markeret ved dokumentationsgennemgang 2026-09-28.
+
+
 **Version:** v7.9.7.1 (2026-04-14)
 **Filer:** `mb_async.h`, `mb_async.cpp`, `st_builtin_modbus.cpp`
 

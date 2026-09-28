@@ -108,7 +108,8 @@ Each layer has **ONE responsibility**. No circular dependencies.
 | `modbus_rx.cpp/h` | Serial RX, frame detection, timeout, ISR (Slave UART0) |
 | `modbus_tx.cpp/h` | RS-485 DIR control, serial TX (Slave UART0) |
 | `modbus_server.cpp/h` | Main Modbus Slave state machine (UART0) |
-| `modbus_master.cpp/h` | Modbus Master implementation (UART1) |
+| `modbus_master.cpp/h` | Modbus Master implementation (UART1; on ES32D26 the shared RS-485 UART via `uart1_*`). `modbus_master_send_request()` is the single chokepoint for ALL master traffic |
+| `mb_debug.cpp/h` | FEAT-421: `debug modbus level 1-8` — raw TX/RX/timing captured in the master chokepoint into a FreeRTOS ringbuffer (no formatting on Core 0), decoded + printed from `loop()` to the Telnet session that enabled it |
 | `mb_async.cpp/h` | Async Master: priority queue + cache + FreeRTOS task on Core 0 (v7.7.0) |
 | `mb_activity_log.cpp/h` | Wire-level activity log, Master + Slave, RAM-only ring buffer (FEAT-149) |
 | `modbus_expansion.cpp/h` | Modbus TCP client (MBAP framing) to external expansion boards, port-per-channel connection pool (FEAT-410) |
@@ -134,7 +135,8 @@ being snapshotted into `mb_async_request_t.source` at enqueue time.
 |------|---------|
 | `registers.cpp/h` | Holding/input register array, access functions |
 | `coils.cpp/h` | Coil/discrete input bit arrays, access functions |
-| `gpio_mapping.cpp/h` | GPIO ↔ coil/discrete input bindings |
+| `gpio_mapping.cpp/h` | GPIO ↔ coil/discrete input bindings. `gpio_mapping_pin_reserved()` (BUG-428) is THE list of hardware-reserved pins (flash, PSRAM 16/17, RS-485, shift registers, analog, W5500) — used by API, CLI, boot apply and the cyclic read/write |
+| `trend_recorder.cpp/h` | FEAT-099/424/425: RAM-only periodic sampler (8 points × 720 samples). Points can be local registers, internal-bus RTU slaves or expansion-board channels (the latter two via the async caches, never blocking) |
 | `register_allocator.cpp/h` | Global register allocation tracking (BUG-025, BUG-026, BUG-028) |
 | `registers_persist.cpp/h` | Persistent register storage (NVS backup/restore) |
 

@@ -1,5 +1,9 @@
 # HTTP REST API Documentation
 
+<!-- DOC-STATUS: historisk -->
+> ⚠️ **Historisk dokument — vedligeholdes ikke længere.** Skrevet til en ældre firmwareversion og kan være forældet (CLI-syntaks, pins, endpoints, standardværdier). Den aktuelle, vedligeholdte dokumentation er [brugermanualen](manual/00_INDEKS.md) (CLI: appendiks A, REST: appendiks B, ST: appendiks D). Markeret ved dokumentationsgennemgang 2026-09-28.
+
+
 **Version:** v7.2.2 | **Feature:** FEAT-011, FEAT-019–027, FEAT-032
 
 ESP32 Modbus RTU Server's HTTP REST API giver nem integration med Node-RED, web dashboards, og andre HTTP-baserede systemer.

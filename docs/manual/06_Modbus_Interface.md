@@ -74,11 +74,11 @@ set modbus-master queue-size 16           (max ventende requests)
 show modbus-master                        (status + kø-/cache-statistik)
 ```
 
-**Prioritering:** skrivninger (Write) prioriteres altid over læsninger; blandt læsninger prioriteres "første læsning" (intet cachet endnu) over "opdatering af allerede kendt værdi". Er køen fuld, fortrænges den laveste-prioritets ventende request — se [§13.4](13_Fejlfinding.md#modbus-master-holder-op-med-at-opdatere-en-bestemt-adresse) hvis en bestemt adresse holder op med at opdatere.
+**Prioritering:** skrivninger (Write) prioriteres altid over læsninger; blandt læsninger prioriteres "første læsning" (intet cachet endnu) over "opdatering af allerede kendt værdi". Er køen fuld, fortrænges den laveste-prioritets ventende request — se [§13.4](13_Fejlfinding.md#134-modbus-master-holder-op-med-at-opdatere-en-bestemt-adresse) hvis en bestemt adresse holder op med at opdatere.
 
 **Manuelt afprøve Master:** se [`mb read`/`mb write`](05_CLI_Konsol.md#54-mb--modbus-master-fra-kommandolinjen) i CLI-kapitlet, eller vælg **Intern Modbus** som board i I/O-sidens test-panel (under Modbus Expansion Boards, se §6.7).
 
-**Fra ST Logic:** se [kapitel 8](08_ST_Logic_Programmering.md#modbus-master-fra-st-logic) for `MB_READ_HOLDING`/`MB_WRITE_HOLDING` m.fl.
+**Fra ST Logic:** se [kapitel 8](08_ST_Logic_Programmering.md#87-modbus-master-fra-st-logic) for `MB_READ_HOLDING`/`MB_WRITE_HOLDING` m.fl.
 
 **Via web-GUI (FEAT-166):** slave-id/baudrate/paritet/stopbits/inter-frame-delay (Slave) og enabled/baudrate/paritet/stopbits/timeout/inter-frame-delay/max-requests/cache-ttl (Master) kan nu også sættes fra `/system`-siden — samme felter som ovenfor, blot uden CLI. `cache-size`/`queue-size` er ikke inkluderet dér, da de er faste compile-time-kapaciteter (`MB_CACHE_MAX`/`MB_QUEUE_MAX`), ikke runtime-konfigurerbare via REST i dag.
 

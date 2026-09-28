@@ -1,5 +1,9 @@
 # Counter Compare Feature - Technical Reference Guide
 
+<!-- DOC-STATUS: historisk -->
+> ⚠️ **Historisk dokument — vedligeholdes ikke længere.** Skrevet til en ældre firmwareversion og kan være forældet (CLI-syntaks, pins, endpoints, standardværdier). Den aktuelle, vedligeholdte dokumentation er [brugermanualen](manual/00_INDEKS.md) (CLI: appendiks A, REST: appendiks B, ST: appendiks D). Markeret ved dokumentationsgennemgang 2026-09-28.
+
+
 **Version:** 2.3+
 **Implementation Status:** Phase 1-3 Complete (Build #329)
 **Release Date:** 2025-12-03

@@ -1,5 +1,9 @@
 # Plan: W5500 Ethernet Interface til Modbus Slave
 
+<!-- DOC-STATUS: historisk -->
+> ⚠️ **Historisk dokument — vedligeholdes ikke længere.** Skrevet til en ældre firmwareversion og kan være forældet (CLI-syntaks, pins, endpoints, standardværdier). Den aktuelle, vedligeholdte dokumentation er [brugermanualen](manual/00_INDEKS.md) (CLI: appendiks A, REST: appendiks B, ST: appendiks D). Markeret ved dokumentationsgennemgang 2026-09-28.
+
+
 Jeg kan give dig en grundig analyse af mulighederne. Her er de vigtigste overvejelser:
 
 ## 1. Hardware-integration

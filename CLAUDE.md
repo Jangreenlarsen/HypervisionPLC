@@ -239,7 +239,7 @@ A: Read [`CLAUDE_ARCH.md`](CLAUDE_ARCH.md)
 | **Target** | ESP32-WROOM-32 / ESP32-WROVER m. 4MB PSRAM (ES32D26) |
 | **Protocol** | Modbus RTU (RS-485) |
 | **Architecture** | 30+ modular .cpp/.h files |
-| **Version** | v7.9.8.4 |
+| **Version** | v7.9.68.33 |
 | **Components** | Counters, Timers, ST Logic, CLI, Ethernet (W5500) |
 | **Key Feature** | IEC 61131-3 Type System (INT/DINT/REAL) |
 
@@ -257,9 +257,9 @@ All checked? Ready to code! 🚀
 
 ---
 
-**Last Updated:** 2026-09-02
-**Version:** v7.9.8.4
-**Build:** #2003
+**Last Updated:** 2026-09-28
+**Version:** v7.9.68.33
+**Build:** #2601
 **Status:** ✅ Navigation Hub (Modular Documentation)
 
 **Remember:** The value of documentation is not in its size, but in its usability. Start with [`CLAUDE_INDEX.md`](CLAUDE_INDEX.md) →

@@ -50,7 +50,7 @@ En bruger med kun `monitor`+`read` kan altså se `/dashboard`, men hverken skriv
 | HTTP/dashboard | `admin` | `modbus123` |
 | Telnet | `admin` | `telnet123` |
 
-Disse er fabriksstandarder, dokumenteret i selve kildekoden — enhver med adgang til firmwaren (eller til denne manual) kender dem. **Skift dem ved installation**, se [§3.6](03_Installation_og_Foerste_Opstart.md#haerdning-efter-installation) — eller nu også via `/system`-sidens "HTTP Legacy Auth"- og "Telnet"-kort (FEAT-166), som alternativ til CLI'ens `set http password`/`set telnet password`.
+Disse er fabriksstandarder, dokumenteret i selve kildekoden — enhver med adgang til firmwaren (eller til denne manual) kender dem. **Skift dem ved installation**, se [§3.6](03_Installation_og_Foerste_Opstart.md#36-hærdning-efter-installation) — eller nu også via `/system`-sidens "HTTP Legacy Auth"- og "Telnet"-kort (FEAT-166), som alternativ til CLI'ens `set http password`/`set telnet password`.
 
 **Password-lagring (BUG-352, fra v7.9.10.9):** HTTP/dashboard- og RBAC-brugerpasswords gemmes **hashet** (SHA-256 + et unikt, tilfældigt 16-byte salt pr. konto) — ikke længere i klartekst i NVS. En NVS-backup-eksport eller fysisk flash-dump afslører derfor ikke længere passwords direkte. **Undtagelser, bevidst uændrede:** WiFi-passwordet skal forblive klartekst (kræves af WPA2-håndtrykket mod radioen) og Telnet-passwordet er et separat, selvstændigt credential-system der endnu ikke er omfattet — begge er stadig synlige i en backup-eksport. Ændringen er transparent for eksisterende brugere: et allerede sat password bliver automatisk hashet ved første opstart efter opdateringen, uden at skulle sættes igen.
 

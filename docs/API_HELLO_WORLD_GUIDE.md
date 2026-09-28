@@ -1,5 +1,9 @@
 # API Hello World Guide — ST Logic + GPIO via REST API
 
+<!-- DOC-STATUS: historisk -->
+> ⚠️ **Historisk dokument — vedligeholdes ikke længere.** Skrevet til en ældre firmwareversion og kan være forældet (CLI-syntaks, pins, endpoints, standardværdier). Den aktuelle, vedligeholdte dokumentation er [brugermanualen](manual/00_INDEKS.md) (CLI: appendiks A, REST: appendiks B, ST: appendiks D). Markeret ved dokumentationsgennemgang 2026-09-28.
+
+
 **Dato:** 2026-02-23
 **Firmware:** v6.0.7 (Build #1246)
 **Formål:** Komplet gennemgang af hvordan man opsætter et ST Logic program med GPIO-styring udelukkende via HTTP REST API.

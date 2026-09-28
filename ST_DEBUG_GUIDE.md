@@ -1,5 +1,9 @@
 # ST Logic Debugger Guide (FEAT-008)
 
+<!-- DOC-STATUS: historisk -->
+> ⚠️ **Historisk dokument — vedligeholdes ikke længere.** Skrevet til en ældre firmwareversion og kan være forældet (CLI-syntaks, pins, endpoints, standardværdier). Den aktuelle, vedligeholdte dokumentation er [brugermanualen](docs/manual/00_INDEKS.md) (CLI: appendiks A, REST: appendiks B, ST: appendiks D). Markeret ved dokumentationsgennemgang 2026-09-28.
+
+
 **Version:** v5.3.0 | **Build:** #1082-1083 | **Date:** 2026-01-19
 
 ---
@@ -295,4 +299,4 @@ typedef struct {
 - `show logic <id> bytecode` - View compiled bytecode
 - `show logic <id> st` - View ST source code
 - `show logic <id>` - View program status and statistics
-- [ST_COMPLETE_TEST_PLAN.md](ST_COMPLETE_TEST_PLAN.md) - Test cases for debugger
+- [ST_COMPLETE_TEST_PLAN.md](docs/ARCHIVED/ST_COMPLETE_TEST_PLAN.md) - Test cases for debugger

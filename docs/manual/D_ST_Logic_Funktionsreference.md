@@ -224,7 +224,7 @@ Alle kald er **asynkrone/non-blocking**: en læsning returnerer en cachet værdi
 | `MB_READ_HOLDINGS(slave, addr, count)` | INT, INT, INT (1-16) | `ARRAY OF INT` | 03 (multi) | Se særskilt syntaks nedenfor |
 | `MB_WRITE_HOLDINGS(slave, addr, count)` | INT, INT, INT (1-16) | `ARRAY OF INT` | 16 | Se særskilt syntaks nedenfor |
 | `MB_WRITE_COILS(slave, addr, count)` | INT, INT, INT (1-16) | `ARRAY OF BOOL` | 15 | **v7.9.68.0.** Kø'er skrivning. Samme særskilte array-syntaks som `MB_WRITE_HOLDINGS`, se nedenfor |
-| `MB_SUCCESS()` | — | BOOL | — | Se semantik-advarsel i [§8.9](08_ST_Logic_Programmering.md#89-fejlhaandtering-og-graenser) |
+| `MB_SUCCESS()` | — | BOOL | — | Se semantik-advarsel i [§8.9](08_ST_Logic_Programmering.md#89-fejlhåndtering-og-grænser) |
 | `MB_READ_OK()` | — | BOOL | — | **BUG-397e (v7.9.39.0).** Uafhængig af `MB_SUCCESS()` — afspejler altid seneste `MB_READ_*`-kald, uanset hvor mange `MB_WRITE_*`-kald der er sket siden. For `MB_READ_HOLDINGS` (multi-register) betyder den "blev sat i kø", ikke "arrayet har gyldige data" — samme asymmetri som `MB_SUCCESS()` altid har haft der |
 | `MB_WRITE_QUEUED()` | — | BOOL | — | **BUG-397e (v7.9.39.0).** Uafhængig af `MB_SUCCESS()` — afspejler altid seneste `MB_WRITE_*`-kald, uanset hvor mange `MB_READ_*`-kald der er sket siden |
 | `MB_BUSY()` | — | BOOL | — | TRUE hvis async-køen har ventende requests |
@@ -354,7 +354,7 @@ STRING-variable kan ikke `EXPORT`'es eller bindes til Modbus-registre/coils (D.1
 - **`CASE` understøtter ikke værdi-ranges** (`1..5:`), kun diskrete kommaseparerede heltal.
 - ~~`CONST` er reserveret, men ikke implementeret~~ — **implementeret i BUG-397d, v7.9.39.0** (se D.2). Håndhæves kun ved kompilering, ikke ved Modbus-input-binding — se advarslen i D.2.
 - **`MB_READ_HOLDINGS`/`MB_WRITE_HOLDINGS`** kræver den særlige array-tildelingssyntaks i D.5.9 — almindelig funktionskaldssyntaks afvises af kompilatoren.
-- **`MB_SUCCESS()` betyder noget forskelligt efter READ vs. WRITE** — se advarslen i [§8.9](08_ST_Logic_Programmering.md#89-fejlhaandtering-og-graenser). Brug `MB_READ_OK()`/`MB_WRITE_QUEUED()` (D.5.9) i nyt ST-kode for en retnings-uafhængig, altid-korrekt værdi.
+- **`MB_SUCCESS()` betyder noget forskelligt efter READ vs. WRITE** — se advarslen i [§8.9](08_ST_Logic_Programmering.md#89-fejlhåndtering-og-grænser). Brug `MB_READ_OK()`/`MB_WRITE_QUEUED()` (D.5.9) i nyt ST-kode for en retnings-uafhængig, altid-korrekt værdi.
 - ~~`AND`/`OR`/`NOT`/`XOR` er rent booleske~~ / ~~hex-radix-literaler fejlfortolkes~~ / ~~`SHL`/`SHR` på `DWORD` er 16-bit-begrænset~~ — alle tre **rettet i BUG-397, v7.9.36.0** (se D.4).
 - ~~`DWORD`-aritmetik/-sammenligning falder igennem til 16-bit `INT`~~ — **rettet i BUG-397c, v7.9.38.0** (se D.4).
 

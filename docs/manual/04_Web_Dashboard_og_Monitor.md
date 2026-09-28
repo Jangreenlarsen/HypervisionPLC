@@ -19,7 +19,7 @@ Webgrænsefladen består af otte sider — en offentlig, login-fri statusside pl
 | **Logs** | `/logs` | Ja | API Audit Log + Hændelseslog i fuld sidebredde, som faner (FEAT-172) — se [§4.2](#42-dashboard--layout-og-faner) |
 | **OTA-opdatering** | `/ota` | Ja | Upload ny firmware |
 
-**Login sker via en server-sat, HttpOnly session-cookie** (`POST /api/login`, se [§10.3](10_Sikkerhed_og_Adgangsstyring.md#103-standard-credentials--skal-aendres) for den fulde arkitekturforklaring, BUG-393) — browseren sender og opbevarer den automatisk, der er intet for JavaScript (eller jer) at gemme manuelt. En aktiv fane logges ikke ud; en glemt fane gør efter 30 minutters inaktivitet.
+**Login sker via en server-sat, HttpOnly session-cookie** (`POST /api/login`, se [§10.3](10_Sikkerhed_og_Adgangsstyring.md#103-standard-credentials--skal-ændres) for den fulde arkitekturforklaring, BUG-393) — browseren sender og opbevarer den automatisk, der er intet for JavaScript (eller jer) at gemme manuelt. En aktiv fane logges ikke ud; en glemt fane gør efter 30 minutters inaktivitet.
 
 ### Den offentlige statusside (`/`, FEAT-407)
 
@@ -100,7 +100,7 @@ Antalsfeltet styrer hvor mange linjer der **hentes og vises** (standard 100). Da
 
 **Digital I/O** — live-visning og manuel styring af digitale ind-/udgange.
 
-**Analog I/O** (kun ES32D26) — live-visning af de 4 spændingsindgange (Vi1-4, 0-10V), 4 strømindgange (Ii1-4, 4-20mA) og 2 analoge udgange (AO1-2, DAC). Kortet skjules automatisk hvis ingen kanaler er aktiveret. Sæt en ny AO-værdi direkte fra dashboardet (felt + "Sæt"-knap) — virker med det samme, ligesom Digital I/O's toggle-knapper.
+**Analog I/O** (kun ES32D26) — live-visning af de 4 spændingsindgange (Vi1-4, 0-10V), 4 strømindgange (Ii1-4, 4-20mA) og 2 analoge udgange (AO1-2, DAC). Kortet skjules automatisk hvis ingen kanaler er aktiveret. Sæt en ny AO-værdi direkte fra dashboardet (felt + "Sæt"-knap) — virker med det samme, ligesom Digital I/O's toggle-knapper. **Mens Ethernet (W5500) er aktiveret, skrives AO1/AO2 ikke til DAC'en** — på ES32D26 bruges GPIO25/26 så som W5500 MOSI/RST (se [kapitel 12](12_Netvaerkskonfiguration.md#122-ethernet-w5500)).
 
 Kanaler aktiveres og kalibreres via CLI (`set analog <vi1-4|ii1-4|ao1-2> enabled on|off`, `set analog <kanal> scale|offset <tal>`, `show analog`), REST (`GET`/`POST /api/analog`, se [Appendiks B](B_REST_API_Reference.md)) eller nu også direkte fra `/system`-sidens "Analog I/O Kalibrering"-kort (FEAT-166) — samme scale/offset-felter, med en "Gem"-knap pr. kanal. Firmwaren kender ikke boardets præcise delerforhold/shunt-værdier — standardkalibreringen antager fuld ADC-skala svarer til fuldt måleområde (10,00V hhv. 20,00mA), som bør finjusteres mod en kendt referencekilde (multimeter) efter installation, ligesom en tællers `scale-factor`. Vi1 (GPIO14) og Vi3 (GPIO27) deler ADC2 med WiFi-radioen — de kan ikke læses mens WiFi er tilsluttet, og viser i så fald deres sidste gyldige værdi.
 
@@ -148,7 +148,7 @@ Live-visning af alle programvariabler mens programmet kører, med:
 - **Trend-kurver** pr. variabel, valgbar historik-længde og opdateringshastighed. Ved hver kurve kan du vælge **farve** og **skalering** (FEAT-423): *Auto* (Y-aksen følger de viste data) eller *Min/Max* (fast Y-akse — to felter, forudfyldt med det aktuelle interval; punkter udenfor klippes til kanten; min ≥ max markeres rødt og giver Auto indtil rettet). Valgene gemmes i browseren pr. program-slot og variabel
 - **Debug-kontroller:** Pause Execute, Single Step, Single Cycle, Normal Execute — fuld single-step-debugger med PC-visning og breakpoints
 
-> **Fejlfindingstip:** stiger "Udførelser" støt, men ingen variabler ændrer sig og "Fejl" forbliver 0, er programmet ikke crashet — det venter typisk på noget der aldrig sker (f.eks. et Modbus-svar). Se [kapitel 13, afsnit "ST-program ser ud til at køre, men intet opdateres"](13_Fejlfinding.md#st-program-ser-ud-til-at-koere-men-intet-opdateres) for en systematisk fremgangsmåde.
+> **Fejlfindingstip:** stiger "Udførelser" støt, men ingen variabler ændrer sig og "Fejl" forbliver 0, er programmet ikke crashet — det venter typisk på noget der aldrig sker (f.eks. et Modbus-svar). Se [kapitel 13, afsnit "ST-program ser ud til at køre, men intet opdateres"](13_Fejlfinding.md#133-st-program-ser-ud-til-at-køre-men-intet-opdateres) for en systematisk fremgangsmåde.
 
 ### Settings (FEAT-164)
 

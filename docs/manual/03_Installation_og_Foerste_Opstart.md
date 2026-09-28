@@ -101,7 +101,7 @@ Overvej desuden:
 - Overvej at deaktivere telnet helt til fordel for web-CLI, hvis fjernadgang via netværk ikke er nødvendig: `set telnet disable`
 - Gennemgå [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) for kendte, endnu-ikke-lukkede sikkerhedspunkter der er relevante for jeres installation (f.eks. OTA-adgangskontrol)
 
-Se den fulde tjekliste i [kapitel 10](10_Sikkerhed_og_Adgangsstyring.md#haerdningstjekliste).
+Se den fulde tjekliste i [kapitel 10](10_Sikkerhed_og_Adgangsstyring.md#108-hærdningstjekliste).
 
 ## 3.7 Konfigurér Modbus-rollerne
 
@@ -121,7 +121,7 @@ Se [kapitel 6](06_Modbus_Interface.md) for fuld gennemgang af Slave- og Master-k
 
 Konfigurationsændringer via `set`-kommandoer gemmes automatisk til NVS (non-volatile storage) og overlever genstart — der er intet separat "gem"-trin for netværks-/systemkonfiguration. (ST Logic-programmer skal derimod eksplicit kompileres/gemmes — se [kapitel 8](08_ST_Logic_Programmering.md).)
 
-Tag et backup af konfigurationen når opsætningen er færdig — se [kapitel 11](11_Backup_Restore_og_Firmware.md#konfigurationsbackup).
+Tag et backup af konfigurationen når opsætningen er færdig — se [kapitel 11](11_Backup_Restore_og_Firmware.md#111-konfigurationsbackup).
 
 ---
 

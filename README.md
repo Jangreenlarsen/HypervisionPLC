@@ -2,7 +2,7 @@
 
 **A lightweight, network-connected PLC on an ESP32** — Modbus RTU Slave *and* Master, an IEC 61131-3 Structured Text runtime, a REST API, and a full web dashboard, all in one firmware image.
 
-[![Version](https://img.shields.io/badge/version-7.9.67.0-blue)](BUGS_INDEX.md)
+[![Version](https://img.shields.io/badge/version-7.9.68.33-blue)](BUGS_INDEX.md)
 [![Platform](https://img.shields.io/badge/platform-ESP32--WROOM--32%20%7C%20ESP32--WROVER%20%7C%20ESP32--S3-informational)](docs/manual/02_Hardware_og_Moduler.md)
 [![Framework](https://img.shields.io/badge/framework-PlatformIO%20%2F%20Arduino-orange)](platformio.ini)
 [![Manual](https://img.shields.io/badge/manual-docs%2Fmanual-brightgreen)](docs/manual/00_INDEKS.md)

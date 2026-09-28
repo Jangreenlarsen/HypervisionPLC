@@ -70,7 +70,7 @@ mb scan 1 20                   Scan slave-ID 1-20 for svar
 mb reset stats                 Nulstil statistiktællere
 ```
 
-Disse kommandoer går gennem samme asynkrone kø/cache som ST Logic's Modbus-kald, og optræder derfor også i Modbus Aktivitetsloggen ([§4.2](04_Web_Dashboard_og_Monitor.md#4-2-dashboard--layout-og-faner)) med kilde `cli`.
+Disse kommandoer går gennem samme asynkrone kø/cache som ST Logic's Modbus-kald, og optræder derfor også i Modbus Aktivitetsloggen ([§4.2](04_Web_Dashboard_og_Monitor.md#42-dashboard--layout-og-faner)) med kilde `cli`.
 
 ### Live-debug af Modbus-trafikken (`debug modbus`)
 

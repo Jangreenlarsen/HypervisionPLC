@@ -167,6 +167,8 @@ PLC-siden af integrationen mod eksterne "HypervisionPLC Extension Boards" (se [k
 | POST | `/api/expansion/boards/{id}/reboot` | CHECK_AUTH_WRITE | Start genstart af boardet. Mens `pending_confirm` er sand, ruller dette **bevidst** tilbage til den forrige firmware (FEAT-420) |
 | POST | `/api/expansion/boards/{id}/channels/{n}/read` | CHECK_AUTH | Start diagnostisk Modbus-læsning. Body: `{"function_code","slave_id","address","quantity"}` (FC01-04) |
 | POST | `/api/expansion/boards/{id}/channels/{n}/write` | CHECK_AUTH_WRITE | Start diagnostisk Modbus-skrivning. Body: `{"function_code","slave_id","address","value"}` (FC05/06) eller `{"function_code":16,...,"values":[...]}` |
+| POST | `/api/expansion/boards/{id}/capabilities` | CHECK_AUTH | Start hentning af boardets deklarerede function-code-support (FEAT-414) — resultat via `action-status` |
+| GET | `/api/expansion/connections` | CHECK_AUTH | Snapshot af PLC'ens Modbus TCP-forbindelsespulje mod boardene: `{"connections":[{"board","channel","connected","idle_ms"},...]}` |
 | GET | `/api/expansion/action-status` | CHECK_AUTH | Poll resultatet af det seneste startede kald ovenfor (`{"done","transport_ok","http_status","response":{...boardets egen svar-JSON...}}`) — kun ÉT kald ad gangen på tværs af alle boards |
 
 **Bemærk:** kanal-nummer `{n}` er 1-baseret (1=kanal A, 2=kanal B). `{id}` er boardets index som vist i `GET /api/expansion/boards`.
@@ -221,6 +223,7 @@ PLC-siden af integrationen mod eksterne "HypervisionPLC Extension Boards" (se [k
 |---|---|---|---|
 | GET | `/api/user/me` | *Ingen* | Se §B.2 — viser roller/privilegie for den kaldende bruger |
 | POST | `/api/login` | *Ingen* (kræver Basic Auth-header i requestet for at lykkes) | **BUG-353.** Verificerer den medsendte `Authorization: Basic ...`-header (samme kode som alle andre endpoints) og udsteder ved succes et session-token. Svar mirror'er `/api/user/me` plus et `"token"`-felt: `{"authenticated":true,"username":...,"roles":...,"privilege":...,"mode":...,"token":"<24-tegns hex>"}`. Brug derefter `Authorization: Bearer <token>` i stedet for Basic Auth. Token har et **glidende 30-minutters inaktivitets-timeout** (forlænges ved hvert gyldigt kald). 401 ved forkerte credentials, 429 ved for mange forsøg (samme rate-limiter som resten af API'et). |
+| POST | `/api/session/renew` | CHECK_AUTH | **BUG-427.** Fornyer serverens 30-min glidende session OG gensætter session-cookien (`hfplc_session`, `Max-Age=1800`) med samme token. Kaldes af web-siderne (common.js) højst hvert 4. min, kun ved brugeraktivitet. Svar: `{"ok":true,"cookie_renewed":bool,"ttl_s":1800}` |
 | POST | `/api/logout` | *Ingen* (virker med eller uden gyldig token) | Invaliderer straks det Bearer-token requestet blev sendt med, hvis noget. Svarer altid `{"status":"ok"}` — logout fejler aldrig synligt. |
 | GET | `/api/rbac` | CHECK_AUTH_WRITE | **FEAT-166.** `{"enabled":bool,"user_count":N,"max_users":8,"users":[{"index":0,"username":"...","roles":"api,monitor","privilege":"read/write"},...]}` — **aldrig** password/hash/salt med. Kræver skriverettighed selv for GET (ikke bare `CHECK_AUTH`) — kun en bruger der må ÆNDRE brugere bør kunne enumerere brugerlisten. |
 | POST | `/api/rbac` | CHECK_AUTH_WRITE | **FEAT-166.** Body: `{"enabled":bool}` — til/fra for hele RBAC (mirror af `set rbac enable/disable`). Svarer med `"warning"` i stedet for `"message"` hvis der slås til uden nogen brugere konfigureret (samme lockout-advarsel som CLI'en giver). |
@@ -245,10 +248,6 @@ PLC-siden af integrationen mod eksterne "HypervisionPLC Extension Boards" (se [k
 
 **Sikkerhedsmodel for RBAC-CRUD-endpoints:** `CHECK_AUTH_WRITE` (skriverettighed) er en BEVIDST parity-beslutning med CLI'ens egen eksisterende model — `rbac_cli_allowed()` lader allerede enhver CLI-rolle+skriverettigheds-bruger oprette/eskalere en admin-konto via `set user`. Se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #18.
 
-**Trend Recorder (FEAT-425):** hvert punkt i `POST /api/trend/config` / `GET /api/trend/config` / `GET /api/trend/data` har ud over `type` (hr/ir/coil/di) og `addr` et valgfrit `src`: `"local"` (default), `"rtu"` (kræver `slave` 1-247) eller `"mbx"` (kræver `board` 1-8 = konfigureret board-nr, `ch` 1-8 (A=1) og `slave`). Samples uden gyldig måling har værdien `null`. `GET /api/trend/data` har desuden `now_ms`/`now_epoch` (FEAT-424).
-
-**`POST /api/session/renew`** (CHECK_AUTH, BUG-427): fornyer serverens 30-min glidende session OG gensætter session-cookien (`hfplc_session`, `Max-Age=1800`) med samme token — kaldes af web-siderne (common.js) mens brugeren er aktiv. Svar `{"ok":true,"cookie_renewed":bool,"ttl_s":1800}`.
-
 Auth-model: HTTP Basic Auth-header, matchet mod enten RBAC-brugerdatabasen (op til 8 brugere, roller `api`/`cli`/`editor`/`monitor`, privilegie `read`/`write`/`read/write`) eller — hvis RBAC er deaktiveret — det gamle single-user `network.http.username`/`password`-par (svarer til en "virtual admin", uid=99, fuld adgang). **Siden BUG-353** accepteres desuden `Authorization: Bearer <token>` fra `/api/login` som et ligeværdigt alternativ til Basic Auth på **alle** endpoints — Basic Auth virker uændret og for evigt ved siden af, det er en tilføjelse, ikke en erstatning.
 
 ## B.14 Backup / Restore
@@ -258,7 +257,7 @@ Auth-model: HTTP Basic Auth-header, matchet mod enten RBAC-brugerdatabasen (op t
 | GET | `/api/system/backup` | **CHECK_AUTH_WRITE** (bevidst skærpet fra CHECK_AUTH — indeholder WiFi/Telnet-adgangskoder i klartekst) | Komplet JSON-dump af hele konfigurationen: metadata, modbus, network/telnet/http/sse/ntp, counters[], timers[], static/dynamic regs+coils, var_maps[], persist_regs (m. gruppeindhold), logic_programs[] (m. source code), rbac.users[]. Sender `Content-Disposition: attachment; filename="backup.json"`. |
 | POST | `/api/system/restore` | CHECK_AUTH_WRITE | Body: samme JSON-struktur som backup-outputtet. Erstatter hele konfigurationen, gemmer til NVS og anvender den. Kræver reboot for fuld effekt (advarsel i svaret). |
 
-**Password-felter i backup-JSON (BUG-352, fra v7.9.10.9):** `http.password_hash`/`http.password_salt` og hvert `rbac.users[].password_hash`/`password_salt` — hex-encoded SHA-256-hash (32 byte) + salt (16 byte), IKKE reversibelt klartekst. Restore skriver disse raw tilbage (ingen gen-hashing). Ældre backup-filer (fra før BUG-352, med et almindeligt `password`-felt i klartekst) accepteres stadig af restore — hashes friskt ved import, for bagudkompatibilitet. `network.password` (WiFi) og `telnet.password` er fortsat almindelig klartekst i backup-JSON (se [§10.3](10_Sikkerhed_og_Adgangsstyring.md#103-standard-credentials--skal-aendres)).
+**Password-felter i backup-JSON (BUG-352, fra v7.9.10.9):** `http.password_hash`/`http.password_salt` og hvert `rbac.users[].password_hash`/`password_salt` — hex-encoded SHA-256-hash (32 byte) + salt (16 byte), IKKE reversibelt klartekst. Restore skriver disse raw tilbage (ingen gen-hashing). Ældre backup-filer (fra før BUG-352, med et almindeligt `password`-felt i klartekst) accepteres stadig af restore — hashes friskt ved import, for bagudkompatibilitet. `network.password` (WiFi) og `telnet.password` er fortsat almindelig klartekst i backup-JSON (se [§10.3](10_Sikkerhed_og_Adgangsstyring.md#103-standard-credentials--skal-ændres)).
 
 Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevaringsanbefalinger.
 
@@ -303,12 +302,16 @@ Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevari
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
-| GET | `/api/trend/config` | CHECK_AUTH | `{"recording":bool,"interval_ms":N,"sample_count":N,"capacity":720,"points":[{"type":"hr\|ir\|coil\|di","addr":N},...]}` |
-| POST | `/api/trend/config` | CHECK_AUTH_WRITE | Body: `{"interval_ms":N,"points":[{"type":"hr\|ir\|coil\|di","addr":N},...]}` — max 8 punkter. Stopper optagelsen og rydder eksisterende samples (en rekonfiguration er altid en frisk start). `interval_ms` klampes til 500-60000 |
+| GET | `/api/trend/config` | CHECK_AUTH | `{"recording":bool,"interval_ms":N,"sample_count":N,"capacity":720,"points":[{"type":"hr\|ir\|coil\|di","addr":N,"src":"local\|rtu\|mbx",...},...]}` — se punkt-format nedenfor |
+| POST | `/api/trend/config` | CHECK_AUTH_WRITE | Body: `{"interval_ms":N,"points":[{"type":"hr\|ir\|coil\|di","addr":N,"src":...},...]}` — max 8 punkter, punkt-format nedenfor. Stopper optagelsen og rydder eksisterende samples (en rekonfiguration er altid en frisk start). `interval_ms` klampes til 500-60000 |
 | POST | `/api/trend/start` | CHECK_AUTH_WRITE | Starter sampling med den nuværende konfiguration. Svar: `{"status":"ok","recording":true}` |
 | POST | `/api/trend/stop` | CHECK_AUTH_WRITE | Stopper sampling uden at rydde data. Svar: `{"status":"ok","recording":false}` |
 | POST | `/api/trend/clear` | CHECK_AUTH_WRITE | Rydder samples uden at ændre konfigurationen |
 | GET | `/api/trend/data` | CHECK_AUTH | Fuld sample-dump (chunked afsendelse, samme BUG-332-lektie som `/api/modbus/activity`): `{"points":[...],"samples":[{"t":ms,"v":[værdi pr. punkt i samme rækkefølge som points]},...]}` — bruges både til live tabel-visning og CSV-eksport |
+
+**Punkt-format (FEAT-425):** `type` (hr/ir/coil/di) og `addr` som hidtil, plus valgfrit `src`: `"local"` (default — PLC'ens egne registre, bagudkompatibelt), `"rtu"` (slave på den interne RS485-bus via Modbus Master; kræver `slave` 1-247) eller `"mbx"` (kanal på et expansion board; kræver `board` 1-8 = konfigureret board-nr, `ch` 1-8 (A=1, B=2) og `slave`). Eksterne punkter læses via samme async-kø/cache som ST Logic's `MB_READ_*`/`MBX_READ_*` (højst ét interval gammel værdi).
+
+**`GET /api/trend/data` (FEAT-424/425):** svaret starter med `now_ms` (PLC'ens `millis()`) og `now_epoch` (NTP-tid i sekunder, `0` hvis ikke synkroniseret), så klienten kan omregne hver samples `t` til rigtig tid: `epoch_ms = now_epoch*1000 − (now_ms − t)`. En værdi uden gyldig måling (intet svar endnu, timeout, Master slået fra, board ikke konfigureret) er `null`.
 
 ## B.17 Persistence Groups (FEAT-022)
 
@@ -327,6 +330,9 @@ Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevari
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
 | GET | `/api/metrics` | *Ingen* (kun `CHECK_API_ENABLED` + rate limit) | Prometheus text-exposition-format. Dækker: system, HTTP-stats, Modbus slave/master (config+stats+cache+backoff pr. slave), SSE, WiFi/Ethernet/Telnet, counters, timers, ST Logic (globalt + pr. program), GPIO, alle non-zero HR/IR-registre, persistence-grupper, watchdog, FreeRTOS task stack, firmware-info, NTP, alarm-log-tælling |
+| GET | `/api/metrics/public` | *Ingen* (kun `CHECK_API_ENABLED` + rate limit) | **FEAT-407.** Samme Prometheus-output som `/api/metrics`, men UDEN register-dump — til den login-fri offentlige statusside |
+| GET | `/api/public-dashboard/cards` | *Ingen* | **FEAT-407.** Hvilke dashboard-kort der vises på den offentlige statusside (`/`) — ren konfigurationsmetadata |
+| POST | `/api/public-dashboard/cards` | CHECK_AUTH_WRITE | **FEAT-407.** Sæt listen af kort-ID'er for den offentlige statusside |
 | GET | `/api/events/status` | Svarer til CHECK_AUTH | `sse_enabled`,`sse_port`,`max_clients`,`active_clients`,`check_interval_ms`,`heartbeat_ms`,`topics`,`endpoint`, samt et **kortlivet `sse_token`** (til cross-port-auth af EventSource) |
 | GET | `/api/events/clients` | Svarer til CHECK_AUTH | `active_clients`, `clients`[{slot,ip,username,topics,uptime_s}] |
 | POST | `/api/events/disconnect` | Svarer til CHECK_AUTH (**ikke** write-gated) | Body: `{"slot":N}` (enkelt) eller `{"slot":-1}` (alle) |
@@ -357,7 +363,7 @@ Disse serverer statisk HTML/JS **uden nogen server-side auth-kontrol** — sider
 
 ## B.21 Opsummering / verifikation
 
-- `grep -c "httpd_register_uri_handler(http_state.server" src/http_server.cpp` → **144** pr. seneste optælling (FEAT-411, v7.9.64.0) — dette tal stiger løbende efterhånden som features tilføjes (senest bl.a. FEAT-409/409c/410's `/api/expansion/*`-familie og FEAT-411's `/common.css`/`/common.js`); betragt det som en stikprøve, ikke en fast konstant, og genkør kommandoen selv for den præcise aktuelle værdi. Loftet (`max_uri_handlers`, se `src/http_server.cpp`) er **160** — BUG-403 kræver at dette tal holdes komfortabelt over det faktiske antal, ikke kun lige over. De fleste af tallets endpoints er dokumenteret ovenfor (enten som selvstændig række, eller som *suffix*-delegeret under-endpoint med reference til deres fælles wildcard-registrering). FEAT-007's `/api/logic/globals*` endpoints tilføjer INGEN nye registreringer — de er suffix-delegerede under den allerede-eksisterende `/api/logic/*`-wildcard, ligesom `/source`/`/enable` m.fl.
+- `grep -c "httpd_register_uri_handler(http_state.server" src/http_server.cpp` → **142** pr. seneste optælling (v7.9.68.33) — dette tal stiger løbende efterhånden som features tilføjes (senest bl.a. FEAT-409/409c/410's `/api/expansion/*`-familie og FEAT-411's `/common.css`/`/common.js`); betragt det som en stikprøve, ikke en fast konstant, og genkør kommandoen selv for den præcise aktuelle værdi. Loftet (`max_uri_handlers`, se `src/http_server.cpp`) er **160** — BUG-403 kræver at dette tal holdes komfortabelt over det faktiske antal, ikke kun lige over. De fleste af tallets endpoints er dokumenteret ovenfor (enten som selvstændig række, eller som *suffix*-delegeret under-endpoint med reference til deres fælles wildcard-registrering). FEAT-007's `/api/logic/globals*` endpoints tilføjer INGEN nye registreringer — de er suffix-delegerede under den allerede-eksisterende `/api/logic/*`-wildcard, ligesom `/source`/`/enable` m.fl.
 - Dertil kommer **1** endpoint der bevidst ikke er en del af hoved-`httpd`'en: `GET /api/events` (dedikeret SSE-portserver).
 - `ota_handler.cpp` bidrager 3 (registreres fra `http_server.cpp`, men implementeres i egen fil).
 

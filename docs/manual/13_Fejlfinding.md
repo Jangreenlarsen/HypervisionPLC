@@ -15,6 +15,8 @@ Start altid her, uanset problem — de fem kommandoer/visninger der giver mest i
 | Modbus-status | `show modbus` | Slave + Master status, statistik, kø/cache |
 | Modbus Aktivitetslog | Dashboard, [§4.2](04_Web_Dashboard_og_Monitor.md) | Faktisk wire-trafik, live, med kilde-attribution |
 | Alarm Historik | Dashboard, [§4.2](04_Web_Dashboard_og_Monitor.md) | Systemhændelser med tidsstempel |
+| Live Modbus-trafik | `debug modbus level 1-8` (kun Telnet, [§5.4](05_CLI_Konsol.md#54-mb--modbus-master-fra-kommandolinjen)) | Hver Master-transaktion: frame-decode, resultat, timing, rå hex |
+| Enkelt test mod en slave | I/O-siden → test-panelet → Board "Intern Modbus" (eller `mb read holding <slave> <addr>`) | Én frisk bus-transaktion, fejl vises direkte |
 
 Ved ST Logic-relaterede problemer, tilføj:
 ```
@@ -27,7 +29,7 @@ show logic <id> bytecode      (antal kompilerede instruktioner — 0 betyder ikk
 
 1. **Skelnen: kører logikken, eller er den stoppet?** `show logic <id>` — stiger `Udførelser`? Hvis nej, er problemet i om programmet overhovedet eksekveres (deaktiveret? kompileret?). Hvis ja, fortsæt til punkt 2.
 2. **Stiger fejltælleren?** Hvis ja: `Last error` fortæller præcis hvad der går galt — typisk en simpel rettelse i selve ST-koden.
-3. **Udførelser stiger, fejl gør ikke, men intet opdateres:** se [§13.3](#13-3-st-program-ser-ud-til-at-koere-men-intet-opdateres) — dette er ikke et VM-problem.
+3. **Udførelser stiger, fejl gør ikke, men intet opdateres:** se [§13.3](#133-st-program-ser-ud-til-at-køre-men-intet-opdateres) — dette er ikke et VM-problem.
 4. **Involverer det Modbus?** Åbn Modbus Aktivitetsloggen — ser I overhovedet transaktioner mod den relevante adresse? Ingen transaktioner = problemet er *før* bussen (konfiguration, adgangskontrol). Transaktioner med fejl-status = problemet er *på* bussen (kabling, slave-ID, baudrate, ekstern enhed nede).
 5. **Involverer det netværk/REST API?** Bekræft først med `curl` direkte mod enheden, uden om jeres integration — udelukker om fejlen er i klienten eller i PLC'en.
 
@@ -48,7 +50,7 @@ set modbus-master enabled on
 
 **B) En bestemt Modbus-adresse "hænger" i intern ventetilstand**
 
-Hvis Master-kommunikation generelt virker, men ét bestemt program/én bestemt adresse konsekvent ikke opdateres, mens andre gør: se [§13.4](#13-4-modbus-master-holder-op-med-at-opdatere-en-bestemt-adresse).
+Hvis Master-kommunikation generelt virker, men ét bestemt program/én bestemt adresse konsekvent ikke opdateres, mens andre gør: se [§13.4](#134-modbus-master-holder-op-med-at-opdatere-en-bestemt-adresse).
 
 **C) Programmets egen tilstandsmaskine venter ubegrænset på `MB_SUCCESS()` efter et write — og køb tabte lige netop dét write (`reinit` HJÆLPER her, i modsætning til A og B)**
 
@@ -66,6 +68,14 @@ Den afgørende forskel fra A/B: her hjælper `Reinit` faktisk (nulstiller den fa
 **Tjek `Priority drops` i `show modbus-master`.** Er den > 0, har systemets prioritetskø måttet fortrænge en ventende forespørgsel for at give plads til en vigtigere (skrivninger går altid foran læsninger). Fra og med v7.9.8.5 rydder systemet automatisk op efter denne situation (både øjeblikkeligt ved selve fortrængningen, og som sikkerhedsnet via en periodisk oprydning af forespørgsler der har hængt unormalt længe) — er I på en ældre firmware, opdatér.
 
 **Midlertidig afhjælpning uden opdatering:** reducér belastningen på køen — sæt `cache-ttl` til en værdi forskellig fra 0 (`set modbus-master cache-ttl 5000`), eller reducér antallet af samtidige `MB_*`-kald pr. scan-cyklus (`set modbus-master max-requests`).
+
+### Slaven svarer fra `mb scan`/CLI, men ikke fra ST eller dashboard
+
+**Symptom:** `mb scan`/`mb read` finder slaven, men ST's `MB_READ_*` og I/O-sidens Intern Modbus giver timeout (`MB_READ_OK()` = FALSE) — `debug modbus level 8` viser identiske TX-frames, men `modtog 0 byte(s)` fra ST/dashboard.
+
+**Årsag (BUG-424, rettet i v7.9.68.28):** På ES32D26 deler USB-konsollen UART/GPIO1/3 med RS-485. Mens CLI-kommandoen kører, står hovedløkken stille; ellers læste seriel-konsollen svar-bytene før Modbus Master nåede det. **Løsning:** opdatér firmwaren. Er du allerede på ≥ v7.9.68.28, så tjek baudrate/paritet, slave-ID og A/B-polaritet med `debug modbus level 8`.
+
+**Andre typiske årsager til "værdien opdateres aldrig" i et ST-program:** forkert register (fx kanal 2 i stedet for kanal 1 på et temperaturmodul), `/` brugt til heltalsdivision (giver REAL), eller at samme værdi skrives igen (write-dedup) — se [§8.7 "Faldgruber"](08_ST_Logic_Programmering.md#faldgruber-ved-modbus-fra-st).
 
 ## 13.5 "Enheden svarer slet ikke"
 

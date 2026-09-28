@@ -179,6 +179,13 @@ END_PROGRAM
 
 Se [kapitel 6](06_Modbus_Interface.md#65-modbus-master--konfiguration) for baggrund om cache/kø-mekanismen bag disse kald, og hvordan man diagnosticerer det hvis en adresse "hænger" ([kapitel 13](13_Fejlfinding.md)).
 
+### Faldgruber ved Modbus fra ST
+
+- **Læsning er én værdi bagud.** `MB_READ_*`/`MBX_READ_*` returnerer straks den seneste cachede værdi og sætter en ny læsning i kø. Kaldes funktionen fx én gang i sekundet, er værdien op til ét sekund gammel. `MB_READ_OK()` er `FALSE` indtil første svar er modtaget.
+- **Skrivning af samme værdi springes over.** `MB_WRITE_HOLDING`/`MB_WRITE_COIL` (enkelt-værdi) sender IKKE, hvis cachen allerede har bekræftet netop den værdi på den adresse (write-dedup). Skifter et program mellem to kilder, der tilfældigvis har samme værdi (fx to temperaturer på et display), bliver den anden skrivning derfor aldrig sendt. Brug `MB_WRITE_HOLDINGS` (FC16 — dedupliceres ikke), eller slå dedup fra med `MB_CACHE(FALSE)`.
+- **`/` giver altid REAL** (appendiks D.4), også mellem to INT. Til at dele et heltal op i cifre (fx ASCII til et display) giver `(v / 10) MOD 10` derfor forkerte cifre — brug gentagen subtraktion (`WHILE v >= 10 DO v := v - 10; d := d + 1; END_WHILE;`) eller konvertér eksplicit med `REAL_TO_INT`.
+- **INT er 16-bit med fortegn.** Et register over 32767 (fx fra en måler) læses som negativt; læg 65536 til i en `DINT` for at få værdien uden fortegn.
+
 ## 8.8 Demo: fjernovervågning og fjernstyring via REST API
 
 Dette eksempel viser den fulde kæde fra kapitlets emne: et ST-program der poller en ekstern Modbus-enhed (Master-rolle), gemmer resultatet i en variabel eksporteret til Modbus-registrene (så både lokale SCADA-systemer *og* REST API kan se den), og hvordan man fra en ekstern klient både **overvåger** og **fjernstyrer** programmet via REST API.
@@ -227,7 +234,7 @@ Dette mønster — ST Logic som lokal, altid-kørende beslutningslogik + REST AP
 
 - **Runtime-fejl** (fx division med nul) stopper *ikke* hele systemet — kun det pågældende program markeres fejlet, og dets variabler holdes bevidst tilbage fra at blive skrevet (så en enkelt fejlberegning ikke overskriver gode data med skrald). Se `Fejl`-tælleren i Runtime Monitor.
 - **`Reinit`** nulstiller variabler, timere/tællere og statistik til udgangspunktet — brug det til en ren "kold genstart" af ét program uden at genstarte hele enheden.
-- Se [kapitel 13](13_Fejlfinding.md#st-program-ser-ud-til-at-koere-men-intet-opdateres) hvis et program viser stigende `Udførelser` men ingen variabel-ændringer og nul fejl — det er typisk *ikke* et VM-problem, men en ekstern afhængighed (fx Modbus Master) der venter på noget der ikke sker.
+- Se [kapitel 13](13_Fejlfinding.md#133-st-program-ser-ud-til-at-køre-men-intet-opdateres) hvis et program viser stigende `Udførelser` men ingen variabel-ændringer og nul fejl — det er typisk *ikke* et VM-problem, men en ekstern afhængighed (fx Modbus Master) der venter på noget der ikke sker.
 - **`MB_SUCCESS()` betyder noget forskelligt efter et READ vs. et WRITE-kald** — en almindelig kilde til netop den fastlåsning ovenfor: efter `MB_READ_*` afspejler den om cachen reelt har en gyldig, ikke-udløbet værdi (ægte succes/fejl). Efter `MB_WRITE_*` afspejler den derimod kun om skrivningen blev **lagt i kø** — IKKE om den faktisk blev udført på Modbus-bussen — og den sættes én gang, i selve write-kaldet, uden nogensinde at blive opdateret igen. Er køen fuld i netop det øjeblik (kan ske ved bustravlhed, eller mens `mb scan` har køen på pause), forbliver `MB_SUCCESS()` falsk for evigt. **Byg derfor aldrig en tilstandsmaskine der venter ubegrænset på `MB_SUCCESS()` efter et write** — læg altid en tæller-baseret timeout ind (samme mønster som en scan-baseret delay, §8.6), så tilstanden garanteret kommer videre uanset hvad:
   ```st
   4: (* Vent på write, MED timeout — aldrig ubegraenset ventetid *)
