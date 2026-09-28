@@ -27,7 +27,7 @@ Det mest almindeligt anvendte board i felten. Alt IO er hardware-signalkondition
 | **Digitale udgange / relæer (DO)** | 8 | Via SN74HC595 skifteregister |
 | **Analoge indgange, spænding** | 4 | 0-10V (Vi1-Vi4) |
 | **Analoge indgange, strøm** | 4 | 4-20mA (Ii1-Ii4) |
-| **Analoge udgange** | 2 | DAC-baseret (Vo/Io, AO1-AO2) |
+| **Analoge udgange** | 2 | DAC-baseret (Vo/Io, AO1-AO2) — **ikke tilgængelige når Ethernet (W5500) er aktiveret**, da GPIO25/26 så bruges som W5500 MOSI/RST |
 | **RS-485** | 1 | Onboard transceiver, delt mellem Modbus Slave og Master (kun én rolle ad gangen — se §2.4) |
 | **Ethernet (valgfri)** | 1 | Via eksternt W5500-modul over SPI |
 
@@ -86,7 +86,7 @@ Eller via web-GUI'ets `/io`-side (GPIO Statisk Mapping-sektionen, FEAT-171).
 ## 2.3 Trådløs og kablet netværk
 
 - **Wi-Fi** — indbygget på alle ESP32-varianter. Klient-mode (tilslutter et eksisterende netværk).
-- **Ethernet (W5500)** — valgfrit eksternt SPI-modul (indbygget på Waveshare S3-ETH). Kan køre samtidig med Wi-Fi.
+- **Ethernet (W5500)** — valgfrit eksternt SPI-modul (indbygget på Waveshare S3-ETH). Kan køre samtidig med Wi-Fi. **ES32D26-fortrådning (fra v7.9.68.33, BUG-423):** MISO=GPIO19, MOSI=GPIO25, CLK=GPIO18, CS=GPIO5, INT=GPIO4, RST=GPIO26. GPIO16/17 må **ikke** bruges — på ESP32-WROVER er de forbundet til modulets PSRAM (det var årsagen til de tidligere Ethernet-crashes). GPIO25/26 er boardets DAC-udgange (AO1/AO2): de eksterne analog-udgangskredsløb skal frakobles, og AO1/AO2 er slået fra i firmwaren mens Ethernet er aktiveret.
 - Begge kan have statisk IP eller DHCP, konfigureres uafhængigt af hinanden. Se [kapitel 12](12_Netvaerkskonfiguration.md).
 
 ## 2.4 Modbus-transceiver: delt vs. dedikeret UART

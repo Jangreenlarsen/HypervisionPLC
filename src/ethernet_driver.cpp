@@ -259,7 +259,7 @@ int ethernet_driver_init(void)
   // GPIO/timing corrupts PSRAM is still unclear, but the fix is simple:
   // let the ESP-IDF W5500 PHY driver own the reset pin instead (via
   // phy_config.reset_gpio_num below) rather than toggling it ourselves.
-  eth_heap_checkpoint("eth: after function entry (no manual GPIO16 RST touch)");
+  eth_heap_checkpoint("eth: after function entry (no manual RST-pin touch)");
 
   // === Configure SPI bus (HSPI) ===
   spi_bus_config_t buscfg = {};

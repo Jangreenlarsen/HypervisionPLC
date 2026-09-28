@@ -1920,14 +1920,14 @@ bool cli_parser_execute(char* line) {
             !strcmp(enval, "ON") || !strcmp(enval, "1")) {
           g_persist_config.network.ethernet.enabled = 1;
           debug_println("Ethernet (W5500) aktiveret");
-          debug_println("  GPIO 4,5,16,17,18,19 reserveret til SPI");
+          debug_println("  GPIO 4,5,18,19,25,26 reserveret til SPI (AO1/AO2 slaas fra)");
           debug_println("  Kraever 'save' + reboot for at tage effekt");
           return true;
         } else if (!strcmp(enval, "DISABLED") || !strcmp(enval, "DISABLE") ||
                    !strcmp(enval, "OFF") || !strcmp(enval, "0")) {
           g_persist_config.network.ethernet.enabled = 0;
           debug_println("Ethernet (W5500) deaktiveret");
-          debug_println("  GPIO 4,5,16,17,18,19 frigivet");
+          debug_println("  GPIO 4,5,18,19,25,26 frigivet (AO1/AO2 kan bruges igen)");
           debug_println("  Kraever 'save' + reboot for at tage effekt");
           return true;
         } else {

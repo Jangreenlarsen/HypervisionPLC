@@ -129,6 +129,11 @@ void analog_driver_poll_inputs(void) {
  * ============================================================================ */
 
 void analog_driver_flush_outputs(void) {
+#if defined(BOARD_ES32D26)
+  // BUG-423: W5500 MOSI/RST sidder paa GPIO25/26 (= DAC1/DAC2) — skriv ALDRIG
+  // til DAC'en mens Ethernet er aktiveret, det ville overtage SPI-pinnene.
+  if (g_persist_config.network.ethernet.enabled) return;
+#endif
   for (uint8_t i = 0; i < 2; i++) {
     const AnalogOutputConfig *cfg = &g_persist_config.analog_ao[i];
     if (!cfg->enabled) continue;

@@ -45,11 +45,12 @@ const char *gpio_mapping_pin_reserved(uint16_t pin, bool is_output) {
   if (pin == PIN_AI_V1 || pin == PIN_AI_V2 || pin == PIN_AI_V3 || pin == PIN_AI_V4 ||
       pin == PIN_AI_I1 || pin == PIN_AI_I2 || pin == PIN_AI_I3 || pin == PIN_AI_I4)
     return "analog indgang";
-  if (pin == PIN_AO1 || pin == PIN_AO2) return "analog udgang (DAC)";
+  // W5500 tjekkes foer AO: MOSI/RST deler pin med AO1/AO2 (BUG-423)
   if (g_persist_config.network.ethernet.enabled &&
       (pin == PIN_SPI_MISO || pin == PIN_SPI_MOSI || pin == PIN_SPI_CLK ||
        pin == PIN_SPI_CS || pin == PIN_W5500_INT || pin == PIN_W5500_RST))
     return "W5500 Ethernet (aktiveret)";
+  if (pin == PIN_AO1 || pin == PIN_AO2) return "analog udgang (DAC)";
 #endif
   if (is_output && pin >= 34) return "input-only (kan ikke vaere udgang)";
   return NULL;

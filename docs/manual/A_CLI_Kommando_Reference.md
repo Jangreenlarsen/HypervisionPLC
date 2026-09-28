@@ -139,7 +139,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `set modbus slave uart <uart0\|uart1\|uart2>` | — | Vælg pin-override-slot for Modbus Slave (navn, ikke separat UART-perifer — ES32D26 har fysisk kun ét UART0-perifer) |
 | `set modbus master uart <uart0\|uart1\|uart2>` | — | Vælg pin-override-slot for Modbus Master (samme bemærkning) |
 | `set modul rs485 <uart1\|uart2> [tx <pin> rx <pin> dir <pin>]` | — | Sæt pin-override for slot 1/2 (kun navngivning — ikke separate UART-perifer-hardware på alle boards; se `show modules` for hvad der reelt er i brug på jeres board) |
-| `set modul ethernet <enable\|disable>` | — | Aktivér/deaktivér W5500 Ethernet (bruger GPIO 4,5,16,17,18,19 til SPI) |
+| `set modul ethernet <enable\|disable>` | — | Aktivér/deaktivér W5500 Ethernet (bruger GPIO 4,5,18,19,25,26 — AO1/AO2 er slået fra mens Ethernet er aktiveret, BUG-423) |
 | `set ao1 mode <voltage\|current>` | kun ES32D26 | Analog output 1: 0–10V eller 4–20mA |
 | `set ao2 mode <voltage\|current>` | kun ES32D26 | Analog output 2 |
 

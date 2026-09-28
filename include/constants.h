@@ -474,11 +474,17 @@ typedef enum {
   // dette empirisk. Ikke gjort endnu — kun dokumenteret her efter brugerens
   // opdagelse.
   #define PIN_SPI_MISO        19    // VSPI MISO (ledig)
-  #define PIN_SPI_MOSI        17    // Remapped MOSI (⚠️ muligvis delt med WROVER PSRAM, se ovenfor)
+  // BUG-423 (v7.9.68.33): W5500 MOSI + RST flyttet VAEK fra GPIO17/16
+  // (WROVER-PSRAM) til GPIO25/26 — de to DAC-udgange (AO1/AO2). Brugeren har
+  // frakoblet de eksterne analog-udgangskredsloeb paa boardet, saa pinnene er
+  // frie til W5500. AO1/AO2 er derfor slaaet fra mens Ethernet er aktiveret
+  // (analog_driver_flush_outputs()), ellers ville dacWrite() oedelaegge SPI.
+  // KRAEVER FYSISK OMBINDING: W5500 MOSI -> GPIO25, W5500 RST -> GPIO26.
+  #define PIN_SPI_MOSI        25    // MOSI (tidl. GPIO17 = PSRAM) — deler pin med AO1/DAC1
   #define PIN_SPI_CLK         18    // VSPI CLK  (ledig)
   #define PIN_SPI_CS          5     // Chip Select (ledig, ⚠️ strapping pin)
   #define PIN_W5500_INT       4     // Interrupt (ledig)
-  #define PIN_W5500_RST       16    // Hardware Reset (⚠️ muligvis delt med WROVER PSRAM, se ovenfor)
+  #define PIN_W5500_RST       26    // Hardware Reset (tidl. GPIO16 = PSRAM) — deler pin med AO2/DAC2
   // BUG-423: skiftet fra SPI3_HOST (VSPI) til SPI2_HOST (HSPI) under
   // fejlsøgning af PSRAM-heap-korruption ved Ethernet-aktivering. Alle
   // W5500-ben er alligevel GPIO-matrix-remappede her (ingen af dem er nogen
@@ -685,7 +691,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.68.32"
+#define PROJECT_VERSION     "7.9.68.33"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:
