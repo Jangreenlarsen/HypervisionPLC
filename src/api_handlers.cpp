@@ -62,6 +62,7 @@
 #include "mb_activity_log.h"
 #include "trend_recorder.h"
 #include "ntp_driver.h"
+#include "gpio_mapping.h"  // BUG-428
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -2472,9 +2473,15 @@ esp_err_t api_handler_gpio(httpd_req_t *req)
     gpio["pin"] = m->gpio_pin;
     gpio["direction"] = m->is_input ? "input" : "output";
 
-    // Read current value
-    uint8_t level = gpio_read(m->gpio_pin);
-    gpio["value"] = level ? 1 : 0;
+    // BUG-428: marker mappings paa en reserveret pin — de anvendes ikke
+    // (springes over ved boot og i hver cyklus), og pinnen laeses ikke her.
+    const char *why = gpio_mapping_pin_reserved(m->gpio_pin, !m->is_input);
+    if (why) {
+      gpio["reserved"] = why;
+    } else {
+      uint8_t level = gpio_read(m->gpio_pin);
+      gpio["value"] = level ? 1 : 0;
+    }
 
     // Show register binding if configured
     if (m->output_reg != 0xFFFF) {
@@ -4494,6 +4501,17 @@ esp_err_t api_handler_gpio_config_post(httpd_req_t *req)
   }
 
   bool is_input = (strcmp(dir, "input") == 0);
+
+  // BUG-428: afvis pins der er optaget af hardware (PSRAM, flash, RS485,
+  // shift-registre, analog, W5500) eller er input-only ved udgang.
+  {
+    const char *why = gpio_mapping_pin_reserved((uint16_t)pin, !is_input);
+    if (why) {
+      char errbuf[96];
+      snprintf(errbuf, sizeof(errbuf), "GPIO%d kan ikke bruges: %s", pin, why);
+      return api_send_error(req, 400, errbuf);
+    }
+  }
 
   // Get register/coil address
   uint16_t reg_addr = 0xFFFF;

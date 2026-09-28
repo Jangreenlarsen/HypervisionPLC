@@ -25,6 +25,36 @@
  * - GPIO INPUT mode: Read GPIO pin → write to discrete input
  * - ST VAR INPUT mode: Read holding register/discrete input → write to ST variable
  */
+const char *gpio_mapping_pin_reserved(uint16_t pin, bool is_output) {
+  if (pin >= 100) return NULL;                       // virtuelle shift-register-pins
+  if (pin > 39) return "findes ikke paa ESP32";
+  if (pin == 20 || pin == 24 || (pin >= 28 && pin <= 31)) return "findes ikke paa ESP32";
+  if (pin >= 6 && pin <= 11) return "intern SPI-flash";
+#ifdef BOARD_HAS_PSRAM
+  // ESP32-WROVER: GPIO16/17 er forbundet til modulets egen PSRAM-chip
+  // (jf. BUG-423's rodaarsag) — maa ALDRIG roeres af bruger-kode.
+  if (pin == 16 || pin == 17) return "PSRAM (WROVER)";
+#endif
+#if defined(BOARD_ES32D26)
+  if (pin == PIN_UART1_TX || pin == PIN_UART1_RX) return "USB-konsol / RS485";
+  if (pin == PIN_RS485_DIR) return "RS485 DE/RE";
+  if (pin == PIN_SR_OUT_DATA || pin == PIN_SR_OUT_CLOCK || pin == PIN_SR_OUT_LATCH || pin == PIN_SR_OUT_OE)
+    return "74HC595 (relae-udgange DO1-8)";
+  if (pin == PIN_SR_IN_LOAD || pin == PIN_SR_IN_CLOCK || pin == PIN_SR_IN_DATA)
+    return "74HC165 (digitale indgange DI1-8)";
+  if (pin == PIN_AI_V1 || pin == PIN_AI_V2 || pin == PIN_AI_V3 || pin == PIN_AI_V4 ||
+      pin == PIN_AI_I1 || pin == PIN_AI_I2 || pin == PIN_AI_I3 || pin == PIN_AI_I4)
+    return "analog indgang";
+  if (pin == PIN_AO1 || pin == PIN_AO2) return "analog udgang (DAC)";
+  if (g_persist_config.network.ethernet.enabled &&
+      (pin == PIN_SPI_MISO || pin == PIN_SPI_MOSI || pin == PIN_SPI_CLK ||
+       pin == PIN_SPI_CS || pin == PIN_W5500_INT || pin == PIN_W5500_RST))
+    return "W5500 Ethernet (aktiveret)";
+#endif
+  if (is_output && pin >= 34) return "input-only (kan ikke vaere udgang)";
+  return NULL;
+}
+
 static void gpio_mapping_read_inputs(void) {
   for (uint8_t i = 0; i < g_persist_config.var_map_count; i++) {
     const VariableMapping* map = &g_persist_config.var_maps[i];
@@ -39,6 +69,10 @@ static void gpio_mapping_read_inputs(void) {
       }
 
       if (map->is_input) {
+        // BUG-428: allerede gemte mappings paa en reserveret pin (fx
+        // GPIO16/17 = PSRAM) ignoreres — valideringen ved oprettelse kom
+        // foerst senere, saa aeldre config kan stadig indeholde dem.
+        if (gpio_mapping_pin_reserved(map->gpio_pin, false)) continue;
         // INPUT mode: GPIO pin → discrete input
         if (map->input_reg != 65535) {
           // gpio_read() handles both real GPIOs (0-39) and
@@ -154,6 +188,8 @@ static void gpio_mapping_write_outputs(void) {
       }
 
       if (!map->is_input) {
+        // BUG-428: skriv ALDRIG til en reserveret pin (PSRAM, flash, RS485 ...)
+        if (gpio_mapping_pin_reserved(map->gpio_pin, true)) continue;
         // OUTPUT mode: Coil → GPIO pin
         if (map->output_reg != 65535) {
           uint8_t value = registers_get_coil(map->output_reg);

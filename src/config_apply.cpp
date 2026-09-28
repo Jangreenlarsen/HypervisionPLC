@@ -6,6 +6,7 @@
  * Responsibility: Apply loaded configuration to running system
  */
 
+#include "gpio_mapping.h"  // BUG-428
 #include "config_apply.h"
 #include "counter_engine.h"
 #include "timer_engine.h"
@@ -67,6 +68,20 @@ bool config_apply(const PersistConfig* cfg) {
       // Skip mappings associated with counters/timers (they will be initialized by their engines)
       if (map->associated_counter != 0xff || map->associated_timer != 0xff) {
         continue;
+      }
+
+      // BUG-428: saet aldrig pinMode paa en reserveret pin (PSRAM, flash,
+      // RS485, shift-registre, analog, W5500) — aeldre config kan indeholde
+      // saadanne mappings fra foer valideringen fandtes.
+      {
+        const char *why = gpio_mapping_pin_reserved(map->gpio_pin, !map->is_input);
+        if (why) {
+          debug_print("    GPIO");
+          debug_print_uint(map->gpio_pin);
+          debug_print(" - SPRUNGET OVER, reserveret: ");
+          debug_println(why);
+          continue;
+        }
       }
 
       // Initialize GPIO pin direction for STATIC mappings

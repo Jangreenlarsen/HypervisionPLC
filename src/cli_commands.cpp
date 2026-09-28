@@ -13,6 +13,7 @@
  * Context: Each handler is independent, can be tested separately
  */
 
+#include "gpio_mapping.h"  // BUG-428
 #include "cli_commands.h"
 #include "system_log.h"  // FEAT-086
 #include "counter_engine.h"
@@ -888,6 +889,15 @@ void cli_cmd_set_gpio(uint8_t argc, char* argv[]) {
     debug_print(direction);
     debug_println("' (expected 'input' or 'coil')");
     return;
+  }
+
+  // BUG-428: afvis hardware-reserverede pins (PSRAM, flash, RS485 m.m.)
+  {
+    const char *why = gpio_mapping_pin_reserved(gpio_pin, !is_input);
+    if (why) {
+      debug_printf("SET GPIO: GPIO%u kan ikke bruges: %s\n", gpio_pin, why);
+      return;
+    }
   }
 
   // Find existing GPIO mapping or create new

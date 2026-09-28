@@ -255,11 +255,11 @@
 <option value="201">DO1 (201)</option><option value="202">DO2 (202)</option><option value="203">DO3 (203)</option><option value="204">DO4 (204)</option>
 <option value="205">DO5 (205)</option><option value="206">DO6 (206)</option><option value="207">DO7 (207)</option><option value="208">DO8 (208)</option>
 </optgroup>
-<optgroup label="Frie fysiske GPIO (ES32D26)">
+<optgroup label="Frie fysiske GPIO (ES32D26) — kun når Ethernet (W5500) er slået fra">
 <option value="4">GPIO4</option><option value="5">GPIO5 (strapping-pin, undgå hvis muligt)</option>
-<option value="16">GPIO16 (delt med Ethernet hvis monteret)</option><option value="17">GPIO17 (delt med Ethernet hvis monteret)</option>
-<option value="18">GPIO18 (delt med Ethernet hvis monteret)</option><option value="19">GPIO19 (delt med Ethernet hvis monteret)</option>
+<option value="18">GPIO18</option><option value="19">GPIO19</option>
 </optgroup>
+<!-- BUG-428: GPIO16/17 er fjernet — på ESP32-WROVER er de forbundet til modulets PSRAM og må aldrig bruges. Firmwaren afviser dem også. -->
 </select></div>
 <div class="fld"><label>Retning</label>
 <select id="gpioNewDir" onchange="updateGpioNewDirUI()"><option value="input">Input (GPIO → register)</option><option value="output">Output (register → GPIO)</option></select></div>
@@ -691,7 +691,9 @@ function loadGpioMappings(){
     }
     $('gpioBody').innerHTML=rows.map(r=>{
       const bound=(r.direction==='input')?('DI '+r.register):(r.coil!=null?('Coil '+r.coil):'-');
-      return '<tr><td>'+pinLabel(r.pin)+'</td><td>'+(r.direction||'-')+'</td><td>'+bound+'</td>'+
+      // BUG-428: mapping paa en reserveret pin — anvendes ikke af firmwaren
+      const warn=r.reserved?'<div style="color:#f38ba8;font-size:11px">⚠ Pinnen er optaget: '+String(r.reserved).replace(/[<>&]/g,'')+' — mappingen ignoreres. Slet den.</div>':'';
+      return '<tr'+(r.reserved?' style="background:#3b1f2b"':'')+'><td>'+pinLabel(r.pin)+warn+'</td><td>'+(r.direction||'-')+'</td><td>'+bound+'</td>'+
         '<td><button class="btn btn-sm btn-danger" onclick="deleteGpioMapping('+r.pin+')">Slet</button></td></tr>';
     }).join('');
   }).catch(()=>{$('gpioBody').innerHTML='<tr><td colspan="4" style="color:#6c7086;text-align:center">Kunne ikke hente GPIO-mappings</td></tr>';});

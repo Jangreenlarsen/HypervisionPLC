@@ -45,4 +45,13 @@ void gpio_mapping_read_before_st_logic(void);
  */
 void gpio_mapping_write_after_st_logic(void);
 
+/**
+ * BUG-428: er en FYSISK pin (0-39) optaget/ugyldig til bruger-mapping?
+ * Returnerer NULL hvis pinnen maa bruges, ellers en kort dansk begrundelse
+ * (fx "PSRAM (WROVER)"). Virtuelle pins (>= 100) returnerer altid NULL.
+ * @param is_output TRUE for udgang (coil -> pin) — GPIO34-39 er input-only.
+ * Afhaenger af config (Ethernet til/fra), derfor her og ikke i gpio_driver.
+ */
+const char *gpio_mapping_pin_reserved(uint16_t pin, bool is_output);
+
 #endif // gpio_mapping_H
