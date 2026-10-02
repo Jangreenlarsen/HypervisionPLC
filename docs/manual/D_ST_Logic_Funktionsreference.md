@@ -28,7 +28,7 @@ Der findes **ingen** `BYTE`, `WORD`, `LREAL`, `DATE`, `DATE_AND_TIME` eller `LTI
 | Konstruktion | Formål | Begrænsninger |
 |---|---|---|
 | `PROGRAM <navn> ... END_PROGRAM` | Navngiver programmet | **Valgfri** — både `PROGRAM`/`BEGIN` og den afsluttende `END_PROGRAM` kan udelades (ren VAR-blok + statements accepteres, bagudkompatibilitet) |
-| `VAR ... END_VAR` | Lokale variable | Init-værdi valgfri (`x: INT := 5;`). **Rettet fejl (BUG-397f, v7.9.40.0):** en `REAL`-initialværdi hvis bitmønster tilfældigvis havde nul i de nederste 16 bit (fx `1.5`, `1.0`, `2.0`, `10.0` — ret almindelige værdier) blev tidligere tavst til `0.0` ved programstart. Ramte enhver `VAR`-deklaration med denne type værdi, ikke kun `CONST` |
+| `VAR ... END_VAR` | Lokale variable | **Maks 64 slots pr. program** (FEAT-426; ARRAY-elementer tæller hver for sig, maks 24 pr. ARRAY; STRING-variable kun i de første 32 slots). Init-værdi valgfri (`x: INT := 5;`). **Rettet fejl (BUG-397f, v7.9.40.0):** en `REAL`-initialværdi hvis bitmønster tilfældigvis havde nul i de nederste 16 bit (fx `1.5`, `1.0`, `2.0`, `10.0` — ret almindelige værdier) blev tidligere tavst til `0.0` ved programstart. Ramte enhver `VAR`-deklaration med denne type værdi, ikke kun `CONST` |
 | `VAR_INPUT ... END_VAR` | Læses fra Modbus-binding ved scan-start | Program-scope + FUNCTION/FUNCTION_BLOCK-parametre |
 | `VAR_OUTPUT ... END_VAR` | Skrives til Modbus-binding ved scan-slut | I FUNCTION/FUNCTION_BLOCK-parametre: accepteres af parseren, men skrives **ikke** tilbage til kalderens variabel (ingen writeback-mekanisme findes) |
 | `VAR_IN_OUT ... END_VAR` | Kun gyldig i FUNCTION/FUNCTION_BLOCK-parameterlister, ikke i selve programmets top-niveau | Samme non-writeback-begrænsning som `VAR_OUTPUT` |

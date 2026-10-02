@@ -1999,8 +1999,8 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
       }
 
       // BUG-033 FIX: Check bounds BEFORE incrementing to prevent buffer overflow
-      if (*var_count >= 32) {
-        parser_error(parser, "Too many variables (max 32)");
+      if (*var_count >= ST_MAX_PROGRAM_VARS) {
+        parser_error(parser, "Too many variables (max 64)");
         return false;
       }
       st_variable_decl_t *var = &variables[(*var_count)++];
@@ -2080,8 +2080,8 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
           return false;
         }
         // Check total variable slots (current count -1 because we already incremented + arr_size)
-        if ((*var_count - 1) + arr_size > 32) {
-          parser_error(parser, "ARRAY would exceed 32-variable limit");
+        if ((*var_count - 1) + arr_size > ST_MAX_PROGRAM_VARS) {
+          parser_error(parser, "ARRAY would exceed 64-variable limit (ARRAY-elementer taeller hver for sig)");
           return false;
         }
 
@@ -2218,8 +2218,8 @@ bool st_parser_parse_var_declarations(st_parser_t *parser, st_variable_decl_t *v
         parser_advance(parser);
       }
 
-      if (*var_count >= 32) {
-        parser_error(parser, "Too many variables (max 32)");
+      if (*var_count >= ST_MAX_PROGRAM_VARS) {
+        parser_error(parser, "Too many variables (max 64)");
         return false;
       }
     }

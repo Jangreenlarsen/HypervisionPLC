@@ -46,7 +46,7 @@ typedef struct {
 
 /* Symbol table */
 typedef struct {
-  st_symbol_t symbols[32];    // Max 32 variables
+  st_symbol_t symbols[ST_MAX_PROGRAM_VARS];    // FEAT-426: max 64 variable-slots
   uint8_t count;
 } st_symbol_table_t;
 

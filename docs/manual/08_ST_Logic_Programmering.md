@@ -232,6 +232,7 @@ Dette mønster — ST Logic som lokal, altid-kørende beslutningslogik + REST AP
 
 ## 8.9 Fejlhåndtering og grænser
 
+- **Maks 64 variabel-slots pr. program** (FEAT-426, v7.9.68.34 — før 32). Hvert element i et `ARRAY` tæller som ét slot, så `txt : ARRAY[0..3] OF INT` bruger 4. Et enkelt ARRAY kan højst have 24 elementer. **STRING-variabler skal erklæres blandt de første 32** (de deler slot-nummer med en fast 32-pladsers strengtabel) — flyt dem øverst i VAR-blokken hvis compileren klager. Brug `GLOBAL_VAR` (§8.10) til værdier der deles mellem programmer.
 - **Runtime-fejl** (fx division med nul) stopper *ikke* hele systemet — kun det pågældende program markeres fejlet, og dets variabler holdes bevidst tilbage fra at blive skrevet (så en enkelt fejlberegning ikke overskriver gode data med skrald). Se `Fejl`-tælleren i Runtime Monitor.
 - **`Reinit`** nulstiller variabler, timere/tællere og statistik til udgangspunktet — brug det til en ren "kold genstart" af ét program uden at genstarte hele enheden.
 - Se [kapitel 13](13_Fejlfinding.md#133-st-program-ser-ud-til-at-køre-men-intet-opdateres) hvis et program viser stigende `Udførelser` men ingen variabel-ændringer og nul fejl — det er typisk *ikke* et VM-problem, men en ekstern afhængighed (fx Modbus Master) der venter på noget der ikke sker.

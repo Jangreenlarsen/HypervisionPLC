@@ -320,7 +320,7 @@ void st_debug_print_variables(st_debug_state_t *debug, void *prog_ptr) {
 
   debug_println("\n=== Variables ===\n");
 
-  for (int i = 0; i < snap->var_count && i < 32; i++) {
+  for (int i = 0; i < snap->var_count && i < ST_MAX_PROGRAM_VARS; i++) {
     // Get variable name from bytecode, type from snapshot
     const char *name = prog->bytecode.var_names[i];
     st_datatype_t type = snap->var_types[i];

@@ -1841,7 +1841,7 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
   // Variables (if compiled)
   if (prog->compiled && prog->bytecode.var_count > 0) {
     JsonArray vars = doc["variables"].to<JsonArray>();
-    for (int i = 0; i < prog->bytecode.var_count && i < 32; i++) {
+    for (int i = 0; i < prog->bytecode.var_count && i < ST_MAX_PROGRAM_VARS; i++) {
       JsonObject v = vars.add<JsonObject>();
       v["index"] = i;
       v["name"] = prog->bytecode.var_names[i];
@@ -8482,7 +8482,7 @@ esp_err_t api_handler_logic_debug(httpd_req_t *req)
         snap["error_msg"] = dbg->snapshot.error_msg;
       }
       JsonArray vars = snap["variables"].to<JsonArray>();
-      for (int i = 0; i < dbg->snapshot.var_count && i < 32; i++) {
+      for (int i = 0; i < dbg->snapshot.var_count && i < ST_MAX_PROGRAM_VARS; i++) {
         JsonObject v = vars.add<JsonObject>();
         v["index"] = i;
         if (dbg->snapshot.var_types[i] == ST_TYPE_REAL) {

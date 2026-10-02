@@ -73,8 +73,8 @@ typedef struct {
   uint8_t error;                 // Error flag
   uint32_t step_count;           // Steps executed
   uint8_t var_count;             // Number of variables
-  st_value_t variables[32];      // Variable values (256 bytes)
-  st_datatype_t var_types[32];   // Variable types (32 bytes)
+  st_value_t variables[ST_MAX_PROGRAM_VARS];      // Variable values (FEAT-426: 64)
+  st_datatype_t var_types[ST_MAX_PROGRAM_VARS];   // Variable types
   char error_msg[64];            // Truncated error message
 } st_debug_snapshot_t;
 

@@ -161,8 +161,15 @@ static void st_compiler_scope_restore(st_compiler_t *compiler, st_scope_save_t *
 
 uint8_t st_compiler_add_symbol(st_compiler_t *compiler, const char *name,
                                 st_datatype_t type, uint8_t is_input, uint8_t is_output, uint8_t is_exported) {
-  if (compiler->symbol_table.count >= 32) {
-    st_compiler_error(compiler, "Too many variables (max 32)");
+  if (compiler->symbol_table.count >= ST_MAX_PROGRAM_VARS) {
+    st_compiler_error(compiler, "Too many variables (max 64)");
+    return 0xFF;
+  }
+  // FEAT-426: STRING-vaerdier gemmes 1:1 i string_vars[slot] (kun 32 slots,
+  // ligger ogsaa paa VM-stakken) og STRING-referencen har kun 5 bit til
+  // slot-index — en STRING-variabel skal derfor ligge blandt de foerste 32.
+  if (type == ST_TYPE_STRING && compiler->symbol_table.count >= ST_MAX_STRING_VARS) {
+    st_compiler_error(compiler, "STRING-variabler skal erklaeres blandt de foerste 32 variabler (flyt dem op i VAR-blokken)");
     return 0xFF;
   }
 

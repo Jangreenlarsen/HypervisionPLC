@@ -200,7 +200,7 @@ bool st_bytecode_load(uint8_t program_id, st_bytecode_program_t *bytecode,
 
   // Sanity checks
   if (header.instr_count == 0 || header.instr_count > 4096 ||
-      header.var_count > 32 || header.exported_var_count > 32) {
+      header.var_count > ST_MAX_PROGRAM_VARS || header.exported_var_count > 32) {
     debug_printf("[BC] %s: invalid counts (instr=%u var=%u)\n",
                  filename, header.instr_count, header.var_count);
     file.close();

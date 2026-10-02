@@ -103,7 +103,14 @@
  * Se st_types.h's st_value_t/st_bytecode_program_t for den fulde model.
  */
 #define ST_MAX_STRING_LEN         32    // Max tegn pr. STRING-vaerdi (ekskl. NUL)
-#define ST_MAX_STRING_VARS        32    // 1:1 med variable[32] — kun brugt for STRING-typede slots
+// FEAT-426: max variabel-slots pr. ST-program (ARRAY-elementer taeller hver
+// for sig). Var 32. STRING-variabler kan stadig kun ligge i de foerste
+// ST_MAX_STRING_VARS slots: string_vars[] er 1:1 med variabel-index og
+// ligger ogsaa i st_vm_t PAA loopTask-STAKKEN (~1 KB pr. 32 slots), og
+// ST_STR_REF_INDEX har kun plads til index 0-31 — compileren afviser derfor
+// en STRING-variabel paa plads >= 32 med en klar fejl.
+#define ST_MAX_PROGRAM_VARS       64
+#define ST_MAX_STRING_VARS        32    // 1:1 med variabel-slot 0-31 — kun brugt for STRING-typede slots
 #define ST_MAX_STRING_LITERALS    8     // Distinkte streng-literaler pr. program (kompileringstid)
 #define ST_MAX_STRING_SCRATCH     8     // Midlertidige slots til udtryks-mellemresultater (CONCAT mv.)
 
@@ -691,7 +698,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.68.33"
+#define PROJECT_VERSION     "7.9.68.34"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:

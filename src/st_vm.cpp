@@ -420,6 +420,11 @@ static bool st_vm_exec_store_var(st_vm_t *vm, st_bytecode_instr_t *instr) {
       return false;
     }
     uint8_t idx = (uint8_t)instr->arg.var_index;
+    if (idx >= ST_MAX_STRING_VARS) {  // FEAT-426: compileren forhindrer det; vaern alligevel
+      snprintf(vm->error_msg, sizeof(vm->error_msg), "STRING variable slot %u out of range", idx);
+      vm->error = 1;
+      return false;
+    }
     const char *src = st_vm_string_resolve(vm, val);
     strncpy(vm->string_vars[idx], src, ST_MAX_STRING_LEN);
     vm->string_vars[idx][ST_MAX_STRING_LEN] = '\0';

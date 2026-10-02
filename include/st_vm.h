@@ -42,7 +42,7 @@ typedef struct {
   uint8_t sp;                 // Stack pointer (index of next free slot)
 
   // Variable storage (local to this execution)
-  st_value_t variables[32];   // Local variables (mirrors bytecode->variables)
+  st_value_t variables[ST_MAX_PROGRAM_VARS];   // Local variables (mirrors bytecode->variables) — FEAT-426
   uint8_t var_count;
 
   // FEAT-005: STRING storage. string_vars mirrors program->string_vars (copied

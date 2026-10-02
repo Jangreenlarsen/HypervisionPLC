@@ -533,7 +533,7 @@ typedef struct {
 
 typedef struct {
   // Variable declarations (VAR, VAR_INPUT, VAR_OUTPUT)
-  st_variable_decl_t variables[32]; // Max 32 variables per program
+  st_variable_decl_t variables[ST_MAX_PROGRAM_VARS]; // FEAT-426: max 64 variable-slots per program
   uint8_t var_count;
 
   // FEAT-009: STRUCT type declarations, parsed BEFORE the VAR block
@@ -687,10 +687,10 @@ typedef struct {
   uint16_t instr_capacity;                // Allocated size (== instr_count after compile)
 
   // Variable memory
-  st_value_t variables[32];        // Max 32 variables (runtime values)
-  st_value_t var_initial[32];      // Initial values from VAR declarations (v7.7.1)
-  char var_names[32][16];          // Variable names (for CLI binding by name, 15 chars max — heap optimization)
-  st_datatype_t var_types[32];     // Variable types (BOOL, INT, etc.) - for bindings display
+  st_value_t variables[ST_MAX_PROGRAM_VARS];   // FEAT-426: max 64 (runtime values)
+  st_value_t var_initial[ST_MAX_PROGRAM_VARS]; // Initial values from VAR declarations (v7.7.1)
+  char var_names[ST_MAX_PROGRAM_VARS][16];     // Variable names (for CLI binding by name, 15 chars max — heap optimization)
+  st_datatype_t var_types[ST_MAX_PROGRAM_VARS]; // Variable types (BOOL, INT, etc.) - for bindings display
   uint8_t var_count;
 
   // FEAT-005: STRING storage. Kun slots hvor var_types[i]==ST_TYPE_STRING
@@ -705,7 +705,7 @@ typedef struct {
   uint8_t string_literal_count;
 
   // IR Pool Export (v5.1.0 - dynamic allocation of IR 220-251)
-  uint8_t var_export_flags[32]; // 1 = EXPORT (visible in IR pool), 0 = private
+  uint8_t var_export_flags[ST_MAX_PROGRAM_VARS]; // 1 = EXPORT (visible in IR pool), 0 = private
   uint8_t exported_var_count;    // Number of exported variables
 
   // Stateful storage for timers, edges, counters (v4.7+)
