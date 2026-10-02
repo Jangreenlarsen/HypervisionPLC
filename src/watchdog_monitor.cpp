@@ -86,6 +86,14 @@ static void wdt_task_register(TaskHandle_t h) {
   taskEXIT_CRITICAL(&g_wdt_tasks_mux);
 }
 
+/* FEAT-427: alder siden sidste fodring. En task paa den anden core kan fodre
+ * EFTER at "now" er laest — saa er last > now, og en ren uint32-subtraktion
+ * loeber rundt til ~4294967 s. Det betyder "lige fodret" -> 0. */
+static uint32_t wdt_age_ms(uint32_t now, uint32_t last) {
+  int32_t d = (int32_t)(now - last);
+  return d < 0 ? 0 : (uint32_t)d;
+}
+
 static void wdt_task_touch(TaskHandle_t h) {
   uint32_t now = millis();
   for (int i = 0; i < WATCHDOG_MAX_TASKS; i++) {
@@ -305,7 +313,7 @@ uint8_t watchdog_get_tasks(char (*names)[16], uint32_t *age_ms, uint8_t max_out)
   for (int i = 0; i < WATCHDOG_MAX_TASKS && n < max_out; i++) {
     if (g_wdt_tasks[i].handle == NULL) continue;
     memcpy(names[n], g_wdt_tasks[i].name, 16);
-    age_ms[n] = now - g_wdt_tasks[i].last_feed_ms;
+    age_ms[n] = wdt_age_ms(now, g_wdt_tasks[i].last_feed_ms);
     n++;
   }
   taskEXIT_CRITICAL(&g_wdt_tasks_mux);
@@ -320,8 +328,8 @@ void watchdog_print_tasks(void) {
     if (g_wdt_tasks[i].handle == NULL) continue;
     any = true;
     debug_printf("  %-14s %lu.%01lu s\n", g_wdt_tasks[i].name,
-                 (unsigned long)((now - g_wdt_tasks[i].last_feed_ms) / 1000),
-                 (unsigned long)(((now - g_wdt_tasks[i].last_feed_ms) % 1000) / 100));
+                 (unsigned long)(wdt_age_ms(now, g_wdt_tasks[i].last_feed_ms) / 1000),
+                 (unsigned long)((wdt_age_ms(now, g_wdt_tasks[i].last_feed_ms) % 1000) / 100));
   }
   if (!any) debug_println("  (ingen — watchdog'en er ikke aktiv)");
 }
