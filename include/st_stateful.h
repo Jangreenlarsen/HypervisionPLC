@@ -269,6 +269,14 @@ typedef struct {
 void st_stateful_init(st_stateful_storage_t* storage);
 
 /**
+ * BUG-432: opret stateful storage med antal instanser af ALLE 7 typer
+ * (edge, timer, counter, latch, hysteresis, blink, filter). Bruges af
+ * compileren (begge stier) og af bytecode-cachen ved opstart.
+ * @return ny storage, eller NULL hvis alle antal er 0 eller malloc fejler
+ */
+st_stateful_storage_t* st_stateful_create(const uint8_t counts[7]);
+
+/**
  * @brief Reset all stateful instances
  *
  * Resets all timers, edges, and counters to initial state.

@@ -2251,23 +2251,19 @@ st_bytecode_program_t *st_compiler_compile(st_compiler_t *compiler, st_program_t
   bytecode->string_literal_count = compiler->string_literal_count;
   memcpy(bytecode->string_literals, compiler->string_literals, sizeof(bytecode->string_literals));
 
-  // v4.7+: Allocate stateful storage if any stateful functions were used
-  if (compiler->edge_instance_count > 0 ||
-      compiler->timer_instance_count > 0 ||
-      compiler->counter_instance_count > 0) {
-    st_stateful_storage_t *stateful = (st_stateful_storage_t *)malloc(sizeof(st_stateful_storage_t));
+  // v4.7+: Allocate stateful storage if any stateful functions were used.
+  // BUG-432: alle 7 instans-typer — latch/hysteresis/blink/filter manglede,
+  // saa SR/RS/HYSTERESIS/BLINK/FILTER altid fejlede med "Invalid ... instance ID".
+  const uint8_t sf_counts[7] = { compiler->edge_instance_count, compiler->timer_instance_count, compiler->counter_instance_count, compiler->latch_instance_count, compiler->hysteresis_instance_count, compiler->blink_instance_count, compiler->filter_instance_count };
+  bool sf_needed = false;
+  for (int k = 0; k < 7; k++) sf_needed |= (sf_counts[k] > 0);
+  if (sf_needed) {
+    st_stateful_storage_t *stateful = st_stateful_create(sf_counts);
     if (!stateful) {
       st_compiler_error(compiler, "Failed to allocate stateful storage");
       free(bytecode);
       return NULL;
     }
-    st_stateful_init(stateful);
-
-    // Pre-allocate instances based on compiler counts
-    stateful->edge_count = compiler->edge_instance_count;
-    stateful->timer_count = compiler->timer_instance_count;
-    stateful->counter_count = compiler->counter_instance_count;
-
     bytecode->stateful = (struct st_stateful_storage*)stateful;  // Cast to opaque pointer
 
     debug_printf("[COMPILER] Allocated stateful storage: edges=%d timers=%d counters=%d\n",

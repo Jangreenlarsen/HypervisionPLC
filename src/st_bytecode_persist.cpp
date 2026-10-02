@@ -8,6 +8,7 @@
 
 #include "st_bytecode_persist.h"
 #include "build_version.h"  // FEAT-428: BUILD_NUMBER
+#include "st_stateful.h"    // BUG-432: stateful-instansantal
 #include "debug.h"
 #include "debug_flags.h"
 #include <string.h>
@@ -85,6 +86,18 @@ bool st_bytecode_save(uint8_t program_id, const st_bytecode_program_t *bytecode,
   header.has_func_registry = (bytecode->func_registry != NULL) ? 1 : 0;
   header.source_crc32 = st_crc32((const uint8_t *)source, source_size);
   header.fw_build = (uint32_t)BUILD_NUMBER;  // FEAT-428
+  // BUG-432: instansantal (stateful storage genskabes ved load) + literaler
+  if (bytecode->stateful) {
+    const st_stateful_storage_t *sf = (const st_stateful_storage_t *)bytecode->stateful;
+    header.stateful_counts[0] = sf->edge_count;
+    header.stateful_counts[1] = sf->timer_count;
+    header.stateful_counts[2] = sf->counter_count;
+    header.stateful_counts[3] = sf->latch_count;
+    header.stateful_counts[4] = sf->hysteresis_count;
+    header.stateful_counts[5] = sf->blink_count;
+    header.stateful_counts[6] = sf->filter_count;
+  }
+  header.string_literal_count = bytecode->string_literal_count;
 
   // Write header (16 bytes)
   if (file.write((uint8_t *)&header, sizeof(header)) != sizeof(header)) {
@@ -118,6 +131,11 @@ bool st_bytecode_save(uint8_t program_id, const st_bytecode_program_t *bytecode,
     return false;
   }
 
+  // BUG-432: STRING-literaler (compile-time-konstanter, fx 'Temp:')
+  for (uint8_t l = 0; l < header.string_literal_count && l < ST_MAX_STRING_LITERALS; l++) {
+    file.write((uint8_t *)bytecode->string_literals[l], ST_MAX_STRING_LEN + 1);
+  }
+
   // Write function registry (optional)
   if (bytecode->func_registry) {
     const st_function_registry_t *reg = bytecode->func_registry;
@@ -139,6 +157,7 @@ bool st_bytecode_save(uint8_t program_id, const st_bytecode_program_t *bytecode,
       file.write(entry->is_function_block);
       file.write(entry->instance_size);
     }
+    file.write(reg->fb_instance_count);  // BUG-432: bruges af Reinit til at nulstille FB-tilstand
   }
 
   file.close();
@@ -214,7 +233,8 @@ bool st_bytecode_load(uint8_t program_id, st_bytecode_program_t *bytecode,
 
   // Sanity checks
   if (header.instr_count == 0 || header.instr_count > 4096 ||
-      header.var_count > ST_MAX_PROGRAM_VARS || header.exported_var_count > 32) {
+      header.var_count > ST_MAX_PROGRAM_VARS || header.exported_var_count > 32 ||
+      header.string_literal_count > ST_MAX_STRING_LITERALS) {
     debug_printf("[BC] %s: invalid counts (instr=%u var=%u)\n",
                  filename, header.instr_count, header.var_count);
     file.close();
@@ -266,6 +286,19 @@ bool st_bytecode_load(uint8_t program_id, st_bytecode_program_t *bytecode,
   bytecode->instr_count = header.instr_count;
   bytecode->instr_capacity = header.instr_count;
 
+  // BUG-432: STRING-literaler
+  memset(bytecode->string_literals, 0, sizeof(bytecode->string_literals));
+  for (uint8_t l = 0; l < header.string_literal_count; l++) {
+    if (file.read((uint8_t *)bytecode->string_literals[l], ST_MAX_STRING_LEN + 1) != ST_MAX_STRING_LEN + 1) {
+      free(bytecode->instructions);
+      bytecode->instructions = NULL;
+      file.close();
+      return false;
+    }
+    bytecode->string_literals[l][ST_MAX_STRING_LEN] = '\0';
+  }
+  bytecode->string_literal_count = header.string_literal_count;
+
   // Read function registry (optional)
   bytecode->func_registry = NULL;
   if (header.has_func_registry && file.available() >= 2) {
@@ -273,7 +306,7 @@ bool st_bytecode_load(uint8_t program_id, st_bytecode_program_t *bytecode,
     uint8_t builtin_count = file.read();
     uint8_t total = builtin_count + user_count;
 
-    if (total > 0 && total <= 64) {
+    if (total > 0 && total <= ST_MAX_TOTAL_FUNCTIONS) {  // BUG-432: functions[] har 32 pladser (var 64 -> overloeb)
       st_function_registry_t *reg = (st_function_registry_t *)malloc(sizeof(st_function_registry_t));
       if (!reg) {
         // Non-fatal: bytecode works without registry (no user functions callable)
@@ -300,6 +333,8 @@ bool st_bytecode_load(uint8_t program_id, st_bytecode_program_t *bytecode,
         }
 
         if (reg_ok) {
+          uint8_t fbc = file.available() ? (uint8_t)file.read() : 0;  // BUG-432
+          reg->fb_instance_count = (fbc <= ST_MAX_FB_INSTANCES) ? fbc : ST_MAX_FB_INSTANCES;
           bytecode->func_registry = reg;
         } else {
           free(reg);
@@ -309,8 +344,10 @@ bool st_bytecode_load(uint8_t program_id, st_bytecode_program_t *bytecode,
     }
   }
 
-  // stateful pointer initialized to NULL — allocated on first execution
-  bytecode->stateful = NULL;
+  // BUG-432: genskab stateful storage med samme instansantal som compileren
+  // gav (tidligere NULL "allokeres ved foerste udfoerelse" — det skete aldrig,
+  // saa TON/R_TRIG/CTU m.fl. fejlede i hver cyklus indtil en recompile).
+  bytecode->stateful = (struct st_stateful_storage*)st_stateful_create(header.stateful_counts);
 
   file.close();
 

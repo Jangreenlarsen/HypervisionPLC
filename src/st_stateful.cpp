@@ -34,6 +34,24 @@ void st_stateful_init(st_stateful_storage_t* storage) {
   storage->initialized = true;
 }
 
+st_stateful_storage_t* st_stateful_create(const uint8_t counts[7]) {
+  if (!counts) return NULL;
+  bool any = false;
+  for (int i = 0; i < 7; i++) any |= (counts[i] > 0);
+  if (!any) return NULL;
+  st_stateful_storage_t *s = (st_stateful_storage_t *)malloc(sizeof(st_stateful_storage_t));
+  if (!s) return NULL;
+  st_stateful_init(s);
+  s->edge_count = counts[0];
+  s->timer_count = counts[1];
+  s->counter_count = counts[2];
+  s->latch_count = counts[3];       // BUG-432: blev aldrig sat — SR/RS fejlede altid
+  s->hysteresis_count = counts[4];
+  s->blink_count = counts[5];
+  s->filter_count = counts[6];
+  return s;
+}
+
 void st_stateful_reset(st_stateful_storage_t* storage) {
   if (!storage || !storage->initialized) return;
 

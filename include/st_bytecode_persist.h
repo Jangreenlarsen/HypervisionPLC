@@ -18,13 +18,15 @@
 
 /* Magic number "STBC" */
 #define ST_BYTECODE_MAGIC   0x53544243
-#define ST_BYTECODE_VERSION 5  // v5 (FEAT-428): header + fw_build — cached bytecode is tied to the firmware build
+#define ST_BYTECODE_VERSION 6  // v6 (BUG-432): stateful-instansantal + STRING-literaler gemmes — uden dem
+                                // koerte et cachet program uden timere/flanker/tekster efter genstart
+                                // v5 (FEAT-428): header + fw_build — cached bytecode is tied to the firmware build
                                 // v4 (BUG-384): new ST_OP_STORE_PARAM inserted into st_opcode_t
                                 // shifts the numeric value of every opcode declared after it —
                                 // old cached .bc files must be invalidated and recompiled, not
                                 // reinterpreted with the new encoding. v3: var_names 32->16 bytes
 
-/* Bytecode file header (20 bytes, v5) */
+/* Bytecode file header (28 bytes, v6) */
 typedef struct __attribute__((packed)) {
   uint32_t magic;             // 0x53544243 ("STBC")
   uint16_t version;           // Format version
@@ -35,6 +37,8 @@ typedef struct __attribute__((packed)) {
   uint8_t  reserved;          // Padding
   uint32_t source_crc32;      // CRC32 of source code (invalidation key)
   uint32_t fw_build;          // FEAT-428: BUILD_NUMBER of the firmware that compiled it (invalidation key)
+  uint8_t  stateful_counts[7];// BUG-432: edge, timer, counter, latch, hysteresis, blink, filter
+  uint8_t  string_literal_count; // BUG-432: STRING-literaler foelger efter instruktionerne
 } st_bc_header_t;
 
 /**

@@ -774,19 +774,10 @@ bool st_logic_compile_chunked(st_logic_engine_state_t *state, uint8_t program_id
     g_compiler->func_registry = NULL;
 
     // Allocate stateful storage if needed
-    if (g_compiler->edge_instance_count > 0 ||
-        g_compiler->timer_instance_count > 0 ||
-        g_compiler->counter_instance_count > 0) {
-      st_stateful_storage_t *stateful = (st_stateful_storage_t *)malloc(sizeof(st_stateful_storage_t));
-      if (stateful) {
-        st_stateful_init(stateful);
-        stateful->edge_count = g_compiler->edge_instance_count;
-        stateful->timer_count = g_compiler->timer_instance_count;
-        stateful->counter_count = g_compiler->counter_instance_count;
-        prog->bytecode.stateful = (struct st_stateful_storage*)stateful;
-      }
-    } else {
-      prog->bytecode.stateful = NULL;
+    {
+      // BUG-432: alle 7 instans-typer (se st_stateful_create)
+      const uint8_t sf_counts[7] = { g_compiler->edge_instance_count, g_compiler->timer_instance_count, g_compiler->counter_instance_count, g_compiler->latch_instance_count, g_compiler->hysteresis_instance_count, g_compiler->blink_instance_count, g_compiler->filter_instance_count };
+      prog->bytecode.stateful = (struct st_stateful_storage*)st_stateful_create(sf_counts);
     }
 
     prog->compiled = 1;
