@@ -34,6 +34,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `disconnect wifi` / `dc` | — | Afbryd WiFi | `disconnect wifi` |
 | `test sr` | — | Test af shift-register outputs (kun boards med `SHIFT_REGISTER_ENABLED`) | `test sr` |
 | `test sr input` | — | Test af shift-register inputs | `test sr input` |
+| `test crash panic\|wdt yes` | `yes` påkrævet | **FEAT-427.** Bevidst crash til test af crash-tæller og safe mode: `panic` genstarter straks (panic-reset), `wdt` hænger hovedløkken så task-watchdog'en genstarter efter timeout. 3 i træk (hver < 10 min drift) → safe mode. **Kun til test — genstarter PLC'en.** Brug Telnet | `test crash panic yes` |
 | `delete user <navn>` | — | Slet RBAC-bruger | `delete user viewer` |
 | `no set gpio <pin>` | — | Fjern GPIO-mapping (auto-gemmes til NVS) | `no set gpio 23` |
 | `no set counter <id>` | `id`: 1–4 | Deaktivér/slet counter-konfiguration | `no set counter 1` |
@@ -115,7 +116,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 |---|---|---|
 | `show gpio [pin]` | — | Alle GPIO-mappings, eller én specifik pin |
 | `show metrics` | — | Prometheus metrics-reference |
-| `show watchdog` / `wdg` | — | Watchdog-monitor-status (reboot-årsag, reboot-tæller) |
+| `show watchdog` / `wdg` | — | Watchdog-monitor-status: til/fra, om den reelt er **aktiv**, timeout, reboot-årsag, reboot-tæller, og (FEAT-427) hver overvåget task med sekunder siden sidste fodring |
 | `show debug` / `dbg` | — | Debug-flag-status |
 | `show echo` | — | Remote echo on/off |
 | `show analog` | kun ES32D26 | Analog I/O: Vi1-4, Ii1-4 (rå + skaleret) og AO1-2 (FEAT-034-037) |
@@ -129,9 +130,13 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 |---|---|---|
 | `set hostname <navn>` | maks. 31 tegn | Sæt hostname |
 | `set echo <on\|off>` | — | Aktivér/deaktivér remote echo |
+| `set watchdog timeout <5-120>` | sekunder | **FEAT-427.** Task-watchdog'ens timeout — gemmes og virker straks. Gælder hovedløkken og de overvågede baggrunds-tasks (Modbus Master, expansion-workers) |
+| `clear safemode` | — | **FEAT-427.** Forlad safe mode: ST kører igen og udgangene følger igen deres coils. Find først årsagen til crashene (`show watchdog`) |
+| `set watchdog enable\|disable` | — | **FEAT-427.** Gemmes, træder i kraft efter genstart. Uden watchdog genstarter PLC'en ikke, hvis den hænger |
 | `set debug <flag> <on\|off>` | flag: `config-save`, `config-load`, `all` | Debug-logging-flag |
 | `set gpio <pin> input <idx>` | pin: 0–39 eller 100–255 (virtuel); idx: discrete input-index | Map GPIO-pin til discrete input |
 | `set gpio <pin> coil <idx>` | idx: coil-index | Map coil til GPIO-output |
+| `set gpio <pin> safe on\|off\|default` | pin: udgangens GPIO (fx 201 = DO1) | **FEAT-427.** Sikker tilstand i safe mode. `default` = ikke defineret = OFF. Gemmes straks (max 24 definerede udgange) |
 
 **Pin-validering (BUG-428):** pins som hardwaren allerede bruger afvises med en begrundelse — flash (6-11), PSRAM (16/17 på WROVER), ikke-eksisterende pins, og på ES32D26 også RS485/USB (1/3/21), 74HC595 (12/13/22/23), 74HC165 (0/2/15), analoge ind-/udgange og W5500-pins når Ethernet er aktiveret; GPIO34-39 kan kun være indgang. Allerede gemte mappings på sådanne pins ignoreres af firmwaren (og vises med advarsel på I/O-siden).
 

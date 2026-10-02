@@ -306,11 +306,16 @@ di[addr] — Discrete Input</code>
 </select>
 <input type="number" id="bindAddr" placeholder="Addr" min="0" max="255" style="width:75px">
 <input type="number" id="bindGpio" placeholder="GPIO pin" min="0" max="255" style="width:85px">
+<select id="bindSafe" title="Sikker tilstand for udgangen i safe mode / ved ST-watchdog (FEAT-427)">
+<option value="default">Sikker: OFF (std)</option>
+<option value="off">Sikker: OFF</option>
+<option value="on">Sikker: ON</option>
+</select>
 <button class="btn btn-primary btn-sm" id="btnBind" onclick="addBinding()">Tilføj</button>
 <button class="btn btn-sm" style="background:#45475a;color:#cdd6f4;display:none" id="btnBindCancel" onclick="cancelEdit()">Annullér</button>
 </div>
 <table class="btbl">
-<thead><tr><th>ST Variabel</th><th>ST variabel Type</th><th>Retning</th><th>Modbus Register</th><th>Modbus Adresse</th><th>Local GPIO</th><th></th></tr></thead>
+<thead><tr><th>ST Variabel</th><th>ST variabel Type</th><th>Retning</th><th>Modbus Register</th><th>Modbus Adresse</th><th>Local GPIO</th><th title="Tilstand udgangen tvinges til i safe mode (FEAT-427). Ikke defineret = OFF">Sikker tilstand</th><th></th></tr></thead>
 <tbody id="bindBody"></tbody>
 </table>
 <div class="empty-msg" id="bindEmpty">Ingen bindinger konfigureret</div>
@@ -1113,6 +1118,7 @@ function editBinding(b){
   document.getElementById('bindType').value=rtMap[b.register_type]||'reg';
   document.getElementById('bindAddr').value=b.register_addr||0;
   document.getElementById('bindGpio').value=b.gpio_pin>=0?b.gpio_pin:'';
+  document.getElementById('bindSafe').value=b.safe||'default';  // FEAT-427
   const btn=document.getElementById('btnBind');
   btn.textContent='Opdatér';
   btn.className='btn btn-warn btn-sm';
@@ -1128,6 +1134,18 @@ function cancelEdit(){
   document.getElementById('btnBindCancel').style.display='none';
   document.getElementById('bindAddr').value='';
   document.getElementById('bindGpio').value='';
+  document.getElementById('bindSafe').value='default';  // FEAT-427
+}
+
+// FEAT-427: sikker tilstand pr. udgang — sat direkte fra bindings-tabellen.
+// Sendes som en opdatering af udgangens GPIO-mapping (samme coil), som
+// firmwaren gemmer i sin egen NVS-noegle.
+async function setBindSafe(pin,coil,val){
+  try{
+    const d=await api('POST','gpio/'+pin+'/config',{direction:'output',coil:coil,safe:val});
+    if(d&&d.error){log('error','Sikker tilstand: '+d.error);loadBindings();return;}
+    log('success','GPIO '+pin+' sikker tilstand: '+(val==='default'?'ikke defineret (OFF)':val.toUpperCase()));
+  }catch(e){log('error','Sikker tilstand fejlede: '+e.message);loadBindings();}
 }
 
 async function loadBindings(){
@@ -1160,19 +1178,28 @@ async function loadBindings(){
     document.getElementById('bindEmpty').style.display=mine.length?'none':'block';
     all.forEach(b=>{
       if(b.program!==SLOT)return;
-      // Find matching GPIO: same register addr + compatible direction
-      let gpioPin=-1;
+      // Find matching GPIO: same address AND matching register type —
+      // a GPIO output follows a COIL, a GPIO input feeds a DISCRETE INPUT
+      // (FEAT-427: previously an HR binding could match a coil mapping).
+      let gpioPin=-1,gpioSafe='default';
       const regAddr=b.register_addr;
       gpios.forEach(g=>{
-        if(b.direction==='input'&&g.direction==='input'&&g.register===regAddr) gpioPin=g.pin;
-        if(b.direction==='output'&&g.direction==='output'&&g.coil===regAddr) gpioPin=g.pin;
+        if(b.direction==='input'&&b.register_type==='DI'&&g.direction==='input'&&g.register===regAddr) gpioPin=g.pin;
+        if(b.direction!=='input'&&b.register_type==='Coil'&&g.direction==='output'&&g.coil===regAddr){gpioPin=g.pin;gpioSafe=g.safe||'default';}
       });
       const tr=document.createElement('tr');
-      const bj=JSON.stringify({index:b.index,name:b.name||'',type:b.type||'',direction:b.direction||'output',register_type:b.register_type||'HR',register_addr:b.register_addr||0,gpio_pin:gpioPin}).replace(/'/g,'&#39;');
+      const bj=JSON.stringify({index:b.index,name:b.name||'',type:b.type||'',direction:b.direction||'output',register_type:b.register_type||'HR',register_addr:b.register_addr||0,gpio_pin:gpioPin,safe:gpioSafe}).replace(/'/g,'&#39;');
       const gpioTd=gpioPin>=0?'<span style="color:#a6e3a1">GPIO '+gpioPin+'</span>':'<span style="color:#585b70">—</span>';
+      // FEAT-427: kun en udgang (output-binding til coil med GPIO-mapping) har en sikker tilstand
+      let safeTd='<span style="color:#585b70">—</span>';
+      if(b.direction!=='input'&&gpioPin>=0){
+        const opt=(v,t)=>'<option value="'+v+'"'+(gpioSafe===v?' selected':'')+'>'+t+'</option>';
+        safeTd='<select onchange="setBindSafe('+gpioPin+','+regAddr+',this.value)" title="Tilstand i safe mode">'+
+          opt('default','OFF (std)')+opt('off','OFF')+opt('on','ON')+'</select>';
+      }
       tr.innerHTML='<td>'+(b.name||'?')+'</td><td>'+(b.type||'?')+'</td><td>'+
         (b.direction==='input'?'← Input':'Output →')+'</td><td>'+b.register_type+
-        '</td><td>'+b.register_addr+'</td><td>'+gpioTd+'</td><td><button class="btn btn-sm" style="background:#89b4fa;color:#1e1e2e;margin-right:4px" onclick=\'editBinding('+bj+')\'>Redigér</button><button class="btn btn-danger btn-sm" onclick="delBinding('+b.index+')">Slet</button></td>';
+        '</td><td>'+b.register_addr+'</td><td>'+gpioTd+'</td><td>'+safeTd+'</td><td><button class="btn btn-sm" style="background:#89b4fa;color:#1e1e2e;margin-right:4px" onclick=\'editBinding('+bj+')\'>Redigér</button><button class="btn btn-danger btn-sm" onclick="delBinding('+b.index+')">Slet</button></td>';
       body.appendChild(tr);
     });
   }catch(e){log('error','Kunne ikke hente bindinger: '+e.message);}
@@ -1199,7 +1226,7 @@ async function addBinding(){
       }
       try{
         const gpioDir=dir==='input'?'input':'output';
-        const body=gpioDir==='input'?{direction:'input',register:parseInt(addr)}:{direction:'output',coil:parseInt(addr)};
+        const body=gpioDir==='input'?{direction:'input',register:parseInt(addr)}:{direction:'output',coil:parseInt(addr),safe:document.getElementById('bindSafe').value};  // FEAT-427
         await api('POST','gpio/'+newPin+'/config',body);
         log('success','GPIO '+newPin+' konfigureret som '+gpioDir+' → '+(gpioDir==='input'?'reg':'coil')+':'+addr);
       }catch(ge){log('error','GPIO config fejl: '+ge.message);}

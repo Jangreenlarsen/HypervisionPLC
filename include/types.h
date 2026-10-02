@@ -284,8 +284,13 @@ typedef struct __attribute__((packed)) {
   uint32_t reboot_counter;           // Persistent reboot count
   uint32_t last_reset_reason;        // ESP_RST_REASON enum
   char last_error[128];              // Last error message
-  uint32_t last_reboot_uptime_ms;    // Uptime before last reboot
-  uint8_t reserved[8];
+  uint32_t last_reboot_uptime_ms;    // Uptime before last reboot (FEAT-427: fra RTC-hukommelse; 0 = ukendt, fx efter stroemsvigt)
+  // FEAT-427: crash-registrering — tog de 8 tidligere reserverede bytes, saa
+  // NVS-blob'ens stoerrelse (og dermed kompatibiliteten) er uaendret.
+  uint32_t crash_counter;            // Antal genstarter med aarsag PANIC/TASK_WDT/INT_WDT/WDT
+  uint8_t  crash_streak;             // Crashes i traek, hver efter < 10 min drift (nulstilles efter 10 min stabil drift)
+  uint8_t  safe_mode;                // 1 = safe mode aktiv (ST stoppet, udgange i sikker tilstand)
+  uint8_t  reserved[2];
 } WatchdogState;
 
 /* ============================================================================

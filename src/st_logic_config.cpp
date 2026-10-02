@@ -4,6 +4,7 @@
  */
 
 #include "st_logic_config.h"
+#include "watchdog_monitor.h"  // FEAT-427
 #include "st_logic_engine.h"   // st_logic_lock/unlock_variables
 #include "st_parser.h"
 #include "st_compiler.h"
@@ -1248,6 +1249,7 @@ static void st_logic_high_task_func(void *arg) {
     xSemaphoreTake(s_high_semaphore, portMAX_DELAY);
 
     if (!state || !state->enabled) continue;
+    if (watchdog_safe_mode()) continue;  // FEAT-427 (A4): safe mode — heller ikke HIGH-programmer
 
     uint32_t now = millis();
     for (int prog_id = 0; prog_id < ST_LOGIC_MAX_PROGRAMS; prog_id++) {

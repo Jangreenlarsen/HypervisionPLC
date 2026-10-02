@@ -156,6 +156,13 @@
 <!-- Alarm Bar -->
 <div class="alarm-bar" id="alarmBar"></div>
 
+<!-- FEAT-427: safe mode-banner (vises kun naar PLC'en er i safe mode) -->
+<div id="safeModeBanner" style="display:none;background:#5c1d2a;border:1px solid #f38ba8;color:#f5c2cf;padding:8px 14px;margin:6px 12px;border-radius:6px;font-size:13px">
+<b style="color:#f38ba8">SAFE MODE</b> — PLC'en er genstartet af crash/watchdog flere gange i træk. ST Logic er stoppet, og udgangene står i deres sikre tilstand.
+<span id="safeModeDetail" style="opacity:.85"></span>
+<button onclick="clearSafeMode()" style="margin-left:10px;background:#f38ba8;color:#1e1e2e;border:none;border-radius:4px;padding:3px 10px;font-weight:600;cursor:pointer">Forlad safe mode</button>
+</div>
+
 <!-- Sub-tabs for Metrics -->
 <div class="sub-tabs show" id="subTabs">
 <button class="active" onclick="showSubTab('all',this)">Alle</button>
@@ -204,6 +211,23 @@
 <div class="spark-row"><span class="sl">Heap trend</span><svg id="sparkHeap" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
 <div class="row" style="margin-top:2px;border-top:1px solid #313244;padding-top:4px"><span class="lbl">Reboots</span><span class="val val-n" id="mRebootCount">-</span></div>
 <div class="row"><span class="lbl">Sidste reset</span><span class="val val-n" id="mResetReason" style="font-size:11px">-</span></div>
+</div>
+
+<!-- FEAT-427: Watchdog (samme indhold som CLI "show watchdog") -->
+<div class="card" data-card-id="watchdog" data-tab="overview">
+<h2>Watchdog <span class="badge badge-off" id="badgeWdt">-</span></h2>
+<div class="row"><span class="lbl">Aktiv</span><span class="val val-n" id="wdtActive">-</span></div>
+<div class="row"><span class="lbl">Timeout</span><span class="val val-n"><span id="wdtTimeout">-</span>
+<input type="number" id="wdtTimeoutIn" min="5" max="120" placeholder="s" title="Ny timeout i sekunder (5-120)" style="width:46px;margin-left:6px;padding:1px 4px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<button onclick="setWdtTimeout()" style="font-size:10px;padding:1px 6px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Sæt</button></span></div>
+<div class="row"><span class="lbl">Opstarter i alt</span><span class="val val-n" id="wdtBoots">-</span></div>
+<div class="row"><span class="lbl">Crashes (i alt / i træk)</span><span class="val val-n" id="wdtCrashes">-</span></div>
+<div class="row"><span class="lbl">Safe mode</span><span class="val val-n" id="wdtSafe">-</span></div>
+<div class="row"><span class="lbl">Sidste reset</span><span class="val val-n" id="wdtReset" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl">Drift før genstart</span><span class="val val-n" id="wdtPrevUp">-</span></div>
+<div class="row"><span class="lbl">Sidste fejl</span><span class="val val-n" id="wdtLastErr" style="font-size:10px;white-space:normal;text-align:right">-</span></div>
+<div style="border-top:1px solid #313244;margin-top:6px;padding-top:4px;font-size:10px;color:#6c7086">Overvågede tasks — tid siden sidste fodring</div>
+<div id="wdtTasks"><span class="empty-msg">-</span></div>
 </div>
 
 <!-- Network Status -->
@@ -803,7 +827,7 @@ let _syslogTotal=0;
 const _syslogSrcNames={rest:'REST API',modbus_slave:'Modbus (ekstern)',system:'System'};
 
 let _activeSubTab='all';
-const _defaultTabs={system:'overview',network:'overview',alarms:'overview',syslog:'overview',modbusslave:'modbus',modbusmaster:'modbus',mbactivity:'modbus',rtutrafik:'modbus',bushealth:'modbus',modbusexpansion:'modbus',httpapi:'connections',tcpmonitor:'connections',ntp:'connections',counters:'app',timers:'app',stlogic:'app',dio:'app',analogio:'app',trendrec:'app'};
+const _defaultTabs={watchdog:'overview',system:'overview',network:'overview',alarms:'overview',syslog:'overview',modbusslave:'modbus',modbusmaster:'modbus',mbactivity:'modbus',rtutrafik:'modbus',bushealth:'modbus',modbusexpansion:'modbus',httpapi:'connections',tcpmonitor:'connections',ntp:'connections',counters:'app',timers:'app',stlogic:'app',dio:'app',analogio:'app',trendrec:'app'};
 let _customTabs={};   // Overrides from API
 let _hiddenCards={};   // Set of hidden card IDs
 let _customMembers={};   // FEAT-167: kort-id'er tilfoejet til den uafhaengige "Custom"-fane (ved siden af, ikke i stedet for, kortets normale fane)
@@ -1755,6 +1779,68 @@ async function fetchMetrics(){
 
 const MB_CACHE_MAX=32;
 const MB_QUEUE_MAX=32;
+
+// FEAT-427: Watchdog-kort + safe mode-banner
+const _wdtResetNames={0:'Ukendt',1:'Power-on',2:'Ekstern reset',3:'Software reset',4:'Panic/Exception',5:'Interrupt watchdog',6:'Task watchdog',7:'Anden watchdog',8:'Deep sleep',9:'Brownout',10:'SDIO reset'};
+function _wdtEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+async function fetchWatchdog(){
+  if(_dragOrResizeActive)return;
+  try{
+    const r=await dashFetch('/api/system/watchdog',{});
+    if(!r.ok)return;
+    renderWatchdog(await r.json());
+  }catch(e){}
+}
+function renderWatchdog(d){
+  const set=(id,v)=>{const el=$(id);if(el)el.innerHTML=v;};
+  const timeoutS=Math.round((d.timeout_ms||0)/1000);
+  set('wdtActive',d.active?'<span style="color:#a6e3a1">JA</span>':'<span style="color:#f38ba8" title="Watchdog\'en kører ikke — init fejlede, eller den er slået fra">NEJ</span>');
+  set('wdtTimeout',timeoutS+' s');
+  set('wdtBoots',fmtN(d.reboot_count));
+  const streakWarn=(d.crash_streak||0)>0?' <span style="color:#fab387">('+d.crash_streak+' i træk)</span>':' / 0';
+  set('wdtCrashes',fmtN(d.crash_count||0)+((d.crash_streak||0)>0?streakWarn:' / 0'));
+  set('wdtSafe',d.safe_mode?'<b style="color:#f38ba8">AKTIV</b>':'nej');
+  set('wdtReset',_wdtEsc(_wdtResetNames[d.last_reset_reason]||'Ukendt'));
+  set('wdtPrevUp',d.last_reboot_uptime_ms?fmtUptime(d.last_reboot_uptime_ms):'ukendt');
+  set('wdtLastErr',_wdtEsc(d.last_error||'-'));
+  const tasks=d.tasks||[];
+  set('wdtTasks',tasks.length?('<table class="tbl">'+tasks.map(t=>{
+      const s=(t.age_ms||0)/1000, warn=s>timeoutS*0.5;
+      return '<tr><td style="font-size:10px">'+_wdtEsc(t.name)+'</td><td style="font-size:10px;text-align:right;color:'+(warn?'#f38ba8':'#a6e3a1')+'">'+s.toFixed(1)+' s</td></tr>';
+    }).join('')+'</table>'):'<span class="empty-msg">Ingen — watchdog\'en er ikke aktiv</span>');
+  const b=$('badgeWdt');
+  if(b){
+    if(d.safe_mode){b.textContent='SAFE MODE';b.className='badge badge-err';}
+    else if(!d.active){b.textContent='INAKTIV';b.className='badge badge-warn';}
+    else{b.textContent='OK';b.className='badge badge-ok';}
+  }
+  const ban=$('safeModeBanner');
+  if(ban){
+    ban.style.display=d.safe_mode?'block':'none';
+    if(d.safe_mode)$('safeModeDetail').textContent=d.last_error?(' Sidste: '+d.last_error):'';
+  }
+}
+async function wdtPost(body){
+  const auth=authGet();
+  const opts={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+  if(auth)opts.headers['Authorization']=auth;
+  const r=await fetch('/api/system/watchdog',opts);
+  if(r.status===403)throw new Error('Skriverettighed kræves');
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.error||('HTTP '+r.status));
+  return j;
+}
+async function setWdtTimeout(){
+  const v=parseInt($('wdtTimeoutIn').value,10);
+  if(!(v>=5&&v<=120)){alert('Timeout skal være 5-120 sekunder');return;}
+  try{await wdtPost({timeout_s:v});$('wdtTimeoutIn').value='';fetchWatchdog();}
+  catch(e){alert('Fejl: '+e.message);}
+}
+async function clearSafeMode(){
+  if(!confirm('Forlad safe mode?\n\nST Logic starter igen, og udgangene følger igen deres coils. Find først årsagen til crashene — ellers ender PLC\'en i safe mode igen.'))return;
+  try{await wdtPost({action:'clear_safemode'});fetchWatchdog();}
+  catch(e){alert('Fejl: '+e.message);}
+}
 
 async function fetchAlarms(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
@@ -3064,13 +3150,13 @@ function restoreCardOrder(){
 }
 
 // === Dashboard Settings Page ===
-const _cardNames={system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',mbactivity:'Modbus Aktivitetslog',syslog:'Hændelseslog',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP/UDP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O',analogio:'Analog I/O',bushealth:'RS-485 Bus Health',trendrec:'Trend Recorder',modbusexpansion:'Modbus Expansion Boards'};
+const _cardNames={watchdog:'Watchdog',system:'System',network:'Netværk',modbusslave:'Modbus Slave',modbusmaster:'Modbus Master',mbactivity:'Modbus Aktivitetslog',syslog:'Hændelseslog',httpapi:'HTTP API',counters:'Tællere',timers:'Timere',stlogic:'ST Logic',ntp:'NTP Tid',rtutrafik:'RTU Trafik',tcpmonitor:'TCP/UDP Forbindelser',alarms:'Alarm Historik',dio:'Digital I/O',analogio:'Analog I/O',bushealth:'RS-485 Bus Health',trendrec:'Trend Recorder',modbusexpansion:'Modbus Expansion Boards'};
 const _tabNames={overview:'Overblik',modbus:'Modbus',connections:'Forbindelser',app:'Applikation'};
 // FEAT-096/099: 'bushealth'/'trendrec' TILFØJET SIDST — BUG-365: denne
 // rækkefølge må kun UDVIDES, aldrig omrokeres, da Custom-fane-medlemskab
 // gemmes som indeks heri i brugernes NVS-persisterede layout (se
 // kommentaren nedenfor).
-const _allCardIds=['system','network','alarms','syslog','modbusslave','modbusmaster','mbactivity','rtutrafik','httpapi','tcpmonitor','ntp','counters','timers','stlogic','dio','analogio','bushealth','trendrec','modbusexpansion'];
+const _allCardIds=['system','network','alarms','syslog','modbusslave','modbusmaster','mbactivity','rtutrafik','httpapi','tcpmonitor','ntp','counters','timers','stlogic','dio','analogio','bushealth','trendrec','modbusexpansion','watchdog'];  // FEAT-427: NYE kort tilfoejes ALTID sidst — Custom-fanen gemmes som INDEKS i denne liste (BUG-365), en indsaettelse forrest forskyder alle gemte valg;
 // BUG-365: Custom-fane-medlemsskab gemmes som INDEKS i _allCardIds
 // ("0,4,7,12"), ikke fulde kort-navne ("system,modbusslave,...") — de fulde
 // navne kunne let overstige det 80-byte NVS-felt (dashboard_card_custom) med
@@ -3399,9 +3485,11 @@ function init(){
   setTimeout(updateUserBadge, 840);
   setTimeout(loadTrendConfig, 960);
   setTimeout(fetchExpansionList, 1080);
+  setTimeout(fetchWatchdog, 1200);  // FEAT-427
   refreshTimer=setInterval(fetchMetrics,3000);
   setInterval(fetchBindings,15000);
   setInterval(fetchAlarms,5000);
+  setInterval(fetchWatchdog,5000);  // FEAT-427
   setInterval(fetchMbActivity,3000);
   setInterval(fetchSyslog,5000);
   setInterval(loadTrendConfig,5000);

@@ -32,7 +32,7 @@ Siden "/" kræver **ikke** login og viser et admin-udvalgt, skrivebeskyttet subs
 Dashboardet er organiseret i **kort** (cards), grupperet under faner:
 
 - **Alle** — alle kort samlet
-- **Overblik** — System, Netværk, Alarm Historik, Hændelseslog
+- **Overblik** — Watchdog (FEAT-427), System, Netværk, Alarm Historik, Hændelseslog
 - **Modbus** — Modbus Slave, Modbus Master, Modbus Aktivitetslog, RTU-trafik, RS-485 Bus Health (FEAT-096)
 - **Forbindelser** — HTTP API/SSE, TCP/UDP-forbindelsesmonitor (inkl. Modbus TCP til expansion boards), NTP
 - **Applikation** — Tællere, Timere, ST Logic, Digital I/O, Trend Recorder (FEAT-099)
@@ -67,6 +67,8 @@ Dashboardet er organiseret i **kort** (cards), grupperet under faner:
 **Modbus Expansion Boards (FEAT-409b)** — online/offline-badge pr. tilsluttet expansion-board (grøn/rød/grå), plus et samlet "N/M online"-badge i kort-overskriften. Tjekkes automatisk hvert 30. sekund, så længe dashboardet er åbent i en browser — se [§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409) for opsætning og den kontinuerlige `MBX_*`-datatrafik.
 
 **RS-485 Bus Health (FEAT-096)** — samlet bus-niveau-overblik der supplerer Slave-/Master-kortene: kombineret fejlrate på tværs af begge roller, "bus busy/kontention" (antal gange master ikke kunne opnå UART-mutex'en — en praktisk kollisions-proxy for enkelt-transceiver-arkitekturen, se [§6.1](06_Modbus_Interface.md)), og et **estimeret** bus-belastningstal (request-rate × en antaget gennemsnitlig frame-størrelse ÷ baudrate — IKKE en direkte målt værdi, tydeligt mærket som sådan i kortet, da firmwaren ikke i dag har byte-niveau UART-instrumentering).
+
+**Watchdog (FEAT-427)** — samme indhold som CLI'ens `show watchdog`: om watchdog'en reelt er aktiv, timeout (kan ændres direkte i kortet, 5-120 s), opstarter i alt, crashes i alt / i træk, safe mode, sidste reset-årsag, drift før sidste genstart, sidste fejl og hver overvåget task med tid siden sidste fodring (rød over halvdelen af timeout). Er PLC'en i **safe mode**, vises desuden et rødt banner øverst på siden med knappen **Forlad safe mode** (kræver skriverettighed) — se [§13.4b](13_Fejlfinding.md#134b-plcen-er-i-safe-mode).
 
 **Trend Recorder (FEAT-099)** — kilder (FEAT-425): PLC'ens egne registre, slaver på den **interne RS485-bus** (via Modbus Master, angiv slave-ID) og kanaler på alle konfigurerede **expansion boards** (vælg board, kanal A/B og slave-ID); etiketter som `HR100`, `RTU 90:HR0`, `B1A 9:HR1`. Eksterne punkter læses via samme kø/cache som ST Logic — hver sample viser seneste svar (højst ét interval gammelt), og `-` (JSON `null`, tom CSV-celle) betyder intet gyldigt svar endnu/timeout. Tid vises som rigtig dato/klokkeslæt (FEAT-424): PLC'ens NTP-tid når den er synkroniseret, ellers beregnet ud fra browserens ur og markeret med `~` (hold musen over for oppetid); CSV-eksporten har kolonnerne `tid;uptime_ms;epoch_s` foran værdierne. optag op til 8 vilkårlige registre (Holding/Input/Coil/Discrete Input, blandet frit) på et konfigurerbart interval (500ms-60s) til en RAM-only ringbuffer (720 samples), og eksportér som CSV til commissioning/dybere offline-analyse i f.eks. Excel. Adskiller sig fra Hændelseslogens registerændrings-sporing ved at sample **periodisk uanset om værdien har ændret sig** — et ægte tidsserie-værktøj, ikke en audit-log. Konfiguration og data er bevidst IKKE persisteret (nulstilles ved reboot) — en rekonfiguration (tilføj/fjern målepunkt, skift interval) stopper og rydder altid eksisterende data, så en "session" altid starter frisk.
 
@@ -139,7 +141,7 @@ Editoren har 4 uafhængige program-faner (Logic1-4), vist øverst i deres egen r
 | **Slet** | Fjerner programmet helt. |
 | **Download / Upload** | Hent/gem kildekode som `.st`-fil. |
 | **Find** | Søg/erstat i kildekoden (Ctrl+F/Ctrl+H). |
-| **Bindings / Monitor / Settings** | Skift mellem variabel-bindings-konfiguration, runtime-monitor og globale motor-indstillinger. |
+| **Bindings / Monitor / Settings** | Skift mellem variabel-bindings-konfiguration, runtime-monitor og globale motor-indstillinger. I **Bindings** har hver udgang (output-binding til en coil med en lokal GPIO) kolonnen **Sikker tilstand** (OFF (std) / OFF / ON) — tilstanden udgangen tvinges til i safe mode (FEAT-427); ændres direkte i tabellen eller i formularen når bindingen oprettes/redigeres. Samme indstilling som `set gpio <pin> safe …` og I/O-sidens GPIO-tabel. |
 
 ### Runtime Monitor
 

@@ -8,6 +8,7 @@
  */
 
 #include "modbus_expansion_async.h"
+#include "watchdog_monitor.h"  // FEAT-427
 #include "modbus_expansion.h"
 
 mbx_async_state_t g_mbx_async = {0};
@@ -498,7 +499,10 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
   mbx_async_request_t req;
   uint32_t last_sweep_ms = 0;
 
+  watchdog_task_subscribe();  // FEAT-427: hver worker overvaages for sig
+
   while (g_mbx_async.task_running) {
+    watchdog_task_feed();  // FEAT-427: hver runde (semaforen venter max 100 ms)
     if (g_mbx_async.paused) {
       vTaskDelay(pdMS_TO_TICKS(50));
       continue;
@@ -650,6 +654,7 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
     mbx_inflight_clear(req.board, req.channel);  // BUG-417
   }
 
+  watchdog_task_unsubscribe();  // FEAT-427: SKAL ske foer sletning
   vTaskDelete(NULL);
 }
 

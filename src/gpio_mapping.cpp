@@ -11,6 +11,8 @@
  */
 
 #include "gpio_mapping.h"
+#include "watchdog_monitor.h"  // FEAT-427
+#include <nvs.h>
 #include "config_struct.h"
 #include "gpio_driver.h"
 #include "registers.h"
@@ -54,6 +56,75 @@ const char *gpio_mapping_pin_reserved(uint16_t pin, bool is_output) {
 #endif
   if (is_output && pin >= 34) return "input-only (kan ikke vaere udgang)";
   return NULL;
+}
+
+/* ============================================================================
+ * FEAT-427 (A4): SIKKER TILSTAND PR. UDGANG
+ * Egen lille NVS-blob, saa PersistConfig's layout ikke aendres.
+ * ============================================================================ */
+#define SAFE_OUT_MAX 24
+typedef struct __attribute__((packed)) {
+  uint8_t version;
+  uint8_t count;
+  struct { uint8_t pin; uint8_t state; } e[SAFE_OUT_MAX];
+} SafeOutTable;
+static SafeOutTable g_safe_out = {1, 0, {}};
+static bool g_safe_out_loaded = false;
+
+static void safe_out_load(void) {
+  if (g_safe_out_loaded) return;
+  g_safe_out_loaded = true;
+  nvs_handle_t h;
+  if (nvs_open("modbus_cfg", NVS_READONLY, &h) != ESP_OK) return;
+  SafeOutTable t;
+  size_t len = sizeof(t);
+  if (nvs_get_blob(h, "safe_out", &t, &len) == ESP_OK && len == sizeof(t) && t.version == 1 && t.count <= SAFE_OUT_MAX) {
+    g_safe_out = t;
+  }
+  nvs_close(h);
+}
+
+static bool safe_out_save(void) {
+  nvs_handle_t h;
+  if (nvs_open("modbus_cfg", NVS_READWRITE, &h) != ESP_OK) return false;
+  bool ok = nvs_set_blob(h, "safe_out", &g_safe_out, sizeof(g_safe_out)) == ESP_OK && nvs_commit(h) == ESP_OK;
+  nvs_close(h);
+  return ok;
+}
+
+int8_t gpio_mapping_safe_get(uint16_t pin) {
+  safe_out_load();
+  for (uint8_t i = 0; i < g_safe_out.count; i++) {
+    if (g_safe_out.e[i].pin == pin) return (int8_t)g_safe_out.e[i].state;
+  }
+  return -1;
+}
+
+bool gpio_mapping_safe_set(uint16_t pin, int8_t state) {
+  if (pin > 255) return false;
+  safe_out_load();
+  for (uint8_t i = 0; i < g_safe_out.count; i++) {
+    if (g_safe_out.e[i].pin == pin) {
+      if (state < 0) {
+        g_safe_out.e[i] = g_safe_out.e[g_safe_out.count - 1];
+        g_safe_out.count--;
+      } else {
+        g_safe_out.e[i].state = state ? 1 : 0;
+      }
+      return safe_out_save();
+    }
+  }
+  if (state < 0) return true;  // var ikke defineret
+  if (g_safe_out.count >= SAFE_OUT_MAX) return false;
+  g_safe_out.e[g_safe_out.count].pin = (uint8_t)pin;
+  g_safe_out.e[g_safe_out.count].state = state ? 1 : 0;
+  g_safe_out.count++;
+  return safe_out_save();
+}
+
+uint8_t gpio_mapping_safe_value(uint16_t pin) {
+  int8_t s = gpio_mapping_safe_get(pin);
+  return (s == 1) ? 1 : 0;   // beslutning 3: ikke defineret = OFF
 }
 
 static void gpio_mapping_read_inputs(void) {
@@ -191,6 +262,12 @@ static void gpio_mapping_write_outputs(void) {
       if (!map->is_input) {
         // BUG-428: skriv ALDRIG til en reserveret pin (PSRAM, flash, RS485 ...)
         if (gpio_mapping_pin_reserved(map->gpio_pin, true)) continue;
+        // FEAT-427 (A4): safe mode — udgangen tvinges til sin sikre
+        // tilstand uanset coil-vaerdien (udefineret = OFF)
+        if (watchdog_safe_mode()) {
+          gpio_write(map->gpio_pin, gpio_mapping_safe_value(map->gpio_pin));
+          continue;
+        }
         // OUTPUT mode: Coil → GPIO pin
         if (map->output_reg != 65535) {
           uint8_t value = registers_get_coil(map->output_reg);

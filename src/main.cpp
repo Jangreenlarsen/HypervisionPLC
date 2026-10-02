@@ -7,6 +7,8 @@
  */
 
 #include "mb_debug.h"
+extern void alarm_check_thresholds();  // FEAT-427 (api_handlers.cpp)
+extern void alarm_raise(uint8_t severity, const char *msg);
 #include <Arduino.h>
 #include <esp_system.h>
 #include <nvs_flash.h>
@@ -406,6 +408,21 @@ void loop() {
 
   // FEAT-421: send opsamlet Modbus Master-debug til Telnet (no-op naar fra)
   mb_debug_loop();
+
+  // FEAT-427: alarm-taerskler evalueres her (selv rate-begraenset til hvert
+  // 3. s) — tidligere kun naar /api/metrics blev genereret.
+  alarm_check_thresholds();
+
+  // FEAT-427 (A3/A4): rapportér crash/safe mode i alarmloggen én gang efter opstart
+  {
+    static bool crash_reported = false;
+    if (!crash_reported && millis() > 5000) {
+      crash_reported = true;
+      WatchdogState *wd = watchdog_get_state();
+      if (watchdog_reset_was_crash()) alarm_raise(2, wd->last_error);
+      if (watchdog_safe_mode()) alarm_raise(2, "SAFE MODE: ST stoppet, udgange i sikker tilstand ('clear safemode')");
+    }
+  }
 
   // Background feature engines
   counter_engine_loop();

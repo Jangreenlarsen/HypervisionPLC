@@ -16,6 +16,8 @@
  */
 
 #include "mb_debug.h"
+#include "watchdog_monitor.h"  // FEAT-427
+#include "gpio_mapping.h"  // FEAT-427
 #include "cli_parser.h"
 #include "cli_shell.h"
 #include "cli_commands.h"
@@ -1220,6 +1222,28 @@ bool cli_parser_execute(char* line) {
       }
       cli_cmd_set_hostname(argv[2]);
       return true;
+    } else if (!strcmp(what, "WATCHDOG")) {
+      // FEAT-427: set watchdog timeout <sek> | enable | disable
+      if (argc >= 4 && !strcasecmp(argv[2], "timeout")) {
+        long sec = atol(argv[3]);
+        if (watchdog_set_timeout((uint32_t)sec * 1000UL)) {
+          debug_printf("Watchdog-timeout: %ld s (gemt, virker straks)\n", sec);
+        } else {
+          debug_println("FEJL: timeout skal vaere 5-120 sekunder");
+        }
+        return true;
+      }
+      if (argc >= 3 && (!strcasecmp(argv[2], "enable") || !strcasecmp(argv[2], "disable"))) {
+        bool en = !strcasecmp(argv[2], "enable");
+        watchdog_enable(en);
+        debug_printf("Watchdog %s (gemt — traeder i kraft efter genstart)\n", en ? "slaaet TIL" : "slaaet FRA");
+        if (!en) debug_println("ADVARSEL: uden watchdog genstarter PLC'en IKKE hvis den haenger");
+        return true;
+      }
+      debug_println("Brug: set watchdog timeout <5-120>   (sekunder)");
+      debug_println("      set watchdog enable|disable  (efter genstart)");
+      return false;
+
     } else if (!strcmp(what, "BAUDRATE")) {
       if (argc < 3) {
         debug_println("SET BAUD: missing value");
@@ -1288,6 +1312,17 @@ bool cli_parser_execute(char* line) {
           print_gpio_help();
           return true;
         }
+      }
+      // FEAT-427: set gpio <pin> safe on|off|default
+      if (argc >= 5 && !strcasecmp(argv[3], "safe")) {
+        int pin = atoi(argv[2]);
+        int8_t st = !strcasecmp(argv[4], "on") ? 1 : !strcasecmp(argv[4], "off") ? 0 :
+                    !strcasecmp(argv[4], "default") ? -1 : -2;
+        if (st == -2) { debug_println("Brug: set gpio <pin> safe on|off|default"); return false; }
+        if (!gpio_mapping_safe_set((uint16_t)pin, st)) { debug_println("FEJL: kunne ikke gemme (max 24 definerede udgange)"); return false; }
+        debug_printf("GPIO%d sikker tilstand: %s (gemt)\n", pin,
+                     st == 1 ? "ON" : st == 0 ? "OFF" : "ikke defineret (OFF i safe mode)");
+        return true;
       }
       // Check if it's GPIO 2 enable/disable command
       if (argc >= 4 && atoi(argv[2]) == 2) {
@@ -2744,6 +2779,12 @@ bool cli_parser_execute(char* line) {
     if (!strcmp(what, "COUNTERS")) {
       cli_cmd_clear_counters();
       return true;
+    } else if (!strcasecmp(argv[1], "safemode")) {
+      // FEAT-427 (A4)
+      if (!watchdog_safe_mode()) { debug_println("Safe mode er ikke aktiv"); return true; }
+      watchdog_clear_safe_mode();
+      debug_println("Safe mode forladt: ST koerer igen, udgange foelger deres coils. Find aarsagen til crashene ('show watchdog').");
+      return true;
     } else {
       debug_println("CLEAR: unknown argument");
       return false;
@@ -2819,7 +2860,37 @@ bool cli_parser_execute(char* line) {
       }
       return true;
     }
-    debug_println("TEST: unknown target (use: test sr, test sr input)");
+    // FEAT-427: bevidst crash til test af crash-taeller og safe mode.
+    //   test crash panic yes   -> abort() = panic-reset (ESP_RST_PANIC)
+    //   test crash wdt yes     -> loopTask haenger = task-watchdog-reset (efter timeout)
+    // "yes" kraeves, saa et fejltastet "test crash" aldrig genstarter en PLC i drift.
+    if (argc >= 2 && !strcasecmp(argv[1], "crash")) {
+      bool panic = (argc >= 3 && !strcasecmp(argv[2], "panic"));
+      bool wdt   = (argc >= 3 && !strcasecmp(argv[2], "wdt"));
+      if ((!panic && !wdt) || argc < 4 || strcasecmp(argv[3], "yes") != 0) {
+        debug_println("Brug: test crash panic yes   (panic-reset med det samme)");
+        debug_println("      test crash wdt yes     (haeng hovedloekken -> task-watchdog efter timeout)");
+        debug_println("Bevidst crash til test af crash-taeller/safe mode. 3 crashes i traek,");
+        debug_println("hver efter < 10 min drift, sender PLC'en i SAFE MODE ('clear safemode').");
+        return false;
+      }
+      if (wdt && !watchdog_is_active()) {
+        debug_println("FEJL: watchdog'en er ikke aktiv — 'test crash wdt' ville haenge PLC'en permanent");
+        return false;
+      }
+      WatchdogState *wd = watchdog_get_state();
+      debug_printf("TEST CRASH (%s): crash nr. %u i traek efter genstart. Genstarter %s...\n",
+                   panic ? "panic" : "watchdog", (unsigned)wd->crash_streak + 1,
+                   panic ? "nu" : "naar watchdog-timeout udloeber");
+      delay(300);  // lad teksten naa ud over Telnet/seriel
+      if (panic) {
+        abort();
+      }
+      // loopTask fodrer ikke laengere -> task-watchdog. asm-barrieren goer loekken
+      // til en observerbar sideeffekt (en tom uendelig loekke er UB i C++ og maa fjernes).
+      while (true) { __asm__ __volatile__("" ::: "memory"); }
+    }
+    debug_println("TEST: unknown target (use: test sr, test sr input, test crash)");
     return false;
 
   } else if (!strcmp(cmd, "REBOOT")) {

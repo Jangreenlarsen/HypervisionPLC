@@ -54,4 +54,11 @@ void gpio_mapping_write_after_st_logic(void);
  */
 const char *gpio_mapping_pin_reserved(uint16_t pin, bool is_output);
 
+/* FEAT-427 (A4): sikker tilstand pr. udgang (fysisk GPIO eller DO 201-208).
+ * Gemmes i egen NVS-noegle ("safe_out"). Bruges af safe mode og (senere)
+ * ST-watchdog'ens "safe"-handling. */
+int8_t gpio_mapping_safe_get(uint16_t pin);              // -1 = ikke defineret, 0 = OFF, 1 = ON
+bool   gpio_mapping_safe_set(uint16_t pin, int8_t state);  // state -1 = fjern definition
+uint8_t gpio_mapping_safe_value(uint16_t pin);            // defineret, ellers OFF (0)
+
 #endif // gpio_mapping_H

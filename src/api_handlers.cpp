@@ -157,32 +157,43 @@ static uint32_t alarm_prev_auth_fail = 0;
 static uint32_t alarm_prev_write_denied = 0;
 static bool alarm_sse_full_active = false;
 
+// FEAT-427: alarmer skrives nu fra BAADE hovedloekken (alarm_check_thresholds)
+// og httpd (api_send_error ved 401) — kort laas om selve indsaettelsen.
+static portMUX_TYPE alarm_log_mux = portMUX_INITIALIZER_UNLOCKED;
+
 static void alarm_log_add(uint8_t severity, const char *msg) {
   if (!alarm_log_ready()) return;  // FEAT-154
+  time_t epoch = ntp_driver_is_synced() ? ntp_driver_get_epoch() : 0;
+  uint32_t now = millis();
+  taskENTER_CRITICAL(&alarm_log_mux);
   alarm_entry_t *e = &alarm_log[alarm_log_head];
-  e->timestamp_ms = millis();
+  e->timestamp_ms = now;
   strncpy(e->message, msg, ALARM_MSG_MAX - 1);
   e->message[ALARM_MSG_MAX - 1] = '\0';
   e->severity = severity;
   e->acknowledged = false;
-  e->epoch = ntp_driver_is_synced() ? ntp_driver_get_epoch() : 0;
+  e->epoch = epoch;
   e->source_ip[0] = '\0';
   e->username[0] = '\0';
   alarm_log_head = (alarm_log_head + 1) % ALARM_LOG_MAX;
   if (alarm_log_count < ALARM_LOG_MAX) alarm_log_count++;
+  taskEXIT_CRITICAL(&alarm_log_mux);
 }
 
 // Extended version with source IP and username (for auth failures etc.)
 static void alarm_log_add_detail(uint8_t severity, const char *msg,
                                   const char *ip, const char *user) {
   if (!alarm_log_ready()) return;  // FEAT-154
+  time_t epoch = ntp_driver_is_synced() ? ntp_driver_get_epoch() : 0;
+  uint32_t now = millis();
+  taskENTER_CRITICAL(&alarm_log_mux);  // FEAT-427
   alarm_entry_t *e = &alarm_log[alarm_log_head];
-  e->timestamp_ms = millis();
+  e->timestamp_ms = now;
   strncpy(e->message, msg, ALARM_MSG_MAX - 1);
   e->message[ALARM_MSG_MAX - 1] = '\0';
   e->severity = severity;
   e->acknowledged = false;
-  e->epoch = ntp_driver_is_synced() ? ntp_driver_get_epoch() : 0;
+  e->epoch = epoch;
   if (ip && ip[0]) {
     strncpy(e->source_ip, ip, sizeof(e->source_ip) - 1);
     e->source_ip[sizeof(e->source_ip) - 1] = '\0';
@@ -197,6 +208,7 @@ static void alarm_log_add_detail(uint8_t severity, const char *msg,
   }
   alarm_log_head = (alarm_log_head + 1) % ALARM_LOG_MAX;
   if (alarm_log_count < ALARM_LOG_MAX) alarm_log_count++;
+  taskEXIT_CRITICAL(&alarm_log_mux);
 }
 
 /* FEAT-086/089: faelles hjaelper til at hente klient-IP + RBAC-brugernavn for
@@ -270,6 +282,11 @@ void alarm_record_write_denied_info(const char *ip, const char *user) {
 }
 
 // Called periodically from metrics fetch to check for new alarms
+// FEAT-427: offentlig indgang til alarmloggen (fx safe mode / ST-watchdog)
+void alarm_raise(uint8_t severity, const char *msg) {
+  alarm_log_add(severity, msg);
+}
+
 void alarm_check_thresholds() {
   uint32_t now = millis();
   if (now - alarm_check_prev_ms < 3000) return;  // Check every 3s
@@ -833,6 +850,7 @@ static const api_route_info_t API_ROUTES[] = {
   {"GET",    "/api/system/backup",                 "Download config backup"},
   {"POST",   "/api/system/restore",                "Restore config from backup"},
   {"GET",    "/api/system/watchdog",                "Watchdog status"},
+  {"POST",   "/api/system/watchdog",                "Watchdog: timeout_s / clear_safemode (FEAT-427)"},
   {"GET",    "/api/system/logs",                   "Request audit log (FEAT-033)"},
   {"POST",   "/api/system/logs/clear",             "Clear request audit log"},
   {"GET",    "/api/system/rate-limit",             "Rate-limit status (not persisted)"},
@@ -2475,6 +2493,10 @@ esp_err_t api_handler_gpio(httpd_req_t *req)
 
     // BUG-428: marker mappings paa en reserveret pin — de anvendes ikke
     // (springes over ved boot og i hver cyklus), og pinnen laeses ikke her.
+    if (!m->is_input) {  // FEAT-427: sikker tilstand (udefineret = off i safe mode)
+      int8_t sf = gpio_mapping_safe_get(m->gpio_pin);
+      gpio["safe"] = (sf == 1) ? "on" : (sf == 0) ? "off" : "default";
+    }
     const char *why = gpio_mapping_pin_reserved(m->gpio_pin, !m->is_input);
     if (why) {
       gpio["reserved"] = why;
@@ -2556,6 +2578,9 @@ esp_err_t api_handler_gpio_write(httpd_req_t *req)
   int pin = api_extract_id_from_uri(req, "/api/gpio/");
   if (pin < 0 || (pin > 39 && (pin < 101 || pin > 108) && (pin < 201 || pin > 208))) {
     return api_send_error(req, 400, "Invalid GPIO pin (must be 0-39 or virtual 101-108/201-208)");
+  }
+  if (watchdog_safe_mode()) {  // FEAT-427 (A4)
+    return api_send_error(req, 409, "Safe mode aktiv — udgange er laast i sikker tilstand ('clear safemode')");
   }
 
   // Read request body
@@ -4576,6 +4601,17 @@ esp_err_t api_handler_gpio_config_post(httpd_req_t *req)
     existing->output_type = 1;  // Coil
   }
   existing->word_count = 1;
+
+  // FEAT-427: valgfri sikker tilstand for udgange: "on" | "off" | "default".
+  // Gemmes foerst her — efter pin-, retnings- og adressevalidering — saa en
+  // afvist request aldrig efterlader en sikker tilstand paa en ugyldig pin.
+  if (!is_input && doc.containsKey("safe")) {
+    const char *sf = doc["safe"] | "default";
+    int8_t st = !strcmp(sf, "on") ? 1 : !strcmp(sf, "off") ? 0 : -1;
+    if (!gpio_mapping_safe_set((uint16_t)pin, st)) {
+      return api_send_error(req, 507, "Kunne ikke gemme sikker tilstand (max 24 definerede udgange)");
+    }
+  }
 
   // Configure GPIO direction
   gpio_set_direction(pin, is_input ? GPIO_INPUT : GPIO_OUTPUT);
@@ -8126,13 +8162,68 @@ esp_err_t api_handler_system_watchdog(httpd_req_t *req)
   doc["last_reset_reason"] = wd->last_reset_reason;
   doc["last_error"] = wd->last_error;
   doc["last_reboot_uptime_ms"] = wd->last_reboot_uptime_ms;
+  doc["active"] = watchdog_is_active();            // FEAT-427
+  doc["crash_count"] = wd->crash_counter;          // FEAT-427 (A3)
+  doc["crash_streak"] = wd->crash_streak;
+  doc["safe_mode"] = watchdog_safe_mode();         // FEAT-427 (A4)
+  {
+    char names[8][16];
+    uint32_t ages[8];
+    uint8_t n = watchdog_get_tasks(names, ages, 8);
+    JsonArray tasks = doc["tasks"].to<JsonArray>();
+    for (uint8_t i = 0; i < n; i++) {
+      JsonObject t = tasks.add<JsonObject>();
+      t["name"] = names[i];
+      t["age_ms"] = ages[i];
+    }
+  }
   doc["uptime_ms"] = millis();
   doc["heap_free"] = ESP.getFreeHeap();
   doc["heap_min_free"] = ESP.getMinFreeHeap();
 
-  char buf[512];
+  char buf[1024];  // FEAT-427: + task-liste
   serializeJson(doc, buf, sizeof(buf));
   return api_send_json(req, buf);
+}
+
+/**
+ * FEAT-427: POST /api/system/watchdog — samme handlinger som CLI'en:
+ *   {"timeout_s": 5-120}            set watchdog timeout (gemt, virker straks)
+ *   {"action": "clear_safemode"}    clear safemode
+ */
+esp_err_t api_handler_system_watchdog_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  char content[128];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) return api_send_error(req, 400, "Empty body");
+  content[ret] = '\0';
+  JsonDocument in;
+  if (deserializeJson(in, content)) return api_send_error(req, 400, "Invalid JSON");
+
+  bool did = false;
+  if (in.containsKey("timeout_s")) {
+    long s = in["timeout_s"] | 0;
+    if (!watchdog_set_timeout((uint32_t)s * 1000UL)) {
+      return api_send_error(req, 400, "timeout_s skal vaere 5-120");
+    }
+    did = true;
+  }
+  const char *action = in["action"] | "";
+  if (strcmp(action, "clear_safemode") == 0) {
+    watchdog_clear_safe_mode();
+    did = true;
+  } else if (action[0]) {
+    return api_send_error(req, 400, "Ukendt action (clear_safemode)");
+  }
+  if (!did) return api_send_error(req, 400, "Angiv timeout_s og/eller action");
+
+  char resp[96];
+  snprintf(resp, sizeof(resp), "{\"status\":\"ok\",\"timeout_ms\":%lu,\"safe_mode\":%s}",
+           (unsigned long)watchdog_get_state()->timeout_ms, watchdog_safe_mode() ? "true" : "false");
+  return api_send_json(req, resp);
 }
 
 /* ============================================================================
@@ -9250,7 +9341,9 @@ static esp_err_t send_metrics_response(httpd_req_t *req, bool include_registers)
   }
 
   // --- Alarm log metrics ---
-  alarm_check_thresholds();
+  // FEAT-427: alarm_check_thresholds() kaldes nu fra hovedloekken (main.cpp),
+  // saa alarmer udloeses ogsaa uden aabent dashboard/Prometheus — og kun fra
+  // EN task (dens prev-taellere er ikke traadsikre).
   PROM_APPEND("# HELP alarm_log_count Total alarm entries in log\n");
   PROM_APPEND("# TYPE alarm_log_count gauge\n");
   PROM_APPEND("alarm_log_count %d\n", alarm_log_count);
@@ -10765,6 +10858,7 @@ static const V1Route v1_routes[] = {
   {"/api/system/load",      true,  HTTP_POST,   api_handler_system_load},
   {"/api/system/defaults",  true,  HTTP_POST,   api_handler_system_defaults},
   {"/api/system/watchdog",  true,  HTTP_GET,    api_handler_system_watchdog},
+  {"/api/system/watchdog",  true,  HTTP_POST,   api_handler_system_watchdog_post},  // FEAT-427
   {"/api/system/backup",    true,  HTTP_GET,    api_handler_system_backup},
   {"/api/system/restore",   true,  HTTP_POST,   api_handler_system_restore},
   {"/api/http",             true,  HTTP_POST,   api_handler_http_config_post},

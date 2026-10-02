@@ -9,6 +9,7 @@
  */
 
 #include "mb_async.h"
+#include "watchdog_monitor.h"  // FEAT-427
 #include "modbus_master.h"
 #include "st_builtin_modbus.h"
 #include "mb_activity_log.h"
@@ -552,7 +553,10 @@ static void mb_async_task_func(void *pvParameters) {
 
   uint32_t last_sweep_ms = 0;
 
+  watchdog_task_subscribe();  // FEAT-427: haenger tasken, genstarter watchdog'en enheden
+
   while (g_mb_async.task_running) {
+    watchdog_task_feed();  // FEAT-427: hver runde (semaforen venter max 100 ms)
     // BUG-338: kooperativ pause (fx under `mb scan`). Tjekkes KUN her, oeverst
     // i loopet — aldrig midt i en transaktion — saa denne task garanteret
     // aldrig fanges mens den holder g_modbus_uart_mutex (til forskel fra
@@ -807,6 +811,7 @@ static void mb_async_task_func(void *pvParameters) {
     }
   }
 
+  watchdog_task_unsubscribe();  // FEAT-427: SKAL ske foer sletning
   vTaskDelete(NULL);
 }
 

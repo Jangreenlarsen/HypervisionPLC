@@ -7,6 +7,7 @@
 
 #include <Arduino.h>
 #include "st_logic_engine.h"
+#include "watchdog_monitor.h"  // FEAT-427
 #include "st_compiler.h"
 #include "st_parser.h"
 #include "st_vm.h"
@@ -269,6 +270,7 @@ bool st_logic_execute_program(st_logic_engine_state_t *state, uint8_t program_id
 bool st_logic_engine_loop(st_logic_engine_state_t *state,
                            uint16_t *holding_regs, uint16_t *input_regs) {
   if (!state || !state->enabled) return true;  // Logic mode disabled
+  if (watchdog_safe_mode()) return true;          // FEAT-427 (A4): safe mode — ingen ST
 
   // FEAT-010: PER-PROGRAM due-time scheduler (replaces the old single
   // shared elapsed<interval gate) — each NORMAL program now has its own

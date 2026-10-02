@@ -71,13 +71,42 @@ void watchdog_enable(bool enable);
  *
  * WARNING: Requires watchdog reconfiguration. Call before watchdog_init().
  */
-void watchdog_set_timeout(uint32_t timeout_ms);
+bool watchdog_set_timeout(uint32_t timeout_ms);  // FEAT-427: 5000-120000 ms, false = ugyldig
 
 /**
  * @brief Get current watchdog state (for CLI display)
  * @return Pointer to WatchdogState struct
  */
 WatchdogState* watchdog_get_state(void);
+
+/* FEAT-427: TRUE hvis task-watchdog'en reelt er initialiseret og loopTask er
+ * tilmeldt (kan vaere FALSE selvom state.enabled er 1, hvis init fejlede). */
+bool watchdog_is_active(void);
+
+/* FEAT-427: safe mode (A4). Aktiveres ved opstart efter
+ * WATCHDOG_SAFE_MODE_STREAK crashes i traek. Mens den er aktiv: ingen ST-
+ * udfoerelse, og alle udgangs-mappings tvinges til deres sikre tilstand
+ * (gpio_mapping_safe_value(); udefineret = OFF). */
+#define WATCHDOG_SAFE_MODE_STREAK   3
+#define WATCHDOG_STABLE_UPTIME_MS   600000UL   // 10 min drift = ikke laengere "crash i traek"
+bool watchdog_safe_mode(void);
+void watchdog_clear_safe_mode(void);
+bool watchdog_reset_was_crash(void);   // seneste opstart skyldtes et crash/watchdog
+
+/* FEAT-427: overvaagning af baggrunds-tasks (mb_async, expansion-workers).
+ * subscribe() kaldes EN gang oeverst i taskens funktion, feed() i hver
+ * loekke-runde, og unsubscribe() SKAL kaldes foer vTaskDelete(NULL) — ellers
+ * udloeser watchdog'en, fordi en tilmeldt task holder op med at fodre.
+ * Alle er no-ops naar watchdog'en ikke er aktiv. */
+void watchdog_task_subscribe(void);
+void watchdog_task_feed(void);
+void watchdog_task_unsubscribe(void);
+
+/* FEAT-427: udskriv tilmeldte tasks + tid siden sidste fodring (show watchdog). */
+void watchdog_print_tasks(void);
+
+/* FEAT-427: overvaagede tasks til REST/GUI. Returnerer antal (max max_out). */
+uint8_t watchdog_get_tasks(char (*names)[16], uint32_t *age_ms, uint8_t max_out);
 
 /**
  * @brief Convert an esp_reset_reason_t value (as stored in

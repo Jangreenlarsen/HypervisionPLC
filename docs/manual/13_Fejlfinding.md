@@ -77,6 +77,19 @@ Den afgørende forskel fra A/B: her hjælper `Reinit` faktisk (nulstiller den fa
 
 **Andre typiske årsager til "værdien opdateres aldrig" i et ST-program:** forkert register (fx kanal 2 i stedet for kanal 1 på et temperaturmodul), `/` brugt til heltalsdivision (giver REAL), eller at samme værdi skrives igen (write-dedup) — se [§8.7 "Faldgruber"](08_ST_Logic_Programmering.md#faldgruber-ved-modbus-fra-st).
 
+## 13.4b "PLC'en er i safe mode"
+
+**Symptom:** ST-programmerne kører ikke, udgangene står fast, alarmloggen viser "SAFE MODE", og `show watchdog` siger `Safe mode: *** AKTIV ***`.
+
+**Årsag (FEAT-427):** PLC'en er genstartet af et crash eller en watchdog **3 gange i træk**, hver gang efter under 10 minutters drift. For at bryde en boot-loop starter den så uden ST, og alle udgangs-mappings tvinges til deres sikre tilstand (defineret med `set gpio <pin> safe on|off`; ikke defineret = OFF). Direkte skrivning til GPIO via REST afvises.
+
+**Sådan:**
+1. `show watchdog` → `Last error` viser årsag og drifttid for det seneste crash, `Crashes` antal i alt og i træk.
+2. Find årsagen — typisk et nyt ST-program, en ny GPIO-mapping eller ny hardware (fx Ethernet). Slå det fra.
+3. `clear safemode` — ST kører igen, og udgangene følger igen deres coils. Crasher den igen 3 gange i træk, går den tilbage i safe mode.
+
+"Crash i træk"-tælleren nulstilles efter 10 minutters stabil drift; safe mode forlades aldrig automatisk.
+
 ## 13.5 "Enheden svarer slet ikke"
 
 1. **Fysisk:** lyser en status-LED (hvis boardet har én, se [§2.5](02_Hardware_og_Moduler.md#25-status-led-og-fysiske-indikatorer))? Er der strøm?

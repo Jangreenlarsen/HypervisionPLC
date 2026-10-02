@@ -33,7 +33,8 @@ Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 | GET | `/api` , `/api/` | CHECK_AUTH | Endpoint-discovery (statisk, **forældet** — mangler flere nyere endpoints, brug denne reference i stedet) |
 | GET | `/api/status` | CHECK_AUTH | version, build, uptime_ms, heap_free, wifi_connected, ip, modbus_slave_id, https |
 | GET | `/api/version` | CHECK_AUTH | api_version, firmware_version, build, min_supported_api, versioned_prefix |
-| GET | `/api/system/watchdog` | CHECK_AUTH | enabled, timeout_ms, reboot_count, last_reset_reason, last_error, heap-info |
+| GET | `/api/system/watchdog` | CHECK_AUTH | enabled, timeout_ms, reboot_count (alle opstarter), last_reset_reason, last_error, last_reboot_uptime_ms (0 = ukendt), heap-info. **FEAT-427:** `active` (watchdog'en kører reelt), `crash_count`, `crash_streak`, `safe_mode`, `tasks` [{name, age_ms}] |
+| POST | `/api/system/watchdog` | CHECK_AUTH_WRITE | **FEAT-427.** Body: `{"timeout_s":5-120}` (gemmes, virker straks) og/eller `{"action":"clear_safemode"}`. Svar: `{"status":"ok","timeout_ms":N,"safe_mode":bool}` |
 | POST | `/api/system/reboot` | CHECK_AUTH_WRITE | Genstarter ESP32 (1 sek. efter svar er sendt) |
 | POST | `/api/system/save` | CHECK_AUTH_WRITE | Gemmer hele config til NVS (inkl. CRC16) |
 | POST | `/api/system/load` | CHECK_AUTH_WRITE | Genindlæser + anvender config fra NVS |
@@ -115,6 +116,8 @@ Adresseområder: HR/IR 0–255, coils/DI 0–255.
 | DELETE | `/api/gpio/{pin}` | CHECK_AUTH_WRITE | Fjern GPIO-mapping |
 | GET / POST | `/api/gpio/2/heartbeat` *(egen eksakt registrering, registreret FØR `/api/gpio/*`)* | GET: CHECK_AUTH · POST: CHECK_AUTH (+ write-check) | GET: `{"enabled":bool,"gpio2_user_mode":bool}`. POST body: `{"enabled":bool}` — styr heartbeat-LED vs. brugerkode på GPIO2 |
 
+
+**Sikker tilstand (FEAT-427):** udgange i `GET /api/gpio` har feltet `safe` (`"on"` | `"off"` | `"default"` = ikke defineret, OFF i safe mode); `POST /api/gpio/{pin}/config` tager det samme valgfrie felt for udgange. `POST /api/gpio/{pin}` (direkte skrivning) afvises med 409, mens safe mode er aktiv.
 ## B.8a Analog I/O (FEAT-034/035/036/037, ES32D26 only)
 
 | Metode | URI | Auth | Beskrivelse |

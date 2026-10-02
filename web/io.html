@@ -240,7 +240,7 @@
 <div class="card" style="grid-column:1/-1">
 <h2>Eksisterende GPIO-mappings</h2>
 <table class="tbl" id="gpioTable">
-<thead><tr><th>Pin</th><th>Retning</th><th>Bundet til</th><th></th></tr></thead>
+<thead><tr><th>Pin</th><th>Retning</th><th>Bundet til</th><th title="Tilstand udgangen tvinges til i safe mode (FEAT-427). Ikke defineret = OFF">Sikker tilstand</th><th></th></tr></thead>
 <tbody id="gpioBody"><tr><td colspan="4" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
 </table>
 <div class="subhdr">Opret ny mapping</div>
@@ -269,6 +269,8 @@
 <input type="number" id="gpioNewReg" min="0" max="255" value="0"></div>
 <div class="fld" id="gpioNewCoilWrap" hidden><label>Coil-indeks (0-255)</label>
 <input type="number" id="gpioNewCoil" min="0" max="255" value="0"></div>
+<div class="fld" id="gpioNewSafeWrap" hidden><label title="Tilstand udgangen tvinges til i safe mode">Sikker tilstand</label>
+<select id="gpioNewSafe"><option value="default">Ikke defineret (OFF)</option><option value="off">OFF</option><option value="on">ON</option></select></div>
 </div>
 <div class="btn-row"><button class="btn btn-success btn-sm" onclick="createGpioMapping()">Opret mapping</button></div>
 <div class="alert" id="gpioAlert"></div>
@@ -681,19 +683,21 @@ function updateGpioNewDirUI(){
   const isInput=$('gpioNewDir').value==='input';
   $('gpioNewRegWrap').hidden=!isInput;
   $('gpioNewCoilWrap').hidden=isInput;
+  $('gpioNewSafeWrap').hidden=isInput;  // FEAT-427
 }
 function loadGpioMappings(){
   api('/api/gpio').then(r=>r.json()).then(d=>{
     const rows=Array.isArray(d.gpios)?d.gpios:[];
     if(rows.length===0){
-      $('gpioBody').innerHTML='<tr><td colspan="4" style="color:#6c7086;text-align:center">Ingen GPIO-mappings konfigureret</td></tr>';
+      $('gpioBody').innerHTML='<tr><td colspan="5" style="color:#6c7086;text-align:center">Ingen GPIO-mappings konfigureret</td></tr>';
       return;
     }
     $('gpioBody').innerHTML=rows.map(r=>{
       const bound=(r.direction==='input')?('DI '+r.register):(r.coil!=null?('Coil '+r.coil):'-');
       // BUG-428: mapping paa en reserveret pin — anvendes ikke af firmwaren
       const warn=r.reserved?'<div style="color:#f38ba8;font-size:11px">⚠ Pinnen er optaget: '+String(r.reserved).replace(/[<>&]/g,'')+' — mappingen ignoreres. Slet den.</div>':'';
-      return '<tr'+(r.reserved?' style="background:#3b1f2b"':'')+'><td>'+pinLabel(r.pin)+warn+'</td><td>'+(r.direction||'-')+'</td><td>'+bound+'</td>'+
+      const safe=r.direction==='input'?'-':(r.safe==='on'?'<b style="color:#a6e3a1">ON</b>':r.safe==='off'?'<b>OFF</b>':'<span style="color:#6c7086" title="Ikke defineret — OFF i safe mode">OFF (std)</span>');  // FEAT-427
+      return '<tr'+(r.reserved?' style="background:#3b1f2b"':'')+'><td>'+pinLabel(r.pin)+warn+'</td><td>'+(r.direction||'-')+'</td><td>'+bound+'</td><td>'+safe+'</td>'+
         '<td><button class="btn btn-sm btn-danger" onclick="deleteGpioMapping('+r.pin+')">Slet</button></td></tr>';
     }).join('');
   }).catch(()=>{$('gpioBody').innerHTML='<tr><td colspan="4" style="color:#6c7086;text-align:center">Kunne ikke hente GPIO-mappings</td></tr>';});
@@ -703,7 +707,7 @@ function createGpioMapping(){
   const dir=$('gpioNewDir').value;
   const body={direction:dir};
   if(dir==='input')body.register=parseInt($('gpioNewReg').value)||0;
-  else body.coil=parseInt($('gpioNewCoil').value)||0;
+  else { body.coil=parseInt($('gpioNewCoil').value)||0; body.safe=$('gpioNewSafe').value; }  // FEAT-427
   api('/api/gpio/'+pin+'/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
     if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
     return r.json();

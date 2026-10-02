@@ -24,6 +24,7 @@
 #include "registers_persist.h"
 #include "ip_acl.h"
 #include "watchdog_monitor.h"
+#include "gpio_mapping.h"  // FEAT-427
 #include "version.h"
 #include "cli_shell.h"
 #include "config_struct.h"
@@ -3022,6 +3023,8 @@ void cli_cmd_show_gpio(void) {
       } else {
         debug_print("COIL:");
         debug_print_uint(map->output_reg);
+        int8_t sf = gpio_mapping_safe_get(map->gpio_pin);  // FEAT-427
+        debug_print(sf == 1 ? "  safe:ON" : sf == 0 ? "  safe:OFF" : "  safe:(OFF)");
       }
       debug_print("  [fjern: 'no set gpio ");
       debug_print_uint(map->gpio_pin);
@@ -4688,12 +4691,20 @@ void cli_cmd_show_watchdog(void) {
   debug_println("=== Watchdog Monitor (v4.0+) ===");
   debug_print("Status: ");
   debug_println(wdt->enabled ? "ENABLED" : "DISABLED");
+  // FEAT-427: om task-watchdog'en REELT koerer (init kan fejle selvom enabled=1)
+  debug_print("Aktiv: ");
+  debug_println(watchdog_is_active() ? "JA" : "NEJ (init fejlede, eller slaaet fra og genstartet)");
   debug_print("Timeout: ");
   debug_print_uint(wdt->timeout_ms / 1000);
   debug_println(" seconds");
   debug_print("Reboot counter: ");
   debug_print_uint(wdt->reboot_counter);
-  debug_println("");
+  debug_println("  (alle opstarter)");
+  // FEAT-427 (A3/A4)
+  debug_printf("Crashes: %lu i alt, %u i traek (safe mode ved %u)\n",
+               (unsigned long)wdt->crash_counter, (unsigned)wdt->crash_streak, (unsigned)WATCHDOG_SAFE_MODE_STREAK);
+  debug_print("Safe mode: ");
+  debug_println(watchdog_safe_mode() ? "*** AKTIV *** (ST stoppet, udgange i sikker tilstand — 'clear safemode')" : "nej");
   debug_print("Current uptime: ");
   debug_print_uint(millis() / 1000);
   debug_println(" seconds");
@@ -4724,8 +4735,13 @@ void cli_cmd_show_watchdog(void) {
   }
 
   debug_print("Last reboot uptime: ");
-  debug_print_uint(wdt->last_reboot_uptime_ms / 1000);
-  debug_println(" seconds");
+  if (wdt->last_reboot_uptime_ms == 0) {
+    debug_println("ukendt (stroemsvigt/foerste boot)");
+  } else {
+    debug_print_uint(wdt->last_reboot_uptime_ms / 1000);
+    debug_println(" seconds");
+  }
+  watchdog_print_tasks();  // FEAT-427
   debug_println("");
 }
 

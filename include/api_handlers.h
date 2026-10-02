@@ -317,6 +317,7 @@ esp_err_t api_handler_hostname_post(httpd_req_t *req);
 
 /** FEAT-025: GET /api/system/watchdog — Watchdog status */
 esp_err_t api_handler_system_watchdog(httpd_req_t *req);
+esp_err_t api_handler_system_watchdog_post(httpd_req_t *req);  // FEAT-427
 
 /** FEAT-021: Bulk register operations */
 esp_err_t api_handler_hr_bulk_read(httpd_req_t *req);

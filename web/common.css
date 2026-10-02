@@ -66,6 +66,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .badge-ok{background:#a6e3a1;color:#1e1e2e}
 
 .badge-off{background:#45475a;color:#a6adc8}
+.badge-warn{background:#fab387;color:#1e1e2e}
 
 .subhdr.sep{border-top:1px solid #313244;padding-top:10px;margin-top:14px}
 

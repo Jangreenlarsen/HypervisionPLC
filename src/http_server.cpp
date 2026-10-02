@@ -114,6 +114,7 @@ extern esp_err_t api_handler_telnet_post(httpd_req_t *req);
 extern esp_err_t api_handler_hostname_get(httpd_req_t *req);
 extern esp_err_t api_handler_hostname_post(httpd_req_t *req);
 extern esp_err_t api_handler_system_watchdog(httpd_req_t *req);
+extern esp_err_t api_handler_system_watchdog_post(httpd_req_t *req);  // FEAT-427
 extern esp_err_t api_handler_hr_bulk_read(httpd_req_t *req);
 extern esp_err_t api_handler_hr_bulk_write(httpd_req_t *req);
 extern esp_err_t api_handler_ir_bulk_read(httpd_req_t *req);
@@ -812,6 +813,13 @@ static const httpd_uri_t uri_system_watchdog = {
   .uri      = "/api/system/watchdog",
   .method   = HTTP_GET,
   .handler  = api_handler_system_watchdog,
+  .user_ctx = NULL
+};
+// FEAT-427: timeout + forlad safe mode fra GUI
+static const httpd_uri_t uri_system_watchdog_post = {
+  .uri      = "/api/system/watchdog",
+  .method   = HTTP_POST,
+  .handler  = api_handler_system_watchdog_post,
   .user_ctx = NULL
 };
 
@@ -1516,6 +1524,7 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_hostname_post);
   // v6.3.0: FEAT-025 Watchdog
   httpd_register_uri_handler(http_state.server, &uri_system_watchdog);
+  httpd_register_uri_handler(http_state.server, &uri_system_watchdog_post);  // FEAT-427
   // v6.3.0: FEAT-027 CORS preflight
   httpd_register_uri_handler(http_state.server, &uri_cors_preflight_root);
   httpd_register_uri_handler(http_state.server, &uri_cors_preflight);
