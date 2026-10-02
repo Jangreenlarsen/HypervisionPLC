@@ -18,12 +18,13 @@
 
 /* Magic number "STBC" */
 #define ST_BYTECODE_MAGIC   0x53544243
-#define ST_BYTECODE_VERSION 4  // v4 (BUG-384): new ST_OP_STORE_PARAM inserted into st_opcode_t
+#define ST_BYTECODE_VERSION 5  // v5 (FEAT-428): header + fw_build — cached bytecode is tied to the firmware build
+                                // v4 (BUG-384): new ST_OP_STORE_PARAM inserted into st_opcode_t
                                 // shifts the numeric value of every opcode declared after it —
                                 // old cached .bc files must be invalidated and recompiled, not
                                 // reinterpreted with the new encoding. v3: var_names 32->16 bytes
 
-/* Bytecode file header (16 bytes) */
+/* Bytecode file header (20 bytes, v5) */
 typedef struct __attribute__((packed)) {
   uint32_t magic;             // 0x53544243 ("STBC")
   uint16_t version;           // Format version
@@ -33,6 +34,7 @@ typedef struct __attribute__((packed)) {
   uint8_t  has_func_registry; // 1 if function registry follows instructions
   uint8_t  reserved;          // Padding
   uint32_t source_crc32;      // CRC32 of source code (invalidation key)
+  uint32_t fw_build;          // FEAT-428: BUILD_NUMBER of the firmware that compiled it (invalidation key)
 } st_bc_header_t;
 
 /**

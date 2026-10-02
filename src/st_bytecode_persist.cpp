@@ -7,6 +7,7 @@
  */
 
 #include "st_bytecode_persist.h"
+#include "build_version.h"  // FEAT-428: BUILD_NUMBER
 #include "debug.h"
 #include "debug_flags.h"
 #include <string.h>
@@ -83,6 +84,7 @@ bool st_bytecode_save(uint8_t program_id, const st_bytecode_program_t *bytecode,
   header.exported_var_count = bytecode->exported_var_count;
   header.has_func_registry = (bytecode->func_registry != NULL) ? 1 : 0;
   header.source_crc32 = st_crc32((const uint8_t *)source, source_size);
+  header.fw_build = (uint32_t)BUILD_NUMBER;  // FEAT-428
 
   // Write header (16 bytes)
   if (file.write((uint8_t *)&header, sizeof(header)) != sizeof(header)) {
@@ -185,6 +187,18 @@ bool st_bytecode_load(uint8_t program_id, st_bytecode_program_t *bytecode,
   if (header.version != ST_BYTECODE_VERSION) {
     debug_printf("[BC] %s: version mismatch (file=%u, expected=%u) -> recompile\n",
                  filename, header.version, ST_BYTECODE_VERSION);
+    file.close();
+    return false;
+  }
+
+  // FEAT-428: bytecode compiled by a DIFFERENT firmware build is never reused —
+  // a compiler/VM change that forgot to bump ST_BYTECODE_VERSION would
+  // otherwise run stale bytecode on the new firmware until a manual recompile
+  // (seen in the field: runtime errors gone after "recompile"). Costs one
+  // compile per program on the first boot after each firmware update.
+  if (header.fw_build != (uint32_t)BUILD_NUMBER) {
+    debug_printf("[BC] %s: firmware build changed (file=%lu, now=%lu) -> recompile\n",
+                 filename, (unsigned long)header.fw_build, (unsigned long)BUILD_NUMBER);
     file.close();
     return false;
   }
