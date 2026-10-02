@@ -5770,6 +5770,11 @@ static void expansion_board_to_json(uint8_t index, const ExpansionBoard *b, Json
   jo["ip"] = ip_str;
   jo["type"] = b->board_type;
   jo["has_token"] = (b->token[0] != '\0');
+  // BUG-431: alder paa boardets seneste Modbus TCP-svar (data-planen ST
+  // bruger). -1 = intet svar siden opstart. Dashboardet viser boardet online
+  // naar denne er frisk, uanset om management-API'et svarer langsomt.
+  uint32_t rx = modbus_expansion_board_last_rx_ms(index + 1);
+  jo["data_age_ms"] = rx ? (long)(millis() - rx) : -1L;
 }
 
 // GET /api/expansion/boards — liste over konfigurerede boards. Returnerer
@@ -5787,7 +5792,7 @@ esp_err_t api_handler_expansion_boards_get(httpd_req_t *req)
     JsonObject jo = boards.add<JsonObject>();
     expansion_board_to_json(i, &g_persist_config.expansion_boards[i], jo);
   }
-  char buf[1024];
+  char buf[2048];  // BUG-431: 1024 kunne afkorte listen ved mange boards
   serializeJson(doc, buf, sizeof(buf));
   return api_send_json(req, buf);
 }
@@ -6235,9 +6240,16 @@ esp_err_t api_handler_expansion_action_status_get(httpd_req_t *req)
     doc["response"] = nullptr;
   }
 
-  char buf[1600];
-  serializeJson(doc, buf, sizeof(buf));
-  return api_send_json(req, buf);
+  // BUG-431: boardets svar kan vaere op til 1536 bytes — en fast buffer paa
+  // 1600 afkortede hele svaret til ugyldig JSON (dashboardet hang paa
+  // "Tjekker..."). Allokeres efter faktisk stoerrelse.
+  size_t need = measureJson(doc) + 1;
+  char *buf = (char *)malloc(need);
+  if (!buf) return api_send_error(req, 500, "Out of memory");
+  serializeJson(doc, buf, need);
+  esp_err_t ret = api_send_json(req, buf);
+  free(buf);
+  return ret;
 }
 
 /* ============================================================================

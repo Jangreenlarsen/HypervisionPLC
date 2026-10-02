@@ -60,6 +60,10 @@ typedef struct {
 // returnerer det faktiske antal skrevet (0..min(MODBUS_EXPANSION_MAX_CONNECTIONS, max_out)).
 uint8_t modbus_expansion_get_connections(mbx_connection_info_t *out, uint8_t max_out);
 
+// BUG-431: millis() for boardets seneste fuldstaendige Modbus TCP-svar (ogsaa
+// exception — boardet svarede). 0 = intet svar endnu. board = 1-8.
+uint32_t modbus_expansion_board_last_rx_ms(uint8_t board);
+
 /**
  * Realistisk forbindelses-loft (IKKE et arkitektonisk loft på 64 kanaler —
  * blot hvor mange samtidige TCP-sockets DENNE firmware/ESP-IDF-build reelt

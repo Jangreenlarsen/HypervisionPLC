@@ -722,6 +722,29 @@ function _expWatchdogExpired(){
   return _expCycleRunning && (Date.now()-_expCycleStartMs>90000);
 }
 
+// BUG-431: status pr. board bevares mellem runder (ingen "Tjekker..."-flimren),
+// og "online" afgøres af to kilder:
+//  1. data-planen: boardets seneste Modbus TCP-svar (data_age_ms fra PLC'en) —
+//     det ST faktisk bruger. Frisk (< 60 s) = online, uanset management-API'et.
+//  2. management-API'et (/status, fw + kanaler) — kun 2 fejl i træk giver
+//     "Offline"; "optaget"/et andet kalds resultat/poll-timeout er uafklaret
+//     og ændrer ikke status.
+const EXP_DATA_FRESH_MS=60000;
+let _expState={};
+function _expRender(b){
+  const el=$('expDashBoard'+b.id);if(!el)return;
+  const st=_expState[b.id]||{};
+  const fresh=b.data_age_ms>=0&&b.data_age_ms<EXP_DATA_FRESH_MS;
+  const mgmtOk=st.fails===0&&st.fw!==undefined;
+  let txt,cls,on;
+  if(mgmtOk){txt='Online — fw '+st.fw+' · '+st.ch+' kanaler';cls='val val-ok';on=true;}
+  else if(fresh){txt='Online (Modbus TCP)'+(st.fails>0?' — management-API svarer ikke':'');cls='val val-ok';on=true;}
+  else if((st.fails||0)>=2){txt='Offline';cls='val val-err';on=false;}
+  else if(st.fw!==undefined){txt='Online — fw '+st.fw+' · '+st.ch+' kanaler';cls='val val-ok';on=true;}  // ét enkelt fejlet tjek
+  else{txt=st.note||'Tjekker...';cls='val val-n';on=false;}
+  if(fresh&&b.data_age_ms>=0)txt+=' · TCP-svar '+Math.round(b.data_age_ms/1000)+' s siden';
+  el.textContent=txt;el.className=cls;el.dataset.online=on?'1':'0';
+}
 function fetchExpansionList(){
   if(_expCycleRunning){
     if(!_expWatchdogExpired())return;
@@ -734,23 +757,24 @@ function fetchExpansionList(){
     if(!d.boards||d.boards.length===0){
       list.innerHTML='<span class="empty-msg">Ingen boards konfigureret (se System-siden)</span>';
       badge($('badgeExpansion'),false,'Ingen');
-      _expBoardList=[];
+      _expBoardList=[];_expState={};
       _expCycleRunning=false;
       return;
     }
+    const sig=b=>b.id+':'+b.number+':'+b.name;
+    const changed=d.boards.map(sig).join('|')!==_expBoardList.map(sig).join('|');
     _expBoardList=d.boards;
-    refreshTrendSrcOptions();  // FEAT-425: boards som trend-kilder
-    list.innerHTML=d.boards.map(b=>'<div class="row"><span class="lbl">#'+b.number+' '+b.name+'</span><span class="val val-n" id="expDashBoard'+b.id+'">Tjekker...</span></div>').join('');
+    if(changed){
+      refreshTrendSrcOptions();  // FEAT-425: boards som trend-kilder
+      list.innerHTML=d.boards.map(b=>'<div class="row"><span class="lbl">#'+b.number+' '+b.name+'</span><span class="val val-n" id="expDashBoard'+b.id+'">Tjekker...</span></div>').join('');
+    }
+    d.boards.forEach(_expRender);  // data-planen giver status med det samme
     _expCheckSequential(0);
   }).catch(()=>{_expCycleRunning=false});
 }
 
 function _expCheckSequential(idx){
   if(idx>=_expBoardList.length){
-    // v7.9.68.6: reset the flag FIRST -- badge()/forEach below touch DOM
-    // elements that can legitimately be absent (customized layout), and
-    // badge() is now null-safe too (common.js), but ordering this first
-    // means ANY future exception here still can't leave the cycle stuck.
     _expCycleRunning=false;
     const total=_expBoardList.length;
     let onlineCount=0;
@@ -759,42 +783,30 @@ function _expCheckSequential(idx){
     return;
   }
   const board=_expBoardList[idx];
-  const el=$('expDashBoard'+board.id);
+  const st=_expState[board.id]||(_expState[board.id]={fails:0});
+  const next=()=>{_expRender(board);_expCheckSequential(idx+1);};
   dashFetch('/api/expansion/boards/'+board.id+'/status',{method:'POST'}).then(r=>{
-    if(!r.ok){
-      // 409 = et andet expansion-board-kald var i gang (fx en admin der lige
-      // brugte "Test forbindelse" på System-siden) — ikke en reel fejl på
-      // BOARDET, så vis en neutral status i stedet for "Offline".
-      if(el){el.textContent='Optaget — prøv igen om lidt';el.className='val val-n';el.dataset.online='0'}
-      _expCheckSequential(idx+1);
-      return;
-    }
-    _expPollResult(el,()=>_expCheckSequential(idx+1));
-  }).catch(()=>{
-    if(el){el.textContent='Fejl';el.className='val val-err';el.dataset.online='0'}
-    _expCheckSequential(idx+1);
-  });
+    if(!r.ok){st.note='Optaget — prøv igen om lidt';next();return;}  // 409: et andet kald kører — uafklaret
+    _expPollResult(board,st,next);
+  }).catch(()=>next());
 }
 
-function _expPollResult(el,cb,tries){
+function _expPollResult(board,st,cb,tries){
   tries=tries||0;
   dashFetch('/api/expansion/action-status',{}).then(r=>r.json()).then(d=>{
-    if(!d.valid){cb();return}
+    // Resultat-slottet er fælles for hele PLC'en — kun vores eget kald tæller
+    if(!d.valid||d.board_id!==board.id||d.kind!=='status'){cb();return}
     if(!d.done){
-      if(tries>15){if(el){el.textContent='Timeout';el.className='val val-err';el.dataset.online='0'}cb();return}
-      setTimeout(()=>_expPollResult(el,cb,tries+1),300);
+      if(tries>15){cb();return}  // svarer langsomt — uafklaret, ikke offline
+      setTimeout(()=>_expPollResult(board,st,cb,tries+1),300);
       return;
     }
-    if(el){
-      if(d.transport_ok&&d.response){
-        el.textContent='Online — fw '+(d.response.fw_version||'?')+' · '+(d.response.active_channels!==undefined?d.response.active_channels:'?')+' kanaler';
-        el.className='val val-ok';
-        el.dataset.online='1';
-      }else{
-        el.textContent='Offline';
-        el.className='val val-err';
-        el.dataset.online='0';
-      }
+    if(d.transport_ok&&d.response){
+      st.fails=0;
+      st.fw=d.response.fw_version||'?';
+      st.ch=d.response.active_channels!==undefined?d.response.active_channels:'?';
+    }else if(!d.transport_ok){
+      st.fails=(st.fails||0)+1;
     }
     cb();
   }).catch(()=>{cb()});

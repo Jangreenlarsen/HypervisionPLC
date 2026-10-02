@@ -48,6 +48,12 @@ typedef struct {
 } mbx_connection_t;
 
 static mbx_connection_t g_mbx_conn[MODBUS_EXPANSION_MAX_CONNECTIONS];
+static volatile uint32_t g_mbx_board_last_rx_ms[EXPANSION_BOARD_MAX];  // BUG-431
+
+uint32_t modbus_expansion_board_last_rx_ms(uint8_t board) {
+  if (board < 1 || board > EXPANSION_BOARD_MAX) return 0;
+  return g_mbx_board_last_rx_ms[board - 1];
+}
 
 // BUG-419: g_mbx_conn[] was written under the original assumption of a
 // single calling task (true before BUG-417) — the slot-scan-then-claim
@@ -261,6 +267,7 @@ static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slav
   }
 
   conn->last_activity_ms = millis();
+  if (got > 0) g_mbx_board_last_rx_ms[board_idx] = conn->last_activity_ms ? conn->last_activity_ms : 1;  // BUG-431
   *resp_pdu_len = got;
 
   if (got == 0) return MB_TIMEOUT;
