@@ -8,6 +8,7 @@
 #include <Arduino.h>
 #include "st_logic_engine.h"
 #include "watchdog_monitor.h"  // FEAT-427
+#include "st_wdt.h"
 #include "st_compiler.h"
 #include "st_parser.h"
 #include "st_vm.h"
@@ -228,6 +229,9 @@ bool st_logic_execute_program(st_logic_engine_state_t *state, uint8_t program_id
   if (elapsed_ms > prog->interval_ms) {
     prog->overrun_count++;
   }
+
+  // FEAT-427 lag B: ST-watchdog'ens fejl-/tids-/stilstandstaellere
+  st_wdt_after_exec(program_id, success && !vm.error, elapsed_us);
 
   // BUG-106 FIX: Check for errors BEFORE copying variables back
   if (!success || vm.error) {

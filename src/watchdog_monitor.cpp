@@ -193,6 +193,11 @@ void watchdog_init(void) {
       g_watchdog_state.safe_mode = 1;
     }
   }
+  // FEAT-427 lag B: ogsaa kontrollerede genstarter fra ST-watchdog'en
+  // (watchdog_reboot_for, reset-aarsag = software) taeller i crash_streak.
+  if (g_watchdog_state.crash_streak >= WATCHDOG_SAFE_MODE_STREAK) {
+    g_watchdog_state.safe_mode = 1;
+  }
   if (g_watchdog_state.safe_mode) {
     debug_println("WATCHDOG: *** SAFE MODE *** ST stoppet, udgange i sikker tilstand ('clear safemode')");
   }
@@ -276,6 +281,21 @@ void watchdog_clear_safe_mode(void) {
 
 bool watchdog_reset_was_crash(void) {
   return g_reset_was_crash;
+}
+
+void watchdog_reboot_for(const char *reason) {
+  uint32_t up = millis();
+  if (up < WATCHDOG_STABLE_UPTIME_MS && g_watchdog_state.crash_streak < 255) {
+    g_watchdog_state.crash_streak++;
+  } else {
+    g_watchdog_state.crash_streak = 1;
+  }
+  g_watchdog_state.crash_counter++;
+  snprintf(g_watchdog_state.last_error, sizeof(g_watchdog_state.last_error),
+           "Genstart: %s (%u i traek)", reason ? reason : "?", (unsigned)g_watchdog_state.crash_streak);
+  watchdog_save_state();
+  delay(200);
+  esp_restart();
 }
 
 bool watchdog_is_active(void) {

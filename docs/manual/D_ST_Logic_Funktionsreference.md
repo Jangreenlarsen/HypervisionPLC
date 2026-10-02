@@ -284,6 +284,12 @@ Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ek
 > ```
 > **Vigtig forskel fra enkelt-værdi-skrivningerne ovenfor**: `MBX_WRITE_HOLDINGS`/`MBX_WRITE_COILS` opdaterer **ikke** nogen cache-post — der findes ingen meningsfuld enkelt-adresse at cache en multi-register-bekræftelse under (samme begrænsning som RTU-sidens `MB_WRITE_HOLDINGS`). Kun `MBX_SUCCESS()`/`MBX_BUSY()`/`MBX_ERROR()` afspejler resultatet, ikke et efterfølgende `MBX_READ_HOLDING`-kald mod samme adresse.
 
+### D.5.9c Watchdog (FEAT-427)
+
+| Funktion | Parametre | Retur | Semantik |
+|---|---|---|---|
+| `WDT_FEED()` | — | BOOL (altid TRUE) | Fodrer programmets heartbeat-watchdog (`set logic <id> wdt heartbeat <ms>`). Uden heartbeat-grænse gør kaldet intet. Kald det kun når programmet er "sundt" — se §8.9.1 |
+
 ### D.5.10 Persistens
 
 | Funktion | Parameter | Retur | Semantik |

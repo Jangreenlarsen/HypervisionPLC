@@ -63,6 +63,7 @@
 #include "trend_recorder.h"
 #include "ntp_driver.h"
 #include "gpio_mapping.h"  // BUG-428
+#include "st_wdt.h"  // FEAT-427 lag B
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -88,6 +89,7 @@ esp_err_t api_handler_logic_enable(httpd_req_t *req);
 esp_err_t api_handler_logic_disable(httpd_req_t *req);
 esp_err_t api_handler_logic_reinit(httpd_req_t *req);
 esp_err_t api_handler_logic_stats(httpd_req_t *req);
+esp_err_t api_handler_logic_wdt(httpd_req_t *req);  // FEAT-427 lag B
 esp_err_t api_handler_logic_globals(httpd_req_t *req);  // FEAT-007
 esp_err_t api_handler_logic_priority_post(httpd_req_t *req);  // FEAT-010
 esp_err_t api_handler_logic_program_interval_post(httpd_req_t *req);  // FEAT-010
@@ -785,6 +787,8 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/logic/{1-4}/enable",              "Enable program"},
   {"POST",   "/api/logic/{1-4}/disable",             "Disable program"},
   {"POST",   "/api/logic/{1-4}/reinit",              "Cold restart (reset variables)"},
+  {"GET",    "/api/logic/{1-4}/wdt",                 "ST watchdog config + status (FEAT-427)"},
+  {"POST",   "/api/logic/{1-4}/wdt",                 "ST watchdog config / clear (FEAT-427)"},
   {"DELETE", "/api/logic/{1-4}",                     "Delete program"},
   {"GET",    "/api/logic/{1-4}/stats",               "Program stats"},
   {"POST",   "/api/logic/{1-4}/debug/pause",         "Pause program"},
@@ -1780,6 +1784,9 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
     if (uri_len >= 6 && strcmp(uri + uri_len - 6, "/stats") == 0) {
       return api_handler_logic_stats(req);
     }
+    if (uri_len >= 4 && strcmp(uri + uri_len - 4, "/wdt") == 0) {
+      return api_handler_logic_wdt(req);  // FEAT-427 lag B
+    }
   }
 
   // POST suffixes
@@ -1795,6 +1802,9 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
     }
     if (uri_len >= 7 && strcmp(uri + uri_len - 7, "/reinit") == 0) {
       return api_handler_logic_reinit(req);
+    }
+    if (uri_len >= 4 && strcmp(uri + uri_len - 4, "/wdt") == 0) {
+      return api_handler_logic_wdt(req);  // FEAT-427 lag B
     }
     // GAP-13: Variable binding
     if (uri_len >= 5 && strcmp(uri + uri_len - 5, "/bind") == 0) {
@@ -2882,6 +2892,78 @@ esp_err_t api_handler_logic_delete(httpd_req_t *req)
   char buf[256];
   serializeJson(doc, buf, sizeof(buf));
 
+  return api_send_json(req, buf);
+}
+
+/**
+ * FEAT-427 lag B: GET/POST /api/logic/{id}/wdt
+ *   GET  -> {"errors","exec_us","heartbeat_ms","stall_ms","action","tripped","reason",...}
+ *   POST -> samme felter (alle valgfrie, 0 = fra) og/eller {"clear":true}
+ */
+esp_err_t api_handler_logic_wdt(httpd_req_t *req)
+{
+  http_server_stat_request();
+  int id = api_extract_id_from_uri(req, "/api/logic/");
+  if (id < 1 || id > ST_LOGIC_MAX_PROGRAMS) return api_send_error(req, 400, "Invalid program ID (1-4)");
+  uint8_t pid = (uint8_t)(id - 1);
+
+  if (req->method == HTTP_POST) {
+    CHECK_AUTH_WRITE(req);
+    char content[256];
+    int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+    if (ret <= 0) return api_send_error(req, 400, "Empty body");
+    content[ret] = '\0';
+    JsonDocument in;
+    if (deserializeJson(in, content)) return api_send_error(req, 400, "Invalid JSON");
+    st_wdt_cfg_t *c = st_wdt_cfg(pid);
+    if (in.containsKey("errors")) {
+      long v = in["errors"] | 0;
+      if (v < 0 || v > 255) return api_send_error(req, 400, "errors skal vaere 0-255");
+      c->err_limit = (uint8_t)v;
+    }
+    if (in.containsKey("exec_us")) c->exec_us = in["exec_us"] | 0UL;
+    if (in.containsKey("heartbeat_ms")) {
+      uint32_t v = in["heartbeat_ms"] | 0UL;
+      if (v != 0 && v < 100) return api_send_error(req, 400, "heartbeat_ms: 0 eller mindst 100");
+      c->heartbeat_ms = v;
+    }
+    if (in.containsKey("stall_ms")) {
+      uint32_t v = in["stall_ms"] | 0UL;
+      if (v != 0 && v < 100) return api_send_error(req, 400, "stall_ms: 0 eller mindst 100");
+      c->stall_ms = v;
+    }
+    if (in.containsKey("action")) {
+      uint8_t a;
+      if (!st_wdt_parse_action(in["action"] | "", &a)) return api_send_error(req, 400, "action: alarm|stop|restart|safe|reboot");
+      c->action = a;
+    }
+    st_wdt_save();
+    if (in["clear"] | false) st_wdt_clear(pid);
+  } else {
+    CHECK_AUTH(req);
+  }
+
+  const st_wdt_cfg_t *c = st_wdt_cfg(pid);
+  const st_wdt_rt_t *r = st_wdt_rt(pid);
+  uint32_t now = millis();
+  JsonDocument doc;
+  doc["program"] = id;
+  doc["enabled"] = st_wdt_enabled(pid);
+  doc["errors"] = c->err_limit;
+  doc["exec_us"] = c->exec_us;
+  doc["heartbeat_ms"] = c->heartbeat_ms;
+  doc["stall_ms"] = c->stall_ms;
+  doc["action"] = st_wdt_action_str(c->action);
+  doc["tripped"] = r->tripped ? true : false;
+  doc["reason"] = st_wdt_reason_str(r->reason);
+  doc["stopped_by_wdt"] = r->stopped_by_wdt ? true : false;
+  doc["trip_count"] = r->trip_count;
+  doc["restarts"] = r->restarts;
+  doc["consec_errors"] = r->consec_err;
+  doc["feed_age_ms"] = r->last_feed_ms ? (now - r->last_feed_ms) : 0;
+  doc["exec_age_ms"] = r->last_exec_ms ? (now - r->last_exec_ms) : 0;
+  char buf[512];
+  serializeJson(doc, buf, sizeof(buf));
   return api_send_json(req, buf);
 }
 

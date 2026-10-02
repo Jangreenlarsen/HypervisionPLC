@@ -682,6 +682,7 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "MBX_SUCCESS") == 0) func_id = ST_BUILTIN_MBX_SUCCESS;
       else if (strcasecmp(node->data.function_call.func_name, "MBX_BUSY") == 0) func_id = ST_BUILTIN_MBX_BUSY;
       else if (strcasecmp(node->data.function_call.func_name, "MBX_ERROR") == 0) func_id = ST_BUILTIN_MBX_ERROR;
+      else if (strcasecmp(node->data.function_call.func_name, "WDT_FEED") == 0) func_id = ST_BUILTIN_WDT_FEED;  // FEAT-427
       // v7.7.2: Hardware Counter Access
       else if (strcasecmp(node->data.function_call.func_name, "CNT_SETUP") == 0) func_id = ST_BUILTIN_CNT_SETUP;
       else if (strcasecmp(node->data.function_call.func_name, "CNT_SETUP_ADV") == 0) func_id = ST_BUILTIN_CNT_SETUP_ADV;

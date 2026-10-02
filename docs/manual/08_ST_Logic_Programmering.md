@@ -251,6 +251,41 @@ Dette mønster — ST Logic som lokal, altid-kørende beslutningslogik + REST AP
     END_IF;
   ```
 
+### 8.9.1 Watchdog pr. program (FEAT-427)
+
+Hvert af de 4 programmer kan overvåges af sin egen watchdog. Den har fire uafhængige betingelser — hver slås til med en grænse (0/tom = fra) — og **én** handling:
+
+| Betingelse | Udløses når |
+|---|---|
+| **Fejl i træk** (`errors`) | programmet har haft *n* runtime-fejl i træk. Fanger også uendelige løkker, som VM'en afbryder (max-steps) og tæller som fejl |
+| **Udførelsestid** (`exec`, µs) | en udførelse har taget længere end grænsen **3 gange i træk** |
+| **Heartbeat** (`heartbeat`, ms) | programmet har ikke kaldt `WDT_FEED()` inden for tiden |
+| **Stilstand** (`stall`, ms) | programmet er slet ikke blevet udført inden for tiden |
+
+| Handling | Virkning |
+|---|---|
+| `alarm` (standard) | Alarm i alarmloggen — programmet kører videre |
+| `stop` | Alarm + programmet stoppes |
+| `restart` | Alarm + kold genstart af programmet (som Reinit). Hjælper det ikke — 3 restarts, uden 10 minutters fejlfri drift imellem — eskaleres til `safe` (udgange i sikker tilstand + stop). 10 min uden udløsning og uden runtime-fejl nulstiller tælleren |
+| `safe` | Alarm + programmets udgangs-bindings (coils koblet til GPIO-udgange) sættes i deres **sikre tilstand** (Bindings → "Sikker tilstand"; ikke defineret = OFF), og programmet stoppes |
+| `reboot` | Alarm + genstart af hele PLC'en. Tæller med i boot-loop-beskyttelsen — 3 i træk inden for 10 min → safe mode |
+
+Handlingen udføres **én gang**; watchdog'en står derefter som **UDLØST**, til den kvitteres (Monitor-fanen "Kvittér", Indstillinger, `clear logic <id> wdt` eller REST). Kvittering nulstiller tællerne og starter et program igen, hvis det var watchdog'en der stoppede det. Overvågningen evalueres fra hovedløkken hvert 100 ms og er sat på pause i safe mode, mens programmet er deaktiveret/ikke kompileret, og mens debuggeren holder det.
+
+**Heartbeat — kald kun `WDT_FEED()` når programmet er sundt.** Et ubetinget kald i toppen af programmet beviser kun at det kører (det dækker `stall` allerede). Pointen er at fodre når programmets egentlige arbejde lykkes:
+
+```st
+raw := MB_READ_HOLDING(15, 0);
+IF MB_SUCCESS() THEN
+  temp := raw;
+  WDT_FEED();        (* kun naar slaven svarer *)
+END_IF;
+```
+
+Med `set logic 1 wdt heartbeat 5000` og `set logic 1 wdt action safe` går udgangene i sikker tilstand, hvis slaven har været tavs i 5 s.
+
+**Konfiguration:** ST-editoren → Indstillinger → "Watchdog pr. program", CLI `set logic <id> wdt errors|exec|heartbeat|stall <værdi>|off` og `set logic <id> wdt action <handling>` (se [Appendiks A](A_CLI_Kommando_Reference.md)), eller `POST /api/logic/{id}/wdt` ([Appendiks B](B_REST_API_Reference.md)). Status: Monitor-fanen viser "Watchdog: fra / OK / UDLØST" for det valgte program; `show logic <id> wdt` viser også tællere og tid siden sidste `WDT_FEED()`. Konfigurationen gemmes straks i NVS (egen nøgle) — den er endnu ikke med i backup/restore.
+
 ## 8.10 Delte variable mellem programmer (GLOBAL_VAR)
 
 Normalt er Logic1-4 **fuldstændigt isolerede** — hvert program har sit eget variabelrum, og et program kan ikke se eller ændre et andet programs variabler. **`GLOBAL_VAR`** er en separat, delt deklarationsblok (uafhængig af de 4 programmer) hvis variabler alle 4 programmer kan læse og skrive direkte, uden om Modbus-bindinger:

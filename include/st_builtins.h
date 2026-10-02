@@ -150,6 +150,10 @@ typedef enum {
   ST_BUILTIN_MBX_BUSY,           // MBX_BUSY() → BOOL
   ST_BUILTIN_MBX_ERROR,          // MBX_ERROR() → INT
 
+  // FEAT-427 lag B: heartbeat til ST-watchdog'en. Haandteres i VM'en (kender
+  // det kaldende program), ikke i st_builtin_call(). Altid SIDST tilfoejet.
+  ST_BUILTIN_WDT_FEED,           // WDT_FEED() → BOOL (altid TRUE)
+
   ST_BUILTIN_COUNT          // Total number of built-ins
 } st_builtin_func_t;
 

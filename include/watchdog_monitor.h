@@ -93,6 +93,11 @@ bool watchdog_safe_mode(void);
 void watchdog_clear_safe_mode(void);
 bool watchdog_reset_was_crash(void);   // seneste opstart skyldtes et crash/watchdog
 
+/* FEAT-427 lag B: kontrolleret genstart fra ST-watchdog'ens "reboot"-handling.
+ * Gemmer aarsagen i last_error og taeller som et crash i traek (saa en
+ * gentagen "reboot" ogsaa ender i safe mode). Vender aldrig tilbage. */
+void watchdog_reboot_for(const char *reason);
+
 /* FEAT-427: overvaagning af baggrunds-tasks (mb_async, expansion-workers).
  * subscribe() kaldes EN gang oeverst i taskens funktion, feed() i hver
  * loekke-runde, og unsubscribe() SKAL kaldes foer vTaskDelete(NULL) — ellers

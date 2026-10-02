@@ -43,6 +43,7 @@ extern void alarm_raise(uint8_t severity, const char *msg);
 #include "wifi_driver.h"       // BUG-371: wifi_driver_set_hostname()
 #include "ethernet_driver.h"   // BUG-371: ethernet_driver_set_hostname()
 #include "watchdog_monitor.h"
+#include "st_wdt.h"  // FEAT-427 lag B
 #include "register_allocator.h"
 #include "registers_persist.h"
 #include "sse_events.h"        // v7.0.0 - SSE real-time events
@@ -134,6 +135,7 @@ void setup() {
   timer_engine_init();      // Timer feature (4 modes)
   Serial.print("L"); Serial.flush();   // ST Logic
   st_logic_init(st_logic_get_state());  // ST Logic Mode (4 independent programs)
+  st_wdt_init();                        // FEAT-427 lag B: watchdog pr. ST-program
   st_logic_high_task_init();  // FEAT-010: dedicated Core-0 HIGH-priority task (idle until a program is HIGH+enabled)
 
   // FEAT-149: wire-level activity log (Master+Slave) — init before either mode
@@ -412,6 +414,7 @@ void loop() {
   // FEAT-427: alarm-taerskler evalueres her (selv rate-begraenset til hvert
   // 3. s) — tidligere kun naar /api/metrics blev genereret.
   alarm_check_thresholds();
+  st_wdt_loop();  // FEAT-427 lag B: evaluer ST-watchdogs (selv rate-begraenset 100 ms)
 
   // FEAT-427 (A3/A4): rapportér crash/safe mode i alarmloggen én gang efter opstart
   {

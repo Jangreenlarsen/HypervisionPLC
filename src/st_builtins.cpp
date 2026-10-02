@@ -672,6 +672,7 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_WRITE_HOLDINGS: return "MBX_WRITE_HOLDINGS";
     case ST_BUILTIN_MBX_WRITE_COILS:    return "MBX_WRITE_COILS";
     case ST_BUILTIN_MBX_SUCCESS:        return "MBX_SUCCESS";
+    case ST_BUILTIN_WDT_FEED:           return "WDT_FEED";
     case ST_BUILTIN_MBX_BUSY:           return "MBX_BUSY";
     case ST_BUILTIN_MBX_ERROR:          return "MBX_ERROR";
     case ST_BUILTIN_CNT_SETUP:     return "CNT_SETUP";
@@ -795,6 +796,7 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_SUCCESS:   // MBX_SUCCESS() — FEAT-410
     case ST_BUILTIN_MBX_BUSY:      // MBX_BUSY() — FEAT-410
     case ST_BUILTIN_MBX_ERROR:     // MBX_ERROR() — FEAT-410
+    case ST_BUILTIN_WDT_FEED:      // WDT_FEED() — FEAT-427
       return 0;
 
     // FEAT-410: Modbus Expansion Board — 4-arg reads (board, kanal, slave, addr)
@@ -902,6 +904,7 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_WRITE_COILS:    // MBX_WRITE_COILS → BOOL (queued flag) — v7.9.68.0
     case ST_BUILTIN_MBX_SUCCESS:       // MBX_SUCCESS → BOOL — FEAT-410
     case ST_BUILTIN_MBX_BUSY:          // MBX_BUSY → BOOL — FEAT-410
+    case ST_BUILTIN_WDT_FEED:          // WDT_FEED → BOOL — FEAT-427
       return ST_TYPE_BOOL;
 
     // Returns DINT

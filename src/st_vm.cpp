@@ -5,6 +5,7 @@
  * Stack-based interpreter for bytecode execution.
  */
 
+#include "st_wdt.h"  // FEAT-427 lag B: WDT_FEED
 #include "st_vm.h"
 #include "st_logic_config.h"   // FEAT-007: GLOBAL_VAR storage (st_logic_get_state())
 #include "st_logic_engine.h"   // FEAT-007: st_logic_lock_variables()/_unlock_variables()
@@ -2456,6 +2457,11 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
       buf[n] = '\0';
     }
     result = st_vm_string_scratch_alloc(vm, buf);
+  }
+  else if (func_id == ST_BUILTIN_WDT_FEED) {
+    // FEAT-427 lag B: heartbeat — VM'en ved hvilket program der kalder
+    st_wdt_feed(vm->program);
+    result.bool_val = true;
   }
   else {
     result = st_builtin_call(func_id, arg1, arg2);

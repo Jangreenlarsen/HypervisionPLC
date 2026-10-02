@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.34 – 7.9.68.38] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
+
+### NEW FEATURES
+- **FEAT-426:** 64 variabel-slots pr. ST-program (før 32).
+- **FEAT-427 lag A:** task-watchdog dækker også Modbus Master- og expansion-tasks, `set watchdog timeout|enable`, reel drifttid før genstart, crash-tæller, safe mode efter 3 crashes i træk (ingen ST, udgange i sikker tilstand), sikker tilstand pr. udgang (`set gpio <pin> safe on|off|default`, I/O-siden, editorens Bindings), Watchdog-kort i dashboardet, alarmer uden åbent dashboard.
+- **FEAT-427 lag B:** watchdog pr. ST-program — betingelser errors/exec/heartbeat/stall, handlinger alarm/stop/restart/safe/reboot, ST-funktion `WDT_FEED()`, CLI `set/show/clear logic <id> wdt`, REST `/api/logic/{id}/wdt`, editor (Monitor + Indstillinger).
+
+### BUG FIXES
+- **FEAT-428:** cachet ST-bytecode bindes til firmware-build — kompileres om efter hver firmwareopdatering (gav "masse af fejl" indtil manuel recompile).
+- Task-alder i `show watchdog` kunne vise ~4294967 s (uint32-underløb).
+
+---
+
 ## [7.9.68.28 – 7.9.68.33] - 2026-09-27/28 (Modbus-diagnostik, Trend Recorder, sikkerhed, W5500-pins)
 
 > Versionerne 7.8.2 – 7.9.68.27 er ikke ført i denne fil — se `BUGS_INDEX.md` (én række pr. BUG/FEAT med version) og `git log`.

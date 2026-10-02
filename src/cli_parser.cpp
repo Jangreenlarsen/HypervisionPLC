@@ -18,6 +18,7 @@
 #include "mb_debug.h"
 #include "watchdog_monitor.h"  // FEAT-427
 #include "gpio_mapping.h"  // FEAT-427
+#include "st_wdt.h"  // FEAT-427 lag B
 #include "cli_parser.h"
 #include "cli_shell.h"
 #include "cli_commands.h"
@@ -963,6 +964,14 @@ bool cli_parser_execute(char* line) {
         const char* subcommand2 = argv[3];
         const char* subcommand2_norm = normalize_alias(subcommand2);
 
+        // FEAT-427 lag B: show logic <id> wdt
+        if (!strcasecmp(subcommand2, "wdt") || !strcasecmp(subcommand2, "watchdog")) {
+          int pid = atoi(subcommand);
+          if (pid < 1 || pid > ST_LOGIC_MAX_PROGRAMS) { debug_println("ERROR: program-id 1-4"); return false; }
+          st_wdt_cli_show((uint8_t)(pid - 1));
+          return true;
+        }
+
         if (!strcmp(subcommand2_norm, "CODE")) {
           if (!strcmp(subcommand_norm, "ALL")) {
             // show logic all code
@@ -1539,6 +1548,12 @@ bool cli_parser_execute(char* line) {
         return false;
       }
       uint8_t prog_idx = program_id - 1;  // Convert to 0-based index
+
+      // FEAT-427 lag B: set logic <id> wdt <param> <vaerdi>
+      if (!strcasecmp(subcommand, "wdt") || !strcasecmp(subcommand, "watchdog")) {
+        st_wdt_cli_set(prog_idx, argc - 4, argv + 4);
+        return true;
+      }
 
       // Check for enabled:true|false format first (special case)
       if (strstr(subcommand, "enabled:")) {
@@ -2778,6 +2793,14 @@ bool cli_parser_execute(char* line) {
 
     if (!strcmp(what, "COUNTERS")) {
       cli_cmd_clear_counters();
+      return true;
+    } else if (!strcasecmp(argv[1], "logic") && argc >= 4 &&
+               (!strcasecmp(argv[3], "wdt") || !strcasecmp(argv[3], "watchdog"))) {
+      // FEAT-427 lag B: clear logic <id> wdt
+      int pid = atoi(argv[2]);
+      if (pid < 1 || pid > ST_LOGIC_MAX_PROGRAMS) { debug_println("ERROR: program-id 1-4"); return false; }
+      st_wdt_clear((uint8_t)(pid - 1));
+      debug_printf("Logic%d watchdog kvitteret%s", pid, "\n");
       return true;
     } else if (!strcasecmp(argv[1], "safemode")) {
       // FEAT-427 (A4)

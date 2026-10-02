@@ -94,6 +94,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `show logic <id> bytecode` | Dump af kompileret bytecode (opcodes, variabeltabel) |
 | `show logic <id> functions` | Brugerdefinerede funktioner/FUNCTION_BLOCKs (FEAT-003) |
 | `show logic <id> debug [vars\|stack]` | Debugger-state / variabelværdier / stack (FEAT-008) |
+| `show logic <id> wdt` | **FEAT-427.** Programmets watchdog: grænser, handling, status (OK/UDLØST + årsag), fejl i træk, restarts, tid siden sidste `WDT_FEED()` og udførelse |
 
 ### Netværk
 
@@ -131,6 +132,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `set hostname <navn>` | maks. 31 tegn | Sæt hostname |
 | `set echo <on\|off>` | — | Aktivér/deaktivér remote echo |
 | `set watchdog timeout <5-120>` | sekunder | **FEAT-427.** Task-watchdog'ens timeout — gemmes og virker straks. Gælder hovedløkken og de overvågede baggrunds-tasks (Modbus Master, expansion-workers) |
+| `clear logic <id> wdt` | — | **FEAT-427.** Kvittér programmets watchdog: nulstil tællere; et program som watchdog'en stoppede, startes igen |
 | `clear safemode` | — | **FEAT-427.** Forlad safe mode: ST kører igen og udgangene følger igen deres coils. Find først årsagen til crashene (`show watchdog`) |
 | `set watchdog enable\|disable` | — | **FEAT-427.** Gemmes, træder i kraft efter genstart. Uden watchdog genstarter PLC'en ikke, hvis den hænger |
 | `set debug <flag> <on\|off>` | flag: `config-save`, `config-load`, `all` | Debug-logging-flag |
@@ -244,6 +246,8 @@ Fælles: `output-coil` (0–65535), `ctrl-reg` (Modbus-register — bit0=START, 
 | `set logic <id> delete` | Slet program |
 | `set logic <id> bind <var_navn> reg:<addr>\|coil:<addr>\|input-dis:<addr>\|input:<addr> [input\|output\|both]` | Ny syntaks: bind ST-variabel til Modbus (navngivet). Default retning: `output` for reg:/coil:, `input` for input-dis:/input: |
 | `set logic <id> bind <var_idx> <register> [input\|output\|both]` | Gammel syntaks (numerisk var-indeks) — stadig understøttet |
+| `set logic <id> wdt errors\|exec\|heartbeat\|stall <værdi>\|off` | **FEAT-427.** Watchdog-betingelse pr. program: `errors` 1–255 fejl i træk, `exec` µs (3 i træk over), `heartbeat` ≥ 100 ms mellem `WDT_FEED()`, `stall` ≥ 100 ms uden udførelse. `off`/0 = fra. Gemmes straks — se §8.9.1 |
+| `set logic <id> wdt action alarm\|stop\|restart\|safe\|reboot` | **FEAT-427.** Handling når watchdog'en udløses (standard `alarm`) |
 | `set logic debug:true\|false` | Globalt ST Logic debug-flag (bytecode-print, exec-trace) |
 | `set logic interval:<ms>` / `set logic interval <ms>` | Global exekveringsinterval: **2, 5, 10, 20, 25, 50, 75, 100** ms (kun disse værdier) |
 

@@ -272,6 +272,8 @@ MBX_WRITE_HOLDING(board,ch,id,addr,val)
 MBX_WRITE_COIL(board,ch,id,addr,val)
 MBX_SUCCESS() MBX_BUSY()
 MBX_ERROR()</code>
+<h3>Watchdog</h3>
+<code class="fn">WDT_FEED()  (heartbeat, se Indstillinger)</code>
 <h3>HW Counter</h3>
 <code class="fn">CNT_SETUP(id,mode,edge,dir,pre,gpio)
 CNT_SETUP_ADV(id,scale,bw,db,start)
@@ -369,6 +371,8 @@ di[addr] — Discrete Input</code>
 <div class="mstat"><div class="ml">Min/Max µs</div><div class="mv" id="monMinMax">-</div></div>
 <div class="mstat"><div class="ml">Fejl</div><div class="mv" id="monErrors">-</div></div>
 <div class="mstat"><div class="ml">Overruns</div><div class="mv" id="monOverruns">-</div></div>
+<div class="mstat" title="ST-watchdog for dette program (FEAT-427). Konfigureres under Indstillinger."><div class="ml">Watchdog</div><div class="mv" id="monWdt" style="font-size:14px">-</div>
+<button id="monWdtClear" class="btn btn-sm" style="display:none;margin-top:4px;background:#f38ba8;color:#1e1e2e" onclick="clearWdt(SLOT)">Kvittér</button></div>
 </div>
 <table class="btbl">
 <thead><tr><th>Variabel</th><th>Type</th><th>Værdi</th><th>Trend</th></tr></thead>
@@ -406,6 +410,14 @@ di[addr] — Discrete Input</code>
 <table class="btbl">
 <thead><tr><th>Program</th><th>Prioritet</th><th>Interval (ms)</th><th>Bindinger</th><th></th></tr></thead>
 <tbody id="prioBody"></tbody>
+</table>
+
+<!-- FEAT-427 lag B: watchdog pr. ST-program -->
+<h3 style="margin-top:24px">Watchdog pr. program</h3>
+<p style="font-size:11px;color:#6c7086;margin-bottom:12px">Hver betingelse slås til med en grænse (tom/0 = fra). <b>Fejl i træk</b>: runtime-fejl (også uendelige løkker). <b>Udf.tid</b>: over grænsen 3 gange i træk. <b>Heartbeat</b>: programmet skal kalde <code>WDT_FEED()</code> inden for tiden — kald det kun når programmet er "sundt", fx <code>IF MB_READ_OK() THEN WDT_FEED(); END_IF;</code>. <b>Stilstand</b>: programmet er ikke kørt. Handlingen udføres én gang, og watchdog'en står som udløst til den kvitteres. <b>safe</b> sætter programmets udgange i deres sikre tilstand (Bindings) og stopper programmet; <b>restart</b> går til <b>safe</b> efter 3 forsøg uden 10 min fejlfri drift imellem; <b>reboot</b> tæller med i boot-loop-beskyttelsen. CLI: <code>set logic &lt;id&gt; wdt …</code>.</p>
+<table class="btbl">
+<thead><tr><th>Program</th><th>Fejl i træk</th><th>Udf.tid (µs)</th><th>Heartbeat (ms)</th><th>Stilstand (ms)</th><th>Handling</th><th>Status</th><th></th></tr></thead>
+<tbody id="wdtBody"></tbody>
 </table>
 </div>
 </div>
@@ -489,7 +501,7 @@ let sseConn=null; // FEAT-130: SSE connection for editor monitor
 
 // === ST Syntax Keywords ===
 const ST_KW=['PROGRAM','END_PROGRAM','FUNCTION','FUNCTION_BLOCK','END_FUNCTION','END_FUNCTION_BLOCK','VAR','VAR_INPUT','VAR_OUTPUT','END_VAR','VAR_GLOBAL','BEGIN','END','IF','THEN','ELSIF','ELSE','END_IF','CASE','OF','END_CASE','FOR','TO','BY','DO','END_FOR','WHILE','END_WHILE','REPEAT','UNTIL','END_REPEAT','RETURN','EXIT','TRUE','FALSE','NOT','AND','OR','XOR','MOD','EXPORT'];
-const ST_FN=['ABS','MIN','MAX','LIMIT','SCALE','SQRT','EXPT','LN','LOG','SEL','MUX','MOVE','HYSTERESIS','CLAMP','BIT_SET','BIT_CLR','BIT_TST','TON','TOF','TP','CTU','CTD','CTUD','SR','RS','R_TRIG','F_TRIG','SHL','SHR','ROL','ROR','MB_READ_HOLDING','MB_READ_INPUT','MB_READ_COIL','MB_READ_INPUT_REG','MB_WRITE_HOLDING','MB_WRITE_COIL','MB_SUCCESS','MB_BUSY','MB_ERROR','MBX_READ_HOLDING','MBX_READ_INPUT','MBX_READ_COIL','MBX_READ_INPUT_REG','MBX_WRITE_HOLDING','MBX_WRITE_COIL','MBX_SUCCESS','MBX_BUSY','MBX_ERROR','CNT_SETUP','CNT_SETUP_ADV','CNT_SETUP_CMP','CNT_ENABLE','CNT_CTRL','CNT_VALUE','CNT_RAW','CNT_FREQ','CNT_STATUS'];
+const ST_FN=['ABS','MIN','MAX','LIMIT','SCALE','SQRT','EXPT','LN','LOG','SEL','MUX','MOVE','HYSTERESIS','CLAMP','BIT_SET','BIT_CLR','BIT_TST','TON','TOF','TP','CTU','CTD','CTUD','SR','RS','R_TRIG','F_TRIG','SHL','SHR','ROL','ROR','MB_READ_HOLDING','MB_READ_INPUT','MB_READ_COIL','MB_READ_INPUT_REG','MB_WRITE_HOLDING','MB_WRITE_COIL','MB_SUCCESS','MB_BUSY','MB_ERROR','MBX_READ_HOLDING','MBX_READ_INPUT','MBX_READ_COIL','MBX_READ_INPUT_REG','MBX_WRITE_HOLDING','MBX_WRITE_COIL','MBX_SUCCESS','MBX_BUSY','MBX_ERROR','WDT_FEED','CNT_SETUP','CNT_SETUP_ADV','CNT_SETUP_CMP','CNT_ENABLE','CNT_CTRL','CNT_VALUE','CNT_RAW','CNT_FREQ','CNT_STATUS'];
 const ST_TY=['BOOL','INT','DINT','UINT','REAL','BYTE','WORD','DWORD','STRING','TIME'];
 
 // === Syntax Highlighting ===
@@ -857,6 +869,7 @@ async function loadLogicSettings(){
     const d=await api('GET','logic');  // FEAT-010: refresh per-program priority/interval/binding_count
     if(d.programs)d.programs.forEach((p,i)=>{programs[i]=p;});
     renderPriorityTable();
+    loadWdtTable();  // FEAT-427 lag B
   }catch(e){log('error','Kunne ikke hente program-prioriteter: '+e.message);}
 }
 async function saveInterval(){
@@ -875,6 +888,64 @@ async function saveEngineEnabled(){
 }
 
 // === FEAT-010: per-program prioritet/interval (tidligere kun CLI/REST) ===
+// === FEAT-427 lag B: ST-watchdog ===
+const WDT_ACTIONS=[['alarm','Alarm'],['stop','Stop'],['restart','Restart'],['safe','Safe'],['reboot','Reboot']];
+function wdtStatusHtml(w){
+  if(!w||!w.enabled)return '<span style="color:#6c7086">fra</span>';
+  if(w.tripped)return '<b style="color:#f38ba8" title="'+(w.reason||'')+'">UDLØST</b>';
+  return '<span style="color:#a6e3a1">OK</span>';
+}
+async function loadWdtTable(){
+  const tb=document.getElementById('wdtBody');
+  if(!tb)return;
+  const rows=await Promise.all([1,2,3,4].map(id=>api('GET','logic/'+id+'/wdt').catch(()=>null)));
+  tb.innerHTML='';
+  rows.forEach((w,i)=>{
+    const id=i+1, v=k=>(w&&w[k])?w[k]:'';
+    const p=programs[i], name=p?(p.name||('Logic'+id)):('Logic'+id);
+    const opt=WDT_ACTIONS.map(a=>'<option value="'+a[0]+'"'+((w&&w.action===a[0])?' selected':'')+'>'+a[1]+'</option>').join('');
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>'+name+'</td>'+
+      '<td><input type="number" id="wdtE'+id+'" min="0" max="255" value="'+v('errors')+'" placeholder="fra" style="width:74px;padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4"></td>'+
+      '<td><input type="number" id="wdtX'+id+'" min="0" value="'+v('exec_us')+'" placeholder="fra" style="width:74px;padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4"></td>'+
+      '<td><input type="number" id="wdtH'+id+'" min="0" value="'+v('heartbeat_ms')+'" placeholder="fra" style="width:74px;padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4"></td>'+
+      '<td><input type="number" id="wdtS'+id+'" min="0" value="'+v('stall_ms')+'" placeholder="fra" style="width:74px;padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4"></td>'+
+      '<td><select id="wdtA'+id+'">'+opt+'</select></td>'+
+      '<td>'+wdtStatusHtml(w)+'</td>'+
+      '<td><button class="btn btn-primary btn-sm" onclick="saveWdt('+id+')">Gem</button>'+
+      ((w&&w.tripped)?' <button class="btn btn-sm" style="background:#f38ba8;color:#1e1e2e" onclick="clearWdt('+id+')">Kvittér</button>':'')+'</td>';
+    tb.appendChild(tr);
+  });
+}
+async function saveWdt(id){
+  const num=k=>{const x=parseInt(document.getElementById(k+id).value,10);return isNaN(x)||x<0?0:x;};
+  const body={errors:num('wdtE'),exec_us:num('wdtX'),heartbeat_ms:num('wdtH'),stall_ms:num('wdtS'),action:document.getElementById('wdtA'+id).value};
+  if(body.errors>255){log('error','Fejl i træk: max 255');return;}
+  if((body.heartbeat_ms&&body.heartbeat_ms<100)||(body.stall_ms&&body.stall_ms<100)){log('error','Heartbeat/stilstand: mindst 100 ms (eller tom)');return;}
+  try{
+    const d=await api('POST','logic/'+id+'/wdt',body);
+    if(d&&d.error){log('error','Watchdog: '+d.error);return;}
+    log('success','Logic'+id+' watchdog gemt');
+    loadWdtTable();
+  }catch(e){log('error','Watchdog fejlede: '+e.message);}
+}
+async function clearWdt(id){
+  try{
+    await api('POST','logic/'+id+'/wdt',{clear:true});
+    log('info','Logic'+id+' watchdog kvitteret');
+    loadWdtTable();refreshWdtStatus();
+  }catch(e){log('error','Kvittering fejlede: '+e.message);}
+}
+async function refreshWdtStatus(){
+  const el=document.getElementById('monWdt');
+  if(!el)return;
+  try{
+    const w=await api('GET','logic/'+SLOT+'/wdt');
+    el.innerHTML=wdtStatusHtml(w)+((w&&w.tripped)?'<div style="font-size:10px;color:#f38ba8">'+(w.reason||'')+'</div>':'');
+    document.getElementById('monWdtClear').style.display=(w&&w.tripped)?'':'none';
+  }catch(e){}
+}
+
 function renderPriorityTable(){
   const tb=document.getElementById('prioBody');
   if(!tb)return;
@@ -1486,6 +1557,8 @@ async function refreshMonitor(){
     errEl.textContent=d.error_count||0;
     errEl.className='mv'+((d.error_count>0)?' merr':'');
     document.getElementById('monOverruns').textContent=d.overrun_count||0;
+    // FEAT-427 lag B: watchdog-status hver 6. tick (ikke hvert 500 ms)
+    if(((refreshMonitor._n=(refreshMonitor._n||0)+1)%6)===1)refreshWdtStatus();
 
     // Debug state - fetch from debug/state endpoint
     const dbgBadge=document.getElementById('dbgBadge');
