@@ -243,3 +243,42 @@ function _sessionKeepalive(){
 }
 setTimeout(_sessionKeepalive,5000);
 setInterval(_sessionKeepalive,60*1000);
+
+// === BUG-430: én fælles Save-knap ===
+// Firmware sender "X-Config-Unsaved: 1|0" på alle API-svar (fingeraftryk af
+// den kørende konfiguration mod den sidst gemte). fetch pakkes ind én gang,
+// så både api()/queuedFetch og direkte fetch-kald opdaterer knappen.
+var _cfgUnsaved=false;
+function _setUnsaved(u){
+  _cfgUnsaved=u;
+  var b=document.getElementById('saveBtn');
+  if(!b||b.classList.contains('saving'))return;
+  b.classList.toggle('unsaved',u);
+  b.innerHTML=u?'&#9679; Save':'&#128190; Save';
+  b.title=u?'Der er ugemte ændringer — klik for at gemme til NVS':'Gem konfiguration til NVS';
+}
+if(!window._cfgFetchWrapped){
+  window._cfgFetchWrapped=true;
+  var _origFetch=window.fetch;
+  window.fetch=function(){
+    return _origFetch.apply(this,arguments).then(function(r){
+      try{var h=r.headers&&r.headers.get&&r.headers.get('X-Config-Unsaved');if(h==='1'||h==='0')_setUnsaved(h==='1');}catch(e){}
+      return r;
+    });
+  };
+}
+async function doGlobalSave(){
+  var btn=document.getElementById('saveBtn');
+  if(!btn)return;
+  btn.classList.remove('unsaved');btn.classList.add('saving');btn.textContent='⏳ Gemmer...';
+  var ok=false;
+  try{
+    var r=await fetch('/api/system/save',{method:'POST',credentials:'same-origin'});
+    ok=r.ok;
+    if(r.status===401){var lm=document.getElementById('loginModal');if(lm)lm.classList.add('show');}
+  }catch(e){}
+  btn.classList.remove('saving');btn.classList.add(ok?'saved':'save-err');
+  btn.textContent=ok?'✅ Gemt!':'❌ Fejl';
+  setTimeout(function(){btn.className='save-btn';_setUnsaved(ok?false:_cfgUnsaved);},2000);
+  return ok;
+}

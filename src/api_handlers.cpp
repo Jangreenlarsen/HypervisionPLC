@@ -64,6 +64,7 @@
 #include "ntp_driver.h"
 #include "gpio_mapping.h"  // BUG-428
 #include "st_wdt.h"  // FEAT-427 lag B
+#include "config_save.h"  // BUG-430
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -456,6 +457,8 @@ esp_err_t api_send_error(httpd_req_t *req, int status, const char *error_msg)
   httpd_resp_set_hdr(req, "Connection", "keep-alive");
   httpd_resp_set_hdr(req, "Keep-Alive", "timeout=15, max=100");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  // BUG-430: GUI'ens Save-knap viser "ugemte aendringer" ud fra denne header
+  httpd_resp_set_hdr(req, "X-Config-Unsaved", config_has_unsaved_changes() ? "1" : "0");
   // BUG-376: denne mapning daekkede kun 400/401/403/404/500 — enhver anden
   // kode (409, 429, 502, 503, 504, som bruges bredt i api_handlers.cpp/
   // ota_handler.cpp) faldt igennem til "400 Bad Request" paa selve
@@ -589,6 +592,8 @@ esp_err_t api_send_json(httpd_req_t *req, const char *json_str)
   httpd_resp_set_hdr(req, "Connection", "keep-alive");
   httpd_resp_set_hdr(req, "Keep-Alive", "timeout=15, max=100");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  // BUG-430: GUI'ens Save-knap viser "ugemte aendringer" ud fra denne header
+  httpd_resp_set_hdr(req, "X-Config-Unsaved", config_has_unsaved_changes() ? "1" : "0");
 
   // FEAT-033/BUG-372: audit-log-hook — SKAL indhentes FOER send (se
   // api_audit_log.h's dokumentation af hvorfor: Authorization-headeren kan
@@ -613,6 +618,8 @@ esp_err_t api_send_json_status(httpd_req_t *req, int status, const char *json_st
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  // BUG-430: GUI'ens Save-knap viser "ugemte aendringer" ud fra denne header
+  httpd_resp_set_hdr(req, "X-Config-Unsaved", config_has_unsaved_changes() ? "1" : "0");
   httpd_resp_set_status(req, api_status_line(status));
 
   char audit_ip[16], audit_user[24];
@@ -2094,7 +2101,9 @@ esp_err_t api_handler_logic_source_post(httpd_req_t *req)
   }
 
   // Phase 2: Compile — all temporary buffers are freed, maximum heap available
-  st_logic_compile(state, id - 1);
+  // BUG-430: kun et vellykket kompilér gemmes — et fejlende program
+  // overskriver ikke den sidst fungerende version i SPIFFS.
+  if (st_logic_compile(state, id - 1)) st_logic_save_to_nvs();
 
   // Phase 3: Build response
   st_logic_program_config_t *prog = &state->programs[id - 1];
@@ -2260,6 +2269,7 @@ esp_err_t api_handler_logic_globals(httpd_req_t *req)
     // program, so name->index bindings stay correct against the new layout
     // (see st_logic_globals_compile's doc comment).
     bool compiled = st_logic_globals_compile(state);
+    if (compiled) st_logic_save_to_nvs();  // BUG-430
 
     char buf[384];
     snprintf(buf, sizeof(buf),
@@ -2670,6 +2680,7 @@ esp_err_t api_handler_logic_enable(httpd_req_t *req)
   if (!success) {
     return api_send_error(req, 500, "Failed to enable program");
   }
+  st_logic_save_to_nvs();  // BUG-430: programmer gemmes straks (kompilér = gemt)
 
   JsonDocument doc;
   doc["status"] = 200;
@@ -2703,6 +2714,7 @@ esp_err_t api_handler_logic_disable(httpd_req_t *req)
   if (!success) {
     return api_send_error(req, 500, "Failed to disable program");
   }
+  st_logic_save_to_nvs();  // BUG-430: programmer gemmes straks (kompilér = gemt)
 
   JsonDocument doc;
   doc["status"] = 200;
@@ -2797,6 +2809,7 @@ esp_err_t api_handler_logic_priority_post(httpd_req_t *req)
   if (!st_logic_set_program_priority(state, id - 1, priority, err, sizeof(err))) {
     return api_send_error(req, 400, err[0] ? err : "Could not set priority");
   }
+  st_logic_save_to_nvs();  // BUG-430: programmer gemmes straks (kompilér = gemt)
 
   JsonDocument resp;
   resp["status"] = 200;
@@ -2847,6 +2860,7 @@ esp_err_t api_handler_logic_program_interval_post(httpd_req_t *req)
     snprintf(msg, sizeof(msg), "interval_ms must be %u-%u", ST_LOGIC_INTERVAL_MIN_MS, ST_LOGIC_INTERVAL_MAX_MS);
     return api_send_error(req, 400, msg);
   }
+  st_logic_save_to_nvs();  // BUG-430: programmer gemmes straks (kompilér = gemt)
 
   JsonDocument resp;
   resp["status"] = 200;
@@ -2883,6 +2897,7 @@ esp_err_t api_handler_logic_delete(httpd_req_t *req)
   if (!success) {
     return api_send_error(req, 500, "Failed to delete program");
   }
+  st_logic_save_to_nvs();  // BUG-430: programmer gemmes straks (kompilér = gemt)
 
   JsonDocument doc;
   doc["status"] = 200;
@@ -5463,6 +5478,7 @@ esp_err_t api_handler_logic_settings_post(httpd_req_t *req)
       return api_send_error(req, 400, "interval_ms must be 1-60000");
     }
     g_persist_config.st_logic_interval_ms = interval;
+    st_logic_save_to_nvs();  // BUG-430: programmernes interval ligger i SPIFFS
 
     // FEAT-010: cascades to every NORMAL-priority program's own interval_ms
     // (HIGH programs are scheduled independently, untouched by this).

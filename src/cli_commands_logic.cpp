@@ -109,6 +109,7 @@ int cli_cmd_set_logic_upload(st_logic_engine_state_t *logic_state, uint8_t progr
 
   st_logic_program_config_t *prog = st_logic_get_program(logic_state, program_id);
   uint8_t compiled_after = prog ? prog->compiled : 0;
+  st_logic_save_to_nvs();  // BUG-430: kompilér = gemt
 
   // Success output with pool statistics
   uint32_t pool_used, pool_free, pool_largest;
@@ -165,6 +166,7 @@ int cli_cmd_set_logic_enabled(st_logic_engine_state_t *logic_state, uint8_t prog
     return -1;
   }
 
+  st_logic_save_to_nvs();  // BUG-430: gemmes straks
   debug_printf("[OK] Logic%d %s\n", program_id + 1, enabled ? "ENABLED" : "DISABLED");
   return 0;
 }
@@ -263,7 +265,7 @@ int cli_cmd_set_logic_interval(st_logic_engine_state_t *logic_state, uint32_t in
   g_persist_config.st_logic_interval_ms = interval_ms;
 
   debug_printf("[OK] ST Logic execution interval set to %ums (all NORMAL-priority programs)\n", (unsigned int)interval_ms);
-  debug_println("Note: Use 'save' command to persist to NVS");
+  st_logic_save_to_nvs();  // BUG-430: gemmes straks
   return 0;
 }
 
@@ -287,7 +289,7 @@ int cli_cmd_set_logic_program_interval(st_logic_engine_state_t *logic_state, uin
     return -1;
   }
   debug_printf("[OK] Logic%d interval set to %ums\n", program_id + 1, (unsigned int)interval_ms);
-  debug_println("Note: Use 'save' command to persist to NVS");
+  st_logic_save_to_nvs();  // BUG-430: gemmes straks
   return 0;
 }
 
@@ -306,7 +308,7 @@ int cli_cmd_set_logic_priority(st_logic_engine_state_t *logic_state, uint8_t pro
   }
   debug_printf("[OK] Logic%d priority set to %s\n", program_id + 1,
                priority == ST_LOGIC_PRIORITY_HIGH ? "HIGH" : "NORMAL");
-  debug_println("Note: Use 'save' command to persist to NVS");
+  st_logic_save_to_nvs();  // BUG-430: gemmes straks
   return 0;
 }
 
@@ -329,6 +331,7 @@ int cli_cmd_set_logic_delete(st_logic_engine_state_t *logic_state, uint8_t progr
     return -1;
   }
 
+  st_logic_save_to_nvs();  // BUG-430: gemmes straks
   debug_printf("[OK] Logic%d deleted\n", program_id + 1);
   return 0;
 }

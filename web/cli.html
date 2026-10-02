@@ -233,7 +233,6 @@ function doLogout(){
 // it itself and clears it in the response either way. Reload afterward to
 // reliably stop this page's polling and blank any already-rendered data.
 fetch('/api/logout',{method:'POST'}).catch(()=>{}).then(()=>{location.reload();});}
-async function doGlobalSave(){var btn=document.getElementById('saveBtn');btn.classList.add('saving');btn.textContent='\u23F3 Gemmer...';try{var r=await fetch('/api/system/save',{method:'POST'});if(r.ok){btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='\u2705 Gemt!';}else{btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}}catch(e){btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}setTimeout(()=>{btn.className='save-btn';btn.innerHTML='&#128190; Save';},2000);}
 updateUserBadge();
 </script>
 </body>

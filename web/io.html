@@ -46,6 +46,7 @@
 <a href="/io" class="active">I/O</a>
 <a href="/logs">Logs</a>
 <a href="/ota">OTA</a>
+<button class="save-btn" id="saveBtn" onclick="doGlobalSave()" title="Gem konfiguration til NVS">&#128190; Save</button>
 <div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogout" onclick="doLogout()">Log ud</div></div></div>
 </div>
 
@@ -825,7 +826,7 @@ function submitExpBoard(){
     api('/api/expansion/boards',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({number,type,name,ip,token})})
       .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
         if(!ok)throw new Error(j.error||'Fejl');
-        showAlert('expBoardsAlert','ok','Board tilføjet — husk "Gem Config"');
+        showAlert('expBoardsAlert','ok','Board tilføjet — husk Save øverst');
         clearExpForm();loadExpBoards();
       }).catch(e=>showAlert('expBoardsAlert','err','Fejl: '+e.message));
   }else{
@@ -833,7 +834,7 @@ function submitExpBoard(){
     api('/api/expansion/boards/'+expEditingId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
         if(!ok)throw new Error(j.error||'Fejl');
-        showAlert('expBoardsAlert','ok','Board opdateret — husk "Gem Config"');
+        showAlert('expBoardsAlert','ok','Board opdateret — husk Save øverst');
         clearExpForm();loadExpBoards();
       }).catch(e=>showAlert('expBoardsAlert','err','Fejl: '+e.message));
   }
@@ -842,7 +843,7 @@ function deleteExpBoard(id,name){
   askConfirm('Fjern board','Fjern "'+name+'" fra listen? Selve boardet påvirkes ikke — det kan tilføjes igen senere med samme token.',()=>{
     api('/api/expansion/boards/'+id,{method:'DELETE'}).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
       if(!ok)throw new Error(j.error||'Fejl');
-      showAlert('expBoardsAlert','ok','Board fjernet — husk "Gem Config"');
+      showAlert('expBoardsAlert','ok','Board fjernet — husk Save øverst');
       if(expCurrentBoardId===id)$('expChannelsPanel').style.display='none';
       loadExpBoards();
     }).catch(e=>showAlert('expBoardsAlert','err','Fejl: '+e.message));

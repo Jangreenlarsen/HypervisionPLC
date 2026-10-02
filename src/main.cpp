@@ -56,6 +56,7 @@ extern void alarm_raise(uint8_t severity, const char *msg);
 #include "system_log.h"        // FEAT-086/089 - Event + register-change log
 #include "api_audit_log.h"     // FEAT-033 - Request audit log
 #include <esp_ota_ops.h>       // v7.5.0 - FEAT-031 OTA boot validation
+#include "config_save.h"       // BUG-430 - ugemte aendringer
 
 // ============================================================================
 // GLOBAL CONSOLE
@@ -222,6 +223,10 @@ void setup() {
     Serial.print(auto_loaded);
     Serial.println(" persistent register group(s) from NVS");
   }
+
+  // BUG-430: udgangspunkt for "ugemte aendringer" — det der koerer nu, er
+  // det indlaeste (inkl. normalisering under opstart)
+  config_mark_saved(&g_persist_config);
 
   Serial.println("\nSetup complete.");
   // Kun ét fysisk UART-perifer (UART0, GPIO1/GPIO3), delt mellem USB-

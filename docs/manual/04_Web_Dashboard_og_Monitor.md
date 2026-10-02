@@ -134,8 +134,7 @@ Editoren har 4 uafhængige program-faner (Logic1-4), vist øverst i deres egen r
 
 | Knap | Funktion |
 |------|----------|
-| **Kompilér** | Oversætter kildekoden til bytecode. Fejl markeres direkte i editoren med linjenummer. |
-| **Gem Config** | Gemmer program + bindings persistent. |
+| **Kompilér** | Oversætter kildekoden til bytecode og **gemmer programmet**, hvis det kompilerer (BUG-430). Fejl markeres direkte i editoren med linjenummer — et program der ikke kompilerer, overskriver ikke den sidst gemte version. Bindings gemmes med **💾 Save** øverst. |
 | **Stop** | Deaktiverer programmet (stopper eksekvering, bevarer variabeltilstand). |
 | **Reinit** | "Cold restart" — nulstiller alle variabler til deres initialværdier, stateful storage (timere/tællere/edge-detektion) og statistik. |
 | **Slet** | Fjerner programmet helt. |
@@ -159,7 +158,7 @@ Globale motor-indstillinger — gælder alle 4 programmer samtidig, ikke kun det
 - **ST Logic-motor aktiveret** — global til/fra-kontakt for hele motoren (alle 4 programmer stoppes/genoptages samlet). Svarer til modul-flaget `st_logic` under `/api/modules` / CLI'ens modul-styring.
 - **Eksekveringsinterval** — hvor ofte alle programmer kører (2/5/10/20/25/50/75/100 ms, standard 10 ms). Svarer til CLI'ens `set logic interval:X`.
 
-Begge dele var tidligere kun tilgængelige via CLI. Ændringer aktiveres med det samme; brug "Gem Config" for at overleve reboot. Motorens interne trace-debug (`set logic debug:true|false`, bytecode-udskrift til seriel/telnet) er bevidst ikke medtaget — den har ingen synlig effekt i web-GUI'et.
+Begge dele var tidligere kun tilgængelige via CLI. Ændringer aktiveres og gemmes med det samme. Motorens interne trace-debug (`set logic debug:true|false`, bytecode-udskrift til seriel/telnet) er bevidst ikke medtaget — den har ingen synlig effekt i web-GUI'et.
 
 ## 4.4 Web-CLI (`/cli`)
 

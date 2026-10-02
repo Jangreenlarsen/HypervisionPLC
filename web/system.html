@@ -758,16 +758,6 @@ function doRestore(){
 }
 
 // --- Global Save (topnav) ---
-async function doGlobalSave(){
-  var btn=document.getElementById('saveBtn');
-  btn.classList.add('saving');btn.textContent='\u23F3 Gemmer...';
-  try{
-    var r=await api('/api/system/save',{method:'POST'});
-    if(r.ok){btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='\u2705 Gemt!';}
-    else{btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}
-  }catch(e){btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}
-  setTimeout(()=>{btn.className='save-btn';btn.innerHTML='&#128190; Save';},2000);
-}
 
 // --- NVS Save/Load ---
 function doNvsSave(){

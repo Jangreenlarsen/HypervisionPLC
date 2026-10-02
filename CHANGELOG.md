@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 ---
 
-## [7.9.68.34 – 7.9.68.39] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
+## [7.9.68.34 – 7.9.68.40] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
 
 ### NEW FEATURES
 - **FEAT-426:** 64 variabel-slots pr. ST-program (før 32).
@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 - **FEAT-427 lag B:** watchdog pr. ST-program — betingelser errors/exec/heartbeat/stall, handlinger alarm/stop/restart/safe/reboot, ST-funktion `WDT_FEED()`, CLI `set/show/clear logic <id> wdt`, REST `/api/logic/{id}/wdt`, editor (Monitor + Indstillinger).
 
 ### BUG FIXES
+- **BUG-430:** én Save-knap. Kompilér gemmer programmet (før kørte et kompileret men ugemt program kun til næste genstart). "Gem Config" er fjernet. Save viser "● Save", når der er ugemte ændringer, og findes nu på alle sider med login.
 - **BUG-429:** backup/restore dækker nu GLOBAL_VAR, Ethernet, expansion boards, analog I/O, dashboard-layout og watchdog-indstillinger; restore tager filer op til 128 KB (PSRAM).
 - **FEAT-428:** cachet ST-bytecode bindes til firmware-build — kompileres om efter hver firmwareopdatering (gav "masse af fejl" indtil manuel recompile).
 - Task-alder i `show watchdog` kunne vise ~4294967 s (uint32-underløb).

@@ -371,6 +371,8 @@ void st_logic_high_reschedule(st_logic_engine_state_t *state);
  * @return true if successful
  */
 bool st_logic_save_to_persist_config(PersistConfig *config);
+/* BUG-430: gem programmer (kilde, til/fra, prioritet, interval) + GLOBAL_VAR til SPIFFS */
+bool st_logic_save_to_nvs(void);
 
 /**
  * @brief Load ST Logic programs from PersistConfig (after config_load_from_nvs)

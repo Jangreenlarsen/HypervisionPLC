@@ -119,7 +119,15 @@ Se [kapitel 6](06_Modbus_Interface.md) for fuld gennemgang af Slave- og Master-k
 
 ## 3.8 Gem konfigurationen
 
-Konfigurationsændringer via `set`-kommandoer gemmes automatisk til NVS (non-volatile storage) og overlever genstart — der er intet separat "gem"-trin for netværks-/systemkonfiguration. (ST Logic-programmer skal derimod eksplicit kompileres/gemmes — se [kapitel 8](08_ST_Logic_Programmering.md).)
+De fleste konfigurationsændringer — fra CLI'ens `set`-kommandoer og fra web-siderne — virker med det samme, men gemmes først i NVS (non-volatile storage), når du gemmer. Indtil da forsvinder de ved genstart.
+
+- **Web:** knappen **💾 Save** øverst til højre (samme knap på alle sider). Når der er ugemte ændringer, bliver den orange og viser **● Save**. Markeringen kommer fra PLC'en selv, så den gælder også ændringer lavet fra CLI eller en anden browser.
+- **CLI:** `save`.
+
+Følgende gemmes **straks** og kræver ikke Save:
+- ST-programmer: et vellykket **Kompilér** gemmer programmet. Det samme gør start/stop, slet, prioritet, interval og GLOBAL_VAR (se [kapitel 8](08_ST_Logic_Programmering.md)).
+- Watchdog-indstillinger, sikker tilstand pr. udgang og watchdog pr. ST-program.
+- `SAVE()` fra ST og persist-grupper.
 
 Tag et backup af konfigurationen når opsætningen er færdig — se [kapitel 11](11_Backup_Restore_og_Firmware.md#111-konfigurationsbackup).
 

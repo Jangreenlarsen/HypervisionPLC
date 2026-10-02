@@ -3,6 +3,7 @@
  * @brief Structured Text Logic Configuration Implementation
  */
 
+#include "st_wdt.h"  // BUG-430
 #include "st_logic_config.h"
 #include "watchdog_monitor.h"  // FEAT-427
 #include "st_logic_engine.h"   // st_logic_lock/unlock_variables
@@ -1499,7 +1500,10 @@ bool st_logic_save_to_nvs(void) {
     // format (see ST_LOGIC_DAT_MAGIC's doc comment in constants.h).
     uint8_t magic = ST_LOGIC_DAT_MAGIC;
     file.write(magic);
-    file.write(prog->enabled);
+    // BUG-430: et program ST-watchdog'en har stoppet, er kun midlertidigt
+    // stoppet — gem det som aktiveret, ellers overlever stoppet en Save.
+    const st_wdt_rt_t *wrt = st_wdt_rt(i);
+    file.write((uint8_t)((prog->enabled || (wrt && wrt->stopped_by_wdt)) ? 1 : 0));
     file.write(prog->priority);
     file.write((uint8_t*)&prog->interval_ms, sizeof(uint16_t));
     file.write((uint8_t*)&prog->source_size, sizeof(uint32_t));

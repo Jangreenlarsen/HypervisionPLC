@@ -178,8 +178,7 @@
 
 <!-- Toolbar -->
 <div class="toolbar">
-<button class="btn btn-primary" onclick="uploadCode()" id="btnUpload" title="Upload & kompilér (Ctrl+S)">Kompilér</button>
-<button class="btn btn-success btn-sm" onclick="saveConfig()" title="Gem til NVS flash">Gem Config</button>
+<button class="btn btn-primary" onclick="uploadCode()" id="btnUpload" title="Kompilér og gem programmet (Ctrl+S). Bindings og øvrig konfiguration gemmes med Save øverst.">Kompilér</button>
 <button class="btn btn-sm" id="btnStartStop" style="background:#a6e3a1;color:#1e1e2e" onclick="toggleStartStop()" title="Start/stop program">Start</button>
 <button class="btn btn-sm" style="background:#fab387;color:#1e1e2e" onclick="reinitProgram()" title="Cold restart: nulstil variabler til startværdier">Reinit</button>
 <button class="btn btn-danger btn-sm" onclick="deleteProgram()">Slet</button>
@@ -386,7 +385,7 @@ di[addr] — Discrete Input</code>
 <div class="panel hid" id="viewSettings">
 <div class="ppad">
 <h3>ST Logic Indstillinger</h3>
-<p style="font-size:11px;color:#6c7086;margin-bottom:12px">Gælder motoren globalt — for alle 4 programmer samtidig, ikke kun det valgte slot. Ændringer aktiveres med det samme; brug "Gem Config" i værktøjslinjen for at overleve reboot.</p>
+<p style="font-size:11px;color:#6c7086;margin-bottom:12px">Gælder motoren globalt — for alle 4 programmer samtidig, ikke kun det valgte slot. Ændringer aktiveres og gemmes med det samme.</p>
 <div class="toggle" style="margin-bottom:14px">
 <input type="checkbox" id="setEngineEnabled" onchange="saveEngineEnabled()">
 <label for="setEngineEnabled">ST Logic-motor aktiveret (slukket stopper ALLE 4 programmer)</label>
@@ -743,7 +742,7 @@ function updateTabs(){
 }
 
 async function selectSlot(s){
-  if(dirty&&!confirm('Ugemte ændringer. Skift alligevel?'))return;
+  if(dirty&&!confirm('Ændringer der ikke er kompileret (og dermed ikke gemt). Skift alligevel?'))return;
   SLOT=s;
   varHistory={};
   lastExecCount=0;
@@ -789,7 +788,7 @@ async function uploadCode(){
   try{
     const d=await api('POST','logic/'+SLOT+'/source',{source:src});
     if(d.compiled){
-      log('success','Kompileret OK — '+(d.instr_count||0)+' instruktioner, '+(d.source_size||0)+' bytes');
+      log('success','Kompileret og gemt — '+(d.instr_count||0)+' instruktioner, '+(d.source_size||0)+' bytes');
       updateStatus('ok','Kompileret');
       errorLine=0;  // FEAT-131: clear error marker on success
     }else{
@@ -845,12 +844,6 @@ async function deleteProgram(){
   }catch(e){log('error','Fejl: '+e.message);}
 }
 
-async function saveConfig(){
-  try{
-    await api('POST','system/save');
-    log('success','Konfiguration gemt til NVS flash');
-  }catch(e){log('error','Gem fejlede: '+e.message);}
-}
 
 // === FEAT-164: ST Logic globale motor-indstillinger (interval + enable) ===
 // Tidligere kun tilgængelig via CLI ("set logic interval:X" / modulets
@@ -1641,7 +1634,6 @@ function doLogout(){
 // reliably stop this page's polling timers and blank any already-rendered
 // data (the separately reported "old data stays visible after logout" bug).
 fetch('/api/logout',{method:'POST'}).catch(function(){}).then(function(){location.reload();});}
-async function doGlobalSave(){var btn=document.getElementById('saveBtn');btn.classList.add('saving');btn.textContent='\u23F3 Gemmer...';try{var r=await fetch('/api/system/save',{method:'POST'});if(r.ok){btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='\u2705 Gemt!';}else{btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}}catch(e){btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}setTimeout(()=>{btn.className='save-btn';btn.innerHTML='&#128190; Save';},2000);}
 
 // === FEAT-132: File Upload ===
 function handleFileUpload(e){

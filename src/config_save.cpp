@@ -85,6 +85,37 @@ uint16_t config_calculate_crc16(const PersistConfig* cfg) {
 #define NVS_ST_LOGIC_KEY "st_logic_%d"  // ST Logic program (0-3)
 #define NVS_NAMESPACE  "modbus"
 
+/* BUG-430: Modbus slave-statistikken ligger i PersistConfig og taeller op
+ * under drift — den springes over, ellers ville "ugemt" altid vaere sand. */
+uint16_t config_fingerprint(const PersistConfig* cfg) {
+  if (cfg == NULL) return 0;
+  const size_t skip_from = offsetof(PersistConfig, modbus_slave) + offsetof(modbus_slave_config_t, total_requests);
+  const size_t skip_to = offsetof(PersistConfig, modbus_slave) + sizeof(modbus_slave_config_t);
+  const size_t len = sizeof(PersistConfig) - sizeof(cfg->crc16);
+  const uint8_t* data = (const uint8_t*)cfg;
+  uint16_t crc = 0;
+  for (size_t i = 0; i < len; i++) {
+    if (i == skip_from) { i = skip_to - 1; continue; }
+    uint8_t tbl_idx = ((crc >> 8) ^ data[i]) & 0xff;
+    crc = (uint16_t)((crc << 8) ^ crc16_table[tbl_idx]);
+  }
+  return crc;
+}
+
+extern PersistConfig g_persist_config;
+static uint16_t g_saved_fingerprint = 0;
+static bool g_saved_fingerprint_valid = false;
+
+void config_mark_saved(const PersistConfig* cfg) {
+  g_saved_fingerprint = config_fingerprint(cfg);
+  g_saved_fingerprint_valid = true;
+}
+
+bool config_has_unsaved_changes(void) {
+  if (!g_saved_fingerprint_valid) return false;  // foer opstart er faerdig
+  return config_fingerprint(&g_persist_config) != g_saved_fingerprint;
+}
+
 bool config_save_to_nvs(const PersistConfig* cfg) {
   if (cfg == NULL) {
     debug_println("ERROR: config_save_to_nvs - NULL config");
@@ -186,6 +217,7 @@ bool config_save_to_nvs(const PersistConfig* cfg) {
   // aendring end denne feature retfaerdiggoer.
   system_log_add_event((uint8_t)SYSLOG_SRC_SYSTEM, NULL, NULL, "Config gemt til NVS");
 
+  config_mark_saved(cfg);  // BUG-430
   return true;
 }
 

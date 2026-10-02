@@ -22,7 +22,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 |---|---|---|---|
 | `help` / `?` / `h` | — | Fuld, detaljeret kommandohjælp | `help` |
 | `commands` / `cmds` | — | Kompakt kommandoliste (quick reference) | `commands` |
-| `save` / `sv` / `config save` | — | Gem hele konfigurationen til NVS (beregner CRC16 først) | `save` |
+| `save` / `sv` / `config save` | — | Gem hele konfigurationen til NVS (beregner CRC16 først). Samme som **💾 Save** i web-GUI'et. ST-programmer (upload/kompilér, enabled, interval, priority, delete) gemmes straks og behøver ikke `save` (BUG-430) | `save` |
 | `load` / `ld` / `config load` | — | Genindlæs konfiguration fra NVS og anvend den på det kørende system | `load` |
 | `save registers all\|group <navn>` | `all` eller `group <navn>` | Gem persistente register-grupper til NVS | `save registers group sensors` |
 | `load registers all\|group <navn>` | `all` eller `group <navn>` | Genindlæs persistente register-grupper fra NVS | `load registers all` |

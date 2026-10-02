@@ -29,6 +29,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 
 .save-btn.save-err{background:#f38ba8}
 
+.save-btn.unsaved{background:#fab387}
+
 .user-btn{padding:4px 10px;font-size:11px;background:#313244;color:#a6adc8;border-radius:4px;cursor:pointer;border:1px solid #45475a;display:flex;align-items:center;gap:5px}
 
 .user-btn:hover{background:#45475a;color:#cdd6f4}

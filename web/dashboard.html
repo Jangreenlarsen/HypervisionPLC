@@ -137,7 +137,7 @@
 <a href="/io">I/O</a>
 <a href="/logs">Logs</a>
 <a href="/ota">OTA</a>
-<button class="save-btn" id="saveBtn" onclick="doSystemSave()" title="Gem konfiguration til NVS">&#128190; Save</button>
+<button class="save-btn" id="saveBtn" onclick="doGlobalSave()" title="Gem konfiguration til NVS">&#128190; Save</button>
 <div class="user-badge"><div class="user-btn" id="userBtn" onclick="toggleUserMenu()"><span class="dot dot-off" id="userDot"></span><span id="userName">Ikke logget ind</span></div><div class="user-menu" id="userMenu"><div class="um-row"><span>Bruger:</span><span class="um-val" id="umUser">-</span></div><div class="um-row"><span>Roller:</span><span class="um-val" id="umRoles">-</span></div><div class="um-row"><span>Privilegier:</span><span class="um-val" id="umPriv">-</span></div><div class="um-row"><span>Auth mode:</span><span class="um-val" id="umMode">-</span></div><div class="um-sep"></div><div class="um-btn" id="umLogin" onclick="showLogin()">Log ind</div><div class="um-btn" id="umLogout" onclick="doLogout()" style="display:none">Log ud</div></div></div>
 </div>
 
@@ -3251,7 +3251,7 @@ function saveSettings(){
     // en EFTERFOELGENDE "Save" (System-siden, eller "Gem"-knappen i toppen)
     // for at overleve en reboot. Goer det eksplicit her, da det tidligere
     // var uklart om denne knap ogsaa gemte til NVS.
-    if(r.ok){msg.textContent='Indstillinger anvendt (RAM). Husk Save/Gem Config for at overleve en genstart.';msg.style.color='#a6e3a1';}
+    if(r.ok){msg.textContent='Indstillinger anvendt (RAM). Husk Save (øverst) for at overleve en genstart.';msg.style.color='#a6e3a1';}
     else if(r.status===401){msg.textContent='Log ind først (klik bruger-knap øverst)';msg.style.color='#fab387';}
     else if(r.status===403){msg.textContent='Ingen skriveadgang — kræver write privilege';msg.style.color='#fab387';}
     else{r.text().then(t=>{msg.textContent='Fejl: '+r.status+' '+t;msg.style.color='#f38ba8';});}
@@ -3555,19 +3555,6 @@ function doLogout(){
 fetch('/api/logout',{method:'POST'}).catch(function(){}).then(function(){location.reload();});}
 document.getElementById('authPass').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin()});
 document.getElementById('authUser').addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('authPass').focus()});
-async function doSystemSave(){
-  const btn=$('saveBtn');
-  btn.classList.add('saving');btn.textContent='\u23F3 Gemmer...';
-  try{
-    var auth=authGet();
-    var opts={method:'POST',headers:{}};
-    if(auth)opts.headers['Authorization']=auth;
-    const r=await fetch('/api/system/save',opts);
-    if(r.ok){btn.classList.remove('saving');btn.classList.add('saved');btn.textContent='\u2705 Gemt!';}
-    else{btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}
-  }catch(e){btn.classList.remove('saving');btn.classList.add('save-err');btn.textContent='\u274C Fejl';}
-  setTimeout(()=>{btn.className='save-btn';btn.innerHTML='&#128190; Save';},2000);
-}
 // BUG-369: updateUserBadge() flyttet ind i init()s forsinkede raekkefoelge
 // ovenfor — kaldtes tidligere ogsaa herfra, samtidigt med resten
 </script>

@@ -35,4 +35,10 @@ uint16_t config_calculate_crc16(const PersistConfig* cfg);
  */
 bool config_save_to_nvs(const PersistConfig* cfg);
 
+/* BUG-430: ugemte aendringer. Fingeraftryk (CRC) af PersistConfig uden
+ * runtime-statistik; sammenlignes med det sidst gemte/indlaeste. */
+uint16_t config_fingerprint(const PersistConfig* cfg);
+void config_mark_saved(const PersistConfig* cfg);
+bool config_has_unsaved_changes(void);
+
 #endif // config_save_H
