@@ -298,6 +298,14 @@ static st_value_t st_vm_convert_value(st_value_t val, st_datatype_t val_type, st
   else if (val_type == ST_TYPE_BOOL && norm_target == ST_TYPE_INT) {
     converted_val.int_val = val.bool_val ? 1 : 0;
   }
+  // BUG-433: DINT <-> BOOL manglede — faldt igennem som raa bit-kopi
+  // (DINT 256 blev FALSE, BOOL -> DINT laeste uinitialiserede bytes)
+  else if (val_type == ST_TYPE_DINT && norm_target == ST_TYPE_BOOL) {
+    converted_val.bool_val = (val.dint_val != 0);
+  }
+  else if (val_type == ST_TYPE_BOOL && norm_target == ST_TYPE_DINT) {
+    converted_val.dint_val = val.bool_val ? 1 : 0;
+  }
   // BOOL -> REAL: TRUE=1.0, FALSE=0.0
   else if (val_type == ST_TYPE_BOOL && norm_target == ST_TYPE_REAL) {
     converted_val.real_val = val.bool_val ? 1.0f : 0.0f;
@@ -1474,9 +1482,28 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
     if (!st_vm_pop_typed(vm, &arg1, &arg1_type)) return false;
   }
 
+  // BUG-433: konverter argumenter til funktionens signatur (compileren
+  // indsaetter ingen konvertering — fx SQRT(16) fik raa INT-bits som REAL).
+  {
+    st_value_t *argv_[6] = { &arg1, &arg2, &arg3, &arg4, &arg5, &arg6 };
+    st_datatype_t *argt_[6] = { &arg1_type, &arg2_type, &arg3_type, &arg4_type, &arg5_type, &arg6_type };
+    for (uint8_t a = 0; a < arg_count && a < 6; a++) {
+      st_datatype_t want = st_builtin_param_type(func_id, a);
+      if (want == ST_TYPE_NONE || *argt_[a] == want || *argt_[a] == ST_TYPE_STRING) continue;
+      *argv_[a] = st_vm_convert_value(*argv_[a], *argt_[a], want);
+      *argt_[a] = want;
+    }
+  }
+
   // Call the function (handle 3-arg functions specially)
-  st_value_t result;
-  if (arg_count == 3) {
+  st_value_t result = {0};
+  // BUG-433: kun de 3-arg-funktioner grenen faktisk haandterer — tidligere
+  // fangede den ALLE 3-arg-funktioner, saa CTU, CTD, HYSTERESIS og BLINK
+  // aldrig naaede deres egne grene laengere nede (de returnerede altid 0/FALSE
+  // via st_builtin_call's default).
+  if (arg_count == 3 &&
+      (func_id == ST_BUILTIN_LIMIT || func_id == ST_BUILTIN_SEL || func_id == ST_BUILTIN_MID ||
+       func_id == ST_BUILTIN_MB_WRITE_COIL || func_id == ST_BUILTIN_MB_WRITE_HOLDING)) {
     // Special handling for 3-arg functions
     if (func_id == ST_BUILTIN_LIMIT) {
       // BUG-119 FIX: LIMIT is type-polymorphic

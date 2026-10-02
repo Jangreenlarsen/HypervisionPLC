@@ -152,7 +152,7 @@ st_value_t st_builtin_rol(st_value_t in, st_value_t n, st_datatype_t in_type) {
     if (shift < 0) shift += 32;  // Handle negative shifts
 
     uint32_t val = (in_type == ST_TYPE_DINT) ? (uint32_t)in.dint_val : in.dword_val;
-    uint32_t rotated = (val << shift) | (val >> (32 - shift));
+    uint32_t rotated = shift ? ((val << shift) | (val >> (32 - shift))) : val;  // BUG-433: >>32 er UB
 
     if (in_type == ST_TYPE_DINT) {
       result.dint_val = (int32_t)rotated;
@@ -185,7 +185,7 @@ st_value_t st_builtin_ror(st_value_t in, st_value_t n, st_datatype_t in_type) {
     if (shift < 0) shift += 32;  // Handle negative shifts
 
     uint32_t val = (in_type == ST_TYPE_DINT) ? (uint32_t)in.dint_val : in.dword_val;
-    uint32_t rotated = (val >> shift) | (val << (32 - shift));
+    uint32_t rotated = shift ? ((val >> shift) | (val << (32 - shift))) : val;  // BUG-433: <<32 er UB
 
     if (in_type == ST_TYPE_DINT) {
       result.dint_val = (int32_t)rotated;
@@ -689,6 +689,13 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_LEFT:          return "LEFT";
     case ST_BUILTIN_RIGHT:         return "RIGHT";
     case ST_BUILTIN_MID:           return "MID";
+    // BUG-433: manglede — bytecode-dump/debugger viste "UNKNOWN"
+    case ST_BUILTIN_SR:            return "SR";
+    case ST_BUILTIN_RS:            return "RS";
+    case ST_BUILTIN_SCALE:         return "SCALE";
+    case ST_BUILTIN_HYSTERESIS:    return "HYSTERESIS";
+    case ST_BUILTIN_BLINK:         return "BLINK";
+    case ST_BUILTIN_FILTER:        return "FILTER";
     default:                       return "UNKNOWN";
   }
 }
@@ -905,7 +912,16 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_SUCCESS:       // MBX_SUCCESS → BOOL — FEAT-410
     case ST_BUILTIN_MBX_BUSY:          // MBX_BUSY → BOOL — FEAT-410
     case ST_BUILTIN_WDT_FEED:          // WDT_FEED → BOOL — FEAT-427
+    // BUG-433: manglede og faldt til INT — VM'en mærkede resultatet forkert
+    // (kun bool_val sat i en ellers uinitialiseret vaerdi -> FALSE kunne blive TRUE)
+    case ST_BUILTIN_SR:
+    case ST_BUILTIN_RS:
+    case ST_BUILTIN_HYSTERESIS:
+    case ST_BUILTIN_BLINK:
       return ST_TYPE_BOOL;
+    case ST_BUILTIN_SCALE:             // BUG-433: real_val mærket INT -> skrald ved tildeling til REAL
+    case ST_BUILTIN_FILTER:
+      return ST_TYPE_REAL;
 
     // Returns DINT
     case ST_BUILTIN_CNT_VALUE:         // CNT_VALUE → DINT (scaled counter value)
@@ -955,5 +971,47 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
 
     default:
       return ST_TYPE_INT;
+  }
+}
+
+/* BUG-433: argument-signaturer. Kun funktioner hvis implementering laeser et
+ * bestemt union-felt (real_val/bool_val/dint_val/int_val) staar her — de fik
+ * tidligere raa bits naar argumentet havde en anden type (fx SQRT(16) med en
+ * INT, TON(x, 5000) med en INT-preset, CTU(cnt, rst, 10)). Polymorfe
+ * funktioner, STRING-funktioner, Modbus/MBX/CNT (som selv klemmer/konverterer)
+ * og SCALE/HYSTERESIS/BLINK/FILTER (konverteres allerede i VM'en) er NONE. */
+st_datatype_t st_builtin_param_type(st_builtin_func_t func_id, uint8_t idx) {
+  switch (func_id) {
+    case ST_BUILTIN_SQRT: case ST_BUILTIN_SIN: case ST_BUILTIN_COS: case ST_BUILTIN_TAN:
+    case ST_BUILTIN_EXP: case ST_BUILTIN_LN: case ST_BUILTIN_LOG:
+    case ST_BUILTIN_ROUND: case ST_BUILTIN_TRUNC: case ST_BUILTIN_FLOOR: case ST_BUILTIN_CEIL:
+    case ST_BUILTIN_REAL_TO_INT:
+      return (idx == 0) ? ST_TYPE_REAL : ST_TYPE_NONE;
+    case ST_BUILTIN_POW:
+      return (idx <= 1) ? ST_TYPE_REAL : ST_TYPE_NONE;
+    case ST_BUILTIN_INT_TO_REAL: case ST_BUILTIN_INT_TO_BOOL: case ST_BUILTIN_INT_TO_DWORD:
+    case ST_BUILTIN_PERSIST_SAVE: case ST_BUILTIN_PERSIST_LOAD:
+      return (idx == 0) ? ST_TYPE_INT : ST_TYPE_NONE;
+    case ST_BUILTIN_BOOL_TO_INT: case ST_BUILTIN_MB_CACHE:
+    case ST_BUILTIN_R_TRIG: case ST_BUILTIN_F_TRIG:
+      return (idx == 0) ? ST_TYPE_BOOL : ST_TYPE_NONE;
+    case ST_BUILTIN_DWORD_TO_INT:
+      return (idx == 0) ? ST_TYPE_DWORD : ST_TYPE_NONE;
+    case ST_BUILTIN_BIT_SET: case ST_BUILTIN_BIT_CLR: case ST_BUILTIN_BIT_TST:
+      return (idx <= 1) ? ST_TYPE_INT : ST_TYPE_NONE;
+    case ST_BUILTIN_TON: case ST_BUILTIN_TOF: case ST_BUILTIN_TP:      // (IN, PT)
+      return (idx == 0) ? ST_TYPE_BOOL : (idx == 1) ? ST_TYPE_DINT : ST_TYPE_NONE;
+    case ST_BUILTIN_CTU: case ST_BUILTIN_CTD:                          // (CU/CD, RESET/LOAD, PV)
+      return (idx <= 1) ? ST_TYPE_BOOL : (idx == 2) ? ST_TYPE_DINT : ST_TYPE_NONE;
+    case ST_BUILTIN_CTUD:                                              // (CU, CD, RESET, LOAD, PV)
+      return (idx <= 3) ? ST_TYPE_BOOL : (idx == 4) ? ST_TYPE_DINT : ST_TYPE_NONE;
+    case ST_BUILTIN_SR: case ST_BUILTIN_RS:
+      return (idx <= 1) ? ST_TYPE_BOOL : ST_TYPE_NONE;
+    case ST_BUILTIN_SEL:                                               // (G, IN0, IN1)
+      return (idx == 0) ? ST_TYPE_BOOL : ST_TYPE_NONE;
+    case ST_BUILTIN_MUX:                                               // (K, IN0, IN1, IN2)
+      return (idx == 0) ? ST_TYPE_INT : ST_TYPE_NONE;
+    default:
+      return ST_TYPE_NONE;
   }
 }

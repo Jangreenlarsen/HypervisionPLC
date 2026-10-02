@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 ---
 
-## [7.9.68.34 – 7.9.68.42] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
+## [7.9.68.34 – 7.9.68.43] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
 
 ### NEW FEATURES
 - **FEAT-426:** 64 variabel-slots pr. ST-program (før 32).
@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 - **FEAT-427 lag B:** watchdog pr. ST-program — betingelser errors/exec/heartbeat/stall, handlinger alarm/stop/restart/safe/reboot, ST-funktion `WDT_FEED()`, CLI `set/show/clear logic <id> wdt`, REST `/api/logic/{id}/wdt`, editor (Monitor + Indstillinger).
 
 ### BUG FIXES
+- **BUG-433:** gennemgang af alle ST-funktioner. CTU, CTD, HYSTERESIS og BLINK blev aldrig udført. SCALE, FILTER, SR, RS, HYSTERESIS og BLINK returnerede forkert type. SQRT/POW/LN/EXP/LOG/SIN m.fl. gav forkert resultat med INT-argumenter. Argumenter konverteres nu automatisk.
 - **BUG-432:** ST-programmer kørte ikke korrekt efter genstart (krævede recompile): bytecode-cachen genskabte ikke timere/flanker/tællere og STRING-konstanter. Desuden virkede SR/RS, HYSTERESIS, BLINK og FILTER aldrig.
 - **BUG-431:** stabil expansion board-status på Monitor: online når boardet svarer over Modbus TCP (det ST bruger), Offline først efter 2 fejlede tjek, ingen flimren.
 - **BUG-430:** én Save-knap. Kompilér gemmer programmet (før kørte et kompileret men ugemt program kun til næste genstart). "Gem Config" er fjernet. Save viser "● Save", når der er ugemte ændringer, og findes nu på alle sider med login.

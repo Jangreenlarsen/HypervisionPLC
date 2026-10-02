@@ -6,6 +6,7 @@
  */
 
 #include "st_stateful.h"
+#include <stdlib.h>  // BUG-432: malloc i st_stateful_create()
 #include <string.h>
 
 /* ============================================================================

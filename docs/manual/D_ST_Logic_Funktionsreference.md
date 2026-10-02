@@ -113,6 +113,8 @@ Fra **svagest** til **stærkest** binding:
 
 **Kalderegel:** alle indbyggede funktioner kaldes **positionelt** (`FUNK(arg1, arg2)`), **undtagen** `TON, TOF, TP, CTU, CTD, CTUD` — disse seks understøtter **derudover** IEC-navngivet syntaks (`IN:=..., PT:=..., Q=>var`). Forsøg på navngivet syntaks for enhver anden funktion (inkl. `R_TRIG`/`F_TRIG`/`SR`/`RS`, som ellers også er IEC-standard-FB'er) afvises med en klar fejl.
 
+**Argumenttyper (BUG-433, v7.9.68.43):** argumenter konverteres automatisk til den type, der står i tabellerne nedenfor — fx `SQRT(16)` (INT → REAL), `TON(start, 5000)` (INT → TIME/DINT) og `CTU(puls, nulstil, 10)`. Polymorfe funktioner (`ABS`, `MIN`, `MAX`, `SUM`, `LIMIT`, `SEL`, `MUX`, `ROL`/`ROR`) beholder argumentets egen type.
+
 ### D.5.1 Matematik
 
 | Funktion | Parametre | Retur | Særtilfælde |

@@ -197,6 +197,13 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id);
  */
 st_datatype_t st_builtin_return_type(st_builtin_func_t func_id);
 
+/**
+ * BUG-433: forventet type for argument idx (0-baseret). VM'en konverterer
+ * argumentet hertil foer kaldet (compileren indsaetter ingen konvertering).
+ * ST_TYPE_NONE = polymorft / haandteres selv af VM'en — roeres ikke.
+ */
+st_datatype_t st_builtin_param_type(st_builtin_func_t func_id, uint8_t idx);
+
 /* ============================================================================
  * MATHEMATICAL FUNCTIONS
  * ============================================================================ */

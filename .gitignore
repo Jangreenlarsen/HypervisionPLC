@@ -60,3 +60,6 @@ certs/*.key
 
 # Local editor/IDE
 .claude/settings.local.json
+
+# PC-test af ST (BUG-433)
+test/st_host/build/
