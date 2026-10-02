@@ -6837,6 +6837,17 @@ static bool hex_to_bytes(const char *hex, uint8_t *out_bytes, size_t expected_le
   return true;
 }
 
+// BUG-429: hjaelpere til backup-sektioner der kom til efter backup_version 1
+static void backup_ip_str(uint32_t ip, char *out, size_t n) {
+  snprintf(out, n, "%u.%u.%u.%u", (unsigned)(ip & 0xFF), (unsigned)((ip >> 8) & 0xFF),
+           (unsigned)((ip >> 16) & 0xFF), (unsigned)((ip >> 24) & 0xFF));
+}
+
+static void backup_copy_str(char *dst, size_t n, const char *src) {
+  strncpy(dst, src ? src : "", n - 1);
+  dst[n - 1] = '\0';
+}
+
 esp_err_t api_handler_system_backup(httpd_req_t *req)
 {
   http_server_stat_request();
@@ -7200,6 +7211,107 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
     }
   }
 
+  // ── BUG-429: sektioner der manglede i backup'en ──
+  // GLOBAL_VAR-kilden: uden den kan programmer der bruger globale variabler
+  // ikke kompileres paa en ny enhed.
+  if (st_state && st_state->global_source_size > 0) {
+    JsonObject g = doc["logic_globals"].to<JsonObject>();
+    g["source"] = st_state->global_source;
+  }
+  {
+    // Ethernet (W5500)
+    const EthernetConfig *e = &g_persist_config.network.ethernet;
+    JsonObject eth = doc["ethernet"].to<JsonObject>();
+    char ip_str[16];
+    eth["enabled"] = e->enabled ? true : false;
+    eth["dhcp"] = e->dhcp_enabled ? true : false;
+    backup_ip_str(e->static_ip, ip_str, sizeof(ip_str));      eth["static_ip"] = ip_str;
+    backup_ip_str(e->static_gateway, ip_str, sizeof(ip_str)); eth["static_gateway"] = ip_str;
+    backup_ip_str(e->static_netmask, ip_str, sizeof(ip_str)); eth["static_netmask"] = ip_str;
+    backup_ip_str(e->static_dns, ip_str, sizeof(ip_str));     eth["static_dns"] = ip_str;
+    eth["hostname"] = e->hostname;
+  }
+  {
+    // Expansion boards (MBX_*). Token er en hemmelighed paa linje med
+    // Wi-Fi-adgangskoden — backup-filen er i forvejen foelsom (manual §11.1).
+    JsonArray eb = doc["expansion_boards"].to<JsonArray>();
+    for (uint8_t i = 0; i < g_persist_config.expansion_board_count && i < EXPANSION_BOARD_MAX; i++) {
+      const ExpansionBoard *b = &g_persist_config.expansion_boards[i];
+      JsonObject o = eb.add<JsonObject>();
+      char ip_str[16];
+      backup_ip_str(b->ip, ip_str, sizeof(ip_str));
+      o["configured"] = b->configured ? true : false;
+      o["name"] = b->name;
+      o["ip"] = ip_str;
+      o["token"] = b->token;
+      o["board_type"] = b->board_type;
+    }
+  }
+  {
+    // Analoge ind-/udgange (skalering + registre). ao1/ao2_mode ligger allerede ovenfor.
+    JsonObject an = doc["analog"].to<JsonObject>();
+    JsonArray av = an["ai_v"].to<JsonArray>();
+    JsonArray ai = an["ai_i"].to<JsonArray>();
+    for (int i = 0; i < 4; i++) {
+      const AnalogInputConfig *c = &g_persist_config.analog_ai_v[i];
+      JsonObject o = av.add<JsonObject>();
+      o["enabled"] = c->enabled; o["scale"] = c->scale; o["offset"] = c->offset;
+      o["raw_reg"] = c->raw_reg; o["value_reg"] = c->value_reg;
+      c = &g_persist_config.analog_ai_i[i];
+      o = ai.add<JsonObject>();
+      o["enabled"] = c->enabled; o["scale"] = c->scale; o["offset"] = c->offset;
+      o["raw_reg"] = c->raw_reg; o["value_reg"] = c->value_reg;
+    }
+    JsonArray ao = an["ao"].to<JsonArray>();
+    for (int i = 0; i < 2; i++) {
+      const AnalogOutputConfig *c = &g_persist_config.analog_ao[i];
+      JsonObject o = ao.add<JsonObject>();
+      o["enabled"] = c->enabled; o["scale"] = c->scale; o["offset"] = c->offset;
+      o["value_reg"] = c->value_reg;
+    }
+  }
+  // Modbus Master: koe-/cache-stoerrelser manglede
+  master["cache_max_entries"] = g_persist_config.modbus_master.cache_max_entries;
+  master["queue_max_size"] = g_persist_config.modbus_master.queue_max_size;
+  {
+    // Dashboard-layout + offentlige kort
+    JsonObject d = doc["dashboard"].to<JsonObject>();
+    d["order"] = g_persist_config.dashboard_card_order;
+    d["tabs"] = g_persist_config.dashboard_card_tabs;
+    d["hidden"] = g_persist_config.dashboard_card_hidden;
+    d["custom"] = g_persist_config.dashboard_card_custom;
+    d["public"] = g_persist_config.public_dashboard_cards;
+  }
+
+  // ── WATCHDOG (FEAT-427): system-watchdog, sikker tilstand pr. udgang, ST-watchdog ──
+  {
+    WatchdogState *ws = watchdog_get_state();
+    JsonObject wd = doc["watchdog"].to<JsonObject>();
+    wd["enabled"] = ws->enabled ? true : false;
+    wd["timeout_s"] = ws->timeout_ms / 1000;
+
+    uint8_t pins[24], states[24];
+    uint8_t n = gpio_mapping_safe_list(pins, states, 24);
+    JsonArray so = doc["safe_outputs"].to<JsonArray>();
+    for (uint8_t i = 0; i < n; i++) {
+      JsonObject o = so.add<JsonObject>();
+      o["pin"] = pins[i];
+      o["state"] = states[i];
+    }
+
+    JsonArray sw = doc["st_watchdog"].to<JsonArray>();
+    for (uint8_t i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
+      const st_wdt_cfg_t *c = st_wdt_cfg(i);
+      JsonObject o = sw.add<JsonObject>();
+      o["program"] = i + 1;
+      o["errors"] = c->err_limit;
+      o["exec_us"] = c->exec_us;
+      o["heartbeat_ms"] = c->heartbeat_ms;
+      o["stall_ms"] = c->stall_ms;
+      o["action"] = st_wdt_action_str(c->action);
+    }
+  }
+
   // Measure needed buffer size, then allocate dynamically
   size_t json_len = measureJson(doc);
   size_t buf_size = json_len + 64;  // margin for null-terminator + safety
@@ -7248,13 +7360,24 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
   http_server_stat_request();
   CHECK_AUTH_WRITE(req);
 
-  // Read request body (up to 32KB)
+  // BUG-429: med PSRAM rummer ST-poolen 64 KB kildekode — en fuld backup kan
+  // derfor vaere langt over de tidligere 32 KB. Bufferen laegges i PSRAM.
+#ifdef BOARD_HAS_PSRAM
+  const int max_body = 131072;
+#else
+  const int max_body = 32768;
+#endif
   int content_len = req->content_len;
-  if (content_len <= 0 || content_len > 32768) {
-    return api_send_error(req, 400, "Invalid body size (max 32KB)");
+  if (content_len <= 0 || content_len > max_body) {
+    return api_send_error(req, 400, max_body > 32768 ? "Invalid body size (max 128KB)" : "Invalid body size (max 32KB)");
   }
 
+#ifdef BOARD_HAS_PSRAM
+  char *body = (char *)heap_caps_malloc(content_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!body) body = (char *)malloc(content_len + 1);
+#else
   char *body = (char *)malloc(content_len + 1);
+#endif
   if (!body) {
     return api_send_error(req, 500, "Out of memory");
   }
@@ -7343,6 +7466,80 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
     if (m.containsKey("inter_frame_delay")) g_persist_config.modbus_master.inter_frame_delay = m["inter_frame_delay"];
     if (m.containsKey("max_requests_per_cycle")) g_persist_config.modbus_master.max_requests_per_cycle = m["max_requests_per_cycle"];
     if (m.containsKey("cache_ttl_ms")) g_persist_config.modbus_master.cache_ttl_ms = m["cache_ttl_ms"];
+    // BUG-429
+    if (m.containsKey("cache_max_entries")) g_persist_config.modbus_master.cache_max_entries = m["cache_max_entries"];
+    if (m.containsKey("queue_max_size")) g_persist_config.modbus_master.queue_max_size = m["queue_max_size"];
+  }
+
+  // ── RESTORE ETHERNET (BUG-429) ──
+  if (doc.containsKey("ethernet")) {
+    JsonObject e = doc["ethernet"];
+    EthernetConfig *ec = &g_persist_config.network.ethernet;
+    if (e.containsKey("enabled")) ec->enabled = e["enabled"].as<bool>() ? 1 : 0;
+    if (e.containsKey("dhcp")) ec->dhcp_enabled = e["dhcp"].as<bool>() ? 1 : 0;
+    if (e.containsKey("static_ip")) ec->static_ip = parse_ip_field(e["static_ip"]);
+    if (e.containsKey("static_gateway")) ec->static_gateway = parse_ip_field(e["static_gateway"]);
+    if (e.containsKey("static_netmask")) ec->static_netmask = parse_ip_field(e["static_netmask"]);
+    if (e.containsKey("static_dns")) ec->static_dns = parse_ip_field(e["static_dns"]);
+    if (e.containsKey("hostname")) backup_copy_str(ec->hostname, sizeof(ec->hostname), e["hostname"] | "");
+  }
+
+  // ── RESTORE EXPANSION BOARDS (BUG-429) ── hele listen erstattes
+  if (doc.containsKey("expansion_boards")) {
+    memset(g_persist_config.expansion_boards, 0, sizeof(g_persist_config.expansion_boards));
+    uint8_t n = 0;
+    for (JsonObject o : doc["expansion_boards"].as<JsonArray>()) {
+      if (n >= EXPANSION_BOARD_MAX) break;
+      ExpansionBoard *b = &g_persist_config.expansion_boards[n];
+      b->configured = (o["configured"] | true) ? 1 : 0;
+      backup_copy_str(b->name, sizeof(b->name), o["name"] | "");
+      b->ip = parse_ip_field(o["ip"]);
+      backup_copy_str(b->token, sizeof(b->token), o["token"] | "");
+      backup_copy_str(b->board_type, sizeof(b->board_type), o["board_type"] | "");
+      n++;
+    }
+    g_persist_config.expansion_board_count = n;
+  }
+
+  // ── RESTORE ANALOG (BUG-429) ──
+  if (doc.containsKey("analog")) {
+    JsonObject an = doc["analog"];
+    const char *keys[2] = {"ai_v", "ai_i"};
+    AnalogInputConfig *dst[2] = {g_persist_config.analog_ai_v, g_persist_config.analog_ai_i};
+    for (int k = 0; k < 2; k++) {
+      if (!an.containsKey(keys[k])) continue;
+      int i = 0;
+      for (JsonObject o : an[keys[k]].as<JsonArray>()) {
+        if (i >= 4) break;
+        AnalogInputConfig *c = &dst[k][i++];
+        if (o.containsKey("enabled")) c->enabled = o["enabled"].as<bool>();
+        if (o.containsKey("scale")) c->scale = o["scale"].as<float>();
+        if (o.containsKey("offset")) c->offset = o["offset"].as<float>();
+        if (o.containsKey("raw_reg")) c->raw_reg = o["raw_reg"];
+        if (o.containsKey("value_reg")) c->value_reg = o["value_reg"];
+      }
+    }
+    if (an.containsKey("ao")) {
+      int i = 0;
+      for (JsonObject o : an["ao"].as<JsonArray>()) {
+        if (i >= 2) break;
+        AnalogOutputConfig *c = &g_persist_config.analog_ao[i++];
+        if (o.containsKey("enabled")) c->enabled = o["enabled"].as<bool>();
+        if (o.containsKey("scale")) c->scale = o["scale"].as<float>();
+        if (o.containsKey("offset")) c->offset = o["offset"].as<float>();
+        if (o.containsKey("value_reg")) c->value_reg = o["value_reg"];
+      }
+    }
+  }
+
+  // ── RESTORE DASHBOARD (BUG-429) ──
+  if (doc.containsKey("dashboard")) {
+    JsonObject d = doc["dashboard"];
+    if (d.containsKey("order")) backup_copy_str(g_persist_config.dashboard_card_order, sizeof(g_persist_config.dashboard_card_order), d["order"] | "");
+    if (d.containsKey("tabs")) backup_copy_str(g_persist_config.dashboard_card_tabs, sizeof(g_persist_config.dashboard_card_tabs), d["tabs"] | "");
+    if (d.containsKey("hidden")) backup_copy_str(g_persist_config.dashboard_card_hidden, sizeof(g_persist_config.dashboard_card_hidden), d["hidden"] | "");
+    if (d.containsKey("custom")) backup_copy_str(g_persist_config.dashboard_card_custom, sizeof(g_persist_config.dashboard_card_custom), d["custom"] | "");
+    if (d.containsKey("public")) backup_copy_str(g_persist_config.public_dashboard_cards, sizeof(g_persist_config.public_dashboard_cards), d["public"] | "");
   }
 
   // ── RESTORE HOSTNAME ──
@@ -7619,6 +7816,18 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
     }
   }
 
+  // ── RESTORE GLOBAL_VAR (BUG-429) ──
+  // FOER programmerne, saa de kompileres mod de rigtige globale variabler.
+  bool globals_restored = false;
+  if (doc.containsKey("logic_globals")) {
+    st_logic_engine_state_t *st = st_logic_get_state();
+    const char *gsrc = doc["logic_globals"]["source"] | "";
+    if (st && strlen(gsrc) > 0 && st_logic_globals_upload(st, gsrc, strlen(gsrc))) {
+      st_logic_globals_compile(st);
+      globals_restored = true;
+    }
+  }
+
   // ── RESTORE LOGIC PROGRAMS ──
   if (doc.containsKey("logic_programs")) {
     st_logic_engine_state_t *st = st_logic_get_state();
@@ -7666,8 +7875,10 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
 
       // Save ST Logic to SPIFFS
       st_logic_save_to_persist_config(&g_persist_config);
+      globals_restored = false;  // gemt sammen med programmerne
     }
   }
+  if (globals_restored) st_logic_save_to_persist_config(&g_persist_config);
 
   // ── RESTORE VARIABLE MAPPINGS ──
   // Must be AFTER logic_programs restore because st_logic_delete()
@@ -7771,6 +7982,49 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
         }
       }
     }
+  }
+
+  // ── RESTORE WATCHDOG (FEAT-427) ──
+  // Egne NVS-noegler (ikke PersistConfig). Kun sektioner der findes i filen
+  // roeres — aeldre backups uden dem efterlader nuvaerende indstillinger.
+  if (doc.containsKey("watchdog")) {
+    JsonObject wd = doc["watchdog"];
+    if (wd.containsKey("timeout_s")) {
+      uint32_t t = wd["timeout_s"] | 0UL;
+      watchdog_set_timeout(t * 1000UL);   // ugyldig vaerdi ignoreres
+    }
+    if (wd.containsKey("enabled")) {
+      bool en = wd["enabled"] | true;
+      if ((watchdog_get_state()->enabled != 0) != en) watchdog_enable(en);  // virker efter genstart
+    }
+  }
+  if (doc.containsKey("safe_outputs")) {
+    uint8_t pins[24], states[24], n = 0;
+    for (JsonObject o : doc["safe_outputs"].as<JsonArray>()) {
+      if (n >= 24) break;
+      int pin = o["pin"] | -1;
+      if (pin < 0 || pin > 255) continue;
+      pins[n] = (uint8_t)pin;
+      states[n] = (o["state"] | 0) ? 1 : 0;
+      n++;
+    }
+    gpio_mapping_safe_replace(pins, states, n);
+  }
+  if (doc.containsKey("st_watchdog")) {
+    for (JsonObject o : doc["st_watchdog"].as<JsonArray>()) {
+      int p = o["program"] | 0;
+      if (p < 1 || p > ST_LOGIC_MAX_PROGRAMS) continue;
+      st_wdt_cfg_t *c = st_wdt_cfg((uint8_t)(p - 1));
+      long e = o["errors"] | 0;
+      c->err_limit = (e < 0 || e > 255) ? 0 : (uint8_t)e;
+      c->exec_us = o["exec_us"] | 0UL;
+      uint32_t hb = o["heartbeat_ms"] | 0UL, sl = o["stall_ms"] | 0UL;
+      c->heartbeat_ms = (hb && hb < 100) ? 100 : hb;
+      c->stall_ms = (sl && sl < 100) ? 100 : sl;
+      uint8_t a;
+      c->action = st_wdt_parse_action(o["action"] | "alarm", &a) ? a : ST_WDT_ACT_ALARM;
+    }
+    st_wdt_save();
   }
 
   // Save PersistConfig to NVS

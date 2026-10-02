@@ -6,7 +6,7 @@
 
 ## 11.1 Konfigurationsbackup
 
-Hele den persisterede konfiguration — netværk, Modbus-opsætning, RBAC-brugere, tæller-/timer-konfiguration, persist-grupper, ST Logic-programmer og bindings — kan eksporteres som én JSON-fil:
+Hele den persisterede konfiguration — netværk, Modbus-opsætning, RBAC-brugere, tæller-/timer-konfiguration, persist-grupper, ST Logic-programmer (inkl. GLOBAL_VAR-blokken) og bindings, Ethernet (W5500), expansion boards, analoge ind-/udgange, dashboard-layout samt watchdog-timeout/til-fra, sikker tilstand pr. udgang og watchdog pr. ST-program — kan eksporteres som én JSON-fil:
 
 ```bash
 curl -u admin:modbus123 http://192.168.1.100/api/system/backup -o backup_2026-09-03.json
@@ -14,7 +14,7 @@ curl -u admin:modbus123 http://192.168.1.100/api/system/backup -o backup_2026-09
 
 Eller fra CLI: `show backup` (viser URL'en, download foretages fra en browser/HTTP-klient).
 
-> **Følsomt indhold:** backup-filen indeholder Wi-Fi-adgangskode, HTTP- og telnet-credentials samt alle RBAC-brugeres adgangskoder **i klartekst**. Opbevar backup-filer med samme forsigtighed som selve credentials — ikke i et delt, uautoriseret tilgængeligt sted. Endpointet kræver skriverettighed at hente (ikke blot læse-adgang), netop fordi indholdet er så følsomt.
+> **Følsomt indhold:** backup-filen indeholder Wi-Fi- og telnet-adgangskoden samt expansion boards' tokens **i klartekst**. HTTP- og RBAC-adgangskoder ligger som hash + salt (BUG-352), ikke i klartekst. RBAC-brugere tages kun med, når RBAC er slået til. Opbevar backup-filer med samme forsigtighed som selve credentials — ikke i et delt, uautoriseret tilgængeligt sted. Endpointet kræver skriverettighed at hente (ikke blot læse-adgang), netop fordi indholdet er så følsomt.
 
 ## 11.2 Gendannelse (Restore)
 
@@ -24,7 +24,9 @@ curl -u admin:modbus123 -X POST http://192.168.1.100/api/system/restore \
      --data-binary @backup_2026-09-03.json
 ```
 
-Restore overskriver den gemte konfiguration og genindlæser den. Systemet genstarter typisk selv (eller kræver en manuel genstart, afhængig af hvad der er ændret) for at alle ændringer slår fuldt igennem.
+Restore overskriver den gemte konfiguration og genindlæser den. Filen må være op til 128 KB (32 KB på hardware uden PSRAM).
+
+Sektioner der er kommet til senere (`logic_globals`, `ethernet`, `expansion_boards`, `analog`, `dashboard`, `watchdog`, `safe_outputs`, `st_watchdog` — alle fra v7.9.68.39) anvendes kun, hvis de findes i filen. En ældre backup lader derfor de nuværende værdier være. `expansion_boards` og `safe_outputs` erstatter hele listen. GLOBAL_VAR-blokken gendannes før programmerne, så de kompileres mod de rigtige globale variabler. Ethernet-, expansion- og watchdog til/fra-ændringer slår først fuldt igennem efter genstart. Systemet genstarter typisk selv (eller kræver en manuel genstart, afhængig af hvad der er ændret) for at alle ændringer slår fuldt igennem.
 
 **Anbefalet rutine:** tag et backup **før** enhver større konfigurationsændring eller firmwareopdatering — restore er den hurtigste vej tilbage, hvis noget går galt.
 

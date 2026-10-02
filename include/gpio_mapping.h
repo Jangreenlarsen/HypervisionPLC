@@ -60,5 +60,8 @@ const char *gpio_mapping_pin_reserved(uint16_t pin, bool is_output);
 int8_t gpio_mapping_safe_get(uint16_t pin);              // -1 = ikke defineret, 0 = OFF, 1 = ON
 bool   gpio_mapping_safe_set(uint16_t pin, int8_t state);  // state -1 = fjern definition
 uint8_t gpio_mapping_safe_value(uint16_t pin);            // defineret, ellers OFF (0)
+/* Backup/restore: list alle definerede, eller erstat hele tabellen (ét NVS-skriv). */
+uint8_t gpio_mapping_safe_list(uint8_t *pins, uint8_t *states, uint8_t max);
+bool    gpio_mapping_safe_replace(const uint8_t *pins, const uint8_t *states, uint8_t n);
 
 #endif // gpio_mapping_H

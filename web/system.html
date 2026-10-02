@@ -720,6 +720,11 @@ function readRestoreFile(file){
       if(restoreData.programs||restoreData.logic)add('ST Programs','ja');
       if(restoreData.modbus)add('Modbus config','ja');
       if(restoreData.bindings)add('Bindings',Array.isArray(restoreData.bindings)?restoreData.bindings.length:'ja');
+      if(restoreData.logic_globals)add('GLOBAL_VAR','ja');
+      if(restoreData.ethernet)add('Ethernet',restoreData.ethernet.enabled?(restoreData.ethernet.dhcp?'til (DHCP)':'til, '+restoreData.ethernet.static_ip):'fra');
+      if(Array.isArray(restoreData.expansion_boards))add('Expansion boards',restoreData.expansion_boards.length);
+      if(restoreData.analog)add('Analog I/O','ja');
+      if(restoreData.watchdog||restoreData.safe_outputs||restoreData.st_watchdog)add('Watchdog','ja'+(Array.isArray(restoreData.safe_outputs)?' ('+restoreData.safe_outputs.length+' sikre udgange)':''));
       $('restorePreview').style.display='block';
       drop.style.display='none';
     }catch(err){

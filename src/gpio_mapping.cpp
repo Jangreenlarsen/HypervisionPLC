@@ -122,6 +122,31 @@ bool gpio_mapping_safe_set(uint16_t pin, int8_t state) {
   return safe_out_save();
 }
 
+uint8_t gpio_mapping_safe_list(uint8_t *pins, uint8_t *states, uint8_t max) {
+  safe_out_load();
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < g_safe_out.count && n < max; i++, n++) {
+    pins[n] = g_safe_out.e[i].pin;
+    states[n] = g_safe_out.e[i].state;
+  }
+  return n;
+}
+
+bool gpio_mapping_safe_replace(const uint8_t *pins, const uint8_t *states, uint8_t n) {
+  safe_out_load();
+  g_safe_out.version = 1;
+  g_safe_out.count = 0;
+  for (uint8_t i = 0; i < n && g_safe_out.count < SAFE_OUT_MAX; i++) {
+    bool dup = false;
+    for (uint8_t j = 0; j < g_safe_out.count; j++) dup |= (g_safe_out.e[j].pin == pins[i]);
+    if (dup) continue;
+    g_safe_out.e[g_safe_out.count].pin = pins[i];
+    g_safe_out.e[g_safe_out.count].state = states[i] ? 1 : 0;
+    g_safe_out.count++;
+  }
+  return safe_out_save();
+}
+
 uint8_t gpio_mapping_safe_value(uint16_t pin) {
   int8_t s = gpio_mapping_safe_get(pin);
   return (s == 1) ? 1 : 0;   // beslutning 3: ikke defineret = OFF
