@@ -90,6 +90,10 @@ bool counter_config_validate(const CounterConfig* cfg) {
 
 void counter_config_sanitize(CounterConfig* cfg) {
   if (cfg == NULL) return;
+#if !COUNTER_PIN_MODES_AVAILABLE
+  // FEAT-430: en aeldre/gendannet config med sw-isr/hw tvinges til sw paa dette board
+  if (cfg->hw_mode != COUNTER_HW_SW) cfg->hw_mode = COUNTER_HW_SW;
+#endif
 
   // Clamp values
   if (cfg->prescaler < 1) cfg->prescaler = 1;

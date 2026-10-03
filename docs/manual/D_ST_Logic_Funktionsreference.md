@@ -201,7 +201,7 @@ Styrer 4 dedikerede fysiske GPIO/PCNT-tællere (id 1-4) — se [kapitel 9](09_Ta
 
 | Funktion | Parametre | Retur | Semantik |
 |---|---|---|---|
-| `CNT_SETUP(id, hw_mode, edge, dir, prescaler, gpio)` | alle INT | BOOL | `hw_mode`(0=SW,1=SW_ISR,2=HW_PCNT), `edge`(0=RISING,1=FALLING,2=BOTH), `dir`(0=UP,1=DOWN). `id` udenfor 1-4 → FALSE |
+| `CNT_SETUP(id, hw_mode, edge, dir, prescaler, gpio)` | alle INT | BOOL | `hw_mode`(0=SW,1=SW_ISR,2=HW_PCNT), `edge`(0=RISING,1=FALLING,2=BOTH), `dir`(0=UP,1=DOWN). `id` udenfor 1-4 → FALSE. **ES32D26:** `hw_mode` 1/2 → returnerer FALSE og ændrer intet (FEAT-430) |
 | `CNT_SETUP_ADV(id, scale, bit_width, debounce_ms, start_value)` | INT,REAL,INT,INT,DINT | BOOL | `bit_width` accepterer kun 8/16/32/64 (andet ignoreres stille) |
 | `CNT_SETUP_CMP(id, cmp_mode, cmp_value, cmp_source, reset_on_read)` | INT'e | BOOL | `cmp_mode`(0=≥,1=>,2=eksakt), `cmp_source`(0=raw,1=prescaled,2=scaled) |
 | `CNT_ENABLE(id, on_off)` | INT, BOOL | BOOL | Aktiverer/deaktiverer |

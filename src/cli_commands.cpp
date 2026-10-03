@@ -90,8 +90,18 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
     // Parse known keys
     if (!strcmp(key, "hw-mode")) {
       if (!strcmp(value, "sw")) cfg.hw_mode = COUNTER_HW_SW;
+#if COUNTER_PIN_MODES_AVAILABLE
       else if (!strcmp(value, "sw-isr")) cfg.hw_mode = COUNTER_HW_SW_ISR;
       else if (!strcmp(value, "hw")) cfg.hw_mode = COUNTER_HW_PCNT;
+#else
+      else if (!strcmp(value, "sw-isr") || !strcmp(value, "hw")) {
+        // FEAT-430: kraever en fysisk ESP32-pin
+        debug_print("ERROR: hw-mode:");
+        debug_print(value);
+        debug_println(" - " COUNTER_PIN_MODES_NOTE);
+        return;
+      }
+#endif
     } else if (!strcmp(key, "edge")) {
       if (!strcmp(value, "rising")) cfg.edge_type = COUNTER_EDGE_RISING;
       else if (!strcmp(value, "falling")) cfg.edge_type = COUNTER_EDGE_FALLING;

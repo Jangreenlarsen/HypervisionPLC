@@ -2231,6 +2231,8 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
       // hw_mode: 0=SW, 1=SW_ISR, 2=HW_PCNT
       int16_t hw_mode = (arg2_type == ST_TYPE_DINT) ? (int16_t)arg2.dint_val : arg2.int_val;
       if (hw_mode >= 0 && hw_mode <= 2) cfg.hw_mode = (CounterHWMode)hw_mode;
+      // FEAT-430: sw-isr/hw kraever en fysisk ESP32-pin — CNT_SETUP returnerer FALSE
+      bool pin_mode_ok = COUNTER_PIN_MODES_AVAILABLE || hw_mode == COUNTER_HW_SW;
 
       // edge: 0=RISING, 1=FALLING, 2=BOTH
       int16_t edge = (arg3_type == ST_TYPE_DINT) ? (int16_t)arg3.dint_val : arg3.int_val;
@@ -2256,7 +2258,7 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
         }
       }
 
-      result.bool_val = counter_engine_configure(cnt_id, &cfg);
+      result.bool_val = pin_mode_ok && counter_engine_configure(cnt_id, &cfg);
     }
   }
   else if (func_id == ST_BUILTIN_CNT_SETUP_ADV) {

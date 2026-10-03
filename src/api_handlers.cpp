@@ -1250,11 +1250,18 @@ esp_err_t api_handler_counter_single(httpd_req_t *req)
     doc["overflow"] = (ctrl & 0x08) ? true : false;
     doc["compare_triggered"] = (ctrl & 0x10) ? true : false;
   }
+  // FEAT-430: sw-isr/hw (fysisk ESP32-pin) tilgaengelig paa dette board?
+  doc["pin_modes_available"] = COUNTER_PIN_MODES_AVAILABLE ? true : false;
+  if (!COUNTER_PIN_MODES_AVAILABLE) doc["pin_modes_note"] = COUNTER_PIN_MODES_NOTE;
 
-  char buf[HTTP_JSON_DOC_SIZE];
-  serializeJson(doc, buf, sizeof(buf));
-
-  return api_send_json(req, buf);
+  // Allokeres efter faktisk stoerrelse (feltlisten er naer de tidligere 1024 bytes)
+  size_t need = measureJson(doc) + 1;
+  char *buf = (char *)malloc(need);
+  if (!buf) return api_send_error(req, 500, "Out of memory");
+  serializeJson(doc, buf, need);
+  esp_err_t ret = api_send_json(req, buf);
+  free(buf);
+  return ret;
 }
 
 /* ============================================================================
@@ -4168,8 +4175,14 @@ static esp_err_t api_handler_counter_config_post(httpd_req_t *req)
     const char *m = doc["hw_mode"].as<const char*>();
     if (m) {
       if (strcmp(m, "sw") == 0 || strcmp(m, "SW") == 0) cfg.hw_mode = COUNTER_HW_SW;
-      else if (strcmp(m, "sw_isr") == 0 || strcmp(m, "SW_ISR") == 0) cfg.hw_mode = COUNTER_HW_SW_ISR;
-      else if (strcmp(m, "hw") == 0 || strcmp(m, "HW_PCNT") == 0 || strcmp(m, "hw_pcnt") == 0) cfg.hw_mode = COUNTER_HW_PCNT;
+      else if (strcmp(m, "sw_isr") == 0 || strcmp(m, "SW_ISR") == 0 ||
+               strcmp(m, "hw") == 0 || strcmp(m, "HW_PCNT") == 0 || strcmp(m, "hw_pcnt") == 0) {
+#if COUNTER_PIN_MODES_AVAILABLE
+        cfg.hw_mode = (m[0] == 's' || m[0] == 'S') ? COUNTER_HW_SW_ISR : COUNTER_HW_PCNT;
+#else
+        return api_send_error(req, 400, COUNTER_PIN_MODES_NOTE);  // FEAT-430
+#endif
+      }
     }
   }
   if (doc.containsKey("edge")) {

@@ -14,7 +14,7 @@ Ud over ST Logic's egne `TON`/`TOF`/`TP`/`CTU`/`CTD`/`CTUD`-funktionsblokke ([§
 | **Software + interrupt** | `sw-isr` | Tæller via GPIO-interrupt | Fanger hurtigere pulser end ren polling |
 | **Hardware (PCNT)** | `hw` | Bruger ESP32'ens indbyggede pulse-counter-hardware | Højeste præcision, ingen software-overhead |
 
-> **ES32D26:** hardware-tællerens interrupt-pins er ikke tilgængelige på dette board (se [§2.2](02_Hardware_og_Moduler.md)) — kun `sw`/`sw-isr` kan bruges der.
+> **ES32D26:** kun `sw` (polling af en discrete input) kan bruges. DI1–8 sidder bag et skifteregister (74HC165), så hverken GPIO-interrupt (`sw-isr`) eller hardware-tælleren (`hw`/PCNT) kan se dem, og de frie ESP32-pins bruges af W5500/PSRAM. Fra v7.9.68.46 (FEAT-430) er `sw-isr` og `hw` derfor spærret på dette board: CLI og REST afviser dem med en forklaring, I/O-siden viser dem gråt med en bemærkning, `CNT_SETUP` returnerer FALSE, og en ældre/gendannet konfiguration med dem sættes til `sw`. Timerne er ren software og virker uændret.
 
 **Konfiguration:**
 ```

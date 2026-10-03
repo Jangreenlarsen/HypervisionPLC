@@ -643,6 +643,17 @@ typedef enum {
  * ============================================================================ */
 
 // Hardware pins — board-dependent
+/* FEAT-430: taeller-tilstande der kraever en fysisk ESP32-pin (sw-isr = GPIO-
+ * interrupt, hw = PCNT). Paa ES32D26 sidder DI1-8 bag 74HC165-skifteregistret,
+ * og de frie pins bruges af W5500/PSRAM — kun sw (poll af discrete input). */
+#if defined(BOARD_ES32D26)
+  #define COUNTER_PIN_MODES_AVAILABLE 0
+  #define COUNTER_PIN_MODES_NOTE "Ikke tilgaengelig paa ES32D26: DI1-8 sidder bag et skifteregister, og der er ingen ledige GPIO-pins - kun sw (poll)"
+#else
+  #define COUNTER_PIN_MODES_AVAILABLE 1
+  #define COUNTER_PIN_MODES_NOTE ""
+#endif
+
 #if defined(BOARD_ES32D26)
   // ES32D26: Single RS485 transceiver shared with slave (GPIO1/3/21)
   // Master reuses uart1_* functions — no separate HardwareSerial
@@ -698,7 +709,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.68.45"
+#define PROJECT_VERSION     "7.9.68.46"
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
 
 /* Version history:

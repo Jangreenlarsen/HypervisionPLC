@@ -466,8 +466,21 @@ function updateCounterModeUI(id){
   document.querySelectorAll('.cmode[data-counter="'+id+'"]').forEach(el=>{el.hidden=(el.dataset.mode!==mode);});
 }
 
+// FEAT-430: deaktivér sw-isr/hw (fysisk ESP32-pin) med boardets begrundelse
+function applyCounterPinModes(id,d){
+  if(d.pin_modes_available!==false)return;
+  const sel=$('c'+id+'_hwmode');
+  [...sel.options].forEach(o=>{if(o.value!=='sw'){o.disabled=true;if(!o.textContent.includes('ikke på dette board'))o.textContent+=' — ikke på dette board';}});
+  if(!$('c'+id+'_pinnote')){
+    const n=document.createElement('div');n.id='c'+id+'_pinnote';
+    n.style.cssText='font-size:10px;color:#fab387;margin-top:3px';
+    n.textContent=d.pin_modes_note||'Software-interrupt og hardware PCNT er ikke tilgængelige på dette board.';
+    sel.parentNode.appendChild(n);
+  }
+}
 function loadCounter(id){
   api('/api/counters/'+id).then(r=>r.json()).then(d=>{
+    applyCounterPinModes(id,d);
     $('c'+id+'_enabled').checked=!!d.enabled;
     const modeMap={SW:'sw',SW_ISR:'sw_isr',HW_PCNT:'hw',DISABLED:'sw'};
     $('c'+id+'_hwmode').value=modeMap[d.mode]||'sw';
