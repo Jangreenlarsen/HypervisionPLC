@@ -1035,7 +1035,7 @@ function log(cls,msg){
   const out=document.getElementById('output');
   out.classList.remove('hidden');
   const ts=new Date().toLocaleTimeString();
-  out.innerHTML+='<span class="'+cls+'">['+ts+'] '+msg+'</span>\n';
+  out.innerHTML+='<span class="'+cls+'">['+ts+'] '+escHtml(msg)+'</span>\n';  // BUG-435
   out.scrollTop=out.scrollHeight;
 }
 

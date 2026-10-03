@@ -88,6 +88,11 @@ void st_logic_print_program(st_logic_engine_state_t *state, uint8_t program_id, 
  */
 void st_logic_lock_variables(void);
 
+/* BUG-436: kaldes af st_logic_reinit() — en udfoerelse der koerer samtidig
+ * (HIGH-task paa Core 0) skriver saa ikke sine gamle variabler tilbage oven i
+ * den nulstillede tilstand. */
+void st_logic_mark_reinit(uint8_t program_id);
+
 /**
  * @brief Unlock ST variables after access
  * Call after reading/writing ST program variables

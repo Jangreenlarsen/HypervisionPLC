@@ -1010,7 +1010,7 @@ function refreshSseClients(){
     $('sseInfo').textContent='Aktive klienter: '+d.active_clients;
     const tbody=$('sseTbody');
     if(!d.clients||d.clients.length===0){tbody.innerHTML='<tr><td colspan="6" style="color:#6c7086;text-align:center">Ingen forbundne klienter</td></tr>';return}
-    tbody.innerHTML=d.clients.map(c=>'<tr><td>'+c.slot+'</td><td>'+c.ip+'</td><td>'+c.username+'</td><td>'+c.topics+'</td><td>'+fmtUptime(c.uptime_s)+'</td><td><button class="btn btn-danger btn-sm" onclick="disconnectSse('+c.slot+')">Afbryd</button></td></tr>').join('');
+    tbody.innerHTML=d.clients.map(c=>'<tr><td>'+c.slot+'</td><td>'+escHtml(c.ip)+'</td><td>'+escHtml(c.username)+'</td><td>'+escHtml(c.topics)+'</td><td>'+fmtUptime(c.uptime_s)+'</td><td><button class="btn btn-danger btn-sm" onclick="disconnectSse('+c.slot+')">Afbryd</button></td></tr>').join('');
   }).catch(()=>{$('sseInfo').textContent='Kunne ikke hente SSE status';$('sseTbody').innerHTML='<tr><td colspan="6" style="color:#f38ba8;text-align:center">Fejl</td></tr>'});
 }
 function disconnectSse(slot){
@@ -1057,7 +1057,7 @@ function loadRbac(){
     if(!d.users||d.users.length===0){tbody.innerHTML='<tr><td colspan="5" style="color:#6c7086;text-align:center">Ingen brugere oprettet endnu</td></tr>';return}
     tbody.innerHTML=d.users.map(u=>{
       const un=u.username.replace(/'/g,"\\'").replace(/"/g,'&quot;');
-      return '<tr><td>'+u.index+'</td><td>'+u.username+'</td><td>'+u.roles+'</td><td>'+u.privilege+
+      return '<tr><td>'+u.index+'</td><td>'+escHtml(u.username)+'</td><td>'+u.roles+'</td><td>'+u.privilege+
         '</td><td><button class="btn btn-sm btn-primary" onclick="editRbacUser(\''+un+'\',\''+u.roles+'\',\''+u.privilege+'\')">Redigér</button> '+
         '<button class="btn btn-sm btn-danger" onclick="deleteRbacUser(\''+un+'\')">Slet</button></td></tr>';
     }).join('');
@@ -1333,7 +1333,7 @@ function loadPublicCards(){
     const grid=$('pubCardsGrid');
     grid.innerHTML=PUBLIC_CARD_CATALOG.map(c=>
       '<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">'
-      +'<input type="checkbox" class="pubCardCb" value="'+c.id+'"'+(visible.includes(c.id)?' checked':'')+'> '+c.label+'</label>'
+      +'<input type="checkbox" class="pubCardCb" value="'+c.id+'"'+(visible.includes(c.id)?' checked':'')+'> '+escHtml(c.label)+'</label>'
     ).join('');
   }).catch(()=>{$('pubCardsGrid').innerHTML='<span style="color:#f38ba8;font-size:12px">Kunne ikke hente kort-udvalg</span>'});
 }

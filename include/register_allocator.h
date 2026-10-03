@@ -135,6 +135,13 @@ bool register_allocator_allocate_range(uint16_t start_addr, uint8_t count,
  */
 void register_allocator_free_range(uint16_t start_addr, uint8_t count);
 
+/* BUG-439: frigiv alle registre ejet af (type, id) — fx ved sletning af en taeller */
+void register_allocator_free_owner(RegisterOwnerType type, uint8_t subsystem_id);
+
+/* BUG-439: (gen)allokér en taellers registre ud fra dens aktuelle config
+ * (frigiver foerst dens gamle). Bruges ved opstart og efter omkonfiguration. */
+void register_allocator_allocate_counter(uint8_t id);
+
 /**
  * @brief DEBUG: Print allocation map (all allocated registers)
  */

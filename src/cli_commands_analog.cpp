@@ -5,6 +5,7 @@
 
 #include "cli_commands_analog.h"
 #include "constants.h"
+#include "debug.h"  // ogsaa #else-grenen bruger debug_println (boards uden analog I/O)
 
 #if defined(ANALOG_IO_ENABLED)
 

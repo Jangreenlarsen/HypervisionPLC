@@ -2238,7 +2238,7 @@ bool cli_parser_execute(char* line) {
           uname, idx, role_str, priv_str);
         debug_println("NOTE: Use 'save' to persist changes");
       } else {
-        debug_println("ERROR: Could not add user (max 8 users)");
+        debug_println("ERROR: Could not add user (max 8 users, for langt navn/password, eller navnet indeholder < > \" ' & / kontroltegn)");
       }
       return true;
 
@@ -2740,8 +2740,16 @@ bool cli_parser_execute(char* line) {
         // no set counter <id>
         cli_cmd_delete_counter(argc - 3, argv + 3);
         return true;
+      } else if (!strcmp(what, "H-REG")) {
+        // BUG-440: no set holding-reg <addr>
+        cli_cmd_no_set_reg(argc - 3, argv + 3);
+        return true;
+      } else if (!strcmp(what, "COIL")) {
+        // BUG-440: no set coil <addr>
+        cli_cmd_no_set_coil(argc - 3, argv + 3);
+        return true;
       } else {
-        debug_println("NO SET: unknown argument (supported: GPIO, COUNTER)");
+        debug_println("NO SET: unknown argument (supported: GPIO, COUNTER, HOLDING-REG, COIL)");
         return false;
       }
     } else {

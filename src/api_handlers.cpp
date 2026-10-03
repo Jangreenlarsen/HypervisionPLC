@@ -57,6 +57,7 @@
 #include "ip_acl.h"
 #include "expansion_api_client.h"  // FEAT-409
 #include "modbus_expansion.h"      // v7.9.68.7: connection-pool snapshot for dashboard
+#include "register_allocator.h"     // BUG-439
 #include "network_config.h"  // network_config_ip_to_str()
 #include "mb_async.h"
 #include "mb_activity_log.h"
@@ -4214,7 +4215,11 @@ static esp_err_t api_handler_counter_config_post(httpd_req_t *req)
 
   // Apply
   counter_config_set(id, &cfg);
+  // BUG-442: ogsaa i den persistente config (som timer-endpoints og CLI'ens
+  // set counter) — ellers gemte Save aldrig en taeller sat op fra web/REST
+  counter_config_get(id, &g_persist_config.counters[id - 1]);
   counter_engine_configure(id, &cfg);
+  register_allocator_allocate_counter(id);  // BUG-439
 
   JsonDocument resp;
   resp["status"] = 200;
@@ -4312,7 +4317,9 @@ esp_err_t api_handler_counter_delete(httpd_req_t *req)
   // Reset to defaults (disabled)
   CounterConfig cfg = counter_config_defaults(id);
   counter_config_set(id, &cfg);
+  counter_config_get(id, &g_persist_config.counters[id - 1]);  // BUG-442
   counter_engine_configure(id, &cfg);
+  register_allocator_allocate_counter(id);  // BUG-439
 
   JsonDocument doc;
   doc["status"] = 200;
@@ -5715,7 +5722,7 @@ esp_err_t api_handler_rbac_users_post(httpd_req_t *req)
 
   int idx = rbac_set_user(username, password, roles, priv);
   if (idx < 0) {
-    return api_send_error(req, 400, "Could not save user (max users reached, or username/password too long)");
+    return api_send_error(req, 400, "Could not save user (max users reached, username/password too long, or username contains < > \" ' & / control characters)");
   }
 
   char role_str[40];
@@ -6204,9 +6211,15 @@ esp_err_t api_handler_expansion_connections_get(httpd_req_t *req)
     c["idle_ms"] = (uint32_t)(now - conns[i].last_activity_ms);
   }
 
-  char buf[512];
-  serializeJson(doc, buf, sizeof(buf));
-  return api_send_json(req, buf);
+  // BUG-437: 8 forbindelser med store idle_ms kunne overskride 512 bytes
+  // (afkortet, ugyldig JSON) — allokeres efter faktisk stoerrelse.
+  size_t need = measureJson(doc) + 1;
+  char *buf = (char *)malloc(need);
+  if (!buf) return api_send_error(req, 500, "Out of memory");
+  serializeJson(doc, buf, need);
+  esp_err_t ret = api_send_json(req, buf);
+  free(buf);
+  return ret;
 }
 
 // GET /api/expansion/action-status — poller resultatet af det seneste

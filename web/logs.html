@@ -281,8 +281,8 @@ function fetchLogs(){
         '<td><span class="method '+methodClass(e.method)+'">'+e.method+'</span></td>'+
         '<td>'+e.path+'</td>'+
         '<td class="'+statusCls+'">'+e.status+'</td>'+
-        '<td>'+e.ip+'</td>'+
-        '<td>'+e.username+'</td></tr>';
+        '<td>'+escHtml(e.ip)+'</td>'+
+        '<td>'+escHtml(e.username)+'</td></tr>';
     }).join('');
   }).catch(()=>{$('logBody').innerHTML='<tr><td colspan="6" class="empty-msg">Kunne ikke hente log</td></tr>';});
 }
@@ -377,7 +377,7 @@ function renderSyslog(){
   for(const e of recent){
     const catLbl=e.category==='regchange'?'<span style="color:#f9e2af">Reg.ændring</span>':'<span style="color:#89b4fa">Hændelse</span>';
     const srcLbl=_syslogSrcNames[e.source]||e.source;
-    h+='<tr><td>'+syslogTimeString(e)+'</td><td>'+catLbl+'</td><td>'+srcLbl+'</td><td>'+e.username+'</td><td>'+e.ip+'</td><td>'+syslogDetail(e)+'</td></tr>';
+    h+='<tr><td>'+syslogTimeString(e)+'</td><td>'+catLbl+'</td><td>'+srcLbl+'</td><td>'+escHtml(e.username)+'</td><td>'+escHtml(e.ip)+'</td><td>'+syslogDetail(e)+'</td></tr>';
   }
   h+='</tbody></table>';
   el.innerHTML=h;

@@ -761,7 +761,7 @@ function loadExpBoardTypes(){
     const sel=$('expFormType');
     _expTypeLabels={};
     if(!d.types||d.types.length===0){sel.innerHTML='<option value="">Ingen kendte typer</option>';return}
-    sel.innerHTML=d.types.map(t=>'<option value="'+t.value+'">'+t.label+'</option>').join('');
+    sel.innerHTML=d.types.map(t=>'<option value="'+escHtml(t.value)+'">'+escHtml(t.label)+'</option>').join('');
     d.types.forEach(t=>{_expTypeLabels[t.value]=t.label});
   }).catch(()=>{$('expFormType').innerHTML='<option value="">Kunne ikke hente typer</option>'});
 }
@@ -777,14 +777,14 @@ function loadExpBoards(){
       updateExpTestFields();
       return;
     }
-    testSel.innerHTML=d.boards.map(b=>'<option value="'+b.id+'">#'+b.number+' — '+b.name+'</option>').join('')+EXP_TEST_INTERNAL_OPT;
+    testSel.innerHTML=d.boards.map(b=>'<option value="'+b.id+'">#'+b.number+' — '+escHtml(b.name)+'</option>').join('')+EXP_TEST_INTERNAL_OPT;
     _expBoards={};d.boards.forEach(b=>{_expBoards[b.id]={name:b.name,number:b.number}});
     if(prevSel==='internal'||d.boards.some(b=>String(b.id)===prevSel))testSel.value=prevSel;
     updateExpTestFields();
     tbody.innerHTML=d.boards.map(b=>{
       const nameEsc=b.name.replace(/'/g,"\\'");
       const typeLabel=_expTypeLabels[b.type]||b.type;
-      return '<tr><td>'+b.number+'</td><td>'+b.name+'</td><td style="font-size:11px">'+typeLabel+'</td><td>'+b.ip+'</td><td>'+(b.has_token?'<span style="color:#a6e3a1">Sat</span>':'<span style="color:#f38ba8">Mangler</span>')+
+      return '<tr><td>'+b.number+'</td><td>'+escHtml(b.name)+'</td><td style="font-size:11px">'+escHtml(typeLabel)+'</td><td>'+escHtml(b.ip)+'</td><td>'+(b.has_token?'<span style="color:#a6e3a1">Sat</span>':'<span style="color:#f38ba8">Mangler</span>')+
         '</td><td id="expStatus'+b.id+'" style="color:#6c7086">-</td>'+
         '<td id="expFw'+b.id+'" style="font-size:11px">'+expFwCellHtml(b.id)+'</td>'+
         '<td><button class="btn btn-sm btn-primary" onclick="testExpBoardConnection('+b.id+')">Test forbindelse</button> '+
@@ -873,7 +873,7 @@ function testExpBoardConnection(id){
       const r=d.response||{};
       cell.innerHTML='<span style="color:#a6e3a1">OK</span> fw '+(r.fw_version||'?')+', kanaler '+(r.active_channels!==undefined?r.active_channels:'?');
     });
-  }).catch(e=>{if(cell)cell.innerHTML='<span style="color:#f38ba8">Fejl: '+e.message+'</span>'});
+  }).catch(e=>{if(cell)cell.innerHTML='<span style="color:#f38ba8">Fejl: '+escHtml(e.message)+'</span>'});
 }
 
 function showExpChannels(id,name){
@@ -891,7 +891,7 @@ function showExpChannels(id,name){
       // ad gangen (delt async-resultat-slot, se expansion_api_client.h).
       loadExpCapabilities(id);
     });
-  }).catch(e=>{$('expChannelsBody').innerHTML='<p style="color:#f38ba8">Fejl: '+e.message+'</p>'});
+  }).catch(e=>{$('expChannelsBody').innerHTML='<p style="color:#f38ba8">Fejl: '+escHtml(e.message)+'</p>'});
 }
 
 // v7.9.68.3: GET /api/capabilities (DESIGN_GUIDE_MODBUS_EXPANSION_FC_CAPABILITIES.md)
@@ -1035,7 +1035,7 @@ function expFwCellHtml(id){
   return h;
 }
 function renderExpFwCell(id){const el=$('expFw'+id);if(el)el.innerHTML=expFwCellHtml(id);}
-function escHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+// escHtml() ligger nu i common.js (BUG-435)
 
 async function refreshExpFw(id){
   try{

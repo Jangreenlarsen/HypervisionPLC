@@ -223,3 +223,39 @@ void cli_cmd_set_coil_dynamic(uint8_t argc, char* argv[]) {
   debug_print(":");
   debug_println(function_str);
 }
+
+/* BUG-440: no set coil <addr> — fjern STATIC/DYNAMIC-mapping paa adressen.
+ * Fandtes ikke: en mapping kunne kun fjernes via restore af en backup. */
+void cli_cmd_no_set_coil(uint8_t argc, char* argv[]) {
+  if (argc < 1) {
+    debug_println("NO SET COIL: brug: no set coil <adresse>");
+    return;
+  }
+  uint16_t address = (uint16_t)atoi(argv[0]);
+  uint8_t removed = 0;
+  for (uint8_t i = 0; i < g_persist_config.static_coil_count; ) {
+    if (g_persist_config.static_coils[i].coil_address == address) {
+      for (uint8_t j = i; j + 1 < g_persist_config.static_coil_count; j++)
+        g_persist_config.static_coils[j] = g_persist_config.static_coils[j + 1];
+      g_persist_config.static_coil_count--;
+      removed++;
+    } else {
+      i++;
+    }
+  }
+  for (uint8_t i = 0; i < g_persist_config.dynamic_coil_count; ) {
+    if (g_persist_config.dynamic_coils[i].coil_address == address) {
+      for (uint8_t j = i; j + 1 < g_persist_config.dynamic_coil_count; j++)
+        g_persist_config.dynamic_coils[j] = g_persist_config.dynamic_coils[j + 1];
+      g_persist_config.dynamic_coil_count--;
+      removed++;
+    } else {
+      i++;
+    }
+  }
+  if (removed) {
+    debug_printf("coil %u: mapping fjernet (brug 'save' for at gemme)\n", (unsigned)address);
+  } else {
+    debug_printf("coil %u: ingen STATIC/DYNAMIC-mapping\n", (unsigned)address);
+  }
+}

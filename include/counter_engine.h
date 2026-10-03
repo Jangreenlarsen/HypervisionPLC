@@ -102,6 +102,12 @@ bool counter_engine_get_config(uint8_t id, CounterConfig* out);
 uint64_t counter_engine_get_value(uint8_t id);
 
 /**
+ * BUG-434: tællerens overflow-flag (0/1) uanset hw_mode — samme kilde som
+ * ctrl_reg bit 3. Bruges af DYNAMIC-registre/coils (counter<id>:overflow).
+ */
+uint8_t counter_engine_get_overflow(uint8_t id);
+
+/**
  * @brief Set counter value (for testing/initialization)
  * @param id Counter ID (1-4)
  * @param value Value to set

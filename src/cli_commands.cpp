@@ -258,6 +258,9 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
     if (counter_regs[i] > 0 && counter_regs[i] < HOLDING_REGS_SIZE) {
       RegisterOwner owner;
       if (!register_allocator_check(counter_regs[i], &owner)) {
+        // BUG-439: taellerens EGNE registre (allokeret ved opstart) er ikke en
+        // konflikt — ellers kunne en aktiv taeller aldrig omkonfigureres efter genstart
+        if (owner.type == REG_OWNER_COUNTER && owner.subsystem_id == id) continue;
         // This register is allocated to something else
         debug_print("ERROR: Counter ");
         debug_print_uint(id);
@@ -308,6 +311,7 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
 
   // Apply configuration to engine
   if (counter_engine_configure(id, &cfg)) {
+    register_allocator_allocate_counter(id);  // BUG-439: hold allokeringen i takt med config
     debug_print("Counter ");
     debug_print_uint(id);
     debug_println(" configured");
@@ -371,7 +375,11 @@ void cli_cmd_delete_counter(uint8_t argc, char* argv[]) {
   // Disable counter by setting enabled=0
   CounterConfig cfg = counter_config_defaults(id);
   cfg.enabled = 0;  // DISABLE counter
+  // BUG-442: ogsaa i den persistente config — ellers gemte 'save' den gamle,
+  // aktive config, og taelleren kom igen efter genstart (samme moenster som set)
+  g_persist_config.counters[id - 1] = cfg;
   counter_engine_configure(id, &cfg);
+  register_allocator_free_owner(REG_OWNER_COUNTER, id);  // BUG-439: frigiv registrene
 
   debug_print("Counter ");
   debug_print_uint(id);

@@ -58,27 +58,7 @@ void register_allocator_init(void) {
   // BUG-028 FIX: Allocate multi-word ranges for 32/64-bit counters
   // BUG-030 FIX: Also allocate compare_value_reg (multi-word for 32/64-bit)
   for (uint8_t id = 1; id <= 4; id++) {
-    CounterConfig cfg;
-    if (counter_config_get(id, &cfg) && cfg.enabled) {
-      // Calculate word count based on bit width
-      uint8_t words = (cfg.bit_width <= 16) ? 1 : (cfg.bit_width == 32) ? 2 : 4;
-
-      // Allocate value register range (1-4 words depending on bit_width)
-      register_allocator_allocate_range(cfg.value_reg, words, REG_OWNER_COUNTER, id, "val");
-
-      // Allocate raw register range (1-4 words depending on bit_width)
-      register_allocator_allocate_range(cfg.raw_reg, words, REG_OWNER_COUNTER, id, "raw");
-
-      // Allocate single-word registers (always 16-bit)
-      // Note: overflow flag is now in ctrl_reg bit 3, no separate register needed
-      register_allocator_allocate(cfg.freq_reg, REG_OWNER_COUNTER, id, "frq");
-      register_allocator_allocate(cfg.ctrl_reg, REG_OWNER_COUNTER, id, "ctl");
-
-      // Allocate compare_value register range (1-4 words depending on bit_width)
-      if (cfg.compare_enabled && cfg.compare_value_reg < ALLOCATOR_SIZE) {
-        register_allocator_allocate_range(cfg.compare_value_reg, words, REG_OWNER_COUNTER, id, "cmp");
-      }
-    }
+    register_allocator_allocate_counter(id);  // BUG-439: faelles med omkonfiguration
   }
 
   // 4. Pre-allocate timer ctrl-regs (if configured)
@@ -153,6 +133,29 @@ bool register_allocator_check(uint16_t reg_addr, RegisterOwner* owner) {
   }
 
   return (reg_owner->type == REG_OWNER_NONE);  // true if free
+}
+
+void register_allocator_free_owner(RegisterOwnerType type, uint8_t subsystem_id) {
+  for (uint16_t i = 0; i < ALLOCATOR_SIZE; i++) {
+    if (allocation_map[i].type == type && allocation_map[i].subsystem_id == subsystem_id) {
+      memset(&allocation_map[i], 0, sizeof(allocation_map[i]));
+    }
+  }
+}
+
+void register_allocator_allocate_counter(uint8_t id) {
+  register_allocator_free_owner(REG_OWNER_COUNTER, id);
+  CounterConfig cfg;
+  if (!counter_config_get(id, &cfg) || !cfg.enabled) return;
+  // BUG-028/030: multi-word for 32/64 bit; overflow ligger i ctrl_reg bit 3
+  uint8_t words = (cfg.bit_width <= 16) ? 1 : (cfg.bit_width == 32) ? 2 : 4;
+  register_allocator_allocate_range(cfg.value_reg, words, REG_OWNER_COUNTER, id, "val");
+  register_allocator_allocate_range(cfg.raw_reg, words, REG_OWNER_COUNTER, id, "raw");
+  register_allocator_allocate(cfg.freq_reg, REG_OWNER_COUNTER, id, "frq");
+  register_allocator_allocate(cfg.ctrl_reg, REG_OWNER_COUNTER, id, "ctl");
+  if (cfg.compare_enabled && cfg.compare_value_reg < ALLOCATOR_SIZE) {
+    register_allocator_allocate_range(cfg.compare_value_reg, words, REG_OWNER_COUNTER, id, "cmp");
+  }
 }
 
 bool register_allocator_allocate(uint16_t reg_addr, RegisterOwnerType type,

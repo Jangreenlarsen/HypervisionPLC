@@ -766,7 +766,7 @@ function fetchExpansionList(){
     _expBoardList=d.boards;
     if(changed){
       refreshTrendSrcOptions();  // FEAT-425: boards som trend-kilder
-      list.innerHTML=d.boards.map(b=>'<div class="row"><span class="lbl">#'+b.number+' '+b.name+'</span><span class="val val-n" id="expDashBoard'+b.id+'">Tjekker...</span></div>').join('');
+      list.innerHTML=d.boards.map(b=>'<div class="row"><span class="lbl">#'+b.number+' '+escHtml(b.name)+'</span><span class="val val-n" id="expDashBoard'+b.id+'">Tjekker...</span></div>').join('');
     }
     d.boards.forEach(_expRender);  // data-planen giver status med det samme
     _expCheckSequential(0);
@@ -1632,7 +1632,7 @@ function updateRegisterMap(m){
   const tbody=$('allocBody');
   let thtml='';
   allRanges.forEach(r=>{
-    thtml+='<tr><td>'+r.label+'</td><td><span class="rm rm-'+r.type+'">'+r.type+'</span></td><td>'+r.prefix+'</td><td>'+r.start+'</td><td>'+r.end+'</td><td>'+(r.end-r.start+1)+'</td></tr>';
+    thtml+='<tr><td>'+escHtml(r.label)+'</td><td><span class="rm rm-'+r.type+'">'+r.type+'</span></td><td>'+r.prefix+'</td><td>'+r.start+'</td><td>'+r.end+'</td><td>'+(r.end-r.start+1)+'</td></tr>';
   });
   tbody.innerHTML=thtml||'<tr><td colspan="6" class="empty-msg">Ingen allokeringer fundet</td></tr>';
 }
@@ -1752,8 +1752,8 @@ async function fetchConnections(){
       const dot=r.dot||(r.proto==='NTP'?'dot-y':'dot-g');
       h+='<tr><td><span class="dot '+dot+'"></span> '+r.proto+'</td>';
       h+='<td>'+r.dir+'</td>';
-      h+='<td>'+r.ip+'</td>';
-      h+='<td>'+r.user+'</td>';
+      h+='<td>'+escHtml(r.ip)+'</td>';
+      h+='<td>'+escHtml(r.user)+'</td>';
       h+='<td>'+r.up+'</td>';
       h+='<td style="font-size:10px;color:#6c7086">'+r.info+'</td></tr>';
     }
@@ -1906,8 +1906,8 @@ function renderAlarms(){
     const ack=a.acknowledged?'<span class="dot dot-off" title="Kvitteret"></span>':'<span class="dot dot-r" title="Aktiv"></span>';
     const timeStr=a.time||a.uptime;
     let src='';
-    if(a.source_ip)src+='<span title="Klient IP" style="color:#89b4fa">'+a.source_ip+'</span>';
-    if(a.username)src+=(src?' / ':'')+'<span title="Bruger" style="color:#cba6f7">'+a.username+'</span>';
+    if(a.source_ip)src+='<span title="Klient IP" style="color:#89b4fa">'+escHtml(a.source_ip)+'</span>';
+    if(a.username)src+=(src?' / ':'')+'<span title="Bruger" style="color:#cba6f7">'+escHtml(a.username)+'</span>';
     const txMatch=a.message.match(/TX\s*->\s*ID:(\d+)\s*@(\d+)/);
     const rxMatch=a.message.match(/RX\s*<-\s*ID:(\d+)/);
     if(txMatch)src+=(src?'<br>':'')+'<span title="Master TX til slave" style="color:#fab387">TX &rarr; Slave ID:'+txMatch[1]+' Reg:'+txMatch[2]+'</span>';
@@ -1915,7 +1915,7 @@ function renderAlarms(){
     if(!src)src='<span style="color:#585b70">-</span>';
     h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
     h+='<td class="'+sevCls+'" style="font-weight:700;font-size:10px">'+sevLbl+'</td>';
-    h+='<td>'+a.message+'</td>';
+    h+='<td>'+escHtml(a.message)+'</td>';
     h+='<td style="font-size:10px">'+src+'</td>';
     h+='<td>'+ack+'</td></tr>';
   }
@@ -2396,8 +2396,8 @@ function renderSyslog(){
     h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
     h+='<td style="font-size:10px">'+catLbl+'</td>';
     h+='<td style="font-size:10px">'+srcLbl+'</td>';
-    h+='<td style="font-size:10px">'+e.username+'</td>';
-    h+='<td style="font-size:10px">'+e.ip+'</td>';
+    h+='<td style="font-size:10px">'+escHtml(e.username)+'</td>';
+    h+='<td style="font-size:10px">'+escHtml(e.ip)+'</td>';
     h+='<td style="font-size:10px">'+syslogDetail(e)+'</td></tr>';
   }
   h+='</table>';

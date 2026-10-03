@@ -892,6 +892,7 @@ bool st_logic_reinit(st_logic_engine_state_t *state, uint8_t program_id) {
   if (!prog->compiled) return false;
 
   // Reset variables to compiled initial values (cold restart)
+  st_logic_mark_reinit(program_id);  // BUG-436: kassér en samtidig udfoerelses tilbageskrivning
   st_logic_lock_variables();
   memcpy(prog->bytecode.variables, prog->bytecode.var_initial,
          prog->bytecode.var_count * sizeof(st_value_t));

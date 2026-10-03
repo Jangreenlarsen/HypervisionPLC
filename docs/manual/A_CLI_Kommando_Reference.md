@@ -37,7 +37,9 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `test crash panic\|wdt yes` | `yes` påkrævet | **FEAT-427.** Bevidst crash til test af crash-tæller og safe mode: `panic` genstarter straks (panic-reset), `wdt` hænger hovedløkken så task-watchdog'en genstarter efter timeout. 3 i træk (hver < 10 min drift) → safe mode. **Kun til test — genstarter PLC'en.** Brug Telnet | `test crash panic yes` |
 | `delete user <navn>` | — | Slet RBAC-bruger | `delete user viewer` |
 | `no set gpio <pin>` | — | Fjern GPIO-mapping (auto-gemmes til NVS) | `no set gpio 23` |
-| `no set counter <id>` | `id`: 1–4 | Deaktivér/slet counter-konfiguration | `no set counter 1` |
+| `no set counter <id>` | `id`: 1–4 | Deaktivér/slet counter-konfiguration og frigiv dens registre. Brug `save` bagefter (før v7.9.68.44 overlevede sletningen ikke en genstart, BUG-442) | `no set counter 1` |
+| `no set holding-reg <addr>` | adresse | **Ny (BUG-440).** Fjern STATIC/DYNAMIC-mapping på adressen (kunne før kun fjernes via restore). Brug `save` bagefter | `no set holding-reg 90` |
+| `no set coil <addr>` | adresse | **Ny (BUG-440).** Fjern STATIC/DYNAMIC-coil-mapping på adressen. Brug `save` bagefter | `no set coil 10` |
 | `reset counter <id>` | `id`: 1–4 | Nulstil counter-værdi til start-value | `reset counter 1` |
 | `reset logic stats [all\|cycle\|<id>]` | default `all` | Nulstil ST Logic-statistik (alt, kun cyklus-stats, eller ét program 1–4) | `reset logic stats 2` |
 | `clear counters` | — | Nulstil alle 4 counters | `clear counters` |
@@ -193,7 +195,7 @@ Hardware (standard ESP32-varianter): UART1, TX=GPIO25, RX=GPIO26, DE/RE=GPIO27. 
 | Kommando | Beskrivelse |
 |---|---|
 | `set holding-reg STATIC <addr> Value [uint\|int\|dint\|dword\|real] <værdi>` | Skriv statisk register. Type default `uint`. `uint`: 0–65535. `int`: -32768–32767 (16-bit, 1 reg). `dint`/`dword`/`real`: 32-bit (2 reg). Adresser 200–237 er reserveret til ST Logic og afvises. |
-| `set holding-reg DYNAMIC <addr> counter<id>:<func>` | `func`: `index`, `raw`, `freq`, `overflow`, `ctrl` |
+| `set holding-reg DYNAMIC <addr> counter<id>:<func>` | `func`: `index`, `raw`, `freq`, `overflow`, `ctrl`. Spejler tællerens værdi (laveste 16 bit — brug tællerens egne registre HR100+ for 32/64 bit). Adresse 0–255, men **ikke 200–237** (ST Logics kontrol-/input-/intervalregistre — HR200-203 er Logic1-4's enable-bit, BUG-441) og ikke en af tællerens egne registre. Virkede ikke før v7.9.68.44 (BUG-434) |
 | `set holding-reg DYNAMIC <addr> timer<id>:<func>` | `func`: `output` |
 | `set coil STATIC <addr> Value <ON\|OFF>` | Skriv statisk coil (skrives med det samme) |
 | `set coil DYNAMIC <addr> counter<id>:overflow` / `timer<id>:output` | Dynamisk coil-binding |

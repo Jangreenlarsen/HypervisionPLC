@@ -172,12 +172,17 @@ function syslogTimeString(e){
   return String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor((s%3600)/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
 }
 
+// BUG-435: escaper ALT tekst fra serveren der indsaettes som HTML. Logposter
+// indeholder bl.a. det brugernavn et FEJLET login forsoegte med — uden
+// escaping kunne en uautentificeret angriber faa kode til at koere i en admins browser.
+function escHtml(s){return s==null?'':String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
 function syslogDetail(e){
   if(e.category==='regchange'){
     const kind=e.is_coil?'Coil':'HR';
-    return kind+e.reg_addr+': '+e.old_value+' → '+e.new_value;
+    return escHtml(kind+e.reg_addr+': '+e.old_value+' → '+e.new_value);
   }
-  return e.message||'';
+  return escHtml(e.message||'');
 }
 
 function _apiFetchPump(){

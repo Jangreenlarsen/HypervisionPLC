@@ -318,7 +318,7 @@ Nye opcodes:
 |------|---------|
 | `config_struct.cpp/h` | PersistConfig struct definition |
 | `config_load.cpp/h` | Load from NVS, schema migration, validation |
-| `config_save.cpp/h` | Save to NVS, CRC calculation |
+| `config_save.cpp/h` | Save to NVS, CRC calculation; `config_fingerprint()`/`config_has_unsaved_changes()` → `X-Config-Unsaved`-header (BUG-430) |
 | `config_apply.cpp/h` | Apply config to engines (initialize) |
 
 **Principle:**
@@ -376,7 +376,8 @@ Nye opcodes:
 | `version.cpp/h` | Version string, changelog |
 | `debug.cpp/h` | Debug output helpers, printf wrappers |
 | `debug_flags.cpp/h` | Runtime debug flag management |
-| `watchdog_monitor.cpp/h` | Watchdog timer, crash recovery |
+| `watchdog_monitor.cpp/h` | Task-watchdog (TWDT) for loop + Modbus/expansion-tasks, crash-tæller, safe mode, `watchdog_reboot_for()` (FEAT-427 lag A) |
+| `st_wdt.cpp/h` | Watchdog pr. ST-program: errors/exec/heartbeat/stall → alarm/stop/restart/safe/reboot, `WDT_FEED()` (FEAT-427 lag B) |
 
 ---
 
@@ -390,6 +391,10 @@ Nye opcodes:
 | `st_builtin_modbus.cpp/h` | `MB_*` — Modbus Master builtins (non-blocking cache-read/queue-write against `mb_async.cpp`) |
 | `st_builtin_modbus_expansion.cpp/h` | `MBX_*` — same pattern as above, against expansion boards via `modbus_expansion_async.cpp` (FEAT-410) |
 | `st_debug.cpp/h` | Debugger: pause, step, breakpoints, variable inspection (v5.3.0) |
+| `st_stateful.cpp/h` | Instanslager for TON/TOF/TP, R_TRIG/F_TRIG, CTU/CTD/CTUD, SR/RS, HYSTERESIS/BLINK/FILTER — `st_stateful_create(counts[7])` bruges af compiler og bytecode-cache (BUG-432) |
+| `st_bytecode_persist.cpp/h` | Bytecode-cache i SPIFFS (`/logic_N.bc`, v6: bundet til firmware-build, gemmer instansantal + STRING-literaler) |
+
+**Argumenttyper (BUG-433):** compileren indsætter ingen konvertering — VM'en konverterer argumenter efter `st_builtin_param_type()` før kaldet. **Test:** `bash test/st_host/run.sh` kompilerer compiler+VM med g++ på PC'en og kører ST-programmer igennem dem (kør efter ændringer i `st_*.cpp`).
 
 ---
 
@@ -596,7 +601,7 @@ pio clean && pio run # Clean rebuild
 
 ---
 
-**Last Updated:** 2026-03-18
-**Version:** v7.1.0
+**Last Updated:** 2026-10-03
+**Version:** v7.9.68.44
 **Build:** #1432
 **Status:** ✅ Active & Complete

@@ -28,6 +28,13 @@
  * ============================================================================ */
 static portMUX_TYPE st_var_spinlock = portMUX_INITIALIZER_UNLOCKED;
 
+// BUG-436: generation pr. program, taelles op af st_logic_reinit()
+static volatile uint8_t g_reinit_gen[ST_LOGIC_MAX_PROGRAMS];
+
+void st_logic_mark_reinit(uint8_t program_id) {
+  if (program_id < ST_LOGIC_MAX_PROGRAMS) g_reinit_gen[program_id]++;
+}
+
 /* ============================================================================
  * INPUT/OUTPUT OPERATIONS (MOVED TO gpio_mapping.cpp)
  *
@@ -56,6 +63,9 @@ bool st_logic_execute_program(st_logic_engine_state_t *state, uint8_t program_id
   if (debug->mode == ST_DEBUG_PAUSED) {
     return true;  // Not an error, just paused
   }
+
+  // BUG-436: snapshot — aendres den under udfoerelsen, er programmet nulstillet imens
+  const uint8_t reinit_gen_at_start = g_reinit_gen[program_id];
 
   // Create VM and initialize with bytecode
   st_vm_t vm;
@@ -244,6 +254,11 @@ bool st_logic_execute_program(st_logic_engine_state_t *state, uint8_t program_id
   // BUG-106 FIX: Only copy variables back if execution was successful
   // This prevents division-by-zero or other errors from writing garbage values
   portENTER_CRITICAL(&st_var_spinlock);
+  if (g_reinit_gen[program_id] != reinit_gen_at_start) {
+    // BUG-436: nulstillet under udfoerelsen — kassér denne cyklus' resultat
+    portEXIT_CRITICAL(&st_var_spinlock);
+    return true;
+  }
   memcpy(prog->bytecode.variables, vm.variables, vm.var_count * sizeof(st_value_t));
   // FEAT-005: STRING variable text also lives outside the st_value_t union
   // (only a str_ref handle is copied above) — copy the actual text back too.

@@ -66,10 +66,19 @@ bool expansion_board_type_list(uint8_t index, const char **out_value, const char
   return true;
 }
 
+// BUG-435: navne vises i web-GUI'et — afvis HTML-specialtegn og kontroltegn
+static bool display_name_ok(const char *s) {
+  for (; *s; s++) {
+    unsigned char c = (unsigned char)*s;
+    if (c < 0x20 || c == 0x7F || c == '<' || c == '>' || c == '"' || c == 0x27 || c == '&') return false;
+  }
+  return true;
+}
+
 int expansion_board_add(uint8_t number, const char *board_type, const char *name, const char *ip_str, const char *token) {
   if (number < 1 || number > EXPANSION_BOARD_MAX) return -1;
   if (!name || !*name || !ip_str || !*ip_str || !token || !*token) return -1;
-  if (strlen(name) >= EXPANSION_BOARD_NAME_MAX) return -1;
+  if (strlen(name) >= EXPANSION_BOARD_NAME_MAX || !display_name_ok(name)) return -1;
   if (strlen(token) >= EXPANSION_TOKEN_MAX) return -1;
   if (!expansion_board_type_valid(board_type)) return -1;
 
@@ -99,7 +108,7 @@ int expansion_board_add(uint8_t number, const char *board_type, const char *name
 
 bool expansion_board_edit(uint8_t index, const char *name, const char *ip_str, const char *token, const char *board_type) {
   if (index >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[index].configured) return false;
-  if (!name || !*name || strlen(name) >= EXPANSION_BOARD_NAME_MAX) return false;
+  if (!name || !*name || strlen(name) >= EXPANSION_BOARD_NAME_MAX || !display_name_ok(name)) return false;
   uint32_t ip;
   if (!ip_str || !*ip_str || !network_config_str_to_ip(ip_str, &ip)) return false;
   if (board_type && *board_type && !expansion_board_type_valid(board_type)) return false;

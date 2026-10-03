@@ -8,6 +8,7 @@
  * Also handles DYNAMIC register/coil updates from counter/timer sources
  */
 
+#include "counter_frequency.h"  // BUG-434
 #include "registers.h"
 #include "counter_engine.h"
 #include "counter_config.h"
@@ -205,18 +206,54 @@ uint32_t registers_get_millis(void) {
  *
  * Called once per main loop iteration
  *
- * NOTE (BUG-124 FIX): Counter registers are now handled directly by counter_engine_loop()
- * which writes multi-register values correctly for 32/64-bit counters.
- * This function now ONLY handles TIMER sources to avoid overwriting with truncated values.
+ * NOTE (BUG-124 FIX): counter_engine_loop() skriver taellerens EGNE registre
+ * (value/raw/freq/ctrl, multi-word for 32/64 bit).
+ * BUG-434: et DYNAMIC-register paa en ANDEN adresse (set holding-reg DYNAMIC
+ * <addr> counter<id>:<func>) blev sprunget over og aldrig skrevet — det spejler
+ * nu taellerens vaerdi (laveste 16 bit; brug taellerens egne registre for den
+ * fulde 32/64-bit vaerdi).
  */
 void registers_update_dynamic_registers(void) {
   for (uint8_t i = 0; i < g_persist_config.dynamic_reg_count; i++) {
     const DynamicRegisterMapping* dyn = &g_persist_config.dynamic_regs[i];
     uint16_t reg_addr = dyn->register_address;
+    // BUG-441: skriv aldrig til ST Logics systemregistre (HR200-237), heller
+    // ikke fra en mapping der er kommet ind via restore/aeldre config
+    if (reg_addr >= 200 && reg_addr < 238) continue;
 
-    // BUG-124 FIX: Skip counter sources - counter_engine handles multi-register writes
     if (dyn->source_type == DYNAMIC_SOURCE_COUNTER) {
-      continue;  // Counter values are written by counter_engine_loop()
+      uint8_t counter_id = dyn->source_id;
+      CounterConfig cfg;
+      memset(&cfg, 0, sizeof(cfg));
+      if (!counter_engine_get_config(counter_id, &cfg) || !cfg.enabled) {
+        continue;  // Counter not configured or disabled
+      }
+      uint16_t value = 0;
+      switch (dyn->source_function) {
+        case COUNTER_FUNC_INDEX:
+          if (cfg.value_reg < HOLDING_REGS_SIZE) value = registers_get_holding_register(cfg.value_reg);
+          break;
+        case COUNTER_FUNC_RAW:
+          if (cfg.raw_reg < HOLDING_REGS_SIZE) value = registers_get_holding_register(cfg.raw_reg);
+          break;
+        case COUNTER_FUNC_FREQ:
+          value = counter_frequency_get(counter_id);
+          break;
+        case COUNTER_FUNC_OVERFLOW:
+          value = counter_engine_get_overflow(counter_id);
+          break;
+        case COUNTER_FUNC_CTRL:
+          if (cfg.ctrl_reg < HOLDING_REGS_SIZE) value = registers_get_holding_register(cfg.ctrl_reg);
+          break;
+        default:
+          continue;
+      }
+      // Skriv aldrig oven i taellerens egne registre (multi-word, BUG-124)
+      if (reg_addr == cfg.value_reg || reg_addr == cfg.raw_reg ||
+          reg_addr == cfg.freq_reg || reg_addr == cfg.ctrl_reg) {
+        continue;
+      }
+      registers_set_holding_register(reg_addr, value);
     } else if (dyn->source_type == DYNAMIC_SOURCE_TIMER) {
       uint16_t value = 0;
       uint8_t timer_id = dyn->source_id;
@@ -272,9 +309,7 @@ void registers_update_dynamic_coils(void) {
       // Get counter state based on function type
       switch (dyn->source_function) {
         case COUNTER_FUNC_OVERFLOW:
-          // Overflow flag
-          // TODO: Get overflow state from counter state
-          value = 0;  // Placeholder
+          value = counter_engine_get_overflow(counter_id);  // BUG-434: var altid 0
           break;
 
         default:

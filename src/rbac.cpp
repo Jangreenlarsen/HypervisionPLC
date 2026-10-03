@@ -457,10 +457,20 @@ bool rbac_cli_allowed(int user_index, const char *command)
  * USER MANAGEMENT
  * ============================================================================ */
 
+// BUG-435: navne vises i web-GUI'et — afvis HTML-specialtegn og kontroltegn
+static bool display_name_ok(const char *s) {
+  for (; *s; s++) {
+    unsigned char c = (unsigned char)*s;
+    if (c < 0x20 || c == 0x7F || c == '<' || c == '>' || c == '"' || c == 0x27 || c == '&') return false;
+  }
+  return true;
+}
+
 int rbac_set_user(const char *username, const char *password, uint8_t roles, uint8_t privilege)
 {
   if (!username || !password || !username[0] || !password[0]) return -1;
   if (strlen(username) >= RBAC_USERNAME_MAX || strlen(password) >= RBAC_PASSWORD_MAX) return -1;
+  if (!display_name_ok(username)) return -1;  // BUG-435
 
   RbacConfig *cfg = &g_persist_config.rbac;
 

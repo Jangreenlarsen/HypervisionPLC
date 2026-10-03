@@ -464,21 +464,7 @@ void counter_engine_store_value_to_registers(uint8_t id) {
 
   // Write overflow flag to ctrl_reg bit 3
   if (cfg.ctrl_reg < HOLDING_REGS_SIZE) {
-    uint8_t overflow = 0;
-    switch (cfg.hw_mode) {
-      case COUNTER_HW_SW:
-        overflow = counter_sw_get_overflow(id);
-        break;
-      case COUNTER_HW_SW_ISR:
-        overflow = counter_sw_isr_get_overflow(id);
-        break;
-      case COUNTER_HW_PCNT:
-        // BUG FIX P0.3: Use actual overflow from HW counter state
-        overflow = counter_hw_get_overflow(id);
-        break;
-      default:
-        break;
-    }
+    uint8_t overflow = counter_engine_get_overflow(id);  // BUG-434: faelles getter
 
     // Set or clear bit 3 in ctrl_reg
     uint16_t ctrl_val = registers_get_holding_register(cfg.ctrl_reg);
@@ -611,6 +597,17 @@ static void counter_engine_check_compare(uint8_t id, uint64_t counter_value) {
 
 bool counter_engine_get_config(uint8_t id, CounterConfig* out) {
   return counter_config_get(id, out);
+}
+
+uint8_t counter_engine_get_overflow(uint8_t id) {
+  CounterConfig cfg;
+  if (!counter_config_get(id, &cfg)) return 0;
+  switch (cfg.hw_mode) {
+    case COUNTER_HW_SW:     return counter_sw_get_overflow(id) ? 1 : 0;
+    case COUNTER_HW_SW_ISR: return counter_sw_isr_get_overflow(id) ? 1 : 0;
+    case COUNTER_HW_PCNT:   return counter_hw_get_overflow(id) ? 1 : 0;  // BUG FIX P0.3
+    default:                return 0;
+  }
 }
 
 /* ============================================================================

@@ -262,6 +262,14 @@ void cli_cmd_set_reg_dynamic(uint8_t argc, char* argv[]) {
     debug_println(")");
     return;
   }
+  // BUG-441: samme beskyttelse som STATIC (BUG-142) — en DYNAMIC-mapping
+  // skriver loebende til adressen, og HR200-203 er Logic1-4's kontrolregistre
+  // (bit 0 = enable): fx counter1:index = 1234 deaktiverede Logic1.
+  if (address >= 200 && address < 238) {
+    debug_println("SET HOLDING-REG DYNAMIC: ERROR - Address 200-237 reserved for ST Logic system");
+    debug_println("  HR200-203: Logic control, HR204-235: variable inputs, HR236-237: execution interval");
+    return;
+  }
 
   // Parse source:function
   const char* source_str = argv[1];
@@ -472,5 +480,41 @@ void cli_cmd_show_regs(void) {
 
   if (g_persist_config.static_reg_count == 0 && g_persist_config.dynamic_reg_count == 0) {
     debug_println("# No registers configured");
+  }
+}
+
+/* BUG-440: no set holding-reg <addr> — fjern STATIC/DYNAMIC-mapping paa adressen.
+ * Fandtes ikke: en mapping kunne kun fjernes via restore af en backup. */
+void cli_cmd_no_set_reg(uint8_t argc, char* argv[]) {
+  if (argc < 1) {
+    debug_println("NO SET HOLDING-REG: brug: no set holding-reg <adresse>");
+    return;
+  }
+  uint16_t address = (uint16_t)atoi(argv[0]);
+  uint8_t removed = 0;
+  for (uint8_t i = 0; i < g_persist_config.static_reg_count; ) {
+    if (g_persist_config.static_regs[i].register_address == address) {
+      for (uint8_t j = i; j + 1 < g_persist_config.static_reg_count; j++)
+        g_persist_config.static_regs[j] = g_persist_config.static_regs[j + 1];
+      g_persist_config.static_reg_count--;
+      removed++;
+    } else {
+      i++;
+    }
+  }
+  for (uint8_t i = 0; i < g_persist_config.dynamic_reg_count; ) {
+    if (g_persist_config.dynamic_regs[i].register_address == address) {
+      for (uint8_t j = i; j + 1 < g_persist_config.dynamic_reg_count; j++)
+        g_persist_config.dynamic_regs[j] = g_persist_config.dynamic_regs[j + 1];
+      g_persist_config.dynamic_reg_count--;
+      removed++;
+    } else {
+      i++;
+    }
+  }
+  if (removed) {
+    debug_printf("holding-reg %u: mapping fjernet (brug 'save' for at gemme)\n", (unsigned)address);
+  } else {
+    debug_printf("holding-reg %u: ingen STATIC/DYNAMIC-mapping\n", (unsigned)address);
   }
 }

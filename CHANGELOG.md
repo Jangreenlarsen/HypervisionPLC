@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 ---
 
-## [7.9.68.34 – 7.9.68.43] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
+## [7.9.68.34 – 7.9.68.44] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
 
 ### NEW FEATURES
 - **FEAT-426:** 64 variabel-slots pr. ST-program (før 32).
@@ -12,6 +12,15 @@ All notable changes to this project are documented in this file.
 - **FEAT-427 lag B:** watchdog pr. ST-program — betingelser errors/exec/heartbeat/stall, handlinger alarm/stop/restart/safe/reboot, ST-funktion `WDT_FEED()`, CLI `set/show/clear logic <id> wdt`, REST `/api/logic/{id}/wdt`, editor (Monitor + Indstillinger).
 
 ### BUG FIXES
+- **BUG-434:** DYNAMIC-registre/-coils med tæller-kilde (`counter<id>:index|raw|freq|overflow|ctrl`) blev aldrig opdateret.
+- **BUG-435:** stored XSS i web-GUI'et — også uden login via brugernavnet i et fejlet login (vist i Logs). Al server-tekst escapes; board-/brugernavne med HTML-tegn afvises.
+- **BUG-436:** Reinit/watchdog-restart kunne delvist annulleres af en samtidig udførelse (HIGH-programmer).
+- **BUG-437:** `/api/expansion/connections` kunne returnere afkortet JSON.
+- **BUG-439:** en aktiv tæller kunne ikke omkonfigureres efter genstart ("already allocated, Owner: Counter 1").
+- **BUG-440:** nye `no set holding-reg <addr>` / `no set coil <addr>` — mappinger kunne ikke fjernes.
+- **BUG-441:** DYNAMIC-mapping på ST Logics kontrolregistre (HR200-237) afvises — kunne deaktivere ST-programmer.
+- **BUG-442:** tæller-sletning (CLI) og tæller-opsætning fra web blev ikke gemt.
+- **BUG-438:** byggemiljøet `esp32` byggede ikke (slåfejl + manglende include); tomme stub-moduler fjernet.
 - **BUG-433:** gennemgang af alle ST-funktioner. CTU, CTD, HYSTERESIS og BLINK blev aldrig udført. SCALE, FILTER, SR, RS, HYSTERESIS og BLINK returnerede forkert type. SQRT/POW/LN/EXP/LOG/SIN m.fl. gav forkert resultat med INT-argumenter. Argumenter konverteres nu automatisk.
 - **BUG-432:** ST-programmer kørte ikke korrekt efter genstart (krævede recompile): bytecode-cachen genskabte ikke timere/flanker/tællere og STRING-konstanter. Desuden virkede SR/RS, HYSTERESIS, BLINK og FILTER aldrig.
 - **BUG-431:** stabil expansion board-status på Monitor: online når boardet svarer over Modbus TCP (det ST bruger), Offline først efter 2 fejlede tjek, ingen flimren.
