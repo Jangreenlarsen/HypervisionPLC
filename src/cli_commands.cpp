@@ -386,6 +386,31 @@ void cli_cmd_delete_counter(uint8_t argc, char* argv[]) {
   debug_println(" deleted (disabled)");
 }
 
+// BUG-443: no set timer <id> — stod i CLI-hjaelpen, men fandtes ikke (kun
+// REST DELETE /api/timers/{id}). Samme nulstilling som REST-handleren.
+void cli_cmd_delete_timer(uint8_t argc, char* argv[]) {
+  if (argc < 1) {
+    debug_println("DELETE TIMER: missing timer ID");
+    return;
+  }
+  uint8_t id = atoi(argv[0]);
+  if (id < 1 || id > TIMER_COUNT) {
+    debug_println("DELETE TIMER: invalid timer ID (1-4)");
+    return;
+  }
+  // BUG-444: mode DISABLED (0) afvises af timer_config_validate() -> runtime-
+  // timeren blev aldrig stoppet (koerte til genstart). Brug defaults + enabled=0
+  // som taeller-sletningen.
+  TimerConfig cfg = timer_config_defaults(id);
+  cfg.enabled = 0;
+  memcpy(&g_persist_config.timers[id - 1], &cfg, sizeof(TimerConfig));
+  timer_engine_configure(id, &cfg);
+  register_allocator_free_owner(REG_OWNER_TIMER, id);
+  debug_print("Timer ");
+  debug_print_uint(id);
+  debug_println(" deleted (disabled) - brug 'save' for at gemme");
+}
+
 void cli_cmd_clear_counters(void) {
   counter_engine_reset_all();
   debug_println("All counters cleared");

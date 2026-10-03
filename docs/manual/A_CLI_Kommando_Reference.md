@@ -38,6 +38,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `delete user <navn>` | — | Slet RBAC-bruger | `delete user viewer` |
 | `no set gpio <pin>` | — | Fjern GPIO-mapping (auto-gemmes til NVS) | `no set gpio 23` |
 | `no set counter <id>` | `id`: 1–4 | Deaktivér/slet counter-konfiguration og frigiv dens registre. Brug `save` bagefter (før v7.9.68.44 overlevede sletningen ikke en genstart, BUG-442) | `no set counter 1` |
+| `no set timer <id>` | `id`: 1–4 | **Ny (BUG-443).** Deaktivér/slet timer-konfiguration (stod i hjælpeteksten, men fandtes ikke). Brug `save` bagefter | `no set timer 2` |
 | `no set holding-reg <addr>` | adresse | **Ny (BUG-440).** Fjern STATIC/DYNAMIC-mapping på adressen (kunne før kun fjernes via restore). Brug `save` bagefter | `no set holding-reg 90` |
 | `no set coil <addr>` | adresse | **Ny (BUG-440).** Fjern STATIC/DYNAMIC-coil-mapping på adressen. Brug `save` bagefter | `no set coil 10` |
 | `reset counter <id>` | `id`: 1–4 | Nulstil counter-værdi til start-value | `reset counter 1` |

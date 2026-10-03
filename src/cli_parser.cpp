@@ -619,6 +619,9 @@ static void print_counter_help(void) {
   debug_println("  set counter <id> control running:<on|off>");
   debug_println("  reset counter <id>         - Nulstil counter værdi");
   debug_println("  no set counter <id>        - Slet counter (disable)");
+  debug_println("  no set timer <id>          - Slet timer (disable)");
+  debug_println("  no set holding-reg <adr>   - Fjern STATIC/DYNAMIC register-mapping");
+  debug_println("  no set coil <adr>          - Fjern STATIC/DYNAMIC coil-mapping");
   debug_println("  clear counters             - Nulstil alle counters");
   debug_println("");
   debug_println("Examples:");
@@ -2740,6 +2743,10 @@ bool cli_parser_execute(char* line) {
         // no set counter <id>
         cli_cmd_delete_counter(argc - 3, argv + 3);
         return true;
+      } else if (!strcmp(what, "TIMER")) {
+        // BUG-443: no set timer <id>
+        cli_cmd_delete_timer(argc - 3, argv + 3);
+        return true;
       } else if (!strcmp(what, "H-REG")) {
         // BUG-440: no set holding-reg <addr>
         cli_cmd_no_set_reg(argc - 3, argv + 3);
@@ -2749,7 +2756,7 @@ bool cli_parser_execute(char* line) {
         cli_cmd_no_set_coil(argc - 3, argv + 3);
         return true;
       } else {
-        debug_println("NO SET: unknown argument (supported: GPIO, COUNTER, HOLDING-REG, COIL)");
+        debug_println("NO SET: unknown argument (supported: GPIO, COUNTER, TIMER, HOLDING-REG, COIL)");
         return false;
       }
     } else {
@@ -3051,7 +3058,9 @@ bool cli_parser_execute(char* line) {
     debug_println("Delete:");
     debug_println("  no set counter <id>     - Delete counter config");
     debug_println("  no set timer <id>       - Delete timer config");
-    debug_println("  no set gpio <pin>       - Delete GPIO mapping\n");
+    debug_println("  no set gpio <pin>       - Delete GPIO mapping");
+    debug_println("  no set holding-reg <adr> - Delete STATIC/DYNAMIC register mapping");
+    debug_println("  no set coil <adr>       - Delete STATIC/DYNAMIC coil mapping\n");
 
     debug_println("Aliases:");
     debug_println("  sh|s → show");

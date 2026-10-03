@@ -85,6 +85,22 @@ pio clean && pio run
 ✓ Build numbers incremented
 ```
 
+**Changed ST compiler/VM/builtins (`src/st_*.cpp`)?** Run the PC test — it compiles the
+ST core with g++ and runs real ST programs through it (no hardware needed):
+
+```bash
+bash test/st_host/run.sh      # must end with "ALLE TESTS OK"
+```
+
+**Changed web pages?** Syntax-check the `<script>` blocks (`node`), and show any text
+that comes from the device with `escHtml()` or `textContent` — never raw in `innerHTML`
+(BUG-435, SECURITY_INDEX #24).
+
+**Hardware test:** a test PLC can be used when the user provides address/credentials
+(OTA via `POST /api/system/ota`, ST tests in a free Logic slot). Never store the
+credentials in the repo or in memory, and clean up test configuration afterwards —
+note that `set counter` auto-saves the WHOLE config to NVS.
+
 ### Step 4: Commit
 
 ```bash

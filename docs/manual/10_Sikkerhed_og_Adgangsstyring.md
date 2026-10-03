@@ -41,6 +41,8 @@ set user overvaagning password <kodeord> roles monitor privilege read
 
 En bruger med kun `monitor`+`read` kan altså se `/dashboard`, men hverken skrive konfiguration eller bruge CLI'en.
 
+**Navne og tekst i web-GUI'et (fra v7.9.68.44, BUG-435):** brugernavne og navne på expansion boards må ikke indeholde `< > " ' &` eller kontroltegn — de afvises af CLI og REST. Al tekst fra enheden (logposter, alarmer, brugernavne, IP-adresser) vises desuden som ren tekst. Før v7.9.68.44 kunne en **uautentificeret** angriber lægge HTML/JS i hændelsesloggen via brugernavnet i et fejlet login, som så kørte i en administrators browser — opdatér derfor enheder på ældre firmware.
+
 ![System-siden — RBAC-brugerliste med roller og privilegier](assets/screenshots/system_modbus.png)
 
 ## 10.3 Standard-credentials — SKAL ændres
@@ -318,10 +320,10 @@ Gennemgå denne liste før produktionsudrulning:
 - [ ] Aktivér HTTP auth hvis den ikke allerede er slået til (`set http auth on`), og vælg en auth-metode (`set http auth-mode basic|bearer` — se [§10.3.1](#1031-auth-metode-none--basic--bearer-feat-397h-fra-v79420), `bearer` anbefales til nye opsætninger)
 - [ ] Overvej RBAC med separate, navngivne konti frem for delt admin-login, hvis flere personer/systemer skal have adgang
 - [ ] Overvej HTTPS (`set http tls on`) — med forbehold i [§10.4](#104-transportkryptering-httpstls) i baghovedet
-- [ ] Gennemgå [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) for endnu-åbne punkter relevante for jeres installation (fx OTA-adgangskontrol, som pr. skrivende stund kun kræver gyldigt login, ikke skriverettighed)
+- [ ] Gennemgå [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) for endnu-åbne punkter relevante for jeres installation (de åbne er bevidste fravalg: ST har fri adgang til alle slaver, SSE uden TLS, ingen adgangskontrol pr. Modbus-register). OTA kræver skriverettighed (rettet i BUG-355)
 - [ ] Begræns netværksadgang til enheden til det nødvendige (firewall/VLAN), særligt hvis telnet eller ukrypteret HTTP forbliver aktiveret
 - [ ] Overvej IP ACL (`set acl enable`) hvis enheden kun skal være tilgængelig fra kendte subnet — se [§10.7](#107-ip-access-control-list-feat-399401402), inkl. den indbyggede lockout-recovery (bekræft altid fra en FRISK login efter en management-påvirkende regel) og [kladde-tilstanden](#1072-kladde-tilstand-draft-mode-feat-402) til flertrins-redigering
-- [ ] Tag et konfigurationsbackup **efter** hærdning ([kapitel 11](11_Backup_Restore_og_Firmware.md)) — bemærk at backup-filen indeholder credentials i klartekst; opbevar den derfor sikkert
+- [ ] Tag et konfigurationsbackup **efter** hærdning ([kapitel 11](11_Backup_Restore_og_Firmware.md)) — bemærk at backup-filen indeholder Wi-Fi- og telnet-adgangskode samt expansion-tokens i klartekst (HTTP-/RBAC-adgangskoder som hash + salt); opbevar den derfor sikkert
 
 ---
 

@@ -48,6 +48,18 @@ show timer 1 verbose
 
 Alle 4 tælleres og 4 timeres værdier og styre-/statusbits er tilgængelige som Modbus-registre — se [`../../MODBUS_REGISTER_MAP.md`](../../MODBUS_REGISTER_MAP.md) for de præcise adresser. De kan desuden læses og styres direkte fra ST Logic (`CNT_VALUE`, `CNT_CTRL`, `CNT_ENABLE` m.fl. — se [§8.5](08_ST_Logic_Programmering.md#85-indbyggede-funktioner-overblik)), så et program kan reagere på en tællerværdi uden at gå vejen om Modbus-registrene.
 
+**Spejling til en anden adresse (DYNAMIC):** skal en Modbus-master læse en tællers værdi på en bestemt adresse, kan den spejles dertil:
+
+```
+set holding-reg DYNAMIC 90 counter1:index     (også raw, freq, overflow, ctrl)
+set coil DYNAMIC 10 counter1:overflow
+save
+```
+
+Spejlingen er de laveste 16 bit — læs tællerens egne registre (HR100+) for den fulde 32/64-bit værdi. Adresse 200–237 afvises (ST Logics kontrolregistre). Fjern en spejling med `no set holding-reg <adr>` / `no set coil <adr>`. Før v7.9.68.44 blev DYNAMIC-registre med tæller-kilde aldrig opdateret (BUG-434).
+
+**Slet en tæller/timer:** `no set counter <id>` / `no set timer <id>` (eller web/REST `DELETE`), efterfulgt af `save`. Tællerens registre frigives, så den kan sættes op igen med det samme. Før v7.9.68.44 overlevede en sletning ikke en genstart, en tæller sat op fra web blev aldrig gemt, og en aktiv tæller kunne ikke omkonfigureres efter en genstart (BUG-439/442).
+
 ## 9.4 Konfigurationsskabeloner
 
 For hurtig opsætning af almindelige scenarier (pulstælling, flowmåling, pumpecyklustæller m.fl.), se [`../COUNTER_CONFIG_TEMPLATES.md`](../COUNTER_CONFIG_TEMPLATES.md).

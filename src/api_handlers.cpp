@@ -4521,14 +4521,15 @@ esp_err_t api_handler_timer_delete(httpd_req_t *req)
   }
 
   // Reset to disabled
-  TimerConfig cfg;
-  memset(&cfg, 0, sizeof(TimerConfig));
-  cfg.mode = TIMER_MODE_DISABLED;
-  cfg.output_coil = 0xFFFF;
-  cfg.ctrl_reg = 0xFFFF;
+  // BUG-444: mode DISABLED (0) afvises af timer_config_validate() -> runtime-
+  // timeren blev aldrig stoppet (koerte til genstart). Brug defaults + enabled=0
+  // som taeller-sletningen.
+  TimerConfig cfg = timer_config_defaults(id);
+  cfg.enabled = 0;
 
   memcpy(&g_persist_config.timers[id - 1], &cfg, sizeof(TimerConfig));
   timer_engine_configure(id, &cfg);
+  register_allocator_free_owner(REG_OWNER_TIMER, id);  // BUG-443
 
   JsonDocument doc;
   doc["status"] = 200;

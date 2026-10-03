@@ -16,6 +16,8 @@ All notable changes to this project are documented in this file.
 - **BUG-435:** stored XSS i web-GUI'et — også uden login via brugernavnet i et fejlet login (vist i Logs). Al server-tekst escapes; board-/brugernavne med HTML-tegn afvises.
 - **BUG-436:** Reinit/watchdog-restart kunne delvist annulleres af en samtidig udførelse (HIGH-programmer).
 - **BUG-437:** `/api/expansion/connections` kunne returnere afkortet JSON.
+- **BUG-444:** sletning af en timer (web/REST) stoppede ikke en kørende timer før genstart.
+- **BUG-443:** `no set timer <id>` (stod i hjælpen, fandtes ikke); dokumentationsgennemgang.
 - **BUG-439:** en aktiv tæller kunne ikke omkonfigureres efter genstart ("already allocated, Owner: Counter 1").
 - **BUG-440:** nye `no set holding-reg <addr>` / `no set coil <addr>` — mappinger kunne ikke fjernes.
 - **BUG-441:** DYNAMIC-mapping på ST Logics kontrolregistre (HR200-237) afvises — kunne deaktivere ST-programmer.

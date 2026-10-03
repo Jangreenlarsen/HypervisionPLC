@@ -67,6 +67,7 @@ void cli_cmd_reset_counter(uint8_t argc, char* argv[]);
  * @param argv Argument array
  */
 void cli_cmd_delete_counter(uint8_t argc, char* argv[]);
+void cli_cmd_delete_timer(uint8_t argc, char* argv[]);   // BUG-443
 
 /**
  * @brief Handle "clear counters" command
