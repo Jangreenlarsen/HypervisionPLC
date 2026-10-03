@@ -96,6 +96,11 @@ bash test/st_host/run.sh      # must end with "ALLE TESTS OK"
 that comes from the device with `escHtml()` or `textContent` — never raw in `innerHTML`
 (BUG-435, SECURITY_INDEX #24).
 
+**Web pages are minified at build time** (`scripts/gzip_web_assets.py`, FEAT-431): indentation,
+empty lines, whole `//` comment lines and `<!-- -->` comments are stripped before gzip. Two rules
+keep that safe: no multi-line template literals (backticks) and no multi-line content in
+`<pre>`/`<textarea>`. Comments AFTER code on a line are left alone.
+
 **Hardware test:** a test PLC can be used when the user provides address/credentials
 (OTA via `POST /api/system/ota`, ST tests in a free Logic slot). Never store the
 credentials in the repo or in memory, and clean up test configuration afterwards —

@@ -4,9 +4,10 @@ All notable changes to this project are documented in this file.
 
 ---
 
-## [7.9.68.34 – 7.9.68.47] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
+## [7.9.68.34 – 7.9.68.48] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
 
 ### NEW FEATURES
+- **FEAT-431:** web-siderne minificeres ved build, og `-flto` er slået til igen — flash 97,9 % → 94,4 % (~66 KB). ⚠️ Ethernet er ikke testet med `-flto` endnu.
 - **FEAT-430:** ES32D26: tæller-tilstandene `sw-isr` og `hw` (PCNT) er spærret i CLI, REST, web og ST med en bemærkning om hvorfor.
 - **FEAT-429:** "sidste fejl" i watchdog-monitoren vises med tidspunkt (CLI, REST, dashboard).
 - **FEAT-426:** 64 variabel-slots pr. ST-program (før 32).

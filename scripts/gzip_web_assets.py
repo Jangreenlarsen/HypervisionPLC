@@ -40,6 +40,26 @@ PAGES = [
     ("web/common.js",      "common_js_gz",      "generated_web/common_js_gz.h"),
 ]
 
+def minify(raw):
+    """Flash-optimering (~37 KB gzip): fjern indrykning, tomme linjer, hele
+    '//'-kommentarlinjer og HTML-kommentarer. Konservativt, linjebaseret:
+    linjeskift bevares (ingen ASI-risiko), og kommentarer EFTER kode paa en
+    linje roeres ikke (de kan staa i strenge/URL'er). Forudsaetter — tjekket
+    ved indfoerelsen — at <pre>/<textarea> ikke har flerlinjet indhold, og at
+    template-strenge (backticks) ikke spaender over flere linjer.
+    Kildefilerne i web/ er uaendrede."""
+    import re
+    s = raw.decode("utf-8")
+    s = re.sub(r"<!--(?!\[).*?-->", "", s, flags=re.S)
+    out = []
+    for line in s.split("\n"):
+        t = line.strip()
+        if not t or t.startswith("//"):
+            continue
+        out.append(t)
+    return "\n".join(out).encode("utf-8")
+
+
 total_raw = 0
 total_gz = 0
 
@@ -49,7 +69,7 @@ for src_rel, sym, out_rel in PAGES:
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     with open(src_path, "rb") as f:
-        raw = f.read()
+        raw = minify(f.read())
     compressed = gzip.compress(raw, compresslevel=9)
 
     total_raw += len(raw)
