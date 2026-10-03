@@ -377,6 +377,17 @@ di[addr] — Discrete Input</code>
 <thead><tr><th>Variabel</th><th>Type</th><th>Værdi</th><th>Trend</th></tr></thead>
 <tbody id="monBody"></tbody>
 </table>
+<!-- FEAT-432: ekstra registre (ikke ST-variabler), defineret som (* @watch ... *) i kildekoden -->
+<div style="margin-top:10px;padding:8px 10px;background:#181825;border:1px solid #313244;border-radius:6px">
+<div style="font-size:11px;color:#a6adc8;margin-bottom:6px"><b>Ekstra registre</b> — overvåg registre uden for programmet (fx en tællers HR100). Vises i tabellen ovenfor, markeret <span style="color:#89b4fa">REG</span>. Gemmes som <code>(* @watch HR100 DINT "Counter 1" *)</code> i kildekoden — kompilér for at gemme.</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+<select id="wType" style="padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:11px"><option>HR</option><option>IR</option><option>COIL</option><option>DI</option></select>
+<input id="wAddr" type="number" min="0" max="255" placeholder="Adresse" style="width:80px;padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:11px">
+<select id="wFmt" style="padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:11px" title="16 bit: UINT/INT. 32 bit (2 registre): lavt ord på adressen som PLC'ens tællere; _HL = højt ord først"><option>UINT</option><option>INT</option><option>UDINT</option><option>DINT</option><option>REAL</option><option>UDINT_HL</option><option>DINT_HL</option><option>REAL_HL</option></select>
+<input id="wLabel" type="text" maxlength="24" placeholder="Navn (valgfrit)" style="width:140px;padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:11px">
+<button class="btn btn-primary btn-sm" onclick="addWatch()">Tilføj</button>
+</div>
+</div>
 <div class="empty-msg" id="monEmpty">Intet kompileret program i dette slot</div>
 </div>
 </div>
@@ -1468,6 +1479,78 @@ function sparkSVG(entries,w,h,color,scale){
 // FEAT-423: byg tabel-raekkerne EN gang pr. variabel-liste (navn+type+slot).
 // Kaldes hvert tick, men goer kun noget naar listen reelt har aendret sig
 // eller tbody er blevet ryddet et andet sted (slot-skift, nulstil m.m.).
+// === FEAT-432: ekstra registre i Monitor ===
+// Defineres i programmets kildekode som (* @watch <HR|IR|COIL|DI><adr> [format] ["navn"] *)
+// — foelger programmet (backup, alle browsere) og dokumenterer afhaengigheden.
+const WATCH_RE=/\(\*\s*@watch\s+(HR|IR|COIL|DI)\s*(\d{1,3})(?:\s+(UINT|INT|UDINT|DINT|REAL)(_HL)?)?(?:\s+"([^"]{0,24})")?\s*\*\)/gi;
+function parseWatches(src){
+  const out=[];let m;WATCH_RE.lastIndex=0;
+  while((m=WATCH_RE.exec(src||''))!==null){
+    const type=m[1].toUpperCase(),addr=parseInt(m[2],10);
+    if(addr>255)continue;
+    const bit=(type==='COIL'||type==='DI');
+    const fmt=bit?'BOOL':((m[3]||'UINT').toUpperCase()+(m[4]?'_HL':''));
+    out.push({type,addr,fmt,label:m[5]||'',key:'@'+type+addr+':'+fmt,raw:m[0]});
+  }
+  return out;
+}
+function watchWords(fmt){return /^(UDINT|DINT|REAL)/.test(fmt)?2:1;}
+// Laeser alle watches med ét bulk-kald pr. registertype (min..max-omraadet)
+async function readWatches(ws){
+  const vals={};const byType={};
+  ws.forEach(w=>{(byType[w.type]=byType[w.type]||[]).push(w);});
+  for(const type of Object.keys(byType)){
+    const list=byType[type];
+    const lo=Math.min(...list.map(w=>w.addr)),hi=Math.max(...list.map(w=>w.addr+watchWords(w.fmt)-1));
+    const path={HR:'hr',IR:'ir',COIL:'coils',DI:'di'}[type];
+    try{
+      const r=await queuedFetch('/api/registers/'+path+'?start='+lo+'&count='+Math.min(200,hi-lo+1),{});
+      const d=await r.json();
+      (d.registers||d.coils||d.inputs||[]).forEach(e=>{vals[type+e.addr]=e.value;});
+    }catch(e){}
+  }
+  return ws.map(w=>{
+    if(w.fmt==='BOOL'){const v=vals[w.type+w.addr];return v===undefined?null:!!v;}
+    const a=vals[w.type+w.addr],b=vals[w.type+(w.addr+1)];
+    if(a===undefined)return null;
+    if(watchWords(w.fmt)===1)return w.fmt==='INT'?((a<<16)>>16):a;
+    if(b===undefined)return null;
+    const hl=w.fmt.endsWith('_HL'),lo16=hl?b:a,hi16=hl?a:b;
+    const u32=((hi16<<16)>>>0)+lo16;
+    if(w.fmt.startsWith('UDINT'))return u32;
+    if(w.fmt.startsWith('DINT'))return u32|0;
+    const dv=new DataView(new ArrayBuffer(4));dv.setUint32(0,u32);return Math.round(dv.getFloat32(0)*1000)/1000;
+  });
+}
+function addWatch(){
+  const type=document.getElementById('wType').value;
+  const addr=parseInt(document.getElementById('wAddr').value,10);
+  const bit=(type==='COIL'||type==='DI');
+  const fmt=bit?'':' '+document.getElementById('wFmt').value;
+  const label=document.getElementById('wLabel').value.replace(/["*()]/g,'').trim();
+  if(isNaN(addr)||addr<0||addr>255){log('error','Adresse skal være 0-255');return;}
+  const line='(* @watch '+type+addr+fmt+(label?' "'+label+'"':'')+' *)';
+  const ed=document.getElementById('editor');
+  const lines=ed.value.split('\n');
+  let i=lines.findIndex(l=>/^\s*PROGRAM\b/i.test(l));
+  lines.splice(i<0?0:i+1,0,line);
+  ed.value=lines.join('\n');
+  dirty=true;if(typeof updateLines==='function'){updateLines();syncHighlight();}
+  log('info','Tilføjet '+line+' — kompilér for at gemme i programmet');
+  refreshMonitor();
+}
+function removeWatch(raw){
+  const ed=document.getElementById('editor');
+  const lines=ed.value.split('\n');
+  const i=lines.findIndex(l=>l.includes(raw));
+  if(i<0)return;
+  if(lines[i].trim()===raw)lines.splice(i,1);else lines[i]=lines[i].replace(raw,'');
+  ed.value=lines.join('\n');
+  dirty=true;if(typeof updateLines==='function'){updateLines();syncHighlight();}
+  log('info','Fjernet '+raw+' — kompilér for at gemme');
+  refreshMonitor();
+}
+
 function ensureMonRows(body,vars){
   const sig=SLOT+'|'+vars.map(v=>v.name+':'+v.type).join(',');
   if(monRows&&monRows.sig===sig&&body.firstChild&&monRows.first===body.firstChild)return;
@@ -1476,6 +1559,13 @@ function ensureMonRows(body,vars){
   vars.forEach(v=>{
     const tr=document.createElement('tr');
     const tdName=document.createElement('td');tdName.textContent=v.name;
+    if(v.watch){  // FEAT-432
+      const tag=document.createElement('span');tag.textContent='REG ';tag.style.cssText='color:#89b4fa;font-size:9px;font-weight:600';
+      tdName.prepend(tag);tdName.title=v.watch.raw;
+      const x=document.createElement('button');x.textContent='×';x.title='Fjern fra overvågning';
+      x.style.cssText='margin-left:6px;background:none;border:none;color:#f38ba8;cursor:pointer;font-size:12px';
+      x.onclick=()=>removeWatch(v.watch.raw);tdName.appendChild(x);
+    }
     const tdType=document.createElement('td');tdType.textContent=v.type;
     const tdVal=document.createElement('td');tdVal.style.fontFamily='monospace';
     const tdTrend=document.createElement('td');
@@ -1573,7 +1663,15 @@ async function refreshMonitor(){
     const nowMs=Date.now();
 
     const body=document.getElementById('monBody');
-    const vars=d.variables||[];
+    const vars=(d.variables||[]).slice();
+    // FEAT-432: ekstra registre fra (* @watch *) i kildekoden
+    const ws=parseWatches(document.getElementById('editor').value);
+    if(ws.length){
+      const wv=await readWatches(ws);
+      const taken=new Set(vars.map(x=>x.name));
+      ws.forEach((w,i)=>vars.push({name:(n=>taken.has(n)?n+' (REG)':n)(w.label||(w.type+w.addr)),type:w.type+w.addr+(w.fmt==='BOOL'?'':' '+w.fmt),
+        value:wv[i]===null?'-':wv[i],watch:w,_bool:w.fmt==='BOOL'}));
+    }
     document.getElementById('monEmpty').style.display=vars.length?'none':'block';
     ensureMonRows(body,vars);
     vars.forEach(v=>{
@@ -1585,7 +1683,8 @@ async function refreshMonitor(){
       // Track history with real timestamps and execution count
       if(!isString){
         if(!varHistory[v.name])varHistory[v.name]=[];
-        const numVal=v.type==='BOOL'?(v.value?1:0):parseFloat(v.value)||0;
+        const isBool=v.type==='BOOL'||v._bool;
+        const numVal=isBool?(v.value?1:0):parseFloat(v.value)||0;
         if(!trendPaused){
           varHistory[v.name].push({v:numVal,t:nowMs,exec:curExecCount});
           if(varHistory[v.name].length>HIST_LEN)varHistory[v.name].shift();
@@ -1594,8 +1693,9 @@ async function refreshMonitor(){
 
       const r=monRows.rows[v.name];
       if(!r)return;
-      r.valTd.textContent=v.type==='BOOL'?(v.value?'TRUE':'FALSE'):v.value;
-      r.valTd.style.color=v.type==='BOOL'?(v.value?'#a6e3a1':'#6c7086'):'#f9e2af';
+      const vb=v.type==='BOOL'||v._bool;
+      r.valTd.textContent=vb?(v.value===true?'TRUE':v.value===false?'FALSE':'-'):v.value;
+      r.valTd.style.color=vb?(v.value===true?'#a6e3a1':'#6c7086'):(v.watch?'#89b4fa':'#f9e2af');
       r.paused=trendPaused;
       if(!isString)redrawTrend(v.name);
     });

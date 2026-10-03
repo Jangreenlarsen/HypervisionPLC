@@ -694,6 +694,9 @@ Sådan virker Logic1:
 
 ```st
 PROGRAM di8_counter
+(* @watch HR100 DINT "Counter 1" *)
+(* @watch HR110 UINT "Counter 1 ctrl" *)
+(* @watch DI7 "DI8 (GPIO108)" *)
 (* DI8 (GPIO108) taelles af PLC'ens taellermodul: Counter 1, sw-tilstand,
    discrete input 7, faldende flanke (DI er aktiv-lav: 1 = hvile, saa der
    taelles naar indgangen AKTIVERES). Taellingen sker uafhaengigt af ST.
@@ -773,6 +776,7 @@ Sådan virker Logic4:
 
 | Del | Forklaring |
 |---|---|
+| `(* @watch … *)` | Ekstra registre i ST-editorens Monitor (FEAT-432): tællerværdien, tællerens kontrolregister (128 = kører) og selve DI8 — vises ved siden af programmets variabler |
 | `cv := CNT_VALUE(1)` | Læser tællermodulet — selve tællingen sker uden for ST |
 | `IF NOT started …` | Første cyklus efter start/genstart gemmer blot værdien — ingen visning ved opstart |
 | `ELSIF cv <> last_cv` | Ny værdi → `changed` i én cyklus og `disp_busy := TRUE` |
