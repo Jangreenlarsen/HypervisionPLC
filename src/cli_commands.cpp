@@ -140,10 +140,10 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
     } else if (!strcmp(key, "index-reg") || !strcmp(key, "reg")) {
       debug_println("ERROR: Manual register configuration is disabled!");
       debug_println("  Registers are AUTO-ASSIGNED by smart defaults:");
-      debug_println("  Counter 1 → HR100-104");
-      debug_println("  Counter 2 → HR110-114");
-      debug_println("  Counter 3 → HR120-124");
-      debug_println("  Counter 4 → HR130-134");
+      debug_println("  Counter 1 → HR100-114");
+      debug_println("  Counter 2 → HR120-134");
+      debug_println("  Counter 3 → HR140-154");
+      debug_println("  Counter 4 → HR160-174");
       debug_println("  Cannot override register addresses.");
       continue;
     } else if (!strcmp(key, "raw-reg")) {
