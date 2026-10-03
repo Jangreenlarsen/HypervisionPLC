@@ -1771,7 +1771,7 @@ void cli_cmd_show_config(const char *section) {
       } else if (cfg.hw_mode == COUNTER_HW_SW_ISR && cfg.interrupt_pin > 0) {
         debug_print(" interrupt-pin:");
         debug_print_uint(cfg.interrupt_pin);
-      } else if (cfg.hw_mode == COUNTER_HW_SW && cfg.input_dis > 0) {
+      } else if (cfg.hw_mode == COUNTER_HW_SW) {  // BUG-446: ogsaa input-dis:0
         debug_print(" input-dis:");
         debug_print_uint(cfg.input_dis);
       }
@@ -1790,6 +1790,12 @@ void cli_cmd_show_config(const char *section) {
       }
 
       debug_println("");
+      // BUG-445/446: auto-start (gemt) + start, saa taelleren ogsaa koerer efter import
+      if (cfg.auto_start) {
+        debug_print("set counter ");
+        debug_print_uint(id);
+        debug_println(" control auto-start:on running:on");
+      }
     }
   }
   } // end show_counters

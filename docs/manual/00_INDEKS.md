@@ -10,7 +10,7 @@
 
 ---
 
-**Version:** v7.9.68.49 · **Platform:** ESP32-WROOM-32 / ESP32-WROVER / ESP32-S3
+**Version:** v7.9.68.50 · **Platform:** ESP32-WROOM-32 / ESP32-WROVER / ESP32-S3
 
 </div>
 

@@ -203,6 +203,8 @@ Hardware (standard ESP32-varianter): UART1, TX=GPIO25, RX=GPIO26, DE/RE=GPIO27. 
 
 ### Counter (`set counter <id> mode 1 <key:value> ...`, `id`: 1–4)
 
+> **Samme format som `show config`** (BUG-446): linjerne fra `show config` kan sættes direkte ind igen — fx `set counter 1 mode 1 parameter hw-mode:sw edge:falling prescaler:1 resolution:32 direction:up scale:1.00 start:0 debounce:off input-dis:7`, efterfulgt af `set counter 1 control auto-start:on running:on` og `set counter 2 disable`. Ordet `parameter` er valgfrit, og `resolution`/`start`/`debounce-time`/`compare:enable` svarer til `bit-width`/`start-value`/`debounce-ms`/`compare-enabled:on`. Uden `enable:`/`disable:` bliver tælleren **aktiv** (før v7.9.68.50 blev den slået fra og gemt). `set counter <id> disable` og `set timer <id> disable` sletter.
+
 | Parameter | Værdier |
 |---|---|
 | `hw-mode` | `sw`, `sw-isr`, `hw` (PCNT). **ES32D26:** kun `sw` — `sw-isr`/`hw` afvises med en forklaring (FEAT-430, se §9.1) |

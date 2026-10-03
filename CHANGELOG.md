@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 ---
 
-## [7.9.68.34 – 7.9.68.49] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
+## [7.9.68.34 – 7.9.68.50] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
 
 ### NEW FEATURES
 - **FEAT-432:** ST-editorens Monitor kan overvåge andre registre (HR/IR/COIL/DI) end programmets variabler — defineret som `(* @watch … *)` i kildekoden.
@@ -16,6 +16,7 @@ All notable changes to this project are documented in this file.
 - **FEAT-427 lag B:** watchdog pr. ST-program — betingelser errors/exec/heartbeat/stall, handlinger alarm/stop/restart/safe/reboot, ST-funktion `WDT_FEED()`, CLI `set/show/clear logic <id> wdt`, REST `/api/logic/{id}/wdt`, editor (Monitor + Indstillinger).
 
 ### BUG FIXES
+- **BUG-446:** linjerne fra `show config` for tællere/timere kan sættes ind igen som kommandoer — før blev tællerens indstillinger delvist ignoreret, og tælleren blev slået fra.
 - **BUG-445:** tællernes auto-start virkede aldrig (blev ikke gemt) — en tæller stod stille efter genstart. Nu et gemt felt; også på I/O-siden.
 - **BUG-434:** DYNAMIC-registre/-coils med tæller-kilde (`counter<id>:index|raw|freq|overflow|ctrl`) blev aldrig opdateret.
 - **BUG-435:** stored XSS i web-GUI'et — også uden login via brugernavnet i et fejlet login (vist i Logs). Al server-tekst escapes; board-/brugernavne med HTML-tegn afvises.

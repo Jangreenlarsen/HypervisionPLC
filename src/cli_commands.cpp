@@ -51,6 +51,11 @@
 
 void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
   // set counter <id> mode 1 parameter hw-mode:... edge:... prescaler:... ...
+  // BUG-446: "set counter <id> disable" (som show config eksporterer) = slet
+  if (argc == 2 && (!strcasecmp(argv[1], "disable") || !strcasecmp(argv[1], "off"))) {
+    cli_cmd_delete_counter(1, argv);
+    return;
+  }
   if (argc < 3) {
     debug_println("SET COUNTER: missing parameters");
     return;
@@ -62,11 +67,17 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
     return;
   }
 
+  // BUG-446: "set counter <id> disable" (som show config eksporterer) = slet
+  if (argc >= 2 && (!strcasecmp(argv[1], "disable") || !strcasecmp(argv[1], "off"))) {
+    cli_cmd_delete_counter(1, argv);
+    return;
+  }
+  bool enable_given = false;  // BUG-446
   // Skip past "mode 1" (argv[1] = "mode", argv[2] = "1")
   // argv[3] onwards = parameters
 
   if (argc < 4) {
-    debug_println("SET COUNTER: missing 'parameter' keyword");
+    debug_println("SET COUNTER: missing parameters (set counter <id> mode 1 parameter key:value ...)");
     return;
   }
 
@@ -74,12 +85,14 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
   CounterConfig cfg = counter_config_defaults(id);
   {
     // BUG-445: bevar auto-start ved omkonfiguration (saettes med "control auto-start:on")
-    CounterConfig old;
-    if (counter_config_get(id, &old)) cfg.auto_start = old.auto_start;
+    // BUG-446: fra den GEMTE config — runtime-tabellen har kun standardvaerdier
+    // for en taeller, der var slaaet fra ved opstart
+    cfg.auto_start = g_persist_config.counters[id - 1].auto_start;
   }
 
   for (uint8_t i = 3; i < argc; i++) {
     char* arg = argv[i];
+    if (!strcasecmp(arg, "parameter")) continue;  // BUG-446: show config-formatet
     char* colon = strchr(arg, ':');
 
     if (!colon) {
@@ -91,6 +104,14 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
     *colon = '\0';
     const char* key = arg;
     const char* value = colon + 1;
+    // BUG-446: show config-navnene (resolution/start/debounce-time/reset-on-read)
+    if (!strcmp(key, "resolution")) key = "bit-width";
+    else if (!strcmp(key, "start")) key = "start-value";
+    else if (!strcmp(key, "debounce-time")) key = "debounce-ms";
+    if (!strcmp(key, "reset-on-read")) {
+      cfg.reset_on_read = (!strcmp(value, "on") || !strcmp(value, "1") || !strcmp(value, "true")) ? 1 : 0;
+      continue;
+    }
 
     // Parse known keys
     if (!strcmp(key, "hw-mode")) {
@@ -187,7 +208,8 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
     }
     // COMPARE FEATURE (v2.3+) - Status stored in ctrl_reg bit 4
     else if (!strcmp(key, "compare") || !strcmp(key, "compare-enabled")) {
-      cfg.compare_enabled = (!strcmp(value, "on") || !strcmp(value, "1")) ? 1 : 0;
+      cfg.compare_enabled = (!strcmp(value, "on") || !strcmp(value, "1") ||
+                             !strcmp(value, "enable") || !strcmp(value, "true")) ? 1 : 0;  // BUG-446
     } else if (!strcmp(key, "compare-value")) {
       // BUG-182 FIX: Use strtoull (unsigned) instead of atoll (signed)
       // atoll() max = 9223372036854775807 (signed 64-bit)
@@ -199,19 +221,18 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
       cfg.compare_source = atoi(value);  // BUG-040: 0=raw, 1=prescaled, 2=scaled
     } else if (!strcmp(key, "enable")) {
       cfg.enabled = (!strcmp(value, "on") || !strcmp(value, "1")) ? 1 : 0;
+      enable_given = true;
     } else if (!strcmp(key, "disable")) {
       cfg.enabled = (!strcmp(value, "on") || !strcmp(value, "1")) ? 0 : 1;
+      enable_given = true;
     }
   }
 
-  // BUG-021 FIX: Allow explicit disable via "enable:off" or "disable:on" (v4.2.0)
-  // Default: if user didn't explicitly set enable/disable, assume enabled=1
-  // But if they DID set it, respect their choice
-  if (cfg.enabled == 0) {
-    // User explicitly disabled
-  } else {
-    cfg.enabled = 1;  // Default: enable when configuring
-  }
+  // BUG-021/BUG-446: uden enable:/disable: er taelleren AKTIV. Tidligere
+  // stod der "if (cfg.enabled == 0) {} else enabled = 1", men standard-
+  // configen har enabled = 0, saa en taeller uden enable:on blev altid
+  // slaaet FRA (og auto-gemt) — fx naar show config blev koert igen.
+  if (!enable_given) cfg.enabled = 1;
 
   // DEBUG: Print final config before applying
   debug_print("Counter ");
@@ -599,6 +620,11 @@ void cli_cmd_set_counter_control(uint8_t argc, char* argv[]) {
 
 void cli_cmd_set_timer(uint8_t argc, char* argv[]) {
   // set timer <id> mode <1|2|3|4> parameter key:value ...
+  // BUG-446: "set timer <id> disable" (som show config eksporterer) = slet
+  if (argc == 2 && (!strcasecmp(argv[1], "disable") || !strcasecmp(argv[1], "off"))) {
+    cli_cmd_delete_timer(1, argv);
+    return;
+  }
   if (argc < 3) {
     debug_println("SET TIMER: missing parameters");
     return;
@@ -616,6 +642,11 @@ void cli_cmd_set_timer(uint8_t argc, char* argv[]) {
     return;
   }
 
+  // BUG-446: "set timer <id> disable" (som show config eksporterer) = slet
+  if (argc >= 2 && (!strcasecmp(argv[1], "disable") || !strcasecmp(argv[1], "off"))) {
+    cli_cmd_delete_timer(1, argv);
+    return;
+  }
   uint8_t mode = atoi(argv[2]);
   if (mode < 1 || mode > 4) {
     debug_println("SET TIMER: invalid mode (must be 1-4)");
@@ -647,6 +678,7 @@ void cli_cmd_set_timer(uint8_t argc, char* argv[]) {
   // Parse key:value parameters
   for (uint8_t i = 3; i < argc; i++) {
     char* arg = argv[i];
+    if (!strcasecmp(arg, "parameter")) continue;  // BUG-446
     char* colon = strchr(arg, ':');
 
     if (!colon) {
@@ -658,6 +690,7 @@ void cli_cmd_set_timer(uint8_t argc, char* argv[]) {
     *colon = '\0';
     const char* key = arg;
     const char* value = colon + 1;
+    if (!strcmp(key, "output")) key = "p1-output";  // BUG-446: mode 4 i show config
 
     // Parse mode 1 parameters (one-shot)
     if (!strcmp(key, "p1-duration")) {
