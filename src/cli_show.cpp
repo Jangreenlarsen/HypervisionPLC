@@ -517,7 +517,8 @@ void cli_cmd_show_config(const char *section) {
       if (counter_config_get(id, &cfg) && cfg.enabled) {
         debug_print("  counter");
         debug_print_uint(id);
-        debug_print(" reset-on-read disabled auto-start disabled");
+        debug_print(" reset-on-read disabled auto-start ");
+        debug_print(cfg.auto_start ? "enabled" : "disabled");  // BUG-445
         debug_println("");
       }
     }
@@ -2357,7 +2358,7 @@ void cli_cmd_show_counter(uint8_t id, bool verbose) {
       debug_print("  Running: ");
       debug_println((ctrl_val & 0x80) ? "YES (bit 7 set)" : "NO (bit 7 clear)");
       debug_print("  Auto-Start: ");
-      debug_println((ctrl_val & 0x40) ? "YES (bit 6 set)" : "NO (bit 6 clear)");
+      debug_println(cfg.auto_start ? "YES (gemt i config)" : "NO");  // BUG-445
       debug_print("  Compare Match: ");
       debug_println((ctrl_val & 0x10) ? "YES (bit 4 set)" : "NO (bit 4 clear)");
       debug_print("  Counter Reset on Read: ");

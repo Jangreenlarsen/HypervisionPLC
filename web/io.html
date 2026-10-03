@@ -410,6 +410,7 @@ function counterCardHtml(id){
   return '<div class="card" style="grid-column:1/-1">'+
   '<h2><span class="status-dot" id="c'+id+'_dot"></span>Counter '+id+'</h2>'+
   '<label class="chk"><input type="checkbox" id="c'+id+'_enabled"> Aktiveret</label>'+
+  '<label class="chk" title="Tælleren starter (kører) af sig selv efter opstart/genstart. Uden: den står stille til den startes."><input type="checkbox" id="c'+id+'_autostart"> Start automatisk ved opstart</label>'+
   '<div class="fld-row">'+
   '<div class="fld"><label>Hardware-tilstand</label><select id="c'+id+'_hwmode" onchange="updateCounterModeUI('+id+')">'+
   HW_MODES.map(m=>'<option value="'+m[0]+'">'+m[1]+'</option>').join('')+'</select></div>'+
@@ -482,6 +483,7 @@ function loadCounter(id){
   api('/api/counters/'+id).then(r=>r.json()).then(d=>{
     applyCounterPinModes(id,d);
     $('c'+id+'_enabled').checked=!!d.enabled;
+    $('c'+id+'_autostart').checked=!!d.auto_start;  // BUG-445
     const modeMap={SW:'sw',SW_ISR:'sw_isr',HW_PCNT:'hw',DISABLED:'sw'};
     $('c'+id+'_hwmode').value=modeMap[d.mode]||'sw';
     updateCounterModeUI(id);
@@ -521,6 +523,7 @@ function saveCounter(id){
   const hwmode=$('c'+id+'_hwmode').value;
   const body={
     enabled:$('c'+id+'_enabled').checked,
+    auto_start:$('c'+id+'_autostart').checked,
     hw_mode:hwmode,
     edge:$('c'+id+'_edge').value,
     direction:$('c'+id+'_direction').value,

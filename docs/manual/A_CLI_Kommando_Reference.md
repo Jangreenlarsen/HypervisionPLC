@@ -225,7 +225,7 @@ Hardware (standard ESP32-varianter): UART1, TX=GPIO25, RX=GPIO26, DE/RE=GPIO27. 
 
 **Registre auto-tildeles** (manuel konfiguration er deaktiveret): Counter 1→HR100-114, Counter 2→HR120-134, Counter 3→HR140-154, Counter 4→HR160-174 (index/raw/freq/overload/ctrl/compare — antal ord afhænger af bit-width).
 
-`set counter <id> control <flag>:<on|off> ...`: `counter-reg-reset-on-read`, `compare-reg-reset-on-read`, `auto-start`, `running` (auto-enabler counteren hvis den var slukket).
+`set counter <id> control <flag>:<on|off> ...`: `counter-reg-reset-on-read`, `compare-reg-reset-on-read`, `auto-start` (gemmes i tællerens config — brug `save`; starter tælleren efter hver genstart, BUG-445), `running` (start/stop nu; auto-enabler counteren hvis den var slukket). En aktiveret tæller tæller først, når den kører.
 
 ### Timer (`set timer <id> mode <1-4> <key:value> ...`, `id`: 1–4)
 

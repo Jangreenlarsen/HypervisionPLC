@@ -1219,6 +1219,7 @@ esp_err_t api_handler_counter_single(httpd_req_t *req)
   doc["compare_value"] = cfg.compare_value;
   doc["compare_source"] = cfg.compare_source;
   doc["reset_on_read"] = cfg.reset_on_read ? true : false;
+  doc["auto_start"] = cfg.auto_start ? true : false;  // BUG-445
   if (cfg.value_reg != 0xFFFF) doc["value_reg"] = cfg.value_reg;
   if (cfg.raw_reg != 0xFFFF) doc["raw_reg"] = cfg.raw_reg;
   if (cfg.freq_reg != 0xFFFF) doc["freq_reg"] = cfg.freq_reg;
@@ -4225,6 +4226,7 @@ static esp_err_t api_handler_counter_config_post(httpd_req_t *req)
     cfg.compare_source = (cs > 2) ? 1 : cs;
   }
   if (doc.containsKey("reset_on_read")) cfg.reset_on_read = doc["reset_on_read"].as<bool>() ? 1 : 0;
+  if (doc.containsKey("auto_start")) cfg.auto_start = doc["auto_start"].as<bool>() ? 1 : 0;  // BUG-445
 
   // Apply
   counter_config_set(id, &cfg);
@@ -7071,6 +7073,7 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
     co["compare_mode"] = c->compare_mode;
     co["compare_value"] = c->compare_value;
     co["reset_on_read"] = c->reset_on_read;
+    co["auto_start"] = c->auto_start;  // BUG-445
     co["compare_source"] = c->compare_source;
   }
 
@@ -7739,6 +7742,7 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
       if (co.containsKey("compare_mode")) c->compare_mode = co["compare_mode"];
       if (co.containsKey("compare_value")) c->compare_value = co["compare_value"];
       if (co.containsKey("reset_on_read")) c->reset_on_read = co["reset_on_read"];
+      if (co.containsKey("auto_start")) c->auto_start = co["auto_start"] ? 1 : 0;  // BUG-445
       if (co.containsKey("compare_source")) c->compare_source = co["compare_source"];
     }
   }

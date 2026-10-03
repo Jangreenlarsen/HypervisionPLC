@@ -21,8 +21,12 @@ Ud over ST Logic's egne `TON`/`TOF`/`TP`/`CTU`/`CTD`/`CTUD`-funktionsblokke ([§
 set counter 1 mode sw
 set counter 1 input-dis 1          (bind til digital indgang 1)
 set counter 1 start-value 0
+set counter 1 control auto-start:on running:on   (start nu OG efter hver genstart)
+save
 show counter 1 verbose
 ```
+
+> **Aktiveret er ikke det samme som kørende.** En tæller tæller først, når den er *startet* (`running`, bit 7 i kontrolregistret — `control running:on`, Start-knappen på I/O-siden eller `CNT_CTRL`). Med **auto-start** (`control auto-start:on` eller "Start automatisk ved opstart" på I/O-siden) starter den af sig selv efter hver genstart. Før v7.9.68.47 blev auto-start aldrig gemt, så en tæller stod stille efter genstart (BUG-445).
 
 Tællerne understøtter op- og nedtælling, kompareringsfunktion (udløs en output/coil når tælleren krydser en tærskel — se [`../COUNTER_COMPARE_QUICK_START.md`](../COUNTER_COMPARE_QUICK_START.md) og [`../COUNTER_COMPARE_REFERENCE.md`](../COUNTER_COMPARE_REFERENCE.md)) samt frekvensmåling (`CNT_FREQ`-funktionen fra ST Logic, eller `show counter <id> verbose`).
 

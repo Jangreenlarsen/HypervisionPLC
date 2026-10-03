@@ -441,6 +441,403 @@ Herefter opdateres `startKnap`/`stopKnap` automatisk fra deres fysiske indgange 
 
 For output-retningen (ST-variabel → fysisk relæ/DO, fx de tilsvarende 8 multiplexede udgangskanaler **DO1-8 = virtuel GPIO 201-208** via SN74HC595) gælder samme to-trins-princip, blot med `coil:<addr>` i stedet for `input:<addr>` i bindingen: `set gpio 201 coil 0` (DO1, trin 1) + `set logic 1 bind motorKoerer coil:0` (trin 3, samme program).
 
+## 8.14 Testcase: to programmer deler ét display (Logic1 + Logic4)
+
+Denne testcase samler flere funktioner i ét gennemprøvet eksempel: **Modbus Master** (sensorer og display), en **expansion board**-kanal, **GPIO-bindinger**, **tællermodulet** og **GLOBAL_VAR** som signal mellem to programmer. Opsætningen er kørt og verificeret på en ES32D26 (v7.9.68.47).
+
+**Formål**
+
+- **Logic1** viser i rotation temperaturen fra to kanaler og en værdi fra et expansion board på et 4-cifret display. DI1–DI3 låser visningen på én kanal og får den tilhørende udgang til at blinke, DI4 er en global udgangsspærre.
+- **Logic4** viser antallet af aktiveringer på DI8 i 3 sekunder, hver gang der kommer en ny — og beder imens Logic1 om at holde pause med displayet.
+
+### 8.14.1 Opbygning
+
+```
+ DI8 (GPIO108) ──► discrete input 7 ──► Counter 1 (sw, faldende flanke)
+                                              │ CNT_VALUE(1)
+                                              ▼
+ GLOBAL_VAR ◄── disp_busy := TRUE ◄──── Logic4: ny værdi? ──► display (vis tæller 3 s)
+     │
+     └──► Logic1: IF ... AND NOT disp_busy THEN ──► display (rotation: 1, CH0, 2, CH1, 3, expansion)
+
+ Modbus-slave 90 (temperaturmodul, reg 0-1) ──► Logic1
+ Expansion board 1, kanal 1, slave 9, reg 2 ──► Logic1
+ DI1-DI4 (GPIO101-104) ──► discrete input 0-3 ──► Logic1 in1..in4
+ Logic1 out0..out2 ──► coil 201-203 ──► DO1-DO3 (GPIO201-203)
+```
+
+Kun ét program skriver til displayet ad gangen: Logic4 sætter `disp_busy`, og Logic1 springer hele sin display-blok over, så længe flaget er sat.
+
+**Displayet (DM56A04, Modbus-slave 1)**
+
+| Register | Indhold |
+|---|---|
+| 0–3 | Fire tegn som ASCII (bruges til labels "   1" og "----") |
+| 6 | Format: høj byte, nederste nibble = antal decimaler, øverste nibble = fortegn (1 = negativ). `256` = 1 decimal, `4096` = negativ |
+| 7 | Tallet (heltal; decimalerne angives i reg 6) |
+| 8 | Blinkmaske (15 = alle fire cifre blinker, 0 = intet blink) |
+
+**I/O**
+
+| Signal | Virtuel GPIO | Modbus-adresse | Bruges af |
+|---|---|---|---|
+| DI1–DI4 | 101–104 | discrete input 0–3 | Logic1 `in1`–`in4` (aktiv-lave: 0 = aktiveret) |
+| DO1–DO3 | 201–203 | coil 201–203 | Logic1 `out0`–`out2` |
+| DI8 | 108 | discrete input 7 | Counter 1 (tæller aktiveringer) |
+
+### 8.14.2 Opsætning trin for trin
+
+Rækkefølgen betyder noget: **GLOBAL_VAR skal findes, før et program der bruger `disp_busy`, kan kompilere.**
+
+**Trin 1 — GLOBAL_VAR** (ST-editoren → GLOBAL_VAR, eller `POST /api/logic/globals/source`):
+
+```st
+GLOBAL_VAR
+  disp_busy : BOOL;   (* TRUE = Logic4 bruger displayet - Logic1 holder pause *)
+  di8_count : INT;    (* DI8-taelleren (0-9999), kan laeses af alle programmer *)
+END_VAR
+```
+
+**Trin 2 — DI8 og tællermodulet** (CLI):
+
+```
+set gpio 108 input 7
+set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32 start-value:0 enable:on
+set counter 1 control auto-start:on running:on
+save
+show counter 1          (Status: ENABLED, Running: YES, Auto-Start: YES)
+```
+
+`edge:falling`, fordi DI'erne er aktiv-lave (1 i hvile) — der tælles, når indgangen *aktiveres*. **`enable:on` alene starter ikke tællingen**: tælleren skal også køre (`running:on`), og `auto-start:on` får den til at starte igen efter hver genstart (se [§9.1](09_Taellere_og_Timere.md)). På ES32D26 kan kun `sw` bruges (DI1–8 sidder bag et skifteregister).
+
+**Trin 3 — DI1–DI4 og DO1–DO3** (CLI):
+
+```
+set gpio 101 input 0
+set gpio 102 input 1
+set gpio 103 input 2
+set gpio 104 input 3
+set gpio 201 coil 201
+set gpio 202 coil 202
+set gpio 203 coil 203
+```
+
+**Trin 4 — Logic1** (upload + kompilér i Logic1, derefter bindings):
+
+```st
+PROGRAM temp_display
+VAR
+  (* --- I/O (bindes, samme variable mapping som fÃƒÂ¸r) --- *)
+  in1      : BOOL;       (* DI1: lÃƒÂ¥s visning pÃƒÂ¥ kanal 1 + DO1 blinker *)
+  in2      : BOOL;       (* DI2: lÃƒÂ¥s visning pÃƒÂ¥ kanal 2 + DO2 blinker *)
+  in3      : BOOL;       (* DI3: lÃƒÂ¥s visning pÃƒÂ¥ kanal 3 + DO3 blinker *)
+  in4      : BOOL;       (* DI4: global udgangsspÃƒÂ¦rre *)
+  out0     : BOOL;       (* DO1 *)
+  out1     : BOOL;       (* DO2 *)
+  out2     : BOOL;       (* DO3 *) 
+
+  (* --- takt og sekvens --- *) 
+  t_q      : BOOL;
+  blink    : BOOL;
+  step     : INT;        (* 0="1", 1=CH0, 2="2", 3=CH1, 4="3", 5=expansion *)
+  sel      : INT;
+  dstep    : INT;
+
+  (* --- data/visning --- *)
+  t0       : INT;        (* CH0 i 0,1 Ã‚Â°C *)
+  t1       : INT;        (* CH1 i 0,1 Ã‚Â°C *)
+  x        : INT;        (* expansion, tiendedele (register uden fortegn) *)
+  ok0      : BOOL;
+  ok1      : BOOL;
+  okx      : BOOL;
+  lbl      : INT;        (* > 0 = vis label "lbl", 0 = vis vÃƒÂ¦rdi *)
+  val      : INT;        (* vÃƒÂ¦rdi i tiendedele, fx 253 = 25.3 *)
+  vok      : BOOL;
+  nosensor : BOOL;
+  neg      : BOOL;       (* vÃƒÂ¦rdien er negativ *)
+  w        : DINT;       (* |vÃƒÂ¦rdi|, evt. ÃƒÂ·10 *)
+  q        : DINT;       (* kvotient ved ÃƒÂ·10 *)
+  dec      : INT;        (* antal decimaler: 1 eller 0 *)
+  txt      : ARRAY[0..3] OF INT;   (* ASCII til reg 0-3 (labels og "----") *)
+  num      : ARRAY[0..1] OF INT;   (* reg 6 = format, reg 7 = tal *)
+END_VAR
+
+BEGIN
+  TON(IN := NOT t_q, PT := T#250ms, Q => t_q);
+
+  IF t_q THEN
+    blink := NOT blink;
+
+    IF NOT in1 THEN sel := 1;
+    ELSIF NOT in2 THEN sel := 2;
+    ELSIF NOT in3 THEN sel := 3;
+    ELSE sel := 0;
+    END_IF;
+
+    IF sel > 0 THEN
+      CASE sel OF
+        1: dstep := 1;
+        2: dstep := 3;
+        3: dstep := 5;
+      END_CASE;
+    ELSE
+      dstep := step;
+    END_IF;
+  END_IF;
+
+  out0 := blink AND in1 AND in4;
+  out1 := blink AND in2 AND in4;
+  out2 := blink AND in3 AND in4;
+
+  (* disp_busy (GLOBAL_VAR): Logic4 viser DI8-taelleren - lad displayet vaere *)
+  IF t_q AND blink AND NOT disp_busy THEN
+    t0 := MB_READ_HOLDING(90, 0);         ok0 := MB_READ_OK();
+    t1 := MB_READ_HOLDING(90, 1);         ok1 := MB_READ_OK();
+    x  := MBX_READ_HOLDING(1, 1, 9, 2);   okx := MBX_SUCCESS();
+
+    lbl := 0;
+    nosensor := FALSE;
+    CASE dstep OF
+      0: lbl := 1;
+      1: val := t0; vok := ok0; nosensor := t0 < -32767;
+      2: lbl := 2;
+      3: val := t1; vok := ok1; nosensor := t1 < -32767;
+      4: lbl := 3;
+      5: val := x;  vok := okx;
+    END_CASE;
+
+    (* StÃƒÂ¸rrelse og fortegn. Expansion-registeret er uden fortegn (0..65535). *)
+    neg := FALSE;
+    w := val;
+    IF dstep = 5 THEN
+      IF w < 0 THEN w := w + 65536; END_IF;
+    ELSIF w < 0 THEN
+      neg := TRUE;
+      w := 0 - w;
+    END_IF;
+
+    (* Helst 1 decimal (max 999.9 / -99.9 pÃƒÂ¥ 4 cifre).
+       Passer det ikke: vis som heltal (ÃƒÂ·10), som i den tidligere version. *)
+    dec := 1;
+    IF ((NOT neg) AND (w > 9999)) OR (neg AND (w > 999)) THEN
+      q := 0;
+      WHILE w >= 10000 DO w := w - 10000; q := q + 1000; END_WHILE;
+      WHILE w >= 1000  DO w := w - 1000;  q := q + 100;  END_WHILE;
+      WHILE w >= 100   DO w := w - 100;   q := q + 10;   END_WHILE;
+      WHILE w >= 10    DO w := w - 10;    q := q + 1;    END_WHILE;
+      w := q;
+      dec := 0;
+      IF ((NOT neg) AND (w > 9999)) OR (neg AND (w > 999)) THEN
+        nosensor := TRUE;   (* passer heller ikke som heltal *)
+      END_IF;
+    END_IF;
+
+    IF lbl > 0 THEN
+      txt[0] := 32; txt[1] := 32; txt[2] := 32; txt[3] := 48 + lbl;   (* "   1" / "   2" / "   3" *)
+      MB_WRITE_HOLDINGS(1, 0, 4) := txt;
+
+    ELSIF (NOT vok) OR nosensor THEN
+      txt[0] := 45; txt[1] := 45; txt[2] := 45; txt[3] := 45;          (* "----" *)
+      MB_WRITE_HOLDINGS(1, 0, 4) := txt;
+
+    ELSE
+      (* Reg 6 hÃƒÂ¸j byte: ÃƒÂ¸verste nibble = fortegn (1 = negativ),
+         nederste nibble = antal decimaler. 256 = 0x0100, 4096 = 0x1000. *)
+      num[0] := dec * 256;
+      IF neg THEN num[0] := num[0] + 4096; END_IF;
+      num[1] := w;
+      MB_WRITE_HOLDINGS(1, 6, 2) := num;
+    END_IF;
+
+    IF sel > 0 THEN
+      MB_WRITE_HOLDING(1, 8) := 15;
+    ELSE
+      MB_WRITE_HOLDING(1, 8) := 0;
+    END_IF;
+
+    IF sel = 0 THEN
+      step := step + 1;
+      IF step > 5 THEN step := 0; END_IF;
+    ELSE
+      step := dstep - 1;
+    END_IF;
+  END_IF;
+END_PROGRAM
+```
+
+```
+set logic 1 bind in1 input-dis:0
+set logic 1 bind in2 input-dis:1
+set logic 1 bind in3 input-dis:2
+set logic 1 bind in4 input-dis:3
+set logic 1 bind out0 coil:201
+set logic 1 bind out1 coil:202
+set logic 1 bind out2 coil:203
+```
+
+Sådan virker Logic1:
+
+| Del | Forklaring |
+|---|---|
+| `TON(IN := NOT t_q, PT := T#250ms, Q => t_q)` | Selvnulstillende takt: `t_q` er TRUE i én cyklus hvert 250 ms |
+| `blink := NOT blink` | Skifter hvert 250 ms → udgangene blinker med 2 Hz, og displayet opdateres hver anden takt (500 ms) |
+| `IF NOT in1 THEN sel := 1 …` | DI1–DI3 (aktiv-lave) låser visningen på kanal 1/2/3 (`dstep` 1, 3, 5) |
+| `out0 := blink AND in1 AND in4` | Udgangene blinker; DI4 er global spærre |
+| `IF t_q AND blink AND NOT disp_busy THEN` | **Koordineringen:** hele display-blokken (læsning, formatering, skrivning, rotation) springes over, mens Logic4 viser tælleren |
+| `MB_READ_HOLDING(90, 0/1)`, `MBX_READ_HOLDING(1, 1, 9, 2)` | Temperatur CH0/CH1 (0,1 °C) og expansion-værdien (uden fortegn) — `MB_READ_OK()`/`MBX_SUCCESS()` afgør om værdien er gyldig |
+| Formatering | Helst 1 decimal (maks 999,9 / −99,9); passer det ikke, vises heltal. `----` ved manglende sensor eller ugyldig værdi |
+| `MB_WRITE_HOLDINGS(1, 0, 4) := txt` / `(1, 6, 2) := num` | Label eller "----" som tekst — eller tal + format |
+| `MB_WRITE_HOLDING(1, 8) := 15/0` | Displayet blinker, når visningen er låst med DI1–DI3 |
+| `step := step + 1` | Rotation 0→5: "1", CH0, "2", CH1, "3", expansion |
+
+**Trin 5 — Logic4** (upload + kompilér + aktivér i Logic4 — ingen bindings):
+
+```st
+PROGRAM di8_counter
+(* DI8 (GPIO108) taelles af PLC'ens taellermodul: Counter 1, sw-tilstand,
+   discrete input 7, faldende flanke (DI er aktiv-lav: 1 = hvile, saa der
+   taelles naar indgangen AKTIVERES). Taellingen sker uafhaengigt af ST.
+
+   Programmet viser vaerdien paa DM56A04-displayet (Modbus-slave 1) i 3 s,
+   hver gang den aendrer sig. Imens er GLOBAL_VAR disp_busy = TRUE, og
+   Logic1 lader displayet vaere. Derefter fortsaetter Logic1's visning. *)
+
+(* ===================== SW-TAELLER: OPSAETNING =====================
+   Taellingen laves IKKE i dette program, men af taellermodulet (CLI):
+
+   1) DI8 -> discrete input 7:
+        set gpio 108 input 7
+   2) Counter 1 i sw-tilstand (polling) paa discrete input 7:
+        set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32 start-value:0 enable:on
+      - edge:falling: DI er aktiv-lav (1 = hvile), saa der taelles naar
+        indgangen AKTIVERES. Taeller den ved slip: brug edge:rising.
+      - Debounce er som standard 10 ms.
+   3) Start taelleren - nu og efter hver genstart - og gem:
+        set counter 1 control auto-start:on running:on
+        save
+      NB: "enable:on" alene starter IKKE taellingen - den skal ogsaa koere.
+   4) Kontrol:  show counter 1   (Running/Auto-Start, Scaled Value)
+      Nulstil:  reset counter 1
+
+   - ES32D26: kun sw (poll) er mulig - DI1-8 sidder bag et skifteregister,
+     saa hw (PCNT) og sw-isr ikke kan bruges. Max pulsfrekvens begraenses
+     af hvor ofte DI'erne laeses (fint til knapper/langsomme pulser).
+   - Vaerdien ligger ogsaa i HR100-101 (32 bit) og laeses her med CNT_VALUE(1).
+   - Taelleren starter fra 0 efter genstart (persist-gruppe paa HR100-101,
+     hvis den skal huskes).
+   ================================================================ *)
+VAR
+  cv       : DINT;                 (* Counter 1's vaerdi *)
+  last_cv  : DINT;
+  started  : BOOL;
+  changed  : BOOL;                 (* vaerdien er aendret i denne cyklus *)
+  hold_q   : BOOL;                 (* 3 s er gaaet siden seneste aendring *)
+  rq       : BOOL;                 (* 500 ms genskrivnings-takt *)
+  num      : ARRAY[0..1] OF INT;   (* reg 6 = format, reg 7 = tal *)
+END_VAR
+
+BEGIN
+  cv := CNT_VALUE(1);
+
+  changed := FALSE;
+  IF NOT started THEN
+    last_cv := cv;                 (* ingen visning ved opstart *)
+    started := TRUE;
+  ELSIF cv <> last_cv THEN
+    last_cv := cv;
+    changed := TRUE;
+    disp_busy := TRUE;
+  END_IF;
+
+  di8_count := cv MOD 10000;       (* displayet har 4 cifre: vis de sidste 4 *)
+
+  (* 3 s fra SENESTE aendring: TON nulstilles i hver aendringscyklus *)
+  TON(IN := disp_busy AND NOT changed, PT := T#3s, Q => hold_q);
+  IF hold_q THEN
+    disp_busy := FALSE;
+  END_IF;
+
+  (* Skriv ved aendring og hvert 500 ms mens vi viser - saa en skrivning
+     fra Logic1 der allerede stod i koeen, ikke bliver staaende *)
+  TON(IN := disp_busy AND NOT rq, PT := T#500ms, Q => rq);
+  IF disp_busy AND (changed OR rq) THEN
+    num[0] := 0;                     (* 0 decimaler, positivt tal *)
+    num[1] := di8_count;
+    MB_WRITE_HOLDINGS(1, 6, 2) := num;
+    MB_WRITE_HOLDING(1, 8) := 0;     (* ingen blink *)
+  END_IF;
+END_PROGRAM
+```
+
+Sådan virker Logic4:
+
+| Del | Forklaring |
+|---|---|
+| `cv := CNT_VALUE(1)` | Læser tællermodulet — selve tællingen sker uden for ST |
+| `IF NOT started …` | Første cyklus efter start/genstart gemmer blot værdien — ingen visning ved opstart |
+| `ELSIF cv <> last_cv` | Ny værdi → `changed` i én cyklus og `disp_busy := TRUE` |
+| `di8_count := cv MOD 10000` | De sidste 4 cifre (displayet har 4) — også synlig for andre programmer |
+| `TON(IN := disp_busy AND NOT changed, PT := T#3s, …)` | 3 s fra **seneste** ændring: TON nulstilles i hver ændringscyklus, så hurtige pulser holder visningen fremme |
+| `TON(IN := disp_busy AND NOT rq, PT := T#500ms, …)` | Genskriver displayet hvert 500 ms, mens den viser — så en skrivning fra Logic1, der allerede lå i Modbus-køen, ikke bliver stående |
+| `MB_WRITE_HOLDINGS(1, 6, 2) := num` + `MB_WRITE_HOLDING(1, 8) := 0` | Tallet uden decimaler og uden blink |
+
+### 8.14.3 Testprocedure
+
+**Manuel test (på anlægget)**
+
+| # | Handling | Forventet resultat |
+|---|---|---|
+| 1 | Lad anlægget køre uden at røre noget | Displayet roterer: `   1` → CH0 → `   2` → CH1 → `   3` → expansion, et skift pr. 0,5 s. DO1–DO3 slukket |
+| 2 | Aktivér DI8 én gang | Displayet viser `1` (tælleren) med det samme. Rotationen står stille |
+| 3 | Vent 3 s | Rotationen fortsætter, hvor den slap |
+| 4 | Aktivér DI8 flere gange med under 3 s mellemrum | Tallet tæller op; visningen bliver stående, til 3 s efter **sidste** aktivering |
+| 5 | Hold DI1 aktiveret | Displayet låses på CH0 og blinker; DO1 blinker. Slip → rotationen fortsætter |
+| 6 | Aktivér DI8, mens DI1 holdes | Tælleren vises 3 s (uden blink), derefter tilbage til den låste CH0-visning |
+| 7 | Hold DI4 aktiveret sammen med DI1 | DO1 blinker ikke (udgangsspærre); visningen er stadig låst |
+| 8 | Fjern temperatursensoren på CH0 | CH0 vises som `----` |
+| 9 | Genstart PLC'en | Tælleren starter fra 0 og tæller igen uden indgriben (`show counter 1`: Running YES). Logic1 og Logic4 kører med 0 fejl |
+
+**Fjern-test via REST** (uden at røre anlægget — sådan blev opsætningen verificeret). Tællerens værdi sættes med startværdi + reset i stedet for pulser på DI8:
+
+```bash
+PLC=http://192.168.1.100
+curl -s -X POST -c c.txt -u admin:<adgangskode> $PLC/api/login           # session-cookie
+
+# 1. Udgangspunkt: disp_busy=false, Logic1's "step" skifter
+curl -s -b c.txt $PLC/api/logic/globals
+curl -s -b c.txt $PLC/api/logic/1          # se variablen "step" (kør et par gange)
+
+# 2. Simulér 41 tællinger
+curl -s -b c.txt -X POST -H "Content-Type: application/json" $PLC/api/cli \
+     -d '{"command":"set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32 start-value:41 enable:on"}'
+curl -s -b c.txt -X POST -H "Content-Type: application/json" $PLC/api/cli -d '{"command":"reset counter 1"}'
+
+# 3. Inden for 3 s: disp_busy=true, di8_count=41, Logic1's "step" står stille,
+#    og displayets reg 7 er 41 (Modbus-cachen viser den senest skrevne værdi)
+curl -s -b c.txt $PLC/api/logic/globals
+curl -s -b c.txt -X POST -H "Content-Type: application/json" $PLC/api/modbus/master/rw \
+     -d '{"op":"read","type":"holding","slave":1,"addr":7}'
+
+# 4. Efter 3 s: disp_busy=false, "step" skifter igen
+# 5. Ryd op: start-value:0 + reset counter 1
+```
+
+Resultatet ved verifikationen: alle punkter som forventet, `12345` vist som `2345`, og 0 fejl i begge programmer.
+
+### 8.14.4 Fejlfinding
+
+| Symptom | Årsag | Løsning |
+|---|---|---|
+| Intet på displayet, når DI8 aktiveres; `show counter 1` viser værdi 0 | Tælleren er aktiveret, men kører ikke | `set counter 1 control auto-start:on running:on` + `save` |
+| Tæller, når DI8 *slippes* | Forkert flanke for indgangen | `edge:rising` i stedet for `edge:falling` |
+| Tæller ikke efter genstart (før v7.9.68.47) | Auto-start blev ikke gemt (BUG-445) | Opdatér firmwaren; sæt auto-start igen og `save` |
+| Logic1 kompilerer ikke: ukendt variabel `disp_busy` | GLOBAL_VAR mangler | Upload GLOBAL_VAR først (trin 1), kompilér Logic1 igen |
+| Displayet flimrer mellem tæller og rotation | Logic1 mangler `AND NOT disp_busy`, eller et andet program skriver også til slave 1 | Ret Logic1; kun programmer der respekterer `disp_busy`, må skrive til displayet |
+| Tallet bliver stående efter 3 s | Logic1 kører ikke (deaktiveret/fejl) | Tjek Logic1 i ST-editoren (Runtime Monitor) |
+| Genupload af GLOBAL_VAR | Nulstiller `disp_busy`/`di8_count` og genkompilerer programmer der bruger dem | Forventet — tælleren selv (Counter 1) påvirkes ikke |
+| Tælleren starter fra 0 efter genstart | Tællerværdier gemmes ikke som standard | Persist-gruppe på HR100–101, hvis værdien skal huskes |
+
+
 ---
 
 [← 7. REST API](07_REST_API.md) · [Indeks](00_INDEKS.md) · Næste: [9. Tællere & Timere →](09_Taellere_og_Timere.md)

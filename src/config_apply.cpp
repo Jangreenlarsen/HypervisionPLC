@@ -233,16 +233,17 @@ bool config_apply(const PersistConfig* cfg) {
       debug_println(" enabled - configuring...");
       counter_engine_configure(i + 1, &cfg->counters[i]);
 
-      // BUG-017 FIX: Check auto-start flag and trigger start if enabled
-      if (cfg->counters[i].ctrl_reg < HOLDING_REGS_SIZE) {
+      // BUG-445 (afloeser BUG-017): auto-start er nu et GEMT config-felt.
+      // Tidligere laestes ctrl-registrets bit 1 her — et holding-register der
+      // altid er 0 efter genstart (og bit 1 er desuden start-KOMMANDObitten),
+      // saa en taeller startede aldrig af sig selv. Running-bit 7 er den
+      // vedvarende "koerer"-tilstand (counter_engine_handle_control).
+      if (cfg->counters[i].auto_start && cfg->counters[i].ctrl_reg < HOLDING_REGS_SIZE) {
         uint16_t ctrl_val = registers_get_holding_register(cfg->counters[i].ctrl_reg);
-        if (ctrl_val & 0x0002) {  // Bit 1 = auto-start
-          debug_print("    Counter ");
-          debug_print_uint(i + 1);
-          debug_println(" auto-start enabled - starting...");
-          // Trigger start command (will be processed in next loop iteration)
-          registers_set_holding_register(cfg->counters[i].ctrl_reg, ctrl_val | 0x0002);
-        }
+        debug_print("    Counter ");
+        debug_print_uint(i + 1);
+        debug_println(" auto-start - starting...");
+        registers_set_holding_register(cfg->counters[i].ctrl_reg, ctrl_val | 0x0080);
       }
     }
   }

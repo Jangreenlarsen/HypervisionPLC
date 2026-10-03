@@ -10,7 +10,7 @@
 
 ---
 
-**Version:** v7.9.68.46 · **Platform:** ESP32-WROOM-32 / ESP32-WROVER / ESP32-S3
+**Version:** v7.9.68.47 · **Platform:** ESP32-WROOM-32 / ESP32-WROVER / ESP32-S3
 
 </div>
 
@@ -76,6 +76,7 @@ Manualen er skrevet som en **modulær samling af selvstændige kapitler**, så d
 - **Opsætte Modbus Master mod eksterne enheder** → [Kapitel 6: Master-rollen](06_Modbus_Interface.md#65-modbus-master--konfiguration)
 - **Tilslutte og styre et Modbus Expansion Board (MBX_*)** → [Kapitel 6.7: Modbus Expansion Boards](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)
 - **Bruge en GPIO-indgang (inkl. de multiplexede skifteregister-kanaler) fra ST Logic** → [Kapitel 8: GPIO-bindinger](08_ST_Logic_Programmering.md#813-gpio-indgange-i-st-logic-bindings-mode)
+- **Se et komplet, testet eksempel med to programmer, GLOBAL_VAR, tællermodul og display** → [Kapitel 8: Testcase Logic1 + Logic4](08_ST_Logic_Programmering.md#814-testcase-to-programmer-deler-ét-display-logic1--logic4)
 - **Tillade/blokere adgang fra bestemte IP'er/subnet (IP ACL, permit/deny, kladde-tilstand)** → [Kapitel 10: IP Access Control List](10_Sikkerhed_og_Adgangsstyring.md#107-ip-access-control-list-feat-399401402)
 - **Opdatere firmware (OTA)** → [Kapitel 11: OTA-opdatering](11_Backup_Restore_og_Firmware.md#113-ota-firmwareopdatering)
 - **Enheden svarer ikke / mistænkelig opførsel** → [Kapitel 13: Fejlfinding](13_Fejlfinding.md)

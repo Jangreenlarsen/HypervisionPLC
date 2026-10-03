@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 ---
 
-## [7.9.68.34 – 7.9.68.46] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
+## [7.9.68.34 – 7.9.68.47] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
 
 ### NEW FEATURES
 - **FEAT-430:** ES32D26: tæller-tilstandene `sw-isr` og `hw` (PCNT) er spærret i CLI, REST, web og ST med en bemærkning om hvorfor.
@@ -14,6 +14,7 @@ All notable changes to this project are documented in this file.
 - **FEAT-427 lag B:** watchdog pr. ST-program — betingelser errors/exec/heartbeat/stall, handlinger alarm/stop/restart/safe/reboot, ST-funktion `WDT_FEED()`, CLI `set/show/clear logic <id> wdt`, REST `/api/logic/{id}/wdt`, editor (Monitor + Indstillinger).
 
 ### BUG FIXES
+- **BUG-445:** tællernes auto-start virkede aldrig (blev ikke gemt) — en tæller stod stille efter genstart. Nu et gemt felt; også på I/O-siden.
 - **BUG-434:** DYNAMIC-registre/-coils med tæller-kilde (`counter<id>:index|raw|freq|overflow|ctrl`) blev aldrig opdateret.
 - **BUG-435:** stored XSS i web-GUI'et — også uden login via brugernavnet i et fejlet login (vist i Logs). Al server-tekst escapes; board-/brugernavne med HTML-tegn afvises.
 - **BUG-436:** Reinit/watchdog-restart kunne delvist annulleres af en samtidig udførelse (HIGH-programmer).

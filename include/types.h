@@ -102,7 +102,7 @@ typedef struct __attribute__((packed)) {
   // Note: Compare status stored in ctrl_reg bit 4 (no separate fields needed)
 
   // Reserved for alignment
-  uint8_t reserved[1];
+  uint8_t auto_start;  // BUG-445: 1 = start (running) ved opstart — tidl. reserved[1], aeldre configs = 0
 } CounterConfig;
 
 typedef struct {

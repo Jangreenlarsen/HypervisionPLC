@@ -72,6 +72,11 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
 
   // Parse key:value parameters (TODO: implement full parser)
   CounterConfig cfg = counter_config_defaults(id);
+  {
+    // BUG-445: bevar auto-start ved omkonfiguration (saettes med "control auto-start:on")
+    CounterConfig old;
+    if (counter_config_get(id, &old)) cfg.auto_start = old.auto_start;
+  }
 
   for (uint8_t i = 3; i < argc; i++) {
     char* arg = argv[i];
@@ -443,7 +448,7 @@ void cli_cmd_set_counter_control(uint8_t argc, char* argv[]) {
     debug_println("");
     debug_println("  Ctrl-reg bits:");
     debug_println("    Bit 0: counter-reg-reset-on-read flag (persistent)");
-    debug_println("    Bit 1: auto-start flag (persistent)");
+    debug_println("    auto-start gemmes i tællerens config (brug 'save'), ikke i ctrl-registret");
     debug_println("    Bit 4: compare-match status (read-only, set by compare engine)");
     debug_println("    Bit 7: running state (persistent)");
     debug_println("");
@@ -520,10 +525,12 @@ void cli_cmd_set_counter_control(uint8_t argc, char* argv[]) {
         debug_println(value);
       }
     } else if (!strcmp(key, "auto-start")) {
-      if (!strcmp(value, "on") || !strcmp(value, "ON")) {
-        ctrl_value |= 0x02;  // Set bit 1
-      } else if (!strcmp(value, "off") || !strcmp(value, "OFF")) {
-        ctrl_value &= ~0x02; // Clear bit 1
+      // BUG-445: gemt config-felt (ikke ctrl bit 1 = start-kommando, der
+      // nulstilles straks og ikke overlever genstart). Brug 'save' bagefter.
+      if (!strcmp(value, "on") || !strcmp(value, "ON") || !strcmp(value, "off") || !strcmp(value, "OFF")) {
+        cfg.auto_start = (value[1] == 'n' || value[1] == 'N') ? 1 : 0;
+        counter_config_set(id, &cfg);
+        g_persist_config.counters[id - 1].auto_start = cfg.auto_start;
       } else {
         debug_print("SET COUNTER CONTROL: invalid value for auto-start: ");
         debug_println(value);
@@ -572,7 +579,7 @@ void cli_cmd_set_counter_control(uint8_t argc, char* argv[]) {
 
   // Show status
   bool counter_reset_on_read = (ctrl_value & 0x01) != 0;
-  bool auto_start = (ctrl_value & 0x02) != 0;
+  bool auto_start = cfg.auto_start != 0;  // BUG-445
   running = (ctrl_value & 0x80) != 0;
   bool compare_reset_on_read = cfg.reset_on_read;
 
