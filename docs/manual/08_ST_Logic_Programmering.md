@@ -822,7 +822,7 @@ curl -s -b c.txt -X POST -H "Content-Type: application/json" $PLC/api/modbus/mas
 # 5. Ryd op: start-value:0 + reset counter 1
 ```
 
-Resultatet ved verifikationen: alle punkter som forventet, `12345` vist som `2345`, og 0 fejl i begge programmer.
+Resultatet ved verifikationen: alle punkter som forventet, `12345` vist som `2345`, og 0 fejl i begge programmer. DI8 er desuden testet fysisk: der tælles på flanken high → low (`edge:falling`), som vist på displayet.
 
 ### 8.14.4 Fejlfinding
 
