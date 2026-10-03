@@ -4730,8 +4730,12 @@ void cli_cmd_show_watchdog(void) {
 
   // Last error message
   if (strlen(wdt->last_error) > 0) {
+    char ts[24];
     debug_print("Last error: ");
-    debug_println(wdt->last_error);
+    debug_print(wdt->last_error);
+    debug_print(watchdog_last_error_time_str(ts, sizeof(ts)) ? "  [" : "  [tidspunkt ukendt");  // FEAT-429
+    debug_print(ts);
+    debug_println("]");
   }
 
   debug_print("Last reboot uptime: ");
@@ -5106,7 +5110,9 @@ void cli_cmd_show_status(void) {
     debug_printf("  Last reset reason: %s\n",
                  watchdog_reset_reason_to_str(wd->last_reset_reason));
     if (wd->last_error[0]) {
-      debug_printf("  Last error: %s\n", wd->last_error);
+      char ts[24];
+      bool has_ts = watchdog_last_error_time_str(ts, sizeof(ts));  // FEAT-429
+      debug_printf("  Last error: %s  [%s]\n", wd->last_error, has_ts ? ts : "tidspunkt ukendt");
     }
     debug_println("");
   }

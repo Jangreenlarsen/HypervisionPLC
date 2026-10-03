@@ -22,6 +22,8 @@
 #include <nvs.h>
 #include <nvs_flash.h>
 #include <string.h>
+#include <time.h>
+#include "ntp_driver.h"  // FEAT-429: tidsstempel paa sidste fejl
 #include <Arduino.h>
 
 /* ============================================================================
@@ -58,14 +60,39 @@ static WatchdogTaskSlot g_wdt_tasks[WATCHDOG_MAX_TASKS];
 /* FEAT-427 (A3): oppetid i RTC-hukommelse. RTC_NOINIT overlever software-
  * reset, panic og watchdog-reset (men ikke stroemsvigt), saa vi ved opstart
  * kan se hvor laenge enheden koerte foer et crash. Opdateres fra loopTask. */
-#define WDT_RTC_MAGIC 0x57445443UL  // "WDTC"
+#define WDT_RTC_MAGIC 0x57445432UL  // "WDT2" (FEAT-429: + epoch)
 typedef struct {
   uint32_t magic;
   uint32_t uptime_ms;
+  uint32_t epoch;      // FEAT-429: senest kendte Unix-tid (NTP), 0 = ukendt
 } WdtRtcData;
 RTC_NOINIT_ATTR static WdtRtcData g_wdt_rtc;
 static bool g_reset_was_crash = false;
 static bool g_streak_cleared = false;
+
+/* FEAT-429: aktuel Unix-tid hvis NTP er synkroniseret, ellers 0 */
+static uint32_t wdt_now_epoch(void) {
+  return ntp_driver_is_synced() ? (uint32_t)ntp_driver_get_epoch() : 0;
+}
+
+/* Tidsstempler foer 2020 / efter 2100 er ugyldige — fx de 4 bytes der foer
+ * FEAT-429 var slutningen af en 128-tegns last_error i en gammel NVS-blob. */
+uint32_t watchdog_last_error_epoch(void) {
+  uint32_t e = g_watchdog_state.last_error_epoch;
+  return (e >= 1577836800UL && e < 4102444800UL) ? e : 0;
+}
+
+bool watchdog_last_error_time_str(char *buf, size_t n) {
+  if (!buf || n == 0) return false;
+  buf[0] = '\0';
+  uint32_t e = watchdog_last_error_epoch();
+  if (!e) return false;
+  time_t t = (time_t)e;
+  struct tm tmv;
+  localtime_r(&t, &tmv);   // NTP-driveren saetter TZ
+  strftime(buf, n, "%Y-%m-%d %H:%M:%S", &tmv);
+  return true;
+}
 
 static bool reset_reason_is_crash(esp_reset_reason_t r) {
   return r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT || r == ESP_RST_WDT;
@@ -160,6 +187,7 @@ void watchdog_init(void) {
     g_watchdog_state.last_reset_reason = (uint32_t)esp_reset_reason();
     g_watchdog_state.last_reboot_uptime_ms = 0;
     strcpy(g_watchdog_state.last_error, "First boot");
+    g_watchdog_state.last_error_epoch = 0;
 
     debug_println("WATCHDOG: First boot - initialized state");
   }
@@ -173,9 +201,11 @@ void watchdog_init(void) {
   esp_reset_reason_t rr = esp_reset_reason();
   bool rtc_valid = (g_wdt_rtc.magic == WDT_RTC_MAGIC) && rr != ESP_RST_POWERON && rr != ESP_RST_BROWNOUT;
   uint32_t prev_uptime = rtc_valid ? g_wdt_rtc.uptime_ms : 0;
+  uint32_t prev_epoch = rtc_valid ? g_wdt_rtc.epoch : 0;  // FEAT-429: ~tidspunkt for crashet
   g_watchdog_state.last_reboot_uptime_ms = prev_uptime;
   g_wdt_rtc.magic = WDT_RTC_MAGIC;
   g_wdt_rtc.uptime_ms = 0;
+  g_wdt_rtc.epoch = 0;
 
   g_reset_was_crash = reset_reason_is_crash(rr);
   if (g_reset_was_crash) {
@@ -189,6 +219,7 @@ void watchdog_init(void) {
     snprintf(g_watchdog_state.last_error, sizeof(g_watchdog_state.last_error),
              "Crash: %s efter %lu s drift (%u i traek)", watchdog_reset_reason_to_str(rr),
              (unsigned long)(prev_uptime / 1000), (unsigned)g_watchdog_state.crash_streak);
+    g_watchdog_state.last_error_epoch = prev_epoch;  // FEAT-429: senest kendte tid foer crashet
     if (g_watchdog_state.crash_streak >= WATCHDOG_SAFE_MODE_STREAK) {
       g_watchdog_state.safe_mode = 1;
     }
@@ -252,6 +283,7 @@ void watchdog_feed(void) {
   // se ud som "efter 0 s drift" og fejlagtigt taelle mod safe mode.
   uint32_t now = millis();
   g_wdt_rtc.uptime_ms = now;
+  g_wdt_rtc.epoch = wdt_now_epoch();  // FEAT-429
   if (!g_streak_cleared && now >= WATCHDOG_STABLE_UPTIME_MS) {
     g_streak_cleared = true;
     if (g_watchdog_state.crash_streak != 0) {
@@ -293,6 +325,7 @@ void watchdog_reboot_for(const char *reason) {
   g_watchdog_state.crash_counter++;
   snprintf(g_watchdog_state.last_error, sizeof(g_watchdog_state.last_error),
            "Genstart: %s (%u i traek)", reason ? reason : "?", (unsigned)g_watchdog_state.crash_streak);
+  g_watchdog_state.last_error_epoch = wdt_now_epoch();  // FEAT-429
   watchdog_save_state();
   delay(200);
   esp_restart();
@@ -417,6 +450,7 @@ void watchdog_record_error(const char* error_msg) {
   // Copy error message (max 127 chars + null terminator)
   strncpy(g_watchdog_state.last_error, error_msg, sizeof(g_watchdog_state.last_error) - 1);
   g_watchdog_state.last_error[sizeof(g_watchdog_state.last_error) - 1] = '\0';
+  g_watchdog_state.last_error_epoch = wdt_now_epoch();  // FEAT-429
 
   debug_print("WATCHDOG: Error recorded: ");
   debug_println(error_msg);
@@ -491,8 +525,12 @@ bool watchdog_load_state(void) {
   debug_println("s");
 
   if (strlen(g_watchdog_state.last_error) > 0) {
+    char ts[24];
     debug_print("  Last error: ");
-    debug_println(g_watchdog_state.last_error);
+    debug_print(g_watchdog_state.last_error);
+    debug_print(watchdog_last_error_time_str(ts, sizeof(ts)) ? "  [" : "  [tidspunkt ukendt");
+    debug_print(ts);
+    debug_println("]");
   }
 
   return true;

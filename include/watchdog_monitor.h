@@ -25,6 +25,7 @@
 #define WATCHDOG_MONITOR_H
 
 #include <stdint.h>
+#include <stddef.h>  // FEAT-429: size_t
 #include <stdbool.h>
 #include "types.h"
 
@@ -97,6 +98,11 @@ bool watchdog_reset_was_crash(void);   // seneste opstart skyldtes et crash/watc
  * Gemmer aarsagen i last_error og taeller som et crash i traek (saa en
  * gentagen "reboot" ogsaa ender i safe mode). Vender aldrig tilbage. */
 void watchdog_reboot_for(const char *reason);
+
+/* FEAT-429: tidspunkt for "sidste fejl". 0 = ukendt (ingen NTP-tid da fejlen
+ * skete). Formateret som lokal tid "YYYY-MM-DD HH:MM:SS" (tom streng hvis ukendt). */
+uint32_t watchdog_last_error_epoch(void);
+bool watchdog_last_error_time_str(char *buf, size_t n);
 
 /* FEAT-427: overvaagning af baggrunds-tasks (mb_async, expansion-workers).
  * subscribe() kaldes EN gang oeverst i taskens funktion, feed() i hver

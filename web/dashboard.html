@@ -1814,7 +1814,8 @@ function renderWatchdog(d){
   set('wdtSafe',d.safe_mode?'<b style="color:#f38ba8">AKTIV</b>':'nej');
   set('wdtReset',_wdtEsc(_wdtResetNames[d.last_reset_reason]||'Ukendt'));
   set('wdtPrevUp',d.last_reboot_uptime_ms?fmtUptime(d.last_reboot_uptime_ms):'ukendt');
-  set('wdtLastErr',_wdtEsc(d.last_error||'-'));
+  // FEAT-429: tidsstempel paa sidste fejl
+  set('wdtLastErr',d.last_error?(_wdtEsc(d.last_error)+'<div style="font-size:10px;color:#6c7086">'+(d.last_error_time?_wdtEsc(d.last_error_time):'tidspunkt ukendt (ingen NTP-tid)')+'</div>'):'-');
   const tasks=d.tasks||[];
   set('wdtTasks',tasks.length?('<table class="tbl">'+tasks.map(t=>{
       const s=(t.age_ms||0)/1000, warn=s>timeoutS*0.5;
@@ -1829,7 +1830,7 @@ function renderWatchdog(d){
   const ban=$('safeModeBanner');
   if(ban){
     ban.style.display=d.safe_mode?'block':'none';
-    if(d.safe_mode)$('safeModeDetail').textContent=d.last_error?(' Sidste: '+d.last_error):'';
+    if(d.safe_mode)$('safeModeDetail').textContent=d.last_error?(' Sidste: '+d.last_error+(d.last_error_time?' ('+d.last_error_time+')':'')):'';
   }
 }
 async function wdtPost(body){

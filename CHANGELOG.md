@@ -4,9 +4,10 @@ All notable changes to this project are documented in this file.
 
 ---
 
-## [7.9.68.34 – 7.9.68.44] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
+## [7.9.68.34 – 7.9.68.45] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
 
 ### NEW FEATURES
+- **FEAT-429:** "sidste fejl" i watchdog-monitoren vises med tidspunkt (CLI, REST, dashboard).
 - **FEAT-426:** 64 variabel-slots pr. ST-program (før 32).
 - **FEAT-427 lag A:** task-watchdog dækker også Modbus Master- og expansion-tasks, `set watchdog timeout|enable`, reel drifttid før genstart, crash-tæller, safe mode efter 3 crashes i træk (ingen ST, udgange i sikker tilstand), sikker tilstand pr. udgang (`set gpio <pin> safe on|off|default`, I/O-siden, editorens Bindings), Watchdog-kort i dashboardet, alarmer uden åbent dashboard.
 - **FEAT-427 lag B:** watchdog pr. ST-program — betingelser errors/exec/heartbeat/stall, handlinger alarm/stop/restart/safe/reboot, ST-funktion `WDT_FEED()`, CLI `set/show/clear logic <id> wdt`, REST `/api/logic/{id}/wdt`, editor (Monitor + Indstillinger).

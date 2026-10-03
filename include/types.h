@@ -283,7 +283,8 @@ typedef struct __attribute__((packed)) {
   uint32_t timeout_ms;               // Timeout (default 30000 = 30s)
   uint32_t reboot_counter;           // Persistent reboot count
   uint32_t last_reset_reason;        // ESP_RST_REASON enum
-  char last_error[128];              // Last error message
+  char last_error[124];              // Last error message (FEAT-429: 128->124, plads til tidsstempel)
+  uint32_t last_error_epoch;         // FEAT-429: Unix-tid for last_error (0 = ukendt — ingen NTP)
   uint32_t last_reboot_uptime_ms;    // Uptime before last reboot (FEAT-427: fra RTC-hukommelse; 0 = ukendt, fx efter stroemsvigt)
   // FEAT-427: crash-registrering — tog de 8 tidligere reserverede bytes, saa
   // NVS-blob'ens stoerrelse (og dermed kompatibiliteten) er uaendret.

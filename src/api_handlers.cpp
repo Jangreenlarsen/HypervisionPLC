@@ -8539,6 +8539,12 @@ esp_err_t api_handler_system_watchdog(httpd_req_t *req)
   doc["reboot_count"] = wd->reboot_counter;
   doc["last_reset_reason"] = wd->last_reset_reason;
   doc["last_error"] = wd->last_error;
+  {
+    // FEAT-429: tidspunkt for sidste fejl (0/"" = ukendt — ingen NTP-tid da den skete)
+    char ts[24];
+    doc["last_error_epoch"] = watchdog_last_error_epoch();
+    doc["last_error_time"] = watchdog_last_error_time_str(ts, sizeof(ts)) ? ts : "";
+  }
   doc["last_reboot_uptime_ms"] = wd->last_reboot_uptime_ms;
   doc["active"] = watchdog_is_active();            // FEAT-427
   doc["crash_count"] = wd->crash_counter;          // FEAT-427 (A3)

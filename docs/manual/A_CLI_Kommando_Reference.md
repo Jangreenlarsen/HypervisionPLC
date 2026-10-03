@@ -120,7 +120,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 |---|---|---|
 | `show gpio [pin]` | — | Alle GPIO-mappings, eller én specifik pin |
 | `show metrics` | — | Prometheus metrics-reference |
-| `show watchdog` / `wdg` | — | Watchdog-monitor-status: til/fra, om den reelt er **aktiv**, timeout, reboot-årsag, reboot-tæller, og (FEAT-427) hver overvåget task med sekunder siden sidste fodring |
+| `show watchdog` / `wdg` | — | Watchdog-monitor-status: til/fra, om den reelt er **aktiv**, timeout, reboot-årsag, reboot-tæller, og (FEAT-427) hver overvåget task med sekunder siden sidste fodring. `Last error` vises med tidspunkt `[ÅÅÅÅ-MM-DD tt:mm:ss]` (FEAT-429) |
 | `show debug` / `dbg` | — | Debug-flag-status |
 | `show echo` | — | Remote echo on/off |
 | `show analog` | kun ES32D26 | Analog I/O: Vi1-4, Ii1-4 (rå + skaleret) og AO1-2 (FEAT-034-037) |
