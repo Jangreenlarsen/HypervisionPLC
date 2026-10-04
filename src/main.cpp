@@ -371,19 +371,19 @@ void setup() {
   // esp_ota_get_state_partition() / esp_ota_mark_app_valid_cancel_rollback()
   // family is avoided entirely here rather than guarded — guarding one call
   // behind a state check just moved the corruption onto the check itself.
-  // This device has never completed a genuine OTA cycle (every image so far
-  // was written directly via esptool serial flashing), so skipping this is a
-  // no-op in practice today. KNOWN LIMITATION: if a real OTA update DOES
-  // happen via this project's own OTA feature in the future, the new image
-  // will stay in ESP_OTA_IMG_PENDING_VERIFY state forever (never confirmed),
-  // which means any LATER crash — even one unrelated to the new firmware —
-  // would trigger the bootloader's automatic rollback to the other
-  // partition. A future fix should read/write the otadata partition
-  // directly via esp_partition_read()/esp_partition_write() (bypassing
-  // esp_ota_ops.c's buggy wrapper) instead of re-enabling these calls.
-  // api_handler_ota_rollback() (src/ota_handler.cpp) also calls
-  // esp_ota_get_state_partition() — that's a rare, user-triggered action
-  // (not hit on every boot), left as-is for now but carries the same risk.
+  // BUG-448 (2026-10-04, maalt paa hardware med "show ota" efter to OTA'er):
+  // begge otadata-slots staar som VALID — ikke PENDING_VERIFY. Den
+  // "KNOWN LIMITATION" der stod her (OTA-images forbliver ubekraeftede, og et
+  // senere crash ruller stille tilbage) er derfor IKKE reel: firmwaren
+  // bekraeftes allerede ved opstart, foer setup() — af Arduino-frameworkets
+  // initArduino(), som selv kalder esp_ota_get_state_partition()/
+  // esp_ota_mark_app_valid_cancel_rollback() paa hver boot uden de
+  // PSRAM-problemer der beskrives ovenfor (BUG-423's egentlige rodaarsag var
+  // W5500 paa GPIO16/17, BUG-423b). Konsekvens: bootloader-rollback beskytter
+  // kun mod en firmware der fejler FOER setup(). En forsinket bekraeftelse
+  // (verifyRollbackLater() + bekraeft efter stabil drift) er en mulig
+  // forbedring. api_handler_ota_rollback() bruger ikke laengere
+  // esp_ota_get_state_partition() (BUG-448).
 }
 
 // ============================================================================

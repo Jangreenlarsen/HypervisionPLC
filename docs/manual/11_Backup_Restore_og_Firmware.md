@@ -37,7 +37,7 @@ Firmware kan opdateres over netværket uden at skulle koble USB til igen:
 1. Log ind på `/ota`-siden i webgrænsefladen (eller `POST /api/system/ota` direkte med `.bin`-filen som request-body)
 2. Upload den nye `firmware.bin`
 3. Enheden skriver til den inaktive OTA-partition og genstarter automatisk ind i den nye firmware
-4. Den forrige firmware bliver liggende urørt i den anden partition (dual-bank OTA: `ota_0`/`ota_1` skiftes for hver opdatering) og kan rulles tilbage med ét klik — se §11.4. Om bootloaderen ruller *automatisk* tilbage ved en firmware der fejler ved opstart, er endnu ikke verificeret på hardware (BUG-448, punkt 2).
+4. Den forrige firmware bliver liggende urørt i den anden partition (dual-bank OTA: `ota_0`/`ota_1` skiftes for hver opdatering) og kan rulles tilbage med ét klik — se §11.4. Automatisk tilbagerulning dækker kun en firmware, der fejler helt i starten af opstarten (før selve PLC-programmet starter): den nye firmware bekræftes som gyldig, så snart den er startet. En firmware, der starter men opfører sig forkert, rulles altså *ikke* automatisk tilbage — brug manuel rollback (BUG-448). CLI-kommandoen `show ota` viser partitionernes tilstand.
 
 **Størrelsesgrænse:** maks. ca. **1,8 MB** (1.900.544 bytes, svarende til én OTA-partition). Upload afvises med en tydelig fejlbesked hvis filen er for stor.
 
