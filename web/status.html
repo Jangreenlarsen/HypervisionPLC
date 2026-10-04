@@ -24,6 +24,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .spark-row svg{flex:1;width:100%;height:24px;min-width:0;display:block}
 .dio-led .led{width:18px;height:18px;border-radius:50%;border:2px solid #45475a}
 @media(max-width:480px){.card{width:100%;max-width:none}}
+.badge-err{background:#f38ba8;color:#1e1e2e}
 </style>
 </head>
 <body>
@@ -155,6 +156,23 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="row"><span class="lbl">Total cycles</span><span class="val val-n" id="stCycles">-</span></div>
 <div class="row"><span class="lbl">Overruns</span><span class="val val-n" id="stOverruns">-</span></div>
 <div id="stBody"><span class="empty-msg">Ingen aktive programmer</span></div>
+</div>
+
+<!-- FEAT-435: reduceret, offentlig udgave af dashboardets Watchdog-kort -->
+<div class="card" data-card-id="watchdog">
+<h2>Watchdog <span class="badge badge-off" id="badgeWdt">-</span></h2>
+<div class="row"><span class="lbl">Aktiv</span><span class="val val-n" id="wdtActive">-</span></div>
+<div class="row"><span class="lbl">Safe mode</span><span class="val val-n" id="wdtSafe">-</span></div>
+<div class="row"><span class="lbl">Opstarter i alt</span><span class="val val-n" id="wdtBoots">-</span></div>
+<div class="row"><span class="lbl">Crashes (i alt / i træk)</span><span class="val val-n" id="wdtCrashes">-</span></div>
+<div class="row"><span class="lbl">Sidste reset</span><span class="val val-n" id="wdtReset" style="font-size:11px">-</span></div>
+<div class="row"><span class="lbl">Drift før genstart</span><span class="val val-n" id="wdtPrevUp">-</span></div>
+</div>
+
+<!-- FEAT-435: offentlig udgave af Expansion Boards-kortet — kun nr, navn og online-status -->
+<div class="card" data-card-id="modbusexpansion">
+<h2>Modbus Expansion Boards <span class="badge badge-off" id="badgeExpansion">-</span></h2>
+<div id="expPubList"><span class="empty-msg">-</span></div>
 </div>
 
 <div class="card" data-card-id="ntp">
@@ -846,7 +864,47 @@ function applyPublicCardVisibility(){
   }).catch(()=>{});
 }
 
+// FEAT-435: Watchdog + Expansion Boards fra /api/public-dashboard/extras.
+// Serveren sender kun sektioner for kort admin har valgt til statussiden.
+const _wdtResetNames={0:'Ukendt',1:'Power-on',2:'Ekstern reset',3:'Software reset',4:'Panic/Exception',5:'Interrupt watchdog',6:'Task watchdog',7:'Anden watchdog',8:'Deep sleep',9:'Brownout',10:'SDIO reset'};
+function _fmtDur(ms){const s=Math.floor(ms/1000),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?d+'d ':'')+(d||h?h+'t ':'')+m+'m';}
+function renderPublicExtras(d){
+  const set=(id,v)=>{const el=$(id);if(el)el.innerHTML=v;};
+  const w=d.watchdog;
+  if(w){
+    set('wdtActive',w.active?'<span style="color:#a6e3a1">JA</span>':'<span style="color:#f38ba8">NEJ</span>');
+    set('wdtSafe',w.safe_mode?'<b style="color:#f38ba8">AKTIV</b>':'nej');
+    set('wdtBoots',fmtN(w.reboot_count));
+    set('wdtCrashes',fmtN(w.crash_count||0)+((w.crash_streak||0)>0?' <span style="color:#fab387">('+w.crash_streak+' i træk)</span>':' / 0'));
+    set('wdtReset',escHtml(_wdtResetNames[w.last_reset_reason]||'Ukendt'));
+    set('wdtPrevUp',w.last_reboot_uptime_ms?_fmtDur(w.last_reboot_uptime_ms):'ukendt');
+    const b=$('badgeWdt');
+    if(w.safe_mode){b.textContent='SAFE MODE';b.className='badge badge-err';}
+    else if(!w.active){b.textContent='INAKTIV';b.className='badge badge-warn';}
+    else{b.textContent='OK';b.className='badge badge-ok';}
+  }
+  const ex=d.expansion;
+  if(ex){
+    if(!ex.length){set('expPubList','<span class="empty-msg">Ingen boards konfigureret</span>');badge($('badgeExpansion'),false,'Ingen');}
+    else{
+      const txt={online:['Online','val-ok'],offline:['Offline','val-err'],unknown:['Ingen data endnu','val-n']};
+      set('expPubList',ex.map(b=>{const t=txt[b.state]||txt.unknown;
+        return '<div class="row"><span class="lbl">#'+b.number+' '+escHtml(b.name)+'</span><span class="val '+t[1]+'">'+t[0]+(b.state==='online'?' · '+b.age_s+' s siden':'')+'</span></div>';}).join(''));
+      const on=ex.filter(b=>b.state==='online').length;
+      badge($('badgeExpansion'),on===ex.length,on+'/'+ex.length+' online');
+    }
+  }
+}
+async function fetchPublicExtras(){
+  // kun naar et af kortene er synligt (spar forbindelser paa HTTPS-serveren)
+  const vis=id=>{const c=document.querySelector('#grid .card[data-card-id="'+id+'"]');return c&&c.style.display!=='none';};
+  if(!vis('watchdog')&&!vis('modbusexpansion'))return;
+  try{const r=await dashFetch('/api/public-dashboard/extras',{});if(r.ok)renderPublicExtras(await r.json());}catch(e){}
+}
+
 applyPublicCardVisibility();
+setTimeout(fetchPublicExtras,500);
+setInterval(fetchPublicExtras,5000);
 fetchMetrics();
 fetchMbActivity();
 setInterval(fetchMetrics,3000);

@@ -1199,6 +1199,14 @@ static const httpd_uri_t uri_public_dashboard_cards_post = {
   .handler  = api_handler_public_dashboard_cards_post,
   .user_ctx = NULL
 };
+// FEAT-435: auth-fri watchdog/expansion-status til statussiden (kun valgte kort)
+extern esp_err_t api_handler_public_dashboard_extras_get(httpd_req_t *req);
+static const httpd_uri_t uri_public_dashboard_extras_get = {
+  .uri      = "/api/public-dashboard/extras",
+  .method   = HTTP_GET,
+  .handler  = api_handler_public_dashboard_extras_get,
+  .user_ctx = NULL
+};
 
 // FEAT-030: /api/v1/* dispatchers (forward to existing handlers)
 static const httpd_uri_t uri_v1_get = {
@@ -1555,6 +1563,7 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_dashboard_layout_post);
   httpd_register_uri_handler(http_state.server, &uri_public_dashboard_cards_get);
   httpd_register_uri_handler(http_state.server, &uri_public_dashboard_cards_post);
+  httpd_register_uri_handler(http_state.server, &uri_public_dashboard_extras_get);
   // v7.0.0: FEAT-030 /api/v1/* dispatchers
   httpd_register_uri_handler(http_state.server, &uri_v1_get);
   httpd_register_uri_handler(http_state.server, &uri_v1_post);

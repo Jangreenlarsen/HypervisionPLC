@@ -132,7 +132,8 @@ Ud over selve "Metrics"-visningen (kort/faner, beskrevet ovenfor) har `/dashboar
 - **Orden** — flyt et kort op/ned med ↑/↓; rækkefølgen i listen er rækkefølgen på statussiden (valgte kort står øverst).
 - **Gem** — kræver skriveadgang. Ændringen ses straks på `/`; tryk **Save** øverst for at den overlever en genstart.
 - **Forhåndsvisning** — til højre vises statussiden, som en besøgende uden login ser den. Den opdateres efter Gem og stopper, når man forlader fanen.
-- **Kort der ikke kan vises offentligt** — Alarm Historik og TCP Forbindelser er udelukket af sikkerhedshensyn (de afslører IP-adresser/brugernavne); Hændelseslog, Trend Recorder, Watchdog og Expansion Boards er ikke portet til statussiden.
+- **Watchdog og Expansion Boards** (FEAT-435) vises i en reduceret udgave: Watchdog med aktiv, safe mode, opstarter, crashes, sidste reset-årsag og drift før genstart — *uden* fejltekst og task-navne; Expansion Boards med board-nr., navn og Online/Offline/"Ingen data endnu" (ud fra seneste Modbus TCP-svar, offline efter 60 s) — *uden* IP-adresse og firmware.
+- **Kort der ikke kan vises offentligt** — Alarm Historik og Hændelseslog (logger fejlede logins og nægtet skriveadgang med brugernavn og IP), TCP Forbindelser (forbundne klienters IP-adresser) og Trend Recorder (registerværdier, som bevidst ikke vises uden login, BUG-406).
 
 `/dashboard#statusside` åbner fanen direkte (System-siden linker hertil). Samme liste kan sættes via REST: `POST /api/public-dashboard/cards` med `{"visible":"system,counters,ntp"}` (se [appendiks B](B_REST_API_Reference.md)).
 

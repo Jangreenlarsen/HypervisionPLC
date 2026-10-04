@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.53] - 2026-10-04
+
+### NEW FEATURES
+- **FEAT-435:** Watchdog og Expansion Boards kan vises på den offentlige statusside (reduceret: ingen fejltekster eller IP-adresser). Nyt auth-frit `GET /api/public-dashboard/extras`, som kun sender data for valgte kort.
+
 ## [7.9.68.52] - 2026-10-04
 
 ### NEW FEATURES

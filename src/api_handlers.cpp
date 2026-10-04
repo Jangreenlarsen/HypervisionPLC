@@ -910,6 +910,7 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/dashboard/layout",               "Save dashboard layout settings"},
   {"GET",    "/api/public-dashboard/cards",         "FEAT-407: which dashboard cards are shown on the public status page"},
   {"POST",   "/api/public-dashboard/cards",         "FEAT-407: set which dashboard cards are shown on the public status page (admin)"},
+  {"GET",    "/api/public-dashboard/extras",        "FEAT-435: auth-free watchdog/expansion status for the public status page (only selected cards)"},
   {"POST",   "/api/system/ota",                    "Upload firmware (OTA, FEAT-031)"},
   {"GET",    "/api/system/ota/status",              "OTA progress status (FEAT-031)"},
   {"POST",   "/api/system/ota/rollback",           "Rollback firmware (FEAT-031)"},
@@ -8464,7 +8465,8 @@ esp_err_t api_handler_dashboard_layout_post(httpd_req_t *req)
 static const char *PUBLIC_DASHBOARD_CARD_IDS[] = {
   "system", "network", "modbusslave", "modbusmaster", "bushealth",
   "httpapi", "counters", "timers", "stlogic", "ntp", "rtutrafik",
-  "dio", "analogio", "mbactivity"
+  "dio", "analogio", "mbactivity",
+  "watchdog", "modbusexpansion"   // FEAT-435: data via GET /api/public-dashboard/extras
 };
 static const int PUBLIC_DASHBOARD_CARD_ID_COUNT =
   sizeof(PUBLIC_DASHBOARD_CARD_IDS) / sizeof(PUBLIC_DASHBOARD_CARD_IDS[0]);
@@ -8539,6 +8541,76 @@ esp_err_t api_handler_public_dashboard_cards_post(httpd_req_t *req)
   char resp[256];
   snprintf(resp, sizeof(resp), "{\"status\":200,\"visible\":\"%s\"}", g_persist_config.public_dashboard_cards);
   return api_send_json(req, resp);
+}
+
+/* ============================================================================
+ * FEAT-435: GET /api/public-dashboard/extras — auth-fri data til statussidens
+ * Watchdog- og Expansion Boards-kort. Kun en reduceret, ufarlig delmaengde:
+ *   watchdog:  aktiv, safe mode, opstarter/crashes, sidste reset-aarsag,
+ *              drift foer genstart — IKKE fejltekst, task-navne eller timeout
+ *   expansion: board nr, navn og online/offline/ukendt ud fra alderen paa
+ *              seneste Modbus TCP-svar — IKKE IP, token, type eller firmware
+ * Hver sektion medtages KUN hvis admin har valgt kortet til statussiden
+ * (public_dashboard_cards) — fravalgte kort lækker intet. Samme beskyttelse
+ * som /api/metrics/public: CHECK_API_ENABLED (IP-ACL) + rate limit.
+ * ============================================================================ */
+static bool public_card_selected(const char *id)
+{
+  const char *list = g_persist_config.public_dashboard_cards;
+  size_t n = strlen(id);
+  for (const char *p = list; *p; ) {
+    const char *comma = strchr(p, ',');
+    size_t len = comma ? (size_t)(comma - p) : strlen(p);
+    if (len == n && strncmp(p, id, n) == 0) return true;
+    if (!comma) break;
+    p = comma + 1;
+  }
+  return false;
+}
+
+#define PUBLIC_EXP_FRESH_MS 60000UL  // samme graense som dashboardets EXP_DATA_FRESH_MS
+
+esp_err_t api_handler_public_dashboard_extras_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_API_ENABLED(req);  // bevidst ingen bruger-auth — se kommentaren ovenfor
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+
+  JsonDocument doc;
+  if (public_card_selected("watchdog")) {
+    WatchdogState *wd = watchdog_get_state();
+    JsonObject w = doc["watchdog"].to<JsonObject>();
+    w["active"] = watchdog_is_active();
+    w["safe_mode"] = watchdog_safe_mode();
+    w["reboot_count"] = wd->reboot_counter;
+    w["crash_count"] = wd->crash_counter;
+    w["crash_streak"] = wd->crash_streak;
+    w["last_reset_reason"] = wd->last_reset_reason;
+    w["last_reboot_uptime_ms"] = wd->last_reboot_uptime_ms;
+  }
+  if (public_card_selected("modbusexpansion")) {
+    JsonArray boards = doc["expansion"].to<JsonArray>();
+    for (uint8_t i = 0; i < EXPANSION_BOARD_MAX; i++) {
+      const ExpansionBoard *b = &g_persist_config.expansion_boards[i];
+      if (!b->configured) continue;
+      JsonObject jo = boards.add<JsonObject>();
+      jo["number"] = i + 1;
+      jo["name"] = b->name;
+      uint32_t rx = modbus_expansion_board_last_rx_ms(i + 1);
+      if (!rx) {
+        jo["state"] = "unknown";   // intet Modbus TCP-svar siden opstart
+      } else {
+        uint32_t age = millis() - rx;
+        jo["state"] = age < PUBLIC_EXP_FRESH_MS ? "online" : "offline";
+        jo["age_s"] = age / 1000;
+      }
+    }
+  }
+  char buf[1024];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
 }
 
 /* ============================================================================
@@ -11270,6 +11342,7 @@ static const V1Route v1_routes[] = {
   {"/api/dashboard/layout", true,  HTTP_POST,   api_handler_dashboard_layout_post},
   {"/api/public-dashboard/cards", true, HTTP_GET,  api_handler_public_dashboard_cards_get},
   {"/api/public-dashboard/cards", true, HTTP_POST, api_handler_public_dashboard_cards_post},
+  {"/api/public-dashboard/extras", true, HTTP_GET, api_handler_public_dashboard_extras_get},
   {"/api/events/status",    true,  HTTP_GET,    api_handler_sse_status},
   {"/api/events/clients",   true,  HTTP_GET,    api_handler_sse_clients},
   {"/api/events/disconnect", true, HTTP_POST,   api_handler_sse_disconnect},

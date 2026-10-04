@@ -909,13 +909,15 @@ const PUB_CATALOG=[
   {id:'stlogic',label:'ST Logic',info:'Programstatus og cyklustider'},
   {id:'ntp',label:'NTP Tid',info:'Klokkeslæt og synkronisering'},
   {id:'dio',label:'Digital I/O',info:'Indgange og udgange (kun visning)'},
-  {id:'analogio',label:'Analog I/O',info:'Analoge værdier (kun visning)'}
+  {id:'analogio',label:'Analog I/O',info:'Analoge værdier (kun visning)'},
+  {id:'watchdog',label:'Watchdog',info:'Aktiv, safe mode, opstarter/crashes (uden fejltekst)'},
+  {id:'modbusexpansion',label:'Expansion Boards',info:'Board nr, navn, online/offline (uden IP)'}
 ];
 const PUB_UNAVAILABLE=[
   ['Alarm Historik','afslører kilde-IP og brugernavne ved fejlede logins (SECURITY_INDEX #12)'],
-  ['TCP Forbindelser','afslører hvilke klienter der er forbundet'],
-  ['Hændelseslog, Trend Recorder','data kræver login — ikke portet endnu'],
-  ['Watchdog, Expansion Boards','ikke portet til statussiden']
+  ['Hændelseslog','logger fejlede logins og nægtet skriveadgang med brugernavn og IP, samt hvem der har ændret registre'],
+  ['TCP Forbindelser','afslører hvilke klienter (IP-adresser) der er forbundet'],
+  ['Trend Recorder','viser registerværdier, som bevidst ikke vises uden login (BUG-406)']
 ];
 let _pubOrder=[],_pubOn={};
 function pubLoad(){
