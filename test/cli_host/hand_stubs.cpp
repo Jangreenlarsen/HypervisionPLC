@@ -35,6 +35,7 @@ void debug_printf(const char *fmt, ...) {
 
 bool counter_engine_configure(uint8_t id, const CounterConfig *cfg) {
   g_last_counter_id = id; g_last_counter_cfg = *cfg; g_calls.push_back("counter_engine_configure");
+  counter_config_set(id, cfg);  // som den rigtige motor: config-tabellen opdateres
   return true;
 }
 bool timer_engine_configure(uint8_t id, const TimerConfig *cfg) {

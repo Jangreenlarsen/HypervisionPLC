@@ -46,7 +46,7 @@ void modbus_handle_reset_on_read(uint16_t starting_address, uint16_t quantity) {
     if (!cfg.reset_on_read) continue;
 
     // ORIGINAL BEHAVIOR: Clear compare status bit (bit 4) if control register was read
-    if (cfg.compare_enabled) {
+    if (cfg.compare_enabled && (cfg.reset_on_read & COUNTER_ROR_COMPARE)) {
       uint16_t ctrl_reg = cfg.ctrl_reg;
       if (ctrl_reg < HOLDING_REGS_SIZE &&
           ctrl_reg >= starting_address && ctrl_reg < ending_address) {
@@ -63,10 +63,10 @@ void modbus_handle_reset_on_read(uint16_t starting_address, uint16_t quantity) {
       }
     }
 
-    // BUG-041: Reset counter if value_reg or raw_reg was read
-    // Check ctrl-reg bit 0 (counter-reg-reset-on-read flag)
-    uint16_t ctrl_val = (cfg.ctrl_reg < HOLDING_REGS_SIZE) ? registers_get_holding_register(cfg.ctrl_reg) : 0;
-    uint8_t counter_reset_on_read = (ctrl_val & 0x01) != 0;
+    // BUG-041/447: nulstil taelleren hvis value_reg eller raw_reg blev laest.
+    // Flaget er nu gemt i config (bit 1) — tidligere ctrl-reg bit 0, som ogsaa
+    // er reset-kommandoen og derfor aldrig blev staaende.
+    uint8_t counter_reset_on_read = (cfg.reset_on_read & COUNTER_ROR_VALUE) != 0;
 
     if (counter_reset_on_read && cfg.enabled) {
       uint8_t reset_counter = 0;

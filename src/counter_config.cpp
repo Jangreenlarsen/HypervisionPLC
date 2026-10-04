@@ -124,7 +124,7 @@ void counter_config_sanitize(CounterConfig* cfg) {
 
   // COMPARE FEATURE VALIDATION (v2.3+)
   cfg->compare_enabled = (cfg->compare_enabled ? 1 : 0);
-  cfg->reset_on_read = (cfg->reset_on_read ? 1 : 0);
+  cfg->reset_on_read &= (COUNTER_ROR_COMPARE | COUNTER_ROR_VALUE);  // BUG-447: bit 1 = nulstil ved læsning
 
   // Clamp compare mode to valid values (0-2)
   if (cfg->compare_mode > 2) cfg->compare_mode = 0;

@@ -22,3 +22,4 @@ void tzset(void);
 #ifdef __cplusplus
 }
 #endif
+void delayMicroseconds(unsigned int);

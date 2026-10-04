@@ -90,7 +90,7 @@ Bit 4 slettes på én af disse måder:
 | 4 | **Compare-match** | Læs (slet ved FC03-læsning med `reset-on-read:on`, eller skriv 0) |
 | 7 | Kører (vedvarende) | Læs/skriv |
 
-> ⚠️ `control counter-reg-reset-on-read:on` (nulstil *tælleren* ved læsning af værdiregistrene) bruger også bit 0 og virker derfor ikke vedvarende — den nulstiller tælleren én gang (BUG-447, åben). Den har intet at gøre med compare-`reset-on-read`.
+> `control counter-reg-reset-on-read:on` (nulstil *tælleren* ved FC03-læsning af værdiregistrene) er et separat, gemt flag og har intet at gøre med compare-`reset-on-read` (BUG-447, rettet i v7.9.68.57).
 
 ## 6. Fejlfinding
 

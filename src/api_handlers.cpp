@@ -1221,7 +1221,8 @@ esp_err_t api_handler_counter_single(httpd_req_t *req)
   doc["compare_mode"] = cfg.compare_mode;
   doc["compare_value"] = cfg.compare_value;
   doc["compare_source"] = cfg.compare_source;
-  doc["reset_on_read"] = cfg.reset_on_read ? true : false;
+  doc["reset_on_read"] = (cfg.reset_on_read & COUNTER_ROR_COMPARE) ? true : false;
+  doc["value_reset_on_read"] = (cfg.reset_on_read & COUNTER_ROR_VALUE) ? true : false;  // BUG-447
   doc["auto_start"] = cfg.auto_start ? true : false;  // BUG-445
   if (cfg.value_reg != 0xFFFF) doc["value_reg"] = cfg.value_reg;
   if (cfg.raw_reg != 0xFFFF) doc["raw_reg"] = cfg.raw_reg;
@@ -4228,7 +4229,10 @@ static esp_err_t api_handler_counter_config_post(httpd_req_t *req)
     uint8_t cs = doc["compare_source"].as<uint8_t>();
     cfg.compare_source = (cs > 2) ? 1 : cs;
   }
-  if (doc.containsKey("reset_on_read")) cfg.reset_on_read = doc["reset_on_read"].as<bool>() ? 1 : 0;
+  if (doc.containsKey("reset_on_read"))
+    cfg.reset_on_read = (cfg.reset_on_read & ~COUNTER_ROR_COMPARE) | (doc["reset_on_read"].as<bool>() ? COUNTER_ROR_COMPARE : 0);
+  if (doc.containsKey("value_reset_on_read"))  // BUG-447
+    cfg.reset_on_read = (cfg.reset_on_read & ~COUNTER_ROR_VALUE) | (doc["value_reset_on_read"].as<bool>() ? COUNTER_ROR_VALUE : 0);
   if (doc.containsKey("auto_start")) cfg.auto_start = doc["auto_start"].as<bool>() ? 1 : 0;  // BUG-445
 
   // Apply

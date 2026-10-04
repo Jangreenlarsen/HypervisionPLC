@@ -2333,7 +2333,7 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
 
       // reset_on_read
       int16_t ror = (arg5_type == ST_TYPE_DINT) ? (int16_t)arg5.dint_val : arg5.int_val;
-      cfg.reset_on_read = (ror != 0) ? 1 : 0;
+      cfg.reset_on_read = (cfg.reset_on_read & ~COUNTER_ROR_COMPARE) | ((ror != 0) ? COUNTER_ROR_COMPARE : 0);  // BUG-447: bevar bit 1
 
       result.bool_val = counter_config_set(cnt_id, &cfg);
     }

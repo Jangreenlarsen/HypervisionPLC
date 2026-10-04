@@ -53,6 +53,10 @@ typedef struct {
  * COUNTER CONFIGURATION
  * ============================================================================ */
 
+// BUG-447: bits i CounterConfig.reset_on_read (aeldre configs har kun bit 0)
+#define COUNTER_ROR_COMPARE 0x01
+#define COUNTER_ROR_VALUE   0x02
+
 typedef struct __attribute__((packed)) {
   uint8_t enabled;
   CounterModeEnable mode_enable;
@@ -98,7 +102,9 @@ typedef struct __attribute__((packed)) {
   uint8_t compare_enabled;      // Enable compare check
   uint8_t compare_mode;         // 0=≥, 1=>, 2=== (exact match)
   uint64_t compare_value;       // Værdi at sammenligne med
-  uint8_t reset_on_read;        // Auto-clear bit 4 ved ctrl-reg read
+  uint8_t reset_on_read;        // Bitfelt (BUG-447): COUNTER_ROR_COMPARE (bit 0) = slet compare-bit 4
+                                //   ved FC03-læsning af ctrl-reg; COUNTER_ROR_VALUE (bit 1) = nulstil
+                                //   tælleren ved FC03-læsning af værdi-/prescaled-registrene
   uint8_t compare_source;       // BUG-040: 0=raw, 1=prescaled, 2=scaled (default: 1)
 
   // Note: Compare status stored in ctrl_reg bit 4 (no separate fields needed)

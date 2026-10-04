@@ -122,9 +122,18 @@ reset counter 1
 
 ## Skabelon 7 — Læs og nulstil fra en Modbus-master
 
-> ⚠️ `set counter <id> control counter-reg-reset-on-read:on` virker **ikke** vedvarende i den nuværende firmware: flaget ligger i kontrolregistrets bit 0, som også er reset-kommandoen, så tælleren nulstilles én gang, og flaget forsvinder (BUG-447, åben).
+Tælleren nulstilles til `start-value`, hver gang en Modbus-master læser værdi- eller prescaled-registrene (HR100-103 / HR104-107) med FC03 — fx til "antal siden sidste aflæsning":
 
-Brug i stedet reset-kommandoen efter læsning: masteren læser HR100-101 og skriver derefter **1** (bit 0 = reset) i HR110. Tælleren går til `start-value`, og bitten slettes automatisk.
+```bash
+set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32
+set counter 1 control auto-start:on running:on counter-reg-reset-on-read:on
+save
+```
+
+- Flaget gemmes i tællerens konfiguration (v7.9.68.57+, BUG-447) og bevares, når `mode 1`-linjen køres igen. `show config counter` eksporterer det.
+- Læsning af kun kontrolregistret (HR110) nulstiller ikke. Læsning via REST eller dashboardet nulstiller heller ikke.
+- Pulser, der kommer mellem masterens læsning og nulstillingen (samme hovedløkke), tælles ikke med i næste aflæsning.
+- Alternativ uden flaget: masteren læser HR100-101 og skriver derefter **1** (bit 0 = reset-kommando) i HR110.
 
 ---
 

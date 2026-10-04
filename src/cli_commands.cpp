@@ -90,6 +90,9 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
     // BUG-446: fra den GEMTE config — runtime-tabellen har kun standardvaerdier
     // for en taeller, der var slaaet fra ved opstart
     cfg.auto_start = g_persist_config.counters[id - 1].auto_start;
+    // BUG-447: "nulstil ved læsning" saettes med control-linjen og bevares som auto-start
+    cfg.reset_on_read = (cfg.reset_on_read & ~COUNTER_ROR_VALUE) |
+                        (g_persist_config.counters[id - 1].reset_on_read & COUNTER_ROR_VALUE);
   }
 
   for (uint8_t i = 3; i < argc; i++) {
@@ -111,7 +114,8 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
     else if (!strcmp(key, "start")) key = "start-value";
     else if (!strcmp(key, "debounce-time")) key = "debounce-ms";
     if (!strcmp(key, "reset-on-read")) {
-      cfg.reset_on_read = (!strcmp(value, "on") || !strcmp(value, "1") || !strcmp(value, "true")) ? 1 : 0;
+      bool on = (!strcmp(value, "on") || !strcmp(value, "1") || !strcmp(value, "true"));
+      cfg.reset_on_read = (cfg.reset_on_read & ~COUNTER_ROR_COMPARE) | (on ? COUNTER_ROR_COMPARE : 0);
       continue;
     }
 
@@ -470,7 +474,6 @@ void cli_cmd_set_counter_control(uint8_t argc, char* argv[]) {
     debug_println("           set counter 1 control counter-reg-reset-on-read:on");
     debug_println("");
     debug_println("  Ctrl-reg bits:");
-    debug_println("    Bit 0: counter-reg-reset-on-read flag (persistent)");
     debug_println("    auto-start gemmes i tællerens config (brug 'save'), ikke i ctrl-registret");
     debug_println("    Bit 4: compare-match status (read-only, set by compare engine)");
     debug_println("    Bit 7: running state (persistent)");
@@ -521,11 +524,14 @@ void cli_cmd_set_counter_control(uint8_t argc, char* argv[]) {
 
     // Parse control flags
     if (!strcmp(key, "counter-reg-reset-on-read")) {
-      // BUG-041: counter-reg-reset-on-read sets bit 0 (reset counter when value regs read)
-      if (!strcmp(value, "on") || !strcmp(value, "ON")) {
-        ctrl_value |= 0x01;  // Set bit 0
-      } else if (!strcmp(value, "off") || !strcmp(value, "OFF")) {
-        ctrl_value &= ~0x01; // Clear bit 0
+      // BUG-447: gemt config-flag (bit 1 i reset_on_read) — tidligere ctrl-reg
+      // bit 0, som ogsaa er reset-KOMMANDOen: taelleren blev nulstillet een gang,
+      // og flaget forsvandt. Brug 'save' bagefter.
+      if (!strcasecmp(value, "on") || !strcasecmp(value, "off")) {
+        bool on = !strcasecmp(value, "on");
+        cfg.reset_on_read = (cfg.reset_on_read & ~COUNTER_ROR_VALUE) | (on ? COUNTER_ROR_VALUE : 0);
+        counter_config_set(id, &cfg);
+        g_persist_config.counters[id - 1].reset_on_read = cfg.reset_on_read;
       } else {
         debug_print("SET COUNTER CONTROL: invalid value for counter-reg-reset-on-read: ");
         debug_println(value);
@@ -534,12 +540,12 @@ void cli_cmd_set_counter_control(uint8_t argc, char* argv[]) {
       // BUG-041: compare-reg-reset-on-read sets cfg.reset_on_read (clear bit 4 when ctrl-reg read)
       // Need to update config, not just ctrl register
       if (!strcmp(value, "on") || !strcmp(value, "ON")) {
-        cfg.reset_on_read = 1;
+        cfg.reset_on_read |= COUNTER_ROR_COMPARE;
         if (!counter_config_set(id, &cfg)) {
           debug_println("SET COUNTER CONTROL: failed to update compare-reg-reset-on-read");
         }
       } else if (!strcmp(value, "off") || !strcmp(value, "OFF")) {
-        cfg.reset_on_read = 0;
+        cfg.reset_on_read &= ~COUNTER_ROR_COMPARE;
         if (!counter_config_set(id, &cfg)) {
           debug_println("SET COUNTER CONTROL: failed to update compare-reg-reset-on-read");
         }
@@ -601,10 +607,10 @@ void cli_cmd_set_counter_control(uint8_t argc, char* argv[]) {
   debug_println("");
 
   // Show status
-  bool counter_reset_on_read = (ctrl_value & 0x01) != 0;
+  bool counter_reset_on_read = (cfg.reset_on_read & COUNTER_ROR_VALUE) != 0;  // BUG-447
   bool auto_start = cfg.auto_start != 0;  // BUG-445
   running = (ctrl_value & 0x80) != 0;
-  bool compare_reset_on_read = cfg.reset_on_read;
+  bool compare_reset_on_read = (cfg.reset_on_read & COUNTER_ROR_COMPARE) != 0;
 
   debug_print("  counter-reg-reset-on-read: ");
   debug_println(counter_reset_on_read ? "ENABLED" : "DISABLED");

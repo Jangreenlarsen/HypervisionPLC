@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.57] - 2026-10-04
+
+### BUG FIXES
+- **BUG-447:** `set counter <id> control counter-reg-reset-on-read:on` nulstiller nu tælleren hver gang en master læser værdiregistrene (FC03) — flaget er gemt i config i stedet for i ctrl-reg bit 0 (reset-kommandoen), og det virker uden compare-`reset-on-read`.
+
 ## [7.9.68.56] - 2026-10-04
 
 ### NEW FEATURES

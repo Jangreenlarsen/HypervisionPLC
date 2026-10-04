@@ -9,6 +9,8 @@
 #include "cli_parser.h"
 #include "cli_host.h"
 #include "config_struct.h"
+#include "counter_config.h"
+#include "modbus_fc_read.h"
 
 extern PersistConfig g_persist_config;
 extern const char* const CLI_WORDS_TOP[];
@@ -62,6 +64,29 @@ int main() {
 
   run("set counter 1 mode 1 hw-mode:sw input-dis:7 index-reg:10");
   check(out_has("disabled"), "set counter: index-reg afvises med besked");
+
+  // --- BUG-447: "nulstil tælleren ved læsning" er et gemt flag, ikke ctrl-bit 0 ---
+  run("set counter 1 mode 1 hw-mode:sw input-dis:7 bit-width:32 reset-on-read:off");
+  run("set counter 1 control counter-reg-reset-on-read:on");
+  {
+    CounterConfig c; counter_config_get(1, &c);
+    check((c.reset_on_read & COUNTER_ROR_VALUE) && !(c.reset_on_read & COUNTER_ROR_COMPARE), "BUG-447: control-linjen sætter kun værdi-flaget");
+    check(g_persist_config.counters[0].reset_on_read & COUNTER_ROR_VALUE, "BUG-447: flaget gemmes i persist-config");
+    check(out_has("counter-reg-reset-on-read: ENABLED"), "BUG-447: status viser ENABLED");
+  }
+  run("set counter 1 mode 1 hw-mode:sw input-dis:7 bit-width:32 reset-on-read:on");
+  check((g_last_counter_cfg.reset_on_read & COUNTER_ROR_VALUE) && (g_last_counter_cfg.reset_on_read & COUNTER_ROR_COMPARE), "BUG-447: ny mode-linje bevarer værdi-flaget");
+  run("read h-reg 100 2");  // CLI-læsning går gennem samme hook som FC03
+  g_calls.clear(); modbus_handle_reset_on_read(100, 2);
+  check(called("counter_engine_reset"), "BUG-447: læsning af HR100-101 nulstiller tælleren");
+  g_calls.clear(); modbus_handle_reset_on_read(110, 1);
+  check(!called("counter_engine_reset"), "BUG-447: læsning af kun ctrl-reg nulstiller ikke");
+  run("set counter 1 mode 1 hw-mode:sw input-dis:7 bit-width:32 reset-on-read:off");
+  g_calls.clear(); modbus_handle_reset_on_read(100, 2);
+  check(called("counter_engine_reset"), "BUG-447: virker uden compare-reset-on-read");
+  run("set counter 1 control counter-reg-reset-on-read:off");
+  g_calls.clear(); modbus_handle_reset_on_read(100, 2);
+  check(!called("counter_engine_reset"), "BUG-447: slået fra → ingen nulstilling");
 
   // --- timer (BUG-446) ---
   run("set timer 1 mode 3 on-ms:1000 off-ms:500 p1-output:1 p2-output:0 output-coil:150");

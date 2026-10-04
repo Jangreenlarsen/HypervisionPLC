@@ -1788,7 +1788,7 @@ void cli_cmd_show_config(const char *section) {
         debug_print(" compare-value:");
         debug_print_uint((uint32_t)cfg.compare_value);
         debug_print(" reset-on-read:");
-        debug_print(cfg.reset_on_read ? "on" : "off");
+        debug_print((cfg.reset_on_read & COUNTER_ROR_COMPARE) ? "on" : "off");
       }
 
       debug_println("");
@@ -1797,6 +1797,12 @@ void cli_cmd_show_config(const char *section) {
         debug_print("set counter ");
         debug_print_uint(id);
         debug_println(" control auto-start:on running:on");
+      }
+      // BUG-447: "nulstil ved læsning" eksporteres ogsaa, saa det overlever en rundtur
+      if (cfg.reset_on_read & COUNTER_ROR_VALUE) {
+        debug_print("set counter ");
+        debug_print_uint(id);
+        debug_println(" control counter-reg-reset-on-read:on");
       }
     }
   }
@@ -2111,7 +2117,7 @@ void cli_cmd_show_counters(void) {
 
     // ror (reset-on-read, 3 chars left-aligned)
     if (cfg.compare_enabled) {
-      p += snprintf(p, sizeof(line) - (p - line), "%-3s", cfg.reset_on_read ? "yes" : "no");
+      p += snprintf(p, sizeof(line) - (p - line), "%-3s", (cfg.reset_on_read & COUNTER_ROR_COMPARE) ? "yes" : "no");
     } else {
       p += snprintf(p, sizeof(line) - (p - line), "%-3s", "—");
     }
@@ -2350,7 +2356,7 @@ void cli_cmd_show_counter(uint8_t id, bool verbose) {
     debug_println(cmp_mode);
 
     debug_print("  Reset on Read: ");
-    debug_println(cfg.reset_on_read ? "ON" : "OFF");
+    debug_println((cfg.reset_on_read & COUNTER_ROR_COMPARE) ? "ON" : "OFF");
   }
 
   // VERBOSE MODE: Extended runtime statistics
