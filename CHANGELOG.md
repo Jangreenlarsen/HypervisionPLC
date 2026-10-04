@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.52] - 2026-10-04
+
+### NEW FEATURES
+- **FEAT-434:** fanen **Statusside** på Monitor: vælg hvilke kort den offentlige side `/` viser og i hvilken rækkefølge, med forhåndsvisning. Erstatter kort-vælgeren på System-siden.
+
 ## [7.9.68.51] - 2026-10-04 (licens og oprydning)
 
 ### NEW FEATURES

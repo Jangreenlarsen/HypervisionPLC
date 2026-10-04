@@ -149,6 +149,7 @@
 <button onclick="showPage('registers',this)">Registre</button>
 <button onclick="showPage('regmap',this)">Register Map</button>
 <button onclick="showPage('settings',this)">Indstillinger</button>
+<button onclick="showPage('statusside',this)" title="Vælg hvad den offentlige, login-fri statusside (/) viser">Statusside</button>
 </div>
 <span class="info" id="hdrInfo"></span>
 </div>
@@ -639,6 +640,35 @@
 </div>
 </div>
 
+<!-- FEAT-434: Statusside — konfiguration af den offentlige, login-fri side "/" (FEAT-407) -->
+<div class="page-view" id="pageStatusside" style="padding:16px;overflow-y:auto">
+<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start">
+<div class="card" style="flex:1 1 420px;max-width:640px">
+<h2>Offentlig statusside</h2>
+<p style="font-size:11px;color:#6c7086;margin-bottom:10px">Siden <a href="/" target="_blank" style="color:#89b4fa">/</a> kan ses af alle på netværket <b>uden login</b>. Vælg hvilke kort den viser og i hvilken rækkefølge. Ingen kort er valgt som standard — ansvaret for hvad der vises offentligt ligger hos jer. Gem kræver skriveadgang.</p>
+<table class="tbl" id="pubTable">
+<thead><tr><th style="width:40px">Vis</th><th>Kort</th><th>Viser</th><th style="width:70px">Orden</th></tr></thead>
+<tbody id="pubBody"></tbody>
+</table>
+<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
+<button onclick="pubSave()" class="btn-primary">Gem</button>
+<button onclick="pubSelect(true)" style="padding:6px 12px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:4px;font-size:12px;cursor:pointer">Vælg alle</button>
+<button onclick="pubSelect(false)" style="padding:6px 12px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:4px;font-size:12px;cursor:pointer">Fravælg alle</button>
+<a href="/" target="_blank" style="padding:6px 12px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;font-size:12px;text-decoration:none">Åbn statusside ↗</a>
+</div>
+<div id="pubMsg" style="font-size:11px;margin-top:8px;display:none"></div>
+<details style="margin-top:12px;font-size:11px;color:#6c7086">
+<summary style="cursor:pointer">Kort der ikke kan vises offentligt</summary>
+<ul id="pubUnavail" style="margin:6px 0 0 18px;line-height:1.6"></ul>
+</details>
+</div>
+<div class="card" style="flex:1 1 380px;min-width:280px">
+<h2>Forhåndsvisning <span style="font-size:10px;color:#6c7086;font-weight:normal">(sådan ser en besøgende uden login siden)</span></h2>
+<iframe id="pubPreview" title="Forhåndsvisning af statussiden" style="width:100%;height:560px;border:1px solid #313244;border-radius:4px;background:#11111b"></iframe>
+</div>
+</div>
+</div>
+
 <!-- Footer -->
 <div class="foot">
 <span id="footRefresh">Opdaterer...</span>
@@ -855,6 +885,80 @@ function showPage(page,btn){
   if(st){st.classList.toggle('show',page==='metrics');}
   if(page==='metrics')applySubTab();
   if(page==='settings')buildSettingsTable();
+  if(page==='statusside')pubLoad();
+  // Forhaandsvisningen poller selv hvert 3. s — stop den uden for fanen
+  // (HTTPS-serveren har kun faa samtidige forbindelser, jf. BUG-369c)
+  else{const pv=$('pubPreview');if(pv&&pv.src&&pv.src!=='about:blank')pv.src='about:blank';}
+}
+
+// --- FEAT-434: Statusside-fanen (konfigurerer FEAT-407's offentlige side) ---
+// Kun kort der er portet til web/status.html og godkendt af backendens
+// PUBLIC_DASHBOARD_CARD_IDS kan vaelges. Raekkefoelgen i listen = raekkefoelgen
+// paa statussiden.
+const PUB_CATALOG=[
+  {id:'system',label:'System',info:'Firmware, oppetid, hukommelse'},
+  {id:'network',label:'Netværk',info:'WiFi/Ethernet-status, IP, signal'},
+  {id:'modbusslave',label:'Modbus Slave',info:'Slave-ID, requests, fejl'},
+  {id:'modbusmaster',label:'Modbus Master',info:'Requests, timeouts, cache'},
+  {id:'bushealth',label:'RS-485 Bus Health',info:'Fejlrater på bussen'},
+  {id:'rtutrafik',label:'Modbus RTU Trafik',info:'Trafiktællere og sparklines'},
+  {id:'mbactivity',label:'Modbus Aktivitetslog',info:'Seneste Modbus-transaktioner'},
+  {id:'httpapi',label:'HTTP API',info:'Requests og fejl'},
+  {id:'counters',label:'Tællere',info:'Tællerværdier og frekvens'},
+  {id:'timers',label:'Timere',info:'Timer-tilstande'},
+  {id:'stlogic',label:'ST Logic',info:'Programstatus og cyklustider'},
+  {id:'ntp',label:'NTP Tid',info:'Klokkeslæt og synkronisering'},
+  {id:'dio',label:'Digital I/O',info:'Indgange og udgange (kun visning)'},
+  {id:'analogio',label:'Analog I/O',info:'Analoge værdier (kun visning)'}
+];
+const PUB_UNAVAILABLE=[
+  ['Alarm Historik','afslører kilde-IP og brugernavne ved fejlede logins (SECURITY_INDEX #12)'],
+  ['TCP Forbindelser','afslører hvilke klienter der er forbundet'],
+  ['Hændelseslog, Trend Recorder','data kræver login — ikke portet endnu'],
+  ['Watchdog, Expansion Boards','ikke portet til statussiden']
+];
+let _pubOrder=[],_pubOn={};
+function pubLoad(){
+  $('pubUnavail').innerHTML=PUB_UNAVAILABLE.map(u=>'<li><b>'+escHtml(u[0])+'</b> — '+escHtml(u[1])+'</li>').join('');
+  $('pubPreview').src='/';
+  fetch('/api/public-dashboard/cards').then(r=>r.json()).then(d=>{
+    const vis=(d.visible||'').split(',').map(s=>s.trim()).filter(Boolean);
+    _pubOn={};vis.forEach(id=>{_pubOn[id]=true;});
+    // valgte kort foerst i gemt raekkefoelge, derefter resten i katalog-orden
+    _pubOrder=vis.filter(id=>PUB_CATALOG.some(c=>c.id===id))
+      .concat(PUB_CATALOG.map(c=>c.id).filter(id=>!_pubOn[id]));
+    pubRender();
+  }).catch(()=>{$('pubBody').innerHTML='<tr><td colspan="4" style="color:#f38ba8">Kunne ikke hente statussidens opsætning</td></tr>';});
+}
+function pubRender(){
+  const btn='padding:1px 7px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;cursor:pointer;font-size:11px';
+  $('pubBody').innerHTML=_pubOrder.map((id,i)=>{
+    const c=PUB_CATALOG.find(x=>x.id===id);
+    return '<tr style="'+(_pubOn[id]?'':'opacity:.55')+'"><td><input type="checkbox" data-pub-id="'+id+'" '+(_pubOn[id]?'checked':'')+'></td>'
+      +'<td>'+escHtml(c.label)+'</td><td style="color:#6c7086">'+escHtml(c.info)+'</td>'
+      +'<td><button style="'+btn+'" data-pub-move="'+i+'" data-dir="-1"'+(i===0?' disabled':'')+'>↑</button> '
+      +'<button style="'+btn+'" data-pub-move="'+i+'" data-dir="1"'+(i===_pubOrder.length-1?' disabled':'')+'>↓</button></td></tr>';
+  }).join('');
+  $('pubBody').querySelectorAll('[data-pub-id]').forEach(cb=>{cb.onchange=()=>{_pubOn[cb.dataset.pubId]=cb.checked;pubRender();};});
+  $('pubBody').querySelectorAll('[data-pub-move]').forEach(b=>{b.onclick=()=>pubMove(+b.dataset.pubMove,+b.dataset.dir);});
+}
+function pubSelect(on){_pubOrder.forEach(id=>{_pubOn[id]=on;});pubRender();}
+function pubMove(i,d){
+  const j=i+d;if(j<0||j>=_pubOrder.length)return;
+  const t=_pubOrder[i];_pubOrder[i]=_pubOrder[j];_pubOrder[j]=t;pubRender();
+}
+function pubMsg(t,col){const m=$('pubMsg');m.textContent=t;m.style.color=col;m.style.display='block';}
+function pubSave(){
+  const visible=_pubOrder.filter(id=>_pubOn[id]).join(',');
+  var auth=authGet();
+  var opts={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({visible:visible})};
+  if(auth)opts.headers['Authorization']=auth;
+  fetch('/api/public-dashboard/cards',opts).then(r=>{
+    if(r.ok){pubMsg('Gemt — statussiden er opdateret. Husk Save (øverst) for at overleve en genstart.','#a6e3a1');$('pubPreview').src='/';}
+    else if(r.status===401)pubMsg('Log ind først (klik bruger-knap øverst)','#fab387');
+    else if(r.status===403)pubMsg('Ingen skriveadgang','#fab387');
+    else r.json().then(j=>pubMsg('Fejl: '+(j.error||r.status),'#f38ba8')).catch(()=>pubMsg('Fejl: HTTP '+r.status,'#f38ba8'));
+  }).catch(e=>pubMsg('Netværksfejl: '+e.message,'#f38ba8'));
 }
 
 function getCardTab(cardId){
@@ -3570,6 +3674,8 @@ document.getElementById('authPass').addEventListener('keydown',function(e){if(e.
 document.getElementById('authUser').addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('authPass').focus()});
 // BUG-369: updateUserBadge() flyttet ind i init()s forsinkede raekkefoelge
 // ovenfor — kaldtes tidligere ogsaa herfra, samtidigt med resten
+// FEAT-434: /dashboard#statusside aabner Statusside-fanen direkte (link fra System-siden)
+if(location.hash==='#statusside'){const b=[...document.querySelectorAll('.hdr .nav button')].find(x=>x.textContent==='Statusside');if(b)showPage('statusside',b);}
 </script>
 </body>
 </html>

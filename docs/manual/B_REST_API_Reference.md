@@ -337,7 +337,7 @@ Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevari
 | GET | `/api/metrics` | *Ingen* (kun `CHECK_API_ENABLED` + rate limit) | Prometheus text-exposition-format. Dækker: system, HTTP-stats, Modbus slave/master (config+stats+cache+backoff pr. slave), SSE, WiFi/Ethernet/Telnet, counters, timers, ST Logic (globalt + pr. program), GPIO, alle non-zero HR/IR-registre, persistence-grupper, watchdog, FreeRTOS task stack, firmware-info, NTP, alarm-log-tælling |
 | GET | `/api/metrics/public` | *Ingen* (kun `CHECK_API_ENABLED` + rate limit) | **FEAT-407.** Samme Prometheus-output som `/api/metrics`, men UDEN register-dump — til den login-fri offentlige statusside |
 | GET | `/api/public-dashboard/cards` | *Ingen* | **FEAT-407.** Hvilke dashboard-kort der vises på den offentlige statusside (`/`) — ren konfigurationsmetadata |
-| POST | `/api/public-dashboard/cards` | CHECK_AUTH_WRITE | **FEAT-407.** Sæt listen af kort-ID'er for den offentlige statusside |
+| POST | `/api/public-dashboard/cards` | CHECK_AUTH_WRITE | **FEAT-407.** Sæt listen af kort-ID'er for den offentlige statusside — kommasepareret, rækkefølgen er visningsrækkefølgen (FEAT-434) |
 | GET | `/api/events/status` | Svarer til CHECK_AUTH | `sse_enabled`,`sse_port`,`max_clients`,`active_clients`,`check_interval_ms`,`heartbeat_ms`,`topics`,`endpoint`, samt et **kortlivet `sse_token`** (til cross-port-auth af EventSource) |
 | GET | `/api/events/clients` | Svarer til CHECK_AUTH | `active_clients`, `clients`[{slot,ip,username,topics,uptime_s}] |
 | POST | `/api/events/disconnect` | Svarer til CHECK_AUTH (**ikke** write-gated) | Body: `{"slot":N}` (enkelt) eller `{"slot":-1}` (alle) |

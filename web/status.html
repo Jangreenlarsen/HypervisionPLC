@@ -834,8 +834,14 @@ async function fetchMetrics(){
 function applyPublicCardVisibility(){
   fetch('/api/public-dashboard/cards',{}).then(r=>r.json()).then(d=>{
     const visible=(d.visible||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const grid=document.getElementById('grid');
     document.querySelectorAll('#grid .card[data-card-id]').forEach(c=>{
       c.style.display=visible.includes(c.dataset.cardId)?'':'none';
+    });
+    // FEAT-434: raekkefoelgen fra Monitor -> Statusside
+    visible.forEach(id=>{
+      const c=grid.querySelector('.card[data-card-id="'+id+'"]');
+      if(c)grid.appendChild(c);
     });
   }).catch(()=>{});
 }

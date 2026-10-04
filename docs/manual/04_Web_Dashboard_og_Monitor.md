@@ -23,7 +23,7 @@ Webgrænsefladen består af otte sider — en offentlig, login-fri statusside pl
 
 ### Den offentlige statusside (`/`, FEAT-407)
 
-Siden "/" kræver **ikke** login og viser et admin-udvalgt, skrivebeskyttet subset af dashboard-kortene (vælges under `/system` → "Offentlig statusside") — praktisk til fx et infoskærm-visning i produktionen, uden at dele login-adgang ud. Klik **"Log ind for fuld adgang →"** for at komme til det fulde, login-krævende `/dashboard`:
+Siden "/" kræver **ikke** login og viser et admin-udvalgt, skrivebeskyttet subset af dashboard-kortene (vælges på Monitor-siden under fanen **Statusside** — se [§4.2](#statusside-fanen-feat-434)) — praktisk til fx et infoskærm-visning i produktionen, uden at dele login-adgang ud. Klik **"Log ind for fuld adgang →"** for at komme til det fulde, login-krævende `/dashboard`:
 
 ![Den offentlige statusside — login-frit overblik](assets/screenshots/status_public.png)
 
@@ -123,6 +123,18 @@ Ud over selve "Metrics"-visningen (kort/faner, beskrevet ovenfor) har `/dashboar
 **Indstillinger** — dashboardets egen konfigurationsside: hvilke kort der er synlige, hvilken fane hvert kort hører til, og hvilke kort der (også) skal vises på den uafhængige Custom-fane (FEAT-167, se ovenfor). Gemmes på selve ESP32'en (delt for alle brugere), i modsætning til selve kort-*placeringen*, som er lokal pr. browser/skærmstørrelse:
 
 ![Dashboard Indstillinger — kort-synlighed og fane-tildeling](assets/screenshots/dashboard_indstillinger.png)
+
+### Statusside-fanen (FEAT-434)
+
+**Statusside** styrer, hvad den offentlige, login-fri side `/` viser:
+
+- **Vis** — afkryds de kort, der må ses uden login. Ingen er valgt som standard.
+- **Orden** — flyt et kort op/ned med ↑/↓; rækkefølgen i listen er rækkefølgen på statussiden (valgte kort står øverst).
+- **Gem** — kræver skriveadgang. Ændringen ses straks på `/`; tryk **Save** øverst for at den overlever en genstart.
+- **Forhåndsvisning** — til højre vises statussiden, som en besøgende uden login ser den. Den opdateres efter Gem og stopper, når man forlader fanen.
+- **Kort der ikke kan vises offentligt** — Alarm Historik og TCP Forbindelser er udelukket af sikkerhedshensyn (de afslører IP-adresser/brugernavne); Hændelseslog, Trend Recorder, Watchdog og Expansion Boards er ikke portet til statussiden.
+
+`/dashboard#statusside` åbner fanen direkte (System-siden linker hertil). Samme liste kan sættes via REST: `POST /api/public-dashboard/cards` med `{"visible":"system,counters,ntp"}` (se [appendiks B](B_REST_API_Reference.md)).
 
 ## 4.3 ST Logic Editor
 
