@@ -116,7 +116,7 @@ Ud over selve "Metrics"-visningen (kort/faner, beskrevet ovenfor) har `/dashboar
 
 ![Registre-visningen — rå HR/Coil-gitter](assets/screenshots/dashboard_registre.png)
 
-**Register Map** — viser hvem der EJER hvert register-interval (Counter/Timer/ST Logic/Manuel-System/Ledig), farvekodet efter ejer-type. Det samme formål som [`../../archive/docs/MODBUS_REGISTER_MAP.md`](../../archive/docs/MODBUS_REGISTER_MAP.md)-filen, men live og interaktivt i browseren i stedet for en statisk fil — praktisk når man skal finde en ledig registerblok til en ny binding uden at støde ind i noget der allerede er i brug:
+**Register Map** — viser hvem der EJER hvert register-interval (Counter/Timer/ST Logic/Manuel-System/Ledig), farvekodet efter ejer-type. Hver celle viser registrets aktuelle **værdi** (coils/DI som 1/0); registernummer, ejer og værdi står i tooltip, når musen holdes over cellen (BUG-450). Det samme formål som [`../../archive/docs/MODBUS_REGISTER_MAP.md`](../../archive/docs/MODBUS_REGISTER_MAP.md)-filen, men live og interaktivt i browseren i stedet for en statisk fil — praktisk når man skal finde en ledig registerblok til en ny binding uden at støde ind i noget der allerede er i brug:
 
 ![Register Map — register-allokering farvekodet efter ejer](assets/screenshots/dashboard_regmap.png)
 

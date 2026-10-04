@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.66] - 2026-10-04
+
+### BUG FIXES
+- **BUG-450:** Register Map viser nu registrenes værdier (registernummer og ejer i tooltip) i stedet for registernumre; Registre-siden viste altid 0 for HR og coils — rettet.
+
 ## [7.9.68.65] - 2026-10-04
 
 ### NEW FEATURES

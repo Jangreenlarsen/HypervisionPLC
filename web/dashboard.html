@@ -890,6 +890,7 @@ function showPage(page,btn){
   if(page==='metrics')applySubTab();
   if(page==='settings')buildSettingsTable();
   if(page==='trend')loadTrendConfig();  // FEAT-444
+  if(page==='regmap'||page==='registers')_refreshBitVals(true);  // BUG-450
   if(page==='statusside')pubLoad();
   // Forhaandsvisningen poller selv hvert 3. s — stop den uden for fanen
   // (HTTPS-serveren har kun faa samtidige forbindelser, jf. BUG-369c)
@@ -1556,6 +1557,7 @@ function updateDashboard(m){
 
   // Update register views if visible
   updateRegisterViewer(m);
+  if($('pageRegmap').classList.contains('active')||$('pageRegisters').classList.contains('active'))_refreshBitVals(false);
   updateRegisterMap(m);
 
   // Alarms
@@ -1570,12 +1572,13 @@ function updateDashboard(m){
 // === Register Viewer ===
 function updateRegisterViewer(m){
   if(!$('pageRegisters').classList.contains('active'))return;
-  // HR grid
+  _lastRegMetrics=m;
+  // HR grid — BUG-450: metric hedder modbus_holding_register (ikke holding_register_value)
   const hrGrid=$('regHR');
+  const hrVals=_metricRegVals(m,'modbus_holding_register');
   let hrHtml='';
   for(let i=0;i<256;i++){
-    const val=g(m,'holding_register_value',{addr:String(i)});
-    const v=val!=null?Math.round(val):0;
+    const v=hrVals[i];
     const cls=v!==0?'rc used':'rc';
     hrHtml+='<div class="'+cls+'" title="HR['+i+'] = '+v+'">'+v+'</div>';
   }
@@ -1585,8 +1588,7 @@ function updateRegisterViewer(m){
   const coilGrid=$('regCoils');
   let cHtml='';
   for(let i=0;i<256;i++){
-    const val=g(m,'coil_value',{addr:String(i)});
-    const v=val!=null?val:0;
+    const v=_coilVals?_coilVals[i]:0;  // BUG-450: coils findes ikke i metrics
     cHtml+='<div class="rc '+(v?'coil-on':'coil-off')+'" title="Coil['+i+'] = '+(v?'ON':'OFF')+'">'+(v?'1':'0')+'</div>';
   }
   coilGrid.innerHTML=cHtml;
@@ -1594,17 +1596,47 @@ function updateRegisterViewer(m){
 
 // === Register Map ===
 // Helper: render a 256-cell grid from an alloc array
-function renderMapGrid(el,alloc,prefix){
+// BUG-450: cellerne viser registrets VÆRDI (ikke registernummeret); ejer-
+// farven bevares, og nr + ejer + værdi står i tooltip. vals = 256 tal, eller
+// null = ukendt endnu (coils/DI hentes separat) → "-".
+function renderMapGrid(el,alloc,prefix,vals,isBit){
   let html='';
   for(let i=0;i<256;i++){
     const a=alloc[i];
+    const v=vals?vals[i]:null;
+    const txt=v==null?'-':(isBit?(v?'1':'0'):String(v));
     let cls='rc rm-free';
     let title=prefix+'['+i+'] Ledig';
-    if(a){cls='rc rm-'+a.type;title=prefix+'['+i+'] '+a.label;}
-    html+='<div class="'+cls+'" title="'+title+'">'+i+'</div>';
+    if(a){cls='rc rm-'+a.type;title=prefix+'['+i+'] '+escHtml(a.label);}
+    html+='<div class="'+cls+'" title="'+title+' = '+txt+'">'+txt+'</div>';
   }
   el.innerHTML=html;
 }
+// BUG-450: HR/IR-værdier fra metrics (kun ikke-nul registre sendes → resten 0)
+function _metricRegVals(m,name){
+  const v=new Array(256).fill(0);
+  (m[name]||[]).forEach(e=>{const a=parseInt(e.labels&&e.labels.addr);if(a>=0&&a<256)v[a]=Math.round(e.value);});
+  return v;
+}
+// BUG-450: coils/DI findes ikke i metrics — hentes med bulk-endpointet (ét
+// kald pr. type, max 256), kun mens Register Map/Registre er åben, hvert 3. kald.
+let _coilVals=null,_diVals=null,_bitTick=0;
+async function _fetchBitVals(kind){
+  const out=new Array(256).fill(0);
+  for(const [st,cnt] of [[0,256]]){
+    const r=await dashFetch('/api/registers/'+kind+'?start='+st+'&count='+cnt,{});
+    if(!r.ok)return null;
+    const d=await r.json();
+    (d.coils||d.inputs||d.registers||[]).forEach(e=>{if(e.addr>=0&&e.addr<256)out[e.addr]=e.value?1:0;});
+  }
+  return out;
+}
+function _refreshBitVals(force){
+  if(!force&&(_bitTick++%3)!==0)return;
+  _fetchBitVals('coils').then(v=>{if(v){_coilVals=v;if(_lastRegMetrics){updateRegisterMap(_lastRegMetrics);updateRegisterViewer(_lastRegMetrics);}}}).catch(()=>{});
+  _fetchBitVals('di').then(v=>{if(v){_diVals=v;if(_lastRegMetrics)updateRegisterMap(_lastRegMetrics);}}).catch(()=>{});
+}
+let _lastRegMetrics=null;
 
 // Helper: collect ranges from alloc array for table
 function collectRanges(alloc,prefix){
@@ -1624,6 +1656,7 @@ function collectRanges(alloc,prefix){
 
 function updateRegisterMap(m){
   if(!$('pageRegmap').classList.contains('active'))return;
+  _lastRegMetrics=m;
 
   // === HR Allocation ===
   const hrAlloc=new Array(256).fill(null);
@@ -1663,7 +1696,7 @@ function updateRegisterMap(m){
     });
   }
 
-  renderMapGrid($('regmapHR'),hrAlloc,'HR');
+  renderMapGrid($('regmapHR'),hrAlloc,'HR',_metricRegVals(m,'modbus_holding_register'));
 
   // === IR Allocation ===
   const irAlloc=new Array(256).fill(null);
@@ -1679,7 +1712,7 @@ function updateRegisterMap(m){
   // Mark IR 220-251 as ST pool even without active programs
   for(let i=220;i<=251;i++)if(!irAlloc[i])irAlloc[i]={type:'st',label:'ST EXPORT Pool'};
 
-  renderMapGrid($('regmapIR'),irAlloc,'IR');
+  renderMapGrid($('regmapIR'),irAlloc,'IR',_metricRegVals(m,'modbus_input_register'));
 
   // === Coil Allocation ===
   const coilAlloc=new Array(256).fill(null);
@@ -1706,7 +1739,7 @@ function updateRegisterMap(m){
     });
   }
 
-  renderMapGrid($('regmapCoils'),coilAlloc,'Coil');
+  renderMapGrid($('regmapCoils'),coilAlloc,'Coil',_coilVals,true);
 
   // === DI Allocation ===
   const diAlloc=new Array(256).fill(null);
@@ -1731,7 +1764,7 @@ function updateRegisterMap(m){
     });
   }
 
-  renderMapGrid($('regmapDI'),diAlloc,'DI');
+  renderMapGrid($('regmapDI'),diAlloc,'DI',_diVals,true);
 
   // === Combined Allocation Table ===
   const allRanges=[
@@ -3458,6 +3491,7 @@ function sseApplyRegisterEvent(d){
       const g=$(gid);if(!g||!g.children[addr])return;
       const cell=g.children[addr];
       cell.textContent=val;
+      if(gid==='regmapHR'){cell.title=cell.title.replace(/ = .*$/,'')+' = '+val;return;}  // BUG-450: behold ejer-farven
       cell.title='HR['+addr+'] = '+val;
       cell.className=val!==0?'rc used':'rc';
     });
@@ -3465,14 +3499,15 @@ function sseApplyRegisterEvent(d){
     const g=$('regmapIR');if(g&&g.children[addr]){
       const cell=g.children[addr];
       cell.textContent=val;
-      cell.title='IR['+addr+'] = '+val;
-      cell.className=val!==0?'rc used':'rc';
+      cell.title=cell.title.replace(/ = .*$/,'')+' = '+val;  // BUG-450: behold ejer-farven
     }
   }else if(d.type==='coil'){
+    if(_coilVals)_coilVals[addr]=val?1:0;
     ['regCoils','regmapCoils'].forEach(gid=>{
       const g=$(gid);if(!g||!g.children[addr])return;
       const cell=g.children[addr];
-      cell.textContent=val;
+      cell.textContent=val?'1':'0';
+      if(gid==='regmapCoils'){cell.title=cell.title.replace(/ = .*$/,'')+' = '+(val?'1':'0');return;}  // BUG-450
       cell.title='Coil['+addr+'] = '+(val?'ON':'OFF');
       cell.className='rc '+(val?'coil-on':'coil-off');
     });
@@ -3483,11 +3518,11 @@ function sseApplyRegisterEvent(d){
       // (no direct coil->pin mapping on client side)
     }
   }else if(d.type==='di'){
+    if(_diVals)_diVals[addr]=val?1:0;
     const g=$('regmapDI');if(g&&g.children[addr]){
       const cell=g.children[addr];
-      cell.textContent=val;
-      cell.title='DI['+addr+'] = '+val;
-      cell.className=val!==0?'rc used':'rc';
+      cell.textContent=val?'1':'0';
+      cell.title=cell.title.replace(/ = .*$/,'')+' = '+(val?'1':'0');  // BUG-450: behold ejer-farven
     }
   }
   sseLastEventMs=Date.now();
