@@ -9870,29 +9870,18 @@ static esp_err_t send_metrics_response(httpd_req_t *req, bool include_registers)
     PROM_APPEND("# HELP freertos_task_stack_hwm Task stack high-water mark in bytes\n");
     PROM_APPEND("# TYPE freertos_task_stack_hwm gauge\n");
 
-    // Main loop task (current task on Core 1)
-    TaskHandle_t cur = xTaskGetCurrentTaskHandle();
-    if (cur) {
-      PROM_APPEND("freertos_task_stack_hwm{task=\"loopTask\"} %lu\n",
-                   (unsigned long)(uxTaskGetStackHighWaterMark(cur) * 4));
-    }
-
-    // Async Modbus Master task
-    if (mb_async && mb_async->task_handle) {
-      PROM_APPEND("freertos_task_stack_hwm{task=\"mb_async\"} %lu\n",
-                   (unsigned long)(uxTaskGetStackHighWaterMark(mb_async->task_handle) * 4));
-    }
-
-    // IDLE tasks (core 0 and core 1)
-    TaskHandle_t idle0 = xTaskGetIdleTaskHandleForCPU(0);
-    TaskHandle_t idle1 = xTaskGetIdleTaskHandleForCPU(1);
-    if (idle0) {
-      PROM_APPEND("freertos_task_stack_hwm{task=\"IDLE0\"} %lu\n",
-                   (unsigned long)(uxTaskGetStackHighWaterMark(idle0) * 4));
-    }
-    if (idle1) {
-      PROM_APPEND("freertos_task_stack_hwm{task=\"IDLE1\"} %lu\n",
-                   (unsigned long)(uxTaskGetStackHighWaterMark(idle1) * 4));
+    // BUG-457: uxTaskGetStackHighWaterMark() returnerer allerede BYTES på
+    // ESP-IDF (ikke ord) — tidligere *4 gav 4× for høje tal. Og "loopTask" var
+    // xTaskGetCurrentTaskHandle() = webserverens task (metrics kører i httpd).
+    // Nu slås tasks op ved navn; ukendte/ikke-oprettede springes over.
+    static const char *const hwm_tasks[] = {
+      "loopTask", "httpd", "mb_async", "mbx_async0", "mbx_async1", "mbx_async2", "mbx_async3", "exp_api", "sr_scan",
+      "sse_accept", "sse_w0", "sse_w1", "sse_w2", "st_logic_high", "IDLE0", "IDLE1", NULL };
+    for (int t = 0; hwm_tasks[t]; t++) {
+      TaskHandle_t h = xTaskGetHandle(hwm_tasks[t]);
+      if (!h) continue;
+      PROM_APPEND("freertos_task_stack_hwm{task=\"%s\"} %lu\n", hwm_tasks[t],
+                  (unsigned long)uxTaskGetStackHighWaterMark(h));
     }
   }
 

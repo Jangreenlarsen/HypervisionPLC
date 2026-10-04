@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.76] - 2026-10-05
+
+### BUG FIXES
+- **BUG-457:** task-stak-tallene (metrics og status-sidens "Stack HWM") var 4× for høje; "loopTask" viste webserverens task. Flere tasks vises nu.
+- **BUG-456 (opfølgning):** de to første SSE-workers oprettes ved opstart, så en ekstra browserfane kan forbinde, selv når RAM'en er fragmenteret.
+
 ## [7.9.68.75] - 2026-10-04
 
 ### NEW FEATURES

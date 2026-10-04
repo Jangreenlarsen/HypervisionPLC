@@ -795,7 +795,7 @@ static void sse_slot_worker(void *arg)
   }
 }
 
-static bool sse_slot_dispatch(int slot, const SseClientParams *p)
+static bool sse_slot_ensure(int slot)
 {
   if (slot < 0 || slot >= SSE_MAX_CLIENTS) return false;
   if (!sse_slot_queue[slot]) {
@@ -812,6 +812,12 @@ static bool sse_slot_dispatch(int slot, const SseClientParams *p)
       return false;
     }
   }
+  return true;
+}
+
+static bool sse_slot_dispatch(int slot, const SseClientParams *p)
+{
+  if (!sse_slot_ensure(slot)) return false;
   return xQueueSend(sse_slot_queue[slot], p, 0) == pdTRUE;
 }
 
@@ -1266,6 +1272,12 @@ int sse_start(uint16_t port)
 
   // Start acceptor task
   // BUG-336c: pin to Core 0 — see sse_slot_dispatch() above.
+  // BUG-456: de to første klient-workers oprettes ved opstart, mens den
+  // interne heap har store sammenhængende blokke — senere kan en 6 KB-stak
+  // ikke længere allokeres (fragmentering). Slot 2 oprettes ved behov.
+  for (int w = 0; w < 2 && w < (int)sse_cfg_max_clients() && w < SSE_MAX_CLIENTS; w++) {
+    if (!sse_slot_ensure(w)) ESP_LOGE(TAG, "Kunne ikke oprette SSE-worker %d", w);
+  }
   BaseType_t ret = xTaskCreatePinnedToCore(sse_accept_task, "sse_accept", 4096, NULL, 4, &sse_accept_task_handle, 0);
   if (ret != pdPASS) {
     ESP_LOGE(TAG, "Failed to create SSE acceptor task");
