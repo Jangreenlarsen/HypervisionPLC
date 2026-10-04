@@ -31,6 +31,21 @@ gh auth login        # kræver 'repo'-scope for at kunne oprette releases
 
 Bekræft med `gh auth status`.
 
+### Signeringsnøglen (FEAT-439)
+
+PLC'en accepterer kun OTA-firmware signeret med projektets private nøgle. Bygget laver
+`firmware_signed.bin` automatisk, når `certs/ota_signing.key` findes; releasen publicerer
+den fil.
+
+- **Nøglen ligger kun lokalt** (`certs/*.key` er gitignoreret) og **skal sikkerhedskopieres**
+  til et sikkert sted (fx en password-manager eller krypteret USB). Mistes den, kan PLC'er
+  kun opdateres via USB/seriel.
+- Ny PC: kopiér `certs/ota_signing.key` ind. Ny nøgle (kun hvis den gamle er kompromitteret):
+  `python scripts/ota_keygen.py` efter at have slettet den gamle — derefter skal alle PLC'er
+  have ny firmware via USB, fordi de kun stoler på den gamle offentlige nøgle.
+- Manuel signering/kontrol: `python scripts/sign_firmware.py firmware.bin` og
+  `python scripts/sign_firmware.py --verify firmware_signed.bin`.
+
 ## Selve proceduren
 
 1. **Commit og push** alt det arbejde der skal med i denne version — scriptet

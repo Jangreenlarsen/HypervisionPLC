@@ -2,7 +2,7 @@
 
 **A network-connected PLC on an ESP32.** One firmware image provides a Modbus RTU slave and master, an IEC 61131-3 Structured Text runtime, counters/timers, a REST API and a web dashboard.
 
-[![Version](https://img.shields.io/badge/version-7.9.68.58-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-7.9.68.59-blue)](CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/platform-ESP32--WROOM--32%20%7C%20ES32D26%20(WROVER)-informational)](docs/manual/02_Hardware_og_Moduler.md)
 [![Framework](https://img.shields.io/badge/framework-PlatformIO%20%2F%20Arduino-orange)](platformio.ini)
 [![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
@@ -70,7 +70,7 @@ bash test/st_host/run.sh         # ST compiler/VM tests on the PC (no hardware)
 bash test/cli_host/run.sh        # CLI parser tests on the PC (no hardware)
 ```
 
-After the first flash, update over the network: in the web UI choose **System → OTA**, or `POST /api/system/ota`.
+After the first flash, update over the network: in the web UI choose **System → OTA**, or `POST /api/system/ota`. OTA only accepts **signed** firmware (`firmware_signed.bin`, made by the build when `certs/ota_signing.key` exists — see [docs/RELEASE_PROCEDURE.md](docs/RELEASE_PROCEDURE.md)).
 
 To get started, open `http://<device-ip>/` (status page) or `/dashboard` (login). The full walkthrough is in [manual chapter 3](docs/manual/03_Installation_og_Foerste_Opstart.md).
 

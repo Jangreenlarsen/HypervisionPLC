@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.59] - 2026-10-04
+
+### SECURITY
+- **FEAT-439:** OTA accepterer kun firmware signeret med projektets private nøgle (ECDSA P-256). Upload `firmware_signed.bin`, som bygget laver automatisk. Den private nøgle (`certs/ota_signing.key`) skal sikkerhedskopieres.
+
 ## [7.9.68.58] - 2026-10-04
 
 ### NEW FEATURES

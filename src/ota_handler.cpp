@@ -40,6 +40,11 @@
 #include "system_log.h"  // FEAT-086
 #include "rbac.h"  // SECURITY_INDEX #2: rbac_has_write()
 #include "ip_acl.h"  // FEAT-399
+#include "ota_pubkey.h"  // FEAT-439: offentlig noegle til signeret firmware
+#include <mbedtls/sha256.h>
+#include <mbedtls/ecdsa.h>
+#include <mbedtls/ecp.h>
+#include <mbedtls/bignum.h>
 
 // External functions from http_server.cpp / api_handlers.cpp
 extern void http_server_stat_request(void);
@@ -176,6 +181,42 @@ static void rollback_target_refresh(void)
 }
 
 /* ============================================================================
+ * FEAT-439: SIGNERET FIRMWARE
+ *
+ * En OTA-fil er firmware.bin + 72 bytes trailer: "HVPLCSG1" + r(32) + s(32) —
+ * en ECDSA P-256-signatur over SHA-256 af firmwaren (scripts/sign_firmware.py).
+ * Traileren skrives aldrig til flash; firmwaren hashes mens den modtages, og
+ * signaturen verificeres mod OTA_SIGNING_PUBKEY FOER esp_ota_end()/boot-skift.
+ * Usigneret eller forkert signeret firmware afvises, og den kørende firmware
+ * er uberørt. (Seriel/USB-flash er ikke omfattet.)
+ * ============================================================================ */
+#define OTA_SIG_MAGIC       "HVPLCSG1"
+#define OTA_SIG_TRAILER_LEN 72
+
+static bool ota_signature_ok(const uint8_t hash[32], const uint8_t *trailer)
+{
+  if (memcmp(trailer, OTA_SIG_MAGIC, 8) != 0) return false;
+  mbedtls_ecp_group grp;
+  mbedtls_ecp_point q;
+  mbedtls_mpi r, s;
+  mbedtls_ecp_group_init(&grp);
+  mbedtls_ecp_point_init(&q);
+  mbedtls_mpi_init(&r);
+  mbedtls_mpi_init(&s);
+  bool ok =
+    mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256R1) == 0 &&
+    mbedtls_ecp_point_read_binary(&grp, &q, OTA_SIGNING_PUBKEY, sizeof(OTA_SIGNING_PUBKEY)) == 0 &&
+    mbedtls_mpi_read_binary(&r, trailer + 8, 32) == 0 &&
+    mbedtls_mpi_read_binary(&s, trailer + 40, 32) == 0 &&
+    mbedtls_ecdsa_verify(&grp, hash, 32, &q, &r, &s) == 0;
+  mbedtls_mpi_free(&s);
+  mbedtls_mpi_free(&r);
+  mbedtls_ecp_point_free(&q);
+  mbedtls_ecp_group_free(&grp);
+  return ok;
+}
+
+/* ============================================================================
  * REBOOT TASK
  * ============================================================================ */
 
@@ -207,9 +248,14 @@ esp_err_t api_handler_ota_upload(httpd_req_t *req)
   if (content_len == 0) {
     return api_send_error(req, 400, "Empty request body");
   }
-  if (content_len > OTA_MAX_FIRMWARE_SIZE) {
+  if (content_len > OTA_MAX_FIRMWARE_SIZE + OTA_SIG_TRAILER_LEN) {
     return api_send_error(req, 400, "Firmware too large (max 1.8125MB)");
   }
+  // FEAT-439: kun signeret firmware (firmware_signed.bin) accepteres
+  if (content_len <= OTA_SIG_TRAILER_LEN + 1024) {
+    return api_send_error(req, 400, "Firmware for lille eller ikke signeret");
+  }
+  const size_t image_len = content_len - OTA_SIG_TRAILER_LEN;
 
   // Set OTA state
   ota_state.in_progress = 1;
@@ -236,7 +282,7 @@ esp_err_t api_handler_ota_upload(httpd_req_t *req)
 
   // Begin OTA
   esp_ota_handle_t ota_handle = 0;
-  esp_err_t err = esp_ota_begin(update_partition, content_len, &ota_handle);
+  esp_err_t err = esp_ota_begin(update_partition, image_len, &ota_handle);
   if (err != ESP_OK) {
     snprintf(ota_state.error_msg, sizeof(ota_state.error_msg),
              "esp_ota_begin failed: 0x%x", (int)err);
@@ -265,6 +311,11 @@ esp_err_t api_handler_ota_upload(httpd_req_t *req)
   uint32_t received_total = 0;
   bool first_chunk = true;
   bool upload_ok = true;
+  // FEAT-439: hash af firmwaren + opsamling af traileren (de sidste 72 bytes)
+  uint8_t sig_trailer[OTA_SIG_TRAILER_LEN];
+  mbedtls_sha256_context sha;
+  mbedtls_sha256_init(&sha);
+  mbedtls_sha256_starts_ret(&sha, 0);
 
   while (received_total < content_len) {
     size_t to_read = content_len - received_total;
@@ -305,8 +356,24 @@ esp_err_t api_handler_ota_upload(httpd_req_t *req)
       }
     }
 
+    // FEAT-439: del bidden i firmware-del (hash + flash) og trailer-del
+    size_t img_part = 0;
+    if (received_total < image_len) {
+      img_part = image_len - received_total;
+      if (img_part > (size_t)received) img_part = received;
+    }
+    if (img_part < (size_t)received) {
+      size_t toff = received_total + img_part - image_len;
+      memcpy(sig_trailer + toff, chunk_buf + img_part, received - img_part);
+    }
+
     // Write chunk to flash
-    err = esp_ota_write(ota_handle, chunk_buf, received);
+    if (img_part > 0) {
+      mbedtls_sha256_update_ret(&sha, (const unsigned char *)chunk_buf, img_part);
+      err = esp_ota_write(ota_handle, chunk_buf, img_part);
+    } else {
+      err = ESP_OK;
+    }
     if (err != ESP_OK) {
       snprintf(ota_state.error_msg, sizeof(ota_state.error_msg),
                "Flash write failed at %lu bytes: 0x%x",
@@ -320,6 +387,9 @@ esp_err_t api_handler_ota_upload(httpd_req_t *req)
   }
 
   free(chunk_buf);
+  uint8_t fw_hash[32];
+  mbedtls_sha256_finish_ret(&sha, fw_hash);
+  mbedtls_sha256_free(&sha);
 
   if (!upload_ok) {
     esp_ota_abort(ota_handle);
@@ -327,6 +397,21 @@ esp_err_t api_handler_ota_upload(httpd_req_t *req)
     ota_state.in_progress = 0;
     ESP_LOGE(TAG, "OTA failed: %s", ota_state.error_msg);
     return api_send_error(req, 500, ota_state.error_msg);
+  }
+
+  // FEAT-439: verificér signaturen FOER firmwaren kan blive bootbar
+  ota_state.state = OTA_STATE_VERIFYING;
+  if (!ota_signature_ok(fw_hash, sig_trailer)) {
+    esp_ota_abort(ota_handle);
+    snprintf(ota_state.error_msg, sizeof(ota_state.error_msg),
+             memcmp(sig_trailer, OTA_SIG_MAGIC, 8) == 0
+               ? "Ugyldig signatur - firmware afvist"
+               : "Firmware er ikke signeret - upload firmware_signed.bin");
+    ota_state.state = OTA_STATE_ERROR;
+    ota_state.in_progress = 0;
+    ESP_LOGE(TAG, "%s", ota_state.error_msg);
+    system_log_add_event((uint8_t)SYSLOG_SRC_REST, "", "", ota_state.error_msg);
+    return api_send_error(req, 400, ota_state.error_msg);
   }
 
   // Verify and finalize

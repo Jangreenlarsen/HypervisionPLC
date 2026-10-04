@@ -87,6 +87,7 @@
 <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
 <div class="icon">&#128229;</div>
 <p>Klik eller traek en .bin fil hertil</p>
+<p style="font-size:11px;color:#6c7086">Kun signeret firmware: <code>firmware_signed.bin</code> (FEAT-439)</p>
 <input type="file" id="fileInput" accept=".bin">
 <div class="filename" id="fileName"></div>
 </div>
@@ -223,7 +224,8 @@ document.getElementById('fileInput').addEventListener('change',e=>handleFile(e.t
 function handleFile(f){
   if(!f)return;
   if(!f.name.endsWith('.bin')){setStatus('err','Kun .bin filer er tilladt');return;}
-  if(f.size>0x1D0000){setStatus('err','Fil for stor (max 1.8125MB)');return;}
+  if(f.size>0x1D0000+72){setStatus('err','Fil for stor (max 1.8125MB)');return;}
+  if(!/signed/i.test(f.name))setStatus('info','Bemærk: PLC\'en afviser usigneret firmware — brug firmware_signed.bin');
   if(f.size<256){setStatus('err','Fil for lille — ugyldig firmware');return;}
   selectedFile=f;
   document.getElementById('fileName').textContent=f.name+' ('+Math.round(f.size/1024)+'KB)';

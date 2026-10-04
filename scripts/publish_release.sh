@@ -23,7 +23,7 @@ set -euo pipefail
 
 ENV_NAME="es32d26"
 REPO="Jangreenlarsen/Modbus_server_slave_ESP32"
-ASSET_NAME="firmware.bin"
+ASSET_NAME="firmware_signed.bin"   # FEAT-439: PLC'en accepterer kun signeret firmware
 
 cd "$(dirname "$0")/.."
 
@@ -60,7 +60,7 @@ fi
 echo "-- Bygger (${ENV_NAME}) --"
 pio run -e "$ENV_NAME"
 
-BIN_PATH=".pio/build/${ENV_NAME}/firmware.bin"
+BIN_PATH=".pio/build/${ENV_NAME}/firmware_signed.bin"   # laves af scripts/sign_firmware_pio.py (kraever certs/ota_signing.key)
 if [ ! -f "$BIN_PATH" ]; then
   echo "FEJL: $BIN_PATH ikke fundet efter build." >&2
   exit 1

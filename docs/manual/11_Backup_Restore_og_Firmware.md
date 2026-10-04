@@ -35,7 +35,7 @@ Sektioner der er kommet til senere (`logic_globals`, `ethernet`, `expansion_boar
 Firmware kan opdateres over netværket uden at skulle koble USB til igen:
 
 1. Log ind på `/ota`-siden i webgrænsefladen (eller `POST /api/system/ota` direkte med `.bin`-filen som request-body)
-2. Upload den nye `firmware.bin`
+2. Upload den nye **`firmware_signed.bin`** (fra `.pio/build/es32d26/` eller GitHub-releasen)
 3. Enheden skriver til den inaktive OTA-partition og genstarter automatisk ind i den nye firmware
 4. Den forrige firmware bliver liggende urørt i den anden partition (dual-bank OTA: `ota_0`/`ota_1` skiftes for hver opdatering) og kan rulles tilbage med ét klik — se §11.4. Automatisk tilbagerulning dækker kun en firmware, der fejler helt i starten af opstarten (før selve PLC-programmet starter): den nye firmware bekræftes som gyldig, så snart den er startet. En firmware, der starter men opfører sig forkert, rulles altså *ikke* automatisk tilbage — brug manuel rollback (BUG-448). CLI-kommandoen `show ota` viser partitionernes tilstand.
 
@@ -43,7 +43,7 @@ Firmware kan opdateres over netværket uden at skulle koble USB til igen:
 
 ![/ota-siden — firmwareinformation og upload-zone](assets/screenshots/ota_page.png)
 
-> **Adgangskontrol:** OTA-upload/rollback kræver eksplicit skriverettighed (rettet i BUG-355) — en bruger med kun læse-adgang kan ikke flashe firmware. **Stadig ingen kryptografisk firmware-signaturverifikation** — se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #2.
+> **Adgangskontrol:** OTA-upload/rollback kræver eksplicit skriverettighed (rettet i BUG-355) — en bruger med kun læse-adgang kan ikke flashe firmware. **Kun signeret firmware** (v7.9.68.59+, FEAT-439): PLC'en afviser en `.bin`, der ikke er signeret med projektets private nøgle — upload `firmware_signed.bin` (laves automatisk af bygget, når `certs/ota_signing.key` findes). Usigneret eller forkert signeret firmware giver fejlen *"Firmware er ikke signeret"* / *"Ugyldig signatur"*, og den kørende firmware er uberørt. Se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) #25.
 
 **Status og fremgang under upload:**
 ```bash
