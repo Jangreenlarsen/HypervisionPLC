@@ -106,6 +106,12 @@ void watchdog_reboot_for(const char *reason);
 uint32_t watchdog_last_error_epoch(void);
 bool watchdog_last_error_time_str(char *buf, size_t n);
 
+/** FEAT-448: nulstil statistik (genstarter, crashes, sidste fejl) — fx ved idriftsættelse */
+void watchdog_reset_stats(void);
+/** FEAT-448: hvornår statistikken sidst blev nulstillet (Unix-tid; 0 = aldrig/ukendt) */
+uint32_t watchdog_stats_since_epoch(void);
+bool watchdog_stats_since_str(char *buf, size_t n);
+
 /* FEAT-427: overvaagning af baggrunds-tasks (mb_async, expansion-workers).
  * subscribe() kaldes EN gang oeverst i taskens funktion, feed() i hver
  * loekke-runde, og unsubscribe() SKAL kaldes foer vTaskDelete(NULL) — ellers

@@ -96,6 +96,57 @@ bool watchdog_last_error_time_str(char *buf, size_t n) {
   return true;
 }
 
+/* FEAT-448: nulstilling af watchdog-statistikken ("nulpunkt" ved idriftsættelse).
+ * Tidspunktet gemmes i en separat NVS-nøgle, så WatchdogState-blob'ens
+ * størrelse (og dermed kompatibiliteten med eksisterende NVS) er uændret. */
+#define WATCHDOG_NVS_SINCE_KEY "wdt_since"
+static uint32_t g_wdt_stats_since = 0xFFFFFFFFu;  // 0xFFFFFFFF = ikke indlæst endnu
+
+uint32_t watchdog_stats_since_epoch(void) {
+  if (g_wdt_stats_since == 0xFFFFFFFFu) {
+    g_wdt_stats_since = 0;
+    nvs_handle_t h;
+    if (nvs_open(WATCHDOG_NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
+      uint32_t v = 0;
+      if (nvs_get_u32(h, WATCHDOG_NVS_SINCE_KEY, &v) == ESP_OK) g_wdt_stats_since = v;
+      nvs_close(h);
+    }
+  }
+  return g_wdt_stats_since;
+}
+
+bool watchdog_stats_since_str(char *buf, size_t n) {
+  if (!buf || n == 0) return false;
+  buf[0] = '\0';
+  uint32_t e = watchdog_stats_since_epoch();
+  if (e < 1577836800UL || e >= 4102444800UL) return false;
+  time_t t = (time_t)e;
+  struct tm tmv;
+  localtime_r(&t, &tmv);
+  strftime(buf, n, "%Y-%m-%d %H:%M:%S", &tmv);
+  return true;
+}
+
+// Nulstiller tællere og sidste fejl — ikke timeout, enabled eller en aktiv
+// safe mode (den kvitteres separat med 'clear safemode').
+void watchdog_reset_stats(void) {
+  g_watchdog_state.reboot_counter = 0;
+  g_watchdog_state.crash_counter = 0;
+  g_watchdog_state.crash_streak = 0;
+  g_watchdog_state.last_error[0] = '\0';
+  g_watchdog_state.last_error_epoch = 0;
+  g_watchdog_state.last_reboot_uptime_ms = 0;
+  watchdog_save_state();
+  g_wdt_stats_since = wdt_now_epoch();  // 0 = ukendt (ingen NTP)
+  nvs_handle_t h;
+  if (nvs_open(WATCHDOG_NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
+    nvs_set_u32(h, WATCHDOG_NVS_SINCE_KEY, g_wdt_stats_since);
+    nvs_commit(h);
+    nvs_close(h);
+  }
+  debug_println("WATCHDOG: statistik nulstillet (FEAT-448)");
+}
+
 static bool reset_reason_is_crash(esp_reset_reason_t r) {
   return r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT || r == ESP_RST_WDT;
 }

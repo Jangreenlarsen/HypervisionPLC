@@ -531,15 +531,15 @@ static int sse_token_check(const char *token)
  * PER-CLIENT TASK: SSE event loop on raw socket
  * ============================================================================ */
 
-static void sse_client_task(void *arg)
+// BUG-456: én SSE-session — køres af en vedvarende worker pr. slot (se
+// sse_slot_worker) i stedet for en task, der oprettes/slettes pr. forbindelse.
+static void sse_client_session(const SseClientParams *params)
 {
-  SseClientParams *params = (SseClientParams *)arg;
   int fd = params->fd;
   uint8_t topics = params->topics;
   int reg_slot = params->registry_slot;
   SseWatchList watch;
   memcpy(&watch, &params->watch, sizeof(SseWatchList));
-  free(params);
 
   sse_active_clients++;
   if (watch.watch_all) {
@@ -574,7 +574,9 @@ static void sse_client_task(void *arg)
 
   // Initialize change detection (heap-allocated to save stack)
   {
-    SseClientState *state = (SseClientState *)malloc(sizeof(SseClientState));
+    // BUG-456: session-tilstanden i PSRAM — ikke i den knappe interne heap
+    SseClientState *state = (SseClientState *)heap_caps_malloc(sizeof(SseClientState), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!state) state = (SseClientState *)malloc(sizeof(SseClientState));
     if (!state) {
       ESP_LOGE(TAG, "Failed to allocate SSE client state");
       goto done;
@@ -591,7 +593,8 @@ static void sse_client_task(void *arg)
     // Allocate full-range state for watch_all mode (~1.5 KB)
     SseWatchAllState *all_state = NULL;
     if (watch.watch_all) {
-      all_state = (SseWatchAllState *)calloc(1, sizeof(SseWatchAllState));
+      all_state = (SseWatchAllState *)heap_caps_calloc(1, sizeof(SseWatchAllState), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      if (!all_state) all_state = (SseWatchAllState *)calloc(1, sizeof(SseWatchAllState));
       if (!all_state) {
         ESP_LOGE(TAG, "Failed to allocate watch_all state");
         free(state);
@@ -772,7 +775,44 @@ done:
   sse_registry_remove(reg_slot);
   if (sse_active_clients > 0) sse_active_clients--;
   ESP_LOGI(TAG, "SSE client disconnected (slot=%d, active=%d)", reg_slot, (int)sse_active_clients);
-  vTaskDelete(NULL);
+}
+
+/* BUG-456: vedvarende worker pr. SSE-slot. Oprettes første gang slottet bruges
+ * og genbruges derefter (modtager nye forbindelser via en kø) — tidligere blev
+ * en task med 6 KB stak oprettet og slettet ved HVER forbindelse/genforbindelse,
+ * hvilket fragmenterede den interne heap. */
+static TaskHandle_t sse_slot_task[SSE_MAX_CLIENTS] = {0};
+static QueueHandle_t sse_slot_queue[SSE_MAX_CLIENTS] = {0};
+
+static void sse_slot_worker(void *arg)
+{
+  QueueHandle_t q = (QueueHandle_t)arg;
+  SseClientParams p;
+  for (;;) {
+    if (xQueueReceive(q, &p, portMAX_DELAY) == pdTRUE) {
+      sse_client_session(&p);
+    }
+  }
+}
+
+static bool sse_slot_dispatch(int slot, const SseClientParams *p)
+{
+  if (slot < 0 || slot >= SSE_MAX_CLIENTS) return false;
+  if (!sse_slot_queue[slot]) {
+    sse_slot_queue[slot] = xQueueCreate(1, sizeof(SseClientParams));
+    if (!sse_slot_queue[slot]) return false;
+  }
+  if (!sse_slot_task[slot]) {
+    char name[12];
+    snprintf(name, sizeof(name), "sse_w%d", slot);
+    // BUG-336c: Core 0, samme begrundelse som HTTP(S)-serveren
+    if (xTaskCreatePinnedToCore(sse_slot_worker, name, 6144, sse_slot_queue[slot], 3,
+                                &sse_slot_task[slot], 0) != pdPASS) {
+      sse_slot_task[slot] = NULL;
+      return false;
+    }
+  }
+  return xQueueSend(sse_slot_queue[slot], p, 0) == pdTRUE;
 }
 
 /* ============================================================================
@@ -982,27 +1022,14 @@ static void sse_accept_task(void *arg)
       continue;
     }
 
-    // Spawn client task
-    SseClientParams *params = (SseClientParams *)malloc(sizeof(SseClientParams));
-    if (!params) {
-      sse_registry_remove(slot);
-      close(client_fd);
-      continue;
-    }
-    params->fd = client_fd;
-    params->topics = topics;
-    params->registry_slot = slot;
-    memcpy(&params->watch, &watch, sizeof(SseWatchList));
-
-    char task_name[16];
-    snprintf(task_name, sizeof(task_name), "sse_%d", client_fd);
-    // BUG-336c: pin to Core 0, same reasoning as the HTTP(S) server —
-    // keep it off Core 1 (loopTask/CLI, incl. `mb scan`) so the
-    // dashboard's live updates cannot be starved by a running scan.
-    BaseType_t ret = xTaskCreatePinnedToCore(sse_client_task, task_name, 6144, params, 3, NULL, 0);
-    if (ret != pdPASS) {
-      ESP_LOGE(TAG, "Failed to create SSE client task");
-      free(params);
+    // BUG-456: send forbindelsen til slottets vedvarende worker
+    SseClientParams params;
+    params.fd = client_fd;
+    params.topics = topics;
+    params.registry_slot = slot;
+    memcpy(&params.watch, &watch, sizeof(SseWatchList));
+    if (!sse_slot_dispatch(slot, &params)) {
+      ESP_LOGE(TAG, "Failed to dispatch SSE client to worker");
       sse_registry_remove(slot);
       close(client_fd);
       vTaskDelay(pdMS_TO_TICKS(1000));
@@ -1238,7 +1265,7 @@ int sse_start(uint16_t port)
   }
 
   // Start acceptor task
-  // BUG-336c: pin to Core 0 — see sse_client_task above.
+  // BUG-336c: pin to Core 0 — see sse_slot_dispatch() above.
   BaseType_t ret = xTaskCreatePinnedToCore(sse_accept_task, "sse_accept", 4096, NULL, 4, &sse_accept_task_handle, 0);
   if (ret != pdPASS) {
     ESP_LOGE(TAG, "Failed to create SSE acceptor task");

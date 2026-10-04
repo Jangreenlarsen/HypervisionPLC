@@ -34,7 +34,7 @@ Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 | GET | `/api/status` | CHECK_AUTH | version, build, uptime_ms, heap_free, wifi_connected, ip, modbus_slave_id, https |
 | GET | `/api/version` | CHECK_AUTH | api_version, firmware_version, build, min_supported_api, versioned_prefix |
 | GET | `/api/system/watchdog` | CHECK_AUTH | enabled, timeout_ms, reboot_count (alle opstarter), last_reset_reason, last_error, last_reboot_uptime_ms (0 = ukendt), heap-info. **FEAT-427:** `active` (watchdog'en kører reelt), `crash_count`, `crash_streak`, `safe_mode`, `tasks` [{name, age_ms}]. **FEAT-429:** `last_error_epoch` (Unix-tid, 0 = ukendt) og `last_error_time` (lokal tid "ÅÅÅÅ-MM-DD tt:mm:ss", tom hvis ukendt) |
-| POST | `/api/system/watchdog` | CHECK_AUTH_WRITE | **FEAT-427.** Body: `{"timeout_s":5-120}` (gemmes, virker straks) og/eller `{"action":"clear_safemode"}`. Svar: `{"status":"ok","timeout_ms":N,"safe_mode":bool}` |
+| POST | `/api/system/watchdog` | CHECK_AUTH_WRITE | **FEAT-427.** Body: `{"timeout_s":5-120}` (gemmes, virker straks) og/eller `{"action":"clear_safemode"}` eller **`{"action":"reset_stats"}`** (FEAT-448: nulstil genstarter/crashes/sidste fejl — nulpunkt ved idriftsættelse). GET giver desuden `stats_since_epoch`/`stats_since`. Svar: `{"status":"ok","timeout_ms":N,"safe_mode":bool}` |
 | POST | `/api/system/reboot` | CHECK_AUTH_WRITE | Genstarter ESP32 (1 sek. efter svar er sendt) |
 | POST | `/api/system/save` | CHECK_AUTH_WRITE | Gemmer hele config til NVS (inkl. CRC16) |
 | POST | `/api/system/load` | CHECK_AUTH_WRITE | Genindlæser + anvender config fra NVS |

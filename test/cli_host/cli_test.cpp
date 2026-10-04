@@ -135,6 +135,10 @@ int main() {
     g_persist_config.var_map_count = 0;
   }
 
+  // --- FEAT-448: reset watchdog stats ---
+  run("reset watchdog stats");  check(called("watchdog_reset_stats") && out_has("nulstillet"), "reset watchdog stats");
+  run("reset watchdog");        check(!called("watchdog_reset_stats") && out_has("Brug: reset watchdog stats"), "reset watchdog uden 'stats' → hjælp");
+
   // --- timer (BUG-446) ---
   run("set timer 1 mode 3 on-ms:1000 off-ms:500 p1-output:1 p2-output:0 output-coil:150");
   check(g_last_timer_id == 1 && g_last_timer_cfg.mode == 3, "set timer: mode 3");

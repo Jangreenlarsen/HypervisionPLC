@@ -865,7 +865,7 @@ static const api_route_info_t API_ROUTES[] = {
   {"GET",    "/api/system/backup",                 "Download config backup"},
   {"POST",   "/api/system/restore",                "Restore config from backup"},
   {"GET",    "/api/system/watchdog",                "Watchdog status"},
-  {"POST",   "/api/system/watchdog",                "Watchdog: timeout_s / clear_safemode (FEAT-427)"},
+  {"POST",   "/api/system/watchdog",                "Watchdog: timeout_s / clear_safemode (FEAT-427) / reset_stats (FEAT-448)"},
   {"GET",    "/api/system/logs",                   "Request audit log (FEAT-033)"},
   {"POST",   "/api/system/logs/clear",             "Clear request audit log"},
   {"GET",    "/api/system/rate-limit",             "Rate-limit status (not persisted)"},
@@ -8737,6 +8737,10 @@ esp_err_t api_handler_system_watchdog(httpd_req_t *req)
     char ts[24];
     doc["last_error_epoch"] = watchdog_last_error_epoch();
     doc["last_error_time"] = watchdog_last_error_time_str(ts, sizeof(ts)) ? ts : "";
+    // FEAT-448: statistik-nulpunkt
+    char since[24];
+    doc["stats_since_epoch"] = watchdog_stats_since_epoch();
+    doc["stats_since"] = watchdog_stats_since_str(since, sizeof(since)) ? since : "";
   }
   doc["last_reboot_uptime_ms"] = wd->last_reboot_uptime_ms;
   doc["active"] = watchdog_is_active();            // FEAT-427
@@ -8792,8 +8796,11 @@ esp_err_t api_handler_system_watchdog_post(httpd_req_t *req)
   if (strcmp(action, "clear_safemode") == 0) {
     watchdog_clear_safe_mode();
     did = true;
+  } else if (strcmp(action, "reset_stats") == 0) {  // FEAT-448
+    watchdog_reset_stats();
+    did = true;
   } else if (action[0]) {
-    return api_send_error(req, 400, "Ukendt action (clear_safemode)");
+    return api_send_error(req, 400, "Ukendt action (clear_safemode, reset_stats)");
   }
   if (!did) return api_send_error(req, 400, "Angiv timeout_s og/eller action");
 

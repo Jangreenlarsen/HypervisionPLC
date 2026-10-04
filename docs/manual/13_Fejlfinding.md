@@ -90,6 +90,10 @@ Den afgørende forskel fra A/B: her hjælper `Reinit` faktisk (nulstiller den fa
 
 "Crash i træk"-tælleren nulstilles efter 10 minutters stabil drift; safe mode forlades aldrig automatisk.
 
+### Nulpunkt ved idriftsættelse (FEAT-448)
+
+Watchdog-statistikken (antal genstarter, crashes, sidste fejl) tæller fra NVS blev oprettet — inkl. alle opdateringer og tests under udvikling. Når anlægget sættes i drift, nulstil den, så tallene derefter kun afspejler driften: **Monitor → Watchdog-kortet → "Nulstil statistik"**, CLI `reset watchdog stats` eller REST `POST /api/system/watchdog {"action":"reset_stats"}`. Kortet og `show watchdog` viser derefter "Statistik siden <dato>" (kræver NTP-tid; ellers "ukendt").
+
 ## 13.5 "Enheden svarer slet ikke"
 
 1. **Fysisk:** lyser en status-LED (hvis boardet har én, se [§2.5](02_Hardware_og_Moduler.md#25-status-led-og-fysiske-indikatorer))? Er der strøm?

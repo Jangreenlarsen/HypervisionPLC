@@ -4774,7 +4774,12 @@ void cli_cmd_show_watchdog(void) {
   debug_println(" seconds");
   debug_print("Reboot counter: ");
   debug_print_uint(wdt->reboot_counter);
-  debug_println("  (alle opstarter)");
+  {
+    // FEAT-448: siden sidste nulstilling ('reset watchdog stats')
+    char since[24];
+    if (watchdog_stats_since_str(since, sizeof(since))) { debug_print("  (siden "); debug_print(since); debug_println(")"); }
+    else debug_println(watchdog_stats_since_epoch() ? "  (siden nulstilling)" : "  (alle opstarter — nulstil med 'reset watchdog stats')");
+  }
   // FEAT-427 (A3/A4)
   debug_printf("Crashes: %lu i alt, %u i traek (safe mode ved %u)\n",
                (unsigned long)wdt->crash_counter, (unsigned)wdt->crash_streak, (unsigned)WATCHDOG_SAFE_MODE_STREAK);

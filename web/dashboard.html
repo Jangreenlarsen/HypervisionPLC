@@ -229,6 +229,8 @@
 <div class="row"><span class="lbl">Sidste reset</span><span class="val val-n" id="wdtReset" style="font-size:11px">-</span></div>
 <div class="row"><span class="lbl">Drift før genstart</span><span class="val val-n" id="wdtPrevUp">-</span></div>
 <div class="row"><span class="lbl">Sidste fejl</span><span class="val val-n" id="wdtLastErr" style="font-size:10px;white-space:normal;text-align:right">-</span></div>
+<div class="row"><span class="lbl">Statistik siden</span><span class="val val-n" id="wdtSince" style="font-size:11px">-</span></div>
+<div style="text-align:right;margin:2px 0 4px"><button onclick="resetWdtStats()" title="Nulstil genstarter, crashes og sidste fejl — fx ved idriftsættelse (FEAT-448)" style="font-size:10px;padding:1px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Nulstil statistik</button></div>
 <div style="border-top:1px solid #313244;margin-top:6px;padding-top:4px;font-size:10px;color:#6c7086">Overvågede tasks — tid siden sidste fodring</div>
 <div id="wdtTasks"><span class="empty-msg">-</span></div>
 </div>
@@ -2077,6 +2079,7 @@ function renderWatchdog(d){
   set('wdtReset',_wdtEsc(_wdtResetNames[d.last_reset_reason]||'Ukendt'));
   set('wdtPrevUp',d.last_reboot_uptime_ms?fmtUptime(d.last_reboot_uptime_ms):'ukendt');
   // FEAT-429: tidsstempel paa sidste fejl
+  set('wdtSince',d.stats_since?_wdtEsc(d.stats_since):(d.stats_since_epoch===0?'start / ukendt':'-'));  // FEAT-448
   set('wdtLastErr',d.last_error?(_wdtEsc(d.last_error)+'<div style="font-size:10px;color:#6c7086">'+(d.last_error_time?_wdtEsc(d.last_error_time):'tidspunkt ukendt (ingen NTP-tid)')+'</div>'):'-');
   const tasks=d.tasks||[];
   set('wdtTasks',tasks.length?('<table class="tbl">'+tasks.map(t=>{
@@ -2104,6 +2107,13 @@ async function wdtPost(body){
   const j=await r.json().catch(()=>({}));
   if(!r.ok)throw new Error(j.error||('HTTP '+r.status));
   return j;
+}
+// FEAT-448: nulpunkt for watchdog-statistikken (fx ved idriftsættelse)
+async function resetWdtStats(){
+  if(!confirm('Nulstil watchdog-statistikken (genstarter, crashes og sidste fejl)?
+Bruges typisk ved idriftsættelse. Timeout og en evt. aktiv safe mode er uændret.'))return;
+  try{await wdtPost({action:'reset_stats'});fetchWatchdog();}
+  catch(e){alert('Fejl: '+e.message);}
 }
 async function setWdtTimeout(){
   const v=parseInt($('wdtTimeoutIn').value,10);

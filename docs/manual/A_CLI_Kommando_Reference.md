@@ -138,6 +138,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `set watchdog timeout <5-120>` | sekunder | **FEAT-427.** Task-watchdog'ens timeout — gemmes og virker straks. Gælder hovedløkken og de overvågede baggrunds-tasks (Modbus Master, expansion-workers) |
 | `clear logic <id> wdt` | — | **FEAT-427.** Kvittér programmets watchdog: nulstil tællere; et program som watchdog'en stoppede, startes igen |
 | `clear safemode` | — | **FEAT-427.** Forlad safe mode: ST kører igen og udgangene følger igen deres coils. Find først årsagen til crashene (`show watchdog`) |
+| `reset watchdog stats` | — | **FEAT-448.** Nulstil watchdog-statistikken — genstarter, crashes (i alt/i træk), sidste fejl og drift før genstart — fx som **nulpunkt ved idriftsættelse**. Tidspunktet vises som "siden …" i `show watchdog` og på Watchdog-kortet. Timeout og en evt. aktiv safe mode ændres ikke |
 | `set watchdog enable\|disable` | — | **FEAT-427.** Gemmes, træder i kraft efter genstart. Uden watchdog genstarter PLC'en ikke, hvis den hænger |
 | `set debug <flag> <on\|off>` | flag: `config-save`, `config-load`, `all` | Debug-logging-flag |
 | `set gpio <pin> input <idx>` | pin: 0–39 eller 100–255 (virtuel); idx: discrete input-index | Map GPIO-pin til discrete input |

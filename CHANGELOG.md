@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.75] - 2026-10-04
+
+### NEW FEATURES
+- **FEAT-448:** "Nulstil statistik" for watchdog (knap på Watchdog-kortet, CLI `reset watchdog stats`, REST `reset_stats`) — nulpunkt ved idriftsættelse; "Statistik siden" vises.
+
+### BUG FIXES
+- **BUG-456:** mindre RAM-fragmentering: SSE-forbindelser genbruger faste workers i stedet for at oprette/slette en task pr. forbindelse, og SSE-sessionens tilstand ligger i PSRAM.
+
 ## [7.9.68.74] - 2026-10-04
 
 ### BUG FIXES

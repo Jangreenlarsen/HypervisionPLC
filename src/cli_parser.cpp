@@ -170,7 +170,7 @@ const char* const CLI_WORDS_SET[] = {
   "sse", "ntp", "acl", "persist", "logic", "modbus-master", "modbus-slave",
   "modbus-expansion", "watchdog", "debug", "echo", "rate-limit", "user", "rbac",
   "analog", "baudrate", "slave-id", "module", "holding-reg", "coil", NULL };
-const char* const CLI_WORDS_RESET[] = { "counter", "logic", NULL };
+const char* const CLI_WORDS_RESET[] = { "counter", "logic", "watchdog", NULL };
 
 static uint8_t cli_edit_distance(const char *a, const char *b) {
   // Levenshtein, case-insensitiv, kun til korte ord (<= 23 tegn)
@@ -2872,6 +2872,16 @@ bool cli_parser_execute(char* line) {
     if (!strcmp(what, "COUNTER")) {
       cli_cmd_reset_counter(argc - 2, argv + 2);
       return true;
+    } else if (!strcmp(what, "WATCHDOG")) {
+      // FEAT-448: reset watchdog stats — nulpunkt ved idriftsættelse
+      if (argc >= 3 && !strcasecmp(argv[2], "stats")) {
+        watchdog_reset_stats();
+        debug_println("Watchdog-statistik nulstillet (genstarter, crashes, sidste fejl).");
+        debug_println("Timeout og en evt. aktiv safe mode er uændret ('clear safemode').");
+        return true;
+      }
+      debug_println("Brug: reset watchdog stats");
+      return false;
     } else if (!strcmp(what, "LOGIC")) {
       // reset logic stats [all|<id>] - BUG-122 FIX
       if (argc < 3) {
@@ -2889,7 +2899,7 @@ bool cli_parser_execute(char* line) {
         return false;
       }
     } else {
-      cli_print_unknown("RESET:", "argument", argv[1], CLI_WORDS_RESET, "  Brug: reset counter <id> | reset logic stats <id|all>");
+      cli_print_unknown("RESET:", "argument", argv[1], CLI_WORDS_RESET, "  Brug: reset counter <id> | reset logic stats <id|all> | reset watchdog stats");
       return false;
     }
 
