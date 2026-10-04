@@ -24,6 +24,8 @@ save
 show counter 1
 ```
 
+> **Hastighed (FEAT-438):** på ES32D26 samples DI1–8 hvert 1 ms af en separat task, så `sw`-tællere på disse indgange klarer ca. 400 Hz uden debounce (ca. 75–100 Hz med `debounce-ms:10`). Andre indgange læses én gang pr. hovedløkke (ca. 50–150 Hz). Se `show counter <id>` → "Sampling".
+
 > **Én `set counter … mode 1`-linje = hele konfigurationen.** Hver linje bygger tællerens opsætning op fra standardværdierne; nøgler der ikke står på linjen, får standardværdien (undtagen auto-start, som bevares). Del derfor ikke opsætningen over flere `set counter … mode 1`-linjer — den sidste overskriver de forrige. `control …`-linjen er separat og ændrer kun start/stop/auto-start. `show config counter` viser linjerne i et format, der kan sættes direkte ind igen.
 
 > **Aktiveret er ikke det samme som kørende.** En tæller tæller først, når den er *startet* (`running`, bit 7 i kontrolregistret — `control running:on`, Start-knappen på I/O-siden eller `CNT_CTRL`). Med **auto-start** (`control auto-start:on` eller "Start automatisk ved opstart" på I/O-siden) starter den af sig selv efter hver genstart. Før v7.9.68.47 blev auto-start aldrig gemt, så en tæller stod stille efter genstart (BUG-445).

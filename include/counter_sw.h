@@ -80,6 +80,17 @@ void counter_sw_clear_overflow(uint8_t id);
 void counter_sw_start(uint8_t id);  // BUG FIX 2.1
 
 /**
+ * FEAT-438: hurtig flanke-taelling for SW-taellere hvis indgang er en
+ * skifteregister-indgang (ES32D26 DI1-8, virtuel GPIO 101-108). Kaldes fra
+ * gpio_driver's scan-task hvert 1 ms med de raa indgangsbits; flankerne
+ * afleveres til counter_sw_loop() i hovedloekken.
+ */
+void counter_sw_fast_scan(uint8_t sr_bits, uint32_t now_us);
+
+/** FEAT-438: 1 = taelleren bruger scan-tasken (vises i show counter) */
+uint8_t counter_sw_fast_active(uint8_t id);
+
+/**
  * @brief Stop counter (disable counting runtime)
  * @param id Counter ID (1-4)
  */

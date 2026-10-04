@@ -2300,10 +2300,15 @@ void cli_cmd_show_counter(uint8_t id, bool verbose) {
 
   // Input/Pin configuration
   debug_println("Input Configuration:");
-  if (cfg.hw_mode == COUNTER_HW_SW && cfg.input_dis > 0) {
+  if (cfg.hw_mode == COUNTER_HW_SW) {
     debug_print("  Discrete Input: ");
     debug_print_uint(cfg.input_dis);
     debug_println("");
+    // FEAT-438: hvilken sti taeller flankerne?
+    extern uint8_t counter_sw_fast_active(uint8_t id);
+    debug_println(counter_sw_fast_active(id)
+      ? "  Sampling: scan-task hvert 1 ms (skifteregister-indgang, op til ca. 400 Hz)"
+      : "  Sampling: hovedloekken (ca. 50-150 Hz)");
   } else if (cfg.hw_mode == COUNTER_HW_SW_ISR && cfg.interrupt_pin > 0) {
     debug_print("  Interrupt GPIO: ");
     debug_print_uint(cfg.interrupt_pin);

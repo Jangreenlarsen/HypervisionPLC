@@ -15,6 +15,11 @@
 #include "constants.h"
 #include <Arduino.h>
 #include <driver/gpio.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
+#include "counter_sw.h"   // FEAT-438: hurtig flanke-taelling i scan-tasken
 
 /* ============================================================================
  * INTERRUPT HANDLERS
@@ -41,7 +46,17 @@ static void IRAM_ATTR gpio_isr_wrapper(void) {
 #ifdef SHIFT_REGISTER_ENABLED
 
 // Cached shift register state (updated by shift_register_poll())
-static uint8_t sr_input_cache[SR_IN_COUNT] = {0};    // Last read from 74HC165
+static volatile uint8_t sr_input_cache[SR_IN_COUNT] = {0};  // Last read from 74HC165
+
+// FEAT-438: dedikeret scan-task laeser 74HC165 hvert SR_SCAN_PERIOD_MS og
+// taeller SW-taellerens flanker direkte (counter_sw_fast_scan). Mutex'en
+// beskytter bit-bang-sekvensen, saa en test/diagnose fra CLI ikke kan klokke
+// samtidig med tasken. Kortere bit-forsinkelser end foer (10 us → SR_IN_BIT_DELAY_US):
+// 74HC165 klarer MHz-clock; ~2 us giver god margin paa boardets ledninger.
+#define SR_SCAN_PERIOD_MS     1
+#define SR_IN_BIT_DELAY_US    2
+static SemaphoreHandle_t sr_in_mutex = NULL;
+static TaskHandle_t sr_scan_task_handle = NULL;
 static uint8_t sr_output_cache[SR_OUT_COUNT] = {0};   // Current state of 74HC595
 static bool sr_output_dirty = false;                   // Needs flush to hardware
 static bool sr_initialized = false;
@@ -88,15 +103,16 @@ static void shift_register_init(void) {
  * Results stored in sr_input_cache[].
  */
 static void shift_register_read_inputs(void) {
+  if (sr_in_mutex) xSemaphoreTake(sr_in_mutex, portMAX_DELAY);
   // Ensure clock is LOW before LOAD pulse
   digitalWrite(PIN_SR_IN_CLOCK, LOW);
-  delayMicroseconds(10);
+  delayMicroseconds(SR_IN_BIT_DELAY_US);
 
   // Pulse LOAD (active LOW) to latch parallel inputs
   digitalWrite(PIN_SR_IN_LOAD, LOW);
-  delayMicroseconds(10);
+  delayMicroseconds(SR_IN_BIT_DELAY_US);
   digitalWrite(PIN_SR_IN_LOAD, HIGH);
-  delayMicroseconds(10);
+  delayMicroseconds(SR_IN_BIT_DELAY_US);
 
   // Clock out data from all cascaded 74HC165 chips
   // After LOAD, QH already has D7 — read before first clock
@@ -105,11 +121,23 @@ static void shift_register_read_inputs(void) {
     for (int bit = 7; bit >= 0; bit--) {
       data |= (digitalRead(PIN_SR_IN_DATA) ? 1 : 0) << bit;
       digitalWrite(PIN_SR_IN_CLOCK, HIGH);
-      delayMicroseconds(10);
+      delayMicroseconds(SR_IN_BIT_DELAY_US);
       digitalWrite(PIN_SR_IN_CLOCK, LOW);
-      delayMicroseconds(10);
+      delayMicroseconds(SR_IN_BIT_DELAY_US);
     }
     sr_input_cache[chip] = data;
+  }
+  if (sr_in_mutex) xSemaphoreGive(sr_in_mutex);
+}
+
+// FEAT-438: scan-task — laeser indgangene og giver dem til SW-taellerne
+static void sr_scan_task(void *arg) {
+  (void)arg;
+  TickType_t last = xTaskGetTickCount();
+  for (;;) {
+    shift_register_read_inputs();
+    counter_sw_fast_scan(sr_input_cache[0], (uint32_t)esp_timer_get_time());
+    vTaskDelayUntil(&last, pdMS_TO_TICKS(SR_SCAN_PERIOD_MS) ? pdMS_TO_TICKS(SR_SCAN_PERIOD_MS) : 1);
   }
 }
 
@@ -191,6 +219,12 @@ void gpio_driver_init(void) {
   // GPIO driver uses Arduino HAL which is already initialized
 #ifdef SHIFT_REGISTER_ENABLED
   shift_register_init();
+  // FEAT-438: scan-task paa core 1 (samme som loop()), prioritet over loop'en,
+  // saa indgangene samples hvert 1 ms uanset hovedloekkens længde
+  sr_in_mutex = xSemaphoreCreateMutex();
+  if (sr_in_mutex) {
+    xTaskCreatePinnedToCore(sr_scan_task, "sr_scan", 3072, NULL, 5, &sr_scan_task_handle, 1);
+  }
 #endif
 }
 
@@ -253,7 +287,7 @@ void gpio_write(uint8_t pin, uint8_t level) {
 void gpio_driver_poll(void) {
 #ifdef SHIFT_REGISTER_ENABLED
   if (!sr_initialized) return;
-  shift_register_read_inputs();
+  if (!sr_scan_task_handle) shift_register_read_inputs();  // FEAT-438: ellers holder scan-tasken cachen frisk
   shift_register_flush_outputs();
 #endif
 }
@@ -261,7 +295,7 @@ void gpio_driver_poll(void) {
 void gpio_driver_poll_inputs(void) {
 #ifdef SHIFT_REGISTER_ENABLED
   if (!sr_initialized) return;
-  shift_register_read_inputs();
+  if (!sr_scan_task_handle) shift_register_read_inputs();  // FEAT-438
 #endif
 }
 

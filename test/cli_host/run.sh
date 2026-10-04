@@ -10,7 +10,7 @@ OUT="$HERE/build"
 mkdir -p "$OUT"
 
 FLAGS="-std=gnu++17 -w -fpermissive -include stdlib.h -include stdint.h -include clistub.h -I$HERE -I$HERE/stubs -I$ROOT/test/st_host/stubs -I$ROOT/include -DBOARD_ES32D26 -DBOARD_HAS_PSRAM"
-SRCS="cli_parser cli_commands counter_config timer_config modbus_fc_read"
+SRCS="cli_parser cli_commands counter_config timer_config modbus_fc_read counter_sw"
 
 OBJS=""
 for f in $SRCS; do

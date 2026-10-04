@@ -11,6 +11,7 @@
 #include "config_struct.h"
 #include "counter_config.h"
 #include "modbus_fc_read.h"
+#include "counter_sw.h"
 
 extern PersistConfig g_persist_config;
 extern const char* const CLI_WORDS_TOP[];
@@ -87,6 +88,52 @@ int main() {
   run("set counter 1 control counter-reg-reset-on-read:off");
   g_calls.clear(); modbus_handle_reset_on_read(100, 2);
   check(!called("counter_engine_reset"), "BUG-447: slået fra → ingen nulstilling");
+
+  // --- FEAT-438: hurtig SW-tælling via scan-tasken (DI8 = virtuel GPIO 108 → DI 7) ---
+  {
+    memset(&g_persist_config.var_maps[0], 0, sizeof(VariableMapping));
+    g_persist_config.var_maps[0].source_type = MAPPING_SOURCE_GPIO;
+    g_persist_config.var_maps[0].gpio_pin = 108;
+    g_persist_config.var_maps[0].is_input = 1;
+    g_persist_config.var_maps[0].input_reg = 7;
+    g_persist_config.var_maps[0].associated_counter = 0xff;
+    g_persist_config.var_maps[0].associated_timer = 0xff;
+    g_persist_config.var_map_count = 1;
+    // 300 Hz firkantbølge i 1 s, samplet hvert 1 ms af scan-tasken (bit 7 = DI8)
+    auto run_wave = [](uint8_t id, int hz, int ms) {
+      counter_sw_init(id); counter_sw_start(id);
+      counter_sw_loop(id);  // spejler "kører" til scan-tasken
+      uint64_t start = counter_sw_get_value(id);
+      for (int t = 0; t < ms; t++) {
+        uint32_t us = (uint32_t)t * 1000 + 1;
+        uint8_t level = ((us * (uint64_t)hz * 2 / 1000000) % 2) ? 0 : 1;  // starter højt (hvile)
+        counter_sw_fast_scan((uint8_t)(level << 7), us);
+        if (t % 10 == 0) counter_sw_loop(id);  // hovedløkken hvert 10 ms
+      }
+      counter_sw_loop(id);
+      return (long)(counter_sw_get_value(id) - start);
+    };
+    run("set counter 3 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32 debounce:off");
+    check(counter_sw_fast_active(3), "FEAT-438: DI fra skifteregister bruger scan-tasken");
+    long n = run_wave(3, 300, 1000);
+    check(n >= 299 && n <= 301, ("FEAT-438: 300 Hz uden debounce → " + std::to_string(n) + " flanker (forventet 300)").c_str());
+    n = run_wave(3, 450, 1000);
+    check(n >= 449 && n <= 451, ("FEAT-438: 450 Hz uden debounce → " + std::to_string(n) + " (grænse for 1 ms-sampling ≈ 500 Hz)").c_str());
+    run("set counter 3 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32 debounce:on debounce-ms:10");
+    n = run_wave(3, 300, 1000);
+    check(n >= 70 && n <= 80, ("FEAT-438: 300 Hz med debounce 10 ms → " + std::to_string(n) + " flanker (spærretid 10 ms + næste flanke ≈ 13,3 ms → ≈ 75)").c_str());
+    run("set counter 3 mode 1 hw-mode:sw input-dis:7 edge:both bit-width:32 debounce:off");
+    n = run_wave(3, 100, 1000);
+    check(n >= 199 && n <= 201, ("FEAT-438: edge:both 100 Hz → " + std::to_string(n) + " (forventet 200)").c_str());
+    counter_sw_stop(3); counter_sw_loop(3);
+    uint64_t before = counter_sw_get_value(3);
+    for (int t = 0; t < 100; t++) counter_sw_fast_scan((uint8_t)((t & 1) << 7), (uint32_t)t * 1000 + 1);
+    counter_sw_loop(3);
+    check(counter_sw_get_value(3) == before, "FEAT-438: stoppet tæller tæller ikke");
+    run("set counter 3 mode 1 hw-mode:sw input-dis:5 edge:falling bit-width:32");
+    check(!counter_sw_fast_active(3), "FEAT-438: DI uden skifteregister-mapping → pollet sti");
+    g_persist_config.var_map_count = 0;
+  }
 
   // --- timer (BUG-446) ---
   run("set timer 1 mode 3 on-ms:1000 off-ms:500 p1-output:1 p2-output:0 output-coil:150");

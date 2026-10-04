@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.58] - 2026-10-04
+
+### NEW FEATURES
+- **FEAT-438:** SW-tællere på ES32D26's DI1–8 samples nu hvert 1 ms af en separat task — ca. 400 Hz uden debounce (før ca. 50–150 Hz). Skal verificeres på hardware.
+
 ## [7.9.68.57] - 2026-10-04
 
 ### BUG FIXES
