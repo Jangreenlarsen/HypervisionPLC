@@ -22,7 +22,6 @@
  */
 
 #include <Arduino.h>
-#include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -236,50 +235,58 @@ static bool expansion_api_begin(uint8_t board_index, const char *method, const c
   return true;
 }
 
+// FEAT-442: raa socket-hjaelpere (defineret laengere nede, delt med OTA-relayet)
+static int relay_connect(const char *ip);
+static bool relay_send_all(int s, const char *buf, size_t len);
+static int relay_read_response(int s, char *buf, size_t buf_size, char **body, int timeout_s);
+
 // Selve netværksarbejdet — returnerer NORMALT (se filens toptekst for hvorfor
 // det er en selvstændig funktion og ikke inline i task-entry'en nedenfor).
+// FEAT-442: plain HTTP/1.1 over en raa lwIP-socket i stedet for Arduinos
+// HTTPClient — den traak WiFiClientSecure, certifikat-bundtet, mbedTLS'
+// TLS-klient og mbedtls_strerror-tabellen ind i firmwaren (ca. 40-50 KB
+// flash), selv om boardet altid tales til over http://<ip>:8080.
 static void expansion_api_do_work(void) {
   ExpansionApiResult *res = &g_expansion_api_result;
+  int code = -1;
 
-  String url = "http://" + String(g_pending.ip) + ":8080" + String(g_pending.path);
-
-  HTTPClient http;
-  http.setConnectTimeout(2000);
-  http.setTimeout(3000);
-
-  if (!http.begin(url)) {
-    snprintf(res->response_json, sizeof(res->response_json),
-             "{\"ok\":false,\"error\":\"transport_error\",\"message\":\"Kunne ikke starte HTTP-forbindelse til boardet\"}");
-    res->transport_ok = false;
-    res->http_status = -1;
-    return;
-  }
-  http.addHeader("Authorization", "Bearer " + String(g_pending.token));
-  if (g_pending.body[0]) {
-    http.addHeader("Content-Type", "application/json");
-  }
-
-  int code;
-  if (strcmp(g_pending.method, "GET") == 0) {
-    code = http.GET();
-  } else if (strcmp(g_pending.method, "PUT") == 0) {
-    code = http.PUT(String(g_pending.body));
-  } else {
-    code = http.POST(String(g_pending.body));
+  int s = relay_connect(g_pending.ip);
+  if (s >= 0) {
+    struct timeval io = { 3, 0 };  // som HTTPClient's tidligere 3 s timeout
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &io, sizeof(io));
+    size_t blen = strlen(g_pending.body);
+    char hdr[384];
+    int hl = snprintf(hdr, sizeof(hdr),
+                      "%s %s HTTP/1.1\r\n"
+                      "Host: %s:8080\r\n"
+                      "Authorization: Bearer %s\r\n"
+                      "%s"
+                      "Content-Length: %u\r\n"
+                      "Connection: close\r\n\r\n",
+                      g_pending.method, g_pending.path, g_pending.ip, g_pending.token,
+                      blen ? "Content-Type: application/json\r\n" : "", (unsigned)blen);
+    if (hl > 0 && hl < (int)sizeof(hdr) && relay_send_all(s, hdr, (size_t)hl) &&
+        (blen == 0 || relay_send_all(s, g_pending.body, blen))) {
+      static char rbuf[2048];  // kun exp_api-tasken (een ad gangen, g_expansion_api_sem)
+      char *body = NULL;
+      code = relay_read_response(s, rbuf, sizeof(rbuf), &body, 3);
+      if (code > 0 && body) {
+        strncpy(res->response_json, body, sizeof(res->response_json) - 1);
+        res->response_json[sizeof(res->response_json) - 1] = '\0';
+      }
+    }
+    close(s);
   }
 
   res->http_status = code;
   if (code > 0) {
     res->transport_ok = true;
-    String body = http.getString();
-    strncpy(res->response_json, body.c_str(), sizeof(res->response_json) - 1);
   } else {
     res->transport_ok = false;
     snprintf(res->response_json, sizeof(res->response_json),
              "{\"ok\":false,\"error\":\"transport_error\",\"message\":\"Boardet svarede ikke (netvaerksfejl %d) — tjek IP/token/at boardet er tændt\"}",
              code);
   }
-  http.end();
   ESP_LOGI(TAG, "Board %u %s %s -> http=%d", g_pending.board_index, g_pending.method, g_pending.path, code);
 }
 
@@ -563,8 +570,8 @@ static size_t relay_dechunk(char *body, size_t len) {
 // Laeser boardets HTTP-svar ind i buf (NUL-termineret). Stopper naar
 // Content-Length/chunked-slutningen er naaet, forbindelsen lukkes eller
 // timeout. Returnerer HTTP-status og saetter *body, eller -1.
-static int relay_read_response(int s, char *buf, size_t buf_size, char **body) {
-  struct timeval tv = { EXP_OTA_RESPONSE_TIMEOUT_S, 0 };
+static int relay_read_response(int s, char *buf, size_t buf_size, char **body, int timeout_s) {
+  struct timeval tv = { timeout_s, 0 };
   setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
   size_t used = 0;
@@ -690,7 +697,7 @@ static int relay_do(httpd_req_t *req, const char *ip, const char *token, const c
   }
 
   char *body = NULL;
-  int status = relay_read_response(s, buf, EXP_OTA_RELAY_CHUNK + 1, &body);
+  int status = relay_read_response(s, buf, EXP_OTA_RELAY_CHUNK + 1, &body, EXP_OTA_RESPONSE_TIMEOUT_S);
   close(s);
   if (status < 0) {
     free(buf);

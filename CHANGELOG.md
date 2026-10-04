@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.63] - 2026-10-04
+
+### OPTIMIZATION
+- **FEAT-442:** expansion-board-API'et bruger en rå HTTP-socket i stedet for Arduinos HTTPClient, som trak TLS-klient, certifikat-bundt og mbedTLS-fejltekster med ind — **36,7 KB mindre firmware** (flash 95,2 % → 93,2 %).
+
 ## [7.9.68.62] - 2026-10-04
 
 ### DOCUMENTATION
