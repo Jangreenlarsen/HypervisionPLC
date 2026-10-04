@@ -51,10 +51,14 @@ static volatile uint8_t sr_input_cache[SR_IN_COUNT] = {0};  // Last read from 74
 // FEAT-438: dedikeret scan-task laeser 74HC165 hvert SR_SCAN_PERIOD_MS og
 // taeller SW-taellerens flanker direkte (counter_sw_fast_scan). Mutex'en
 // beskytter bit-bang-sekvensen, saa en test/diagnose fra CLI ikke kan klokke
-// samtidig med tasken. Kortere bit-forsinkelser end foer (10 us → SR_IN_BIT_DELAY_US):
-// 74HC165 klarer MHz-clock; ~2 us giver god margin paa boardets ledninger.
-#define SR_SCAN_PERIOD_MS     1
-#define SR_IN_BIT_DELAY_US    2
+// samtidig med tasken.
+// BUG-449: bit-forsinkelsen SKAL vaere 10 us. LOAD/CLK/QH sidder paa
+// strapping-pins (GPIO15/2/0) med pull-ups og kapacitet paa boardet; med 2 us
+// (v7.9.68.58) naaede signalerne ikke at falde paa plads → forkerte bits →
+// 10 Hz blev talt som 4-18 Hz. En laesning tager saa ~190 us aktiv venting,
+// derfor 2 ms periode (~10 % af core 1) → praecis taelling op til ca. 250 Hz.
+#define SR_SCAN_PERIOD_MS     2
+#define SR_IN_BIT_DELAY_US    10
 static SemaphoreHandle_t sr_in_mutex = NULL;
 static TaskHandle_t sr_scan_task_handle = NULL;
 static uint8_t sr_output_cache[SR_OUT_COUNT] = {0};   // Current state of 74HC595

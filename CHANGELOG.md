@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.64] - 2026-10-04
+
+### BUG FIXES
+- **BUG-449:** SW-tælleren talte forkert (10 Hz → 4-18 Hz) efter FEAT-438, fordi skifteregistret blev læst for hurtigt (2 µs). Tilbage til 10 µs; scan hvert 2 ms → præcis op til ca. 250 Hz.
+
 ## [7.9.68.63] - 2026-10-04
 
 ### OPTIMIZATION

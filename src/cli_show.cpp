@@ -2307,7 +2307,7 @@ void cli_cmd_show_counter(uint8_t id, bool verbose) {
     // FEAT-438: hvilken sti taeller flankerne?
     extern uint8_t counter_sw_fast_active(uint8_t id);
     debug_println(counter_sw_fast_active(id)
-      ? "  Sampling: scan-task hvert 1 ms (skifteregister-indgang, op til ca. 400 Hz)"
+      ? "  Sampling: scan-task hvert 2 ms (skifteregister-indgang, op til ca. 250 Hz)"
       : "  Sampling: hovedloekken (ca. 50-150 Hz)");
   } else if (cfg.hw_mode == COUNTER_HW_SW_ISR && cfg.interrupt_pin > 0) {
     debug_print("  Interrupt GPIO: ");

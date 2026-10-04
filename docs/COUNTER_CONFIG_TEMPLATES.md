@@ -33,7 +33,7 @@ show counter 1
 ```
 
 - `debounce:on debounce-ms:10` til mekaniske kontakter. Til rene elektroniske pulser kan `debounce:off` give lidt højere hastighed.
-- **Hastighed (v7.9.68.58+, FEAT-438):** på ES32D26 samples DI1–8 (skifteregistret) af en dedikeret task hvert 1 ms, uafhængigt af hovedløkken. Uden debounce kan en puls derfor tælles, når den og pausen hver varer mindst ca. 1 ms — teoretisk op til ca. 500 Hz, i praksis regn med ca. 400 Hz. Med `debounce-ms:10` er grænsen ca. 75–100 Hz (10 ms spærretid efter hver talt flanke). `show counter <id>` viser `Sampling: scan-task hvert 1 ms`. Andre indgange (DI uden skifteregister-mapping) læses stadig én gang pr. hovedløkke: ca. 50–150 Hz.
+- **Hastighed (v7.9.68.58+, FEAT-438):** på ES32D26 samples DI1–8 (skifteregistret) af en dedikeret task hvert 2 ms, uafhængigt af hovedløkken (BUG-449: 10 µs pr. clock-flanke er nødvendigt på boardet). Uden debounce kan en puls derfor tælles, når den og pausen hver varer mindst ca. 2 ms — op til ca. 250 Hz. Med `debounce-ms:10` er grænsen ca. 75–100 Hz (10 ms spærretid efter hver talt flanke). `show counter <id>` viser `Sampling: scan-task hvert 2 ms`. Andre indgange (DI uden skifteregister-mapping) læses stadig én gang pr. hovedløkke: ca. 50–150 Hz.
 
 ---
 
