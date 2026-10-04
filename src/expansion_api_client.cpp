@@ -290,20 +290,40 @@ static void expansion_api_do_work(void) {
   ESP_LOGI(TAG, "Board %u %s %s -> http=%d", g_pending.board_index, g_pending.method, g_pending.path, code);
 }
 
+// BUG-455: ÉN vedvarende worker-task, oprettet ved opstart (expansion_api_client_init),
+// som vækkes pr. kald. Tidligere blev en task med 12 KB stak oprettet og
+// slettet for HVERT kald — efter et stykke tids drift var den interne heap så
+// fragmenteret (største blok ~5 KB), at xTaskCreate fejlede, og alle board-
+// kald gav "Kunne ikke starte kald". Den rå socket-klient (FEAT-442) kræver
+// langt mindre stak end HTTPClient gjorde.
+#define EXP_API_WORKER_STACK 6144
+static SemaphoreHandle_t g_expansion_work_sem = NULL;
+static TaskHandle_t g_expansion_worker = NULL;
+
 static void expansion_api_worker(void *pv) {
   (void)pv;
-  expansion_api_do_work();  // lokale C++-objekter (HTTPClient m.fl.) destrueres normalt her
-  g_expansion_api_result.done = true;
-  g_expansion_api_result.in_progress = false;
-  xSemaphoreGive(g_expansion_api_sem);
-  vTaskDelete(NULL);
+  for (;;) {
+    xSemaphoreTake(g_expansion_work_sem, portMAX_DELAY);
+    expansion_api_do_work();
+    g_expansion_api_result.done = true;
+    g_expansion_api_result.in_progress = false;
+    xSemaphoreGive(g_expansion_api_sem);
+  }
+}
+
+void expansion_api_client_init(void) {
+  if (!g_expansion_api_sem) g_expansion_api_sem = xSemaphoreCreateBinary();
+  if (!g_expansion_work_sem) g_expansion_work_sem = xSemaphoreCreateBinary();
+  if (!g_expansion_worker && g_expansion_work_sem) {
+    xTaskCreatePinnedToCore(expansion_api_worker, "exp_api", EXP_API_WORKER_STACK, NULL, 1,
+                            &g_expansion_worker, tskNO_AFFINITY);
+  }
 }
 
 static bool expansion_api_spawn(void) {
-  // Plain HTTP (ingen TLS-haandtryk, modsat github_check_worker's 32768 —
-  // se BUG-364/369) — 12288 giver rigelig margen til HTTPClient+String uden
-  // TLS-overheaddet der noedvendiggjorde originalens stoerre stak.
-  BaseType_t created = xTaskCreatePinnedToCore(expansion_api_worker, "exp_api", 12288, NULL, 1, NULL, tskNO_AFFINITY);
+  if (!g_expansion_worker) expansion_api_client_init();  // sidste chance, hvis init ikke er kaldt
+  BaseType_t created = g_expansion_worker ? pdPASS : pdFAIL;
+  if (created == pdPASS) xSemaphoreGive(g_expansion_work_sem);
   if (created != pdPASS) {
     g_expansion_api_result.in_progress = false;
     g_expansion_api_result.done = true;

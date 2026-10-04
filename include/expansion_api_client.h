@@ -86,6 +86,9 @@ typedef struct {
   char    response_json[1536];// raa JSON-body fra boardet, eller en synteseret fejlbesked
 } ExpansionApiResult;
 
+/** BUG-455: opret den vedvarende worker-task (kald ved opstart, før heapen fragmenteres) */
+void expansion_api_client_init(void);
+
 bool expansion_api_start_status(uint8_t board_index);
 bool expansion_api_start_channels(uint8_t board_index);
 

@@ -53,6 +53,7 @@ extern void alarm_raise(uint8_t severity, const char *msg);
 #include "mb_async.h"          // v7.7.0 - Async Modbus Master background task
 #include "modbus_expansion_async.h"  // FEAT-410 - Async Modbus Expansion Master background task
 #include "modbus_expansion.h"  // BUG-419 - modbus_expansion_init() (connection-pool mutex)
+#include "expansion_api_client.h"  // BUG-455 - expansion_api_client_init() (vedvarende worker)
 #include "mb_activity_log.h"   // FEAT-149 - Wire-level Modbus activity log
 #include "trend_recorder.h"    // FEAT-099 - Periodic register trend recorder
 #include "system_log.h"        // FEAT-086/089 - Event + register-change log
@@ -193,6 +194,7 @@ void setup() {
   Serial.print("Ax"); Serial.flush();
   modbus_expansion_init();        // BUG-419: connection-pool mutex, before the worker(s) can use it
   modbus_expansion_async_init();
+  expansion_api_client_init();    // BUG-455: vedvarende worker til board-management-API
 
   Serial.print("H"); Serial.flush();   // Heartbeat
   heartbeat_init();         // LED blink on GPIO2

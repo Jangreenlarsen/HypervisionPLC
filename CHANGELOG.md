@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.74] - 2026-10-04
+
+### BUG FIXES
+- **BUG-455:** kald til expansion boardets API (I/O-siden, Monitor-status) fejlede med "Kunne ikke starte kald", fordi en ny task med 12 KB stak blev oprettet for hvert kald, og den interne RAM var for fragmenteret. Nu én vedvarende worker (6 KB), oprettet ved opstart.
+
 ## [7.9.68.73] - 2026-10-04
 
 ### CHANGES
