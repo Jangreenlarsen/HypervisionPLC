@@ -84,7 +84,7 @@ echo -n 'api_user:ChangeMe123!' | base64
 
 **Metode 1: Eksplicit header (anbefalet)**
 ```bash
-curl -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ="
+curl -H "Authorization: Basic <base64 af bruger:kodeord>"
 ```
 
 **Metode 2: curl -u flag**
@@ -107,7 +107,7 @@ curl -u 'api_user:ChangeMe123!'
 **Request:**
 ```bash
 curl -s \
-  -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+  -H "Authorization: Basic <base64 af bruger:kodeord>" \
   -H "Content-Type: application/json" \
   -X POST http://10.1.1.126/api/logic/1/source \
   -d '{
@@ -166,7 +166,7 @@ END
 **Request:**
 ```bash
 curl -s \
-  -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+  -H "Authorization: Basic <base64 af bruger:kodeord>" \
   -H "Content-Type: application/json" \
   -X POST http://10.1.1.126/api/logic/1/bind \
   -d '{
@@ -231,7 +231,7 @@ curl -s \
 **Request:**
 ```bash
 curl -s \
-  -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+  -H "Authorization: Basic <base64 af bruger:kodeord>" \
   -H "Content-Type: application/json" \
   -X POST http://10.1.1.126/api/gpio/19/config \
   -d '{
@@ -284,7 +284,7 @@ curl -s \
 **Request:**
 ```bash
 curl -s \
-  -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+  -H "Authorization: Basic <base64 af bruger:kodeord>" \
   -H "Content-Type: application/json" \
   -X POST http://10.1.1.126/api/logic/1/enable
 ```
@@ -319,7 +319,7 @@ curl -s \
 **Request:**
 ```bash
 curl -s \
-  -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+  -H "Authorization: Basic <base64 af bruger:kodeord>" \
   -H "Content-Type: application/json" \
   -X POST http://10.1.1.126/api/system/save
 ```
@@ -346,7 +346,7 @@ curl -s \
 
 ```bash
 curl -s \
-  -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+  -H "Authorization: Basic <base64 af bruger:kodeord>" \
   http://10.1.1.126/api/logic/1
 ```
 
@@ -389,7 +389,7 @@ curl -s \
 
 ```bash
 curl -s \
-  -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+  -H "Authorization: Basic <base64 af bruger:kodeord>" \
   http://10.1.1.126/api/registers/coils/10
 ```
 
@@ -404,7 +404,7 @@ curl -s \
 
 ```bash
 curl -s \
-  -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+  -H "Authorization: Basic <base64 af bruger:kodeord>" \
   http://10.1.1.126/api/gpio/19
 ```
 
@@ -430,7 +430,7 @@ curl -s \
 
 ```bash
 curl -s \
-  -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+  -H "Authorization: Basic <base64 af bruger:kodeord>" \
   http://10.1.1.126/api/logic/1/source
 ```
 
@@ -456,7 +456,7 @@ curl -s \
 # Auth:   api_user / ChangeMe123!
 # ============================================================
 
-AUTH="Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ="
+AUTH="Authorization: Basic <base64 af bruger:kodeord>"
 HOST="http://10.1.1.126"
 
 # --- Trin 1: Upload ST kildekode ---
@@ -512,7 +512,7 @@ echo ""
 Hvis du vil fjerne alt igen:
 
 ```bash
-AUTH="Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ="
+AUTH="Authorization: Basic <base64 af bruger:kodeord>"
 HOST="http://10.1.1.126"
 
 # Deaktivér program
@@ -541,7 +541,7 @@ curl -s -H "$AUTH" -X POST "$HOST/api/system/save"
 curl -u 'api_user:ChangeMe123!' ...
 
 # VIRKER — eksplicit Base64 header
-curl -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" ...
+curl -H "Authorization: Basic <base64 af bruger:kodeord>" ...
 ```
 
 ### 7.2 Compilation fejler

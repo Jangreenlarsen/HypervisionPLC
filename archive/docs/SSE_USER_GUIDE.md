@@ -134,7 +134,7 @@ python -c "import base64; print(base64.b64encode(b'api_user:ChangeMe123!').decod
 ### Header-format
 
 ```
-Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=
+Authorization: Basic <base64 af bruger:kodeord>
 ```
 
 > **Bemærk:** Hvis authentication er deaktiveret på ESP32 (`set http auth disable`), kan Authorization-headeren udelades.
@@ -172,7 +172,7 @@ Når du bruger `subscribe=all` **uden** eksplicitte adresse-parametre (hr/ir/coi
 
 ```bash
 # watch_all mode — overvåger ALLE registre, coils og DI
-curl -N -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+curl -N -H "Authorization: Basic <base64 af bruger:kodeord>" \
   "http://10.1.32.20:1800/api/events?subscribe=all"
 ```
 
@@ -180,7 +180,7 @@ Hvis du tilføjer eksplicitte adresser, bruges den normale watch-list i stedet:
 
 ```bash
 # Watch-list mode — kun de specificerede adresser
-curl -N -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+curl -N -H "Authorization: Basic <base64 af bruger:kodeord>" \
   "http://10.1.32.20:1800/api/events?subscribe=all&coils=40-47"
 ```
 
@@ -296,42 +296,42 @@ Alle eksempler bruger base64-encodet authentication. Erstat IP-adresse og port m
 ### Tjek SSE-status (REST API, port 80)
 
 ```bash
-curl -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+curl -H "Authorization: Basic <base64 af bruger:kodeord>" \
   http://10.1.32.20/api/events/status
 ```
 
 ### Stream alle topics
 
 ```bash
-curl -N -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+curl -N -H "Authorization: Basic <base64 af bruger:kodeord>" \
   "http://10.1.32.20:1800/api/events?subscribe=all"
 ```
 
 ### Stream kun registers (specifikke coils og DI)
 
 ```bash
-curl -N -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+curl -N -H "Authorization: Basic <base64 af bruger:kodeord>" \
   "http://10.1.32.20:1800/api/events?subscribe=registers&coils=40-47&di=40-42"
 ```
 
 ### Stream counters og timers
 
 ```bash
-curl -N -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+curl -N -H "Authorization: Basic <base64 af bruger:kodeord>" \
   "http://10.1.32.20:1800/api/events?subscribe=counters,timers"
 ```
 
 ### Stream kun system (heartbeat)
 
 ```bash
-curl -N -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+curl -N -H "Authorization: Basic <base64 af bruger:kodeord>" \
   "http://10.1.32.20:1800/api/events?subscribe=system"
 ```
 
 ### Holding registers + coils blandet
 
 ```bash
-curl -N -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+curl -N -H "Authorization: Basic <base64 af bruger:kodeord>" \
   "http://10.1.32.20:1800/api/events?subscribe=registers&hr=0,5,10-15&coils=0-7&ir=0-3&di=0-3"
 ```
 
@@ -586,7 +586,7 @@ Output eksempel:
 
 1. **Tjek SSE-status:**
    ```bash
-   curl -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" http://10.1.32.20/api/events/status
+   curl -H "Authorization: Basic <base64 af bruger:kodeord>" http://10.1.32.20/api/events/status
    ```
    Bekræft at `sse_enabled` er `true` og at porten er korrekt.
 
@@ -604,7 +604,7 @@ Output eksempel:
 
 4. **Tjek at data ændrer sig:** SSE sender kun events ved ændringer. Prøv at ændre en coil via REST API:
    ```bash
-   curl -X POST -H "Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ=" \
+   curl -X POST -H "Authorization: Basic <base64 af bruger:kodeord>" \
      -H "Content-Type: application/json" \
      -d '{"value":1}' \
      http://10.1.32.20/api/registers/coils/40
@@ -658,7 +658,7 @@ Output eksempel:
 
 ```bash
 # Base64 auth-streng
-AUTH="Authorization: Basic YXBpX3VzZXI6ITIzUGFzc3dvcmQ="
+AUTH="Authorization: Basic <base64 af bruger:kodeord>"
 
 # Status-tjek
 curl -H "$AUTH" http://10.1.32.20/api/events/status

@@ -22,7 +22,7 @@
 set -euo pipefail
 
 ENV_NAME="es32d26"
-REPO="Jangreenlarsen/Modbus_server_slave_ESP32"
+REPO="Jangreenlarsen/HypervisionPLC"
 ASSET_NAME="firmware_signed.bin"   # FEAT-439: PLC'en accepterer kun signeret firmware
 
 cd "$(dirname "$0")/.."

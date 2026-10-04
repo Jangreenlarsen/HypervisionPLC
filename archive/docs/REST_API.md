@@ -136,7 +136,7 @@ Authorization: Basic base64(username:password)
 curl -u admin:hemmeligt123 http://192.168.1.100/api/status
 
 # Alternativt
-curl -H "Authorization: Basic YWRtaW46aGVtbWVsaWd0MTIz" \
+curl -H "Authorization: Basic <base64 af bruger:kodeord>" \
      http://192.168.1.100/api/status
 ```
 
@@ -882,7 +882,7 @@ Nulstiller alle Modbus Master statistik-tællere (requests, success, timeouts, C
 **Eksempel:**
 ```bash
 curl -X POST http://192.168.1.100/api/modbus/master/reset-stats \
-  -H "Authorization: Basic YWRtaW46bW9kYnVzMTIz"
+  -H "Authorization: Basic <base64 af bruger:kodeord>"
 ```
 
 ---

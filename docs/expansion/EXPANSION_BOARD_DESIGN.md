@@ -2,22 +2,22 @@
 
 **Status:** Designforslag — ikke implementeret. Til brug for en separat udviklingsindsats (nyt board, ny firmware, formentlig nyt repo).
 **Målgruppe:** En udvikler (menneske eller Claude-session) der skal bygge expansion-boardets hardware og firmware fra bunden.
-**Ophav:** Hypervision PLC-projektet (`Modbus_server_slave_ESP32`), efter et forsøg (FEAT-408) på at tilføje en 2. Modbus Master-motor DIREKTE på PLC'ens egen ESP32-chip stødte på en hardware-blocker — se §0.
+**Ophav:** Hypervision PLC-projektet (`HypervisionPLC`), efter et forsøg (FEAT-408) på at tilføje en 2. Modbus Master-motor DIREKTE på PLC'ens egen ESP32-chip stødte på en hardware-blocker — se §0.
 **Afhængigheder:** Se "Kan dette dokument stå alene?" nedenfor.
 
 ---
 
 ## Kan dette dokument stå alene, eller kræver det adgang til PLC-repoet?
 
-**Kort svar: arkitekturen og alle designbeslutninger står alene — men flere afsnit henviser bevidst til konkrete filer i `Modbus_server_slave_ESP32` som implementeringsmønstre, og fuld udnyttelse af dokumentet kræver læse-adgang til dem.**
+**Kort svar: arkitekturen og alle designbeslutninger står alene — men flere afsnit henviser bevidst til konkrete filer i `HypervisionPLC` som implementeringsmønstre, og fuld udnyttelse af dokumentet kræver læse-adgang til dem.**
 
 Mere præcist, opdelt efter hvad man rent faktisk skal bygge:
 
 - **Expansion-boardets eget hardware+firmware (§1-§4, §9-§10):** INGEN kode- eller build-afhængighed til PLC-repoet. Boardet er et selvstændigt firmware-projekt (nyt repo, egen `platformio.ini`/build-system) der udelukkende taler til PLC'en via de protokoller dette dokument definerer (§4 — Modbus TCP + REST). Man kan tekniske bygge boardet uden nogensinde at åbne PLC-repoet.
 - **Men:** ~9 steder i dokumentet (samlet i Appendiks A) peger eksplicit på konkrete filer i PLC-repoet som **anbefalede implementeringsskabeloner** — fx `src/modbus_master.cpp`s PDU/CRC-logik, `mb_async.cpp`s kø/cache-design (§5.1.1), `api_handlers.cpp`s REST-auth-stil, `ota_handler.cpp`s dual-partition-mønster, og `config_load.cpp`s schema-migrationsmønster (§3.5). Uden adgang til disse filer skal udvikleren **genopfinde** disse (allerede afprøvede, produktionshærdede) løsninger fra bunden ud fra tekstbeskrivelserne alene — muligt, men et reelt tab af genbrugsværdi, og den primære begrundelse for hvorfor dette dokument overhovedet henviser så meget til PLC-repoet.
-- **PLC-siden af integrationen (§5) er derimod IKKE uafhængig** — det arbejde sker bogstaveligt talt INDE I `Modbus_server_slave_ESP32`-repoet (nye filer som `modbus_expansion.cpp`, ændringer til `web/system.html`, CLI/ST Logic-udvidelser) og kræver fuld adgang til og forståelse af den eksisterende kodebase, ikke bare reference. Det er en separat, fremtidig arbejdsopgave for nogen med kontekst i DETTE repo, ikke expansion-board-udvikleren.
+- **PLC-siden af integrationen (§5) er derimod IKKE uafhængig** — det arbejde sker bogstaveligt talt INDE I `HypervisionPLC`-repoet (nye filer som `modbus_expansion.cpp`, ændringer til `web/system.html`, CLI/ST Logic-udvidelser) og kræver fuld adgang til og forståelse af den eksisterende kodebase, ikke bare reference. Det er en separat, fremtidig arbejdsopgave for nogen med kontekst i DETTE repo, ikke expansion-board-udvikleren.
 
-**Praktisk anbefaling:** giv expansion-board-udvikleren (menneske eller Claude-session) læse-adgang til `Modbus_server_slave_ESP32`-repoet, eller som minimum kopier af de ~9 filer listet i Appendiks A, selvom de kun skal bygge boardet og ikke PLC-siden.
+**Praktisk anbefaling:** giv expansion-board-udvikleren (menneske eller Claude-session) læse-adgang til `HypervisionPLC`-repoet, eller som minimum kopier af de ~9 filer listet i Appendiks A, selvom de kun skal bygge boardet og ikke PLC-siden.
 
 ---
 
@@ -678,7 +678,7 @@ Fundet ved en kritisk analyse af dette dokument mod PLC-projektets egne, allered
 5. **Fase 5 — Management-API (ét board):** Implementér REST-endpoints for status/kanal-config/diagnostisk read-write/OTA (§4.2). Test med `curl`/Postman: skriv kanal-config via `PUT`, læs den tilbage via `GET`, bekræft identisk; test at data-planet afviser forbindelser fra andre IP'er end det provisionerede `plc_ip` (§4.3); test en gyldig OTA-upload aktiveres korrekt efter reboot, og en korrupt upload afvises uden at bricke boardet.
    **✅ FÆRDIG (v0.7.0 → v0.12.0).** Alle underpunkter live-verificeret med `curl` mod fysisk hardware, inkl. den eksakte OTA-testrækkefølge beskrevet her (gyldig upload → reboot → aktiveret; ugyldig upload → afvist, board upåvirket).
 6. **Fase 6 — PLC-side integration (i denne repo, separat feature), ÉT board:** Byg `modbus_expansion.cpp` (data) og `expansion_api_client.cpp` (management) som beskrevet i §5.1, med kø/cache-designet fra §5.1.1 genbrugt tæt efter `mb_async.cpp`/`mb_async2.cpp`'s struktur (ikke genopfundet fra bunden) — test grundigt mod ÉT board først, inkl. bevidst fejl-injektion (afbryd en slave midt i drift) for at verificere backoff/PENDING-recovery reelt virker som i originalen. Byg derefter det nye "Modbus Expansion Board"-kort i `web/system.html` (§5.2), stadig for ét board.
-   **⏳ IKKE PÅBEGYNDT.** Hører til `Modbus_server_slave_ESP32`-repoet, uden for dette repos scope (jf. CLAUDE.md). [`PLC_INTEGRATION_MANUAL.md`](PLC_INTEGRATION_MANUAL.md) er skrevet netop for at understøtte dette skridt, når det tages op.
+   **⏳ IKKE PÅBEGYNDT.** Hører til `HypervisionPLC`-repoet, uden for dette repos scope (jf. CLAUDE.md). [`PLC_INTEGRATION_MANUAL.md`](PLC_INTEGRATION_MANUAL.md) er skrevet netop for at understøtte dette skridt, når det tages op.
 7. **Fase 7 — Multi-board (op til 8):** Udvid PLC-sidens konfiguration og UI (§1.4/§5.2) til en liste af boards. Verificér kø/cache-koden fra Fase 6 kræver INGEN ændring udover at nøglerne udvides med et board-felt (§5.1.1's anbefaling) — hvis det gør, er det et signal om at board-dimensionen blev "hardkodet" et sted i Fase 6 og bør rettes der, ikke omgås her.
    **⏳ IKKE PÅBEGYNDT** — afhænger af Fase 6.
 8. **Fase 8 — Robusthedstest (fuld skala):** Afbryd netværksforbindelsen til ét board midt i drift, verificér de øvrige boards er upåvirkede og PLC-siden håndterer det tabte board gracefuldt; kortslut/afbryd én RS485-kanal, verificér de andre 7 på samme board (og alle kanaler på andre boards) upåvirkede; genstart et board midt i drift, verificér automatisk re-konfiguration fra PLC'en; forsøg at nå data-portene fra en IP UDENFOR allowlisten, bekræft afvisning; kør alle op til 64 kanaler samtidig ved realistisk pollingfrekvens i en længere periode (jf. §10's 24-timers-kriterium) og verificér ingen af §5.1.1's kendte fejlklasser (voksende PENDING-lager, ubegrænset backoff-akkumulering, mutex-sult) opstår under vedvarende belastning.

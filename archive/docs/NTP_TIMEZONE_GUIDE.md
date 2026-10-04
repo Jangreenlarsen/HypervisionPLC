@@ -279,7 +279,7 @@ Response:
 ```bash
 curl -X POST http://192.168.1.100/api/ntp \
   -H "Content-Type: application/json" \
-  -H "Authorization: Basic dXNlcjpwYXNz" \
+  -H "Authorization: Basic <base64 af bruger:kodeord>" \
   -d '{"enabled":true,"server":"pool.ntp.org","timezone":"CET-1CEST,M3.5.0,M10.5.0/3","sync_interval_min":60}'
 ```
 

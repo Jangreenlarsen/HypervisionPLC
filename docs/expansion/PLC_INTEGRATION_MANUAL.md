@@ -1,6 +1,6 @@
 # PLC-integrations-manual: HypervisionPLC Extension Board
 
-Denne manual dokumenterer expansion-boardets **fulde, faktisk implementerede** grænseflade, som den ser ud efter v0.12.0 (build 0015) — til brug når PLC-siden (`Modbus_server_slave_ESP32`-repoet, `modbus_expansion.cpp`/`expansion_api_client.cpp`, §5 i [EXPANSION_BOARD_DESIGN.md](EXPANSION_BOARD_DESIGN.md)) skal implementeres. Alt heri er verificeret mod rigtig hardware, ikke kun designet — se [CHANGELOG.md](CHANGELOG.md) for de enkelte live-verifikationer.
+Denne manual dokumenterer expansion-boardets **fulde, faktisk implementerede** grænseflade, som den ser ud efter v0.12.0 (build 0015) — til brug når PLC-siden (`HypervisionPLC`-repoet, `modbus_expansion.cpp`/`expansion_api_client.cpp`, §5 i [EXPANSION_BOARD_DESIGN.md](EXPANSION_BOARD_DESIGN.md)) skal implementeres. Alt heri er verificeret mod rigtig hardware, ikke kun designet — se [CHANGELOG.md](CHANGELOG.md) for de enkelte live-verifikationer.
 
 **Forskel fra designdokumentet:** [EXPANSION_BOARD_DESIGN.md](EXPANSION_BOARD_DESIGN.md) beskriver den fulde, oprindelige vision (op til 8 kanaler, OTA, osv.). Denne manual beskriver kun det der **rent faktisk er bygget og testet** i denne repo lige nu — Variant A, 2 kanaler. Er der uoverensstemmelse, er DENNE fil den autoritative kilde for hvad et board faktisk gør i dag.
 
