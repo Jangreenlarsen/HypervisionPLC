@@ -131,7 +131,7 @@ save
 ```
 
 - Flaget gemmes i tællerens konfiguration (v7.9.68.57+, BUG-447) og bevares, når `mode 1`-linjen køres igen. `show config counter` eksporterer det.
-- Læsning af kun kontrolregistret (HR110) nulstiller ikke. Læsning via REST eller dashboardet nulstiller heller ikke.
+- Læsning af kun kontrolregistret (HR110) nulstiller ikke. Læsning via REST, dashboardet eller ST (`CNT_VALUE`/`CNT_RAW`) nulstiller heller ikke — et ST-program læser typisk i hver cyklus. Fra ST nulstilles eksplicit: `antal := CNT_VALUE(1); CNT_CTRL(1, 0);`
 - Pulser, der kommer mellem masterens læsning og nulstillingen (samme hovedløkke), tælles ikke med i næste aflæsning.
 - Alternativ uden flaget: masteren læser HR100-101 og skriver derefter **1** (bit 0 = reset-kommando) i HR110.
 
