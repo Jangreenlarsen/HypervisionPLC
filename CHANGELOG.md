@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.61] - 2026-10-04
+
+### NEW FEATURES
+- **FEAT-441:** Trend Recorder kan vises på den offentlige statusside — kurver for de registre, der er valgt i Trend Recorderen.
+
 ## [7.9.68.60] - 2026-10-04
 
 ### SECURITY

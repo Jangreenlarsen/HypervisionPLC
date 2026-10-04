@@ -133,7 +133,8 @@ Ud over selve "Metrics"-visningen (kort/faner, beskrevet ovenfor) har `/dashboar
 - **Gem** — kræver skriveadgang. Ændringen ses straks på `/`; tryk **Save** øverst for at den overlever en genstart.
 - **Forhåndsvisning** — til højre vises statussiden, som en besøgende uden login ser den. Den opdateres efter Gem og stopper, når man forlader fanen.
 - **Watchdog og Expansion Boards** (FEAT-435) vises i en reduceret udgave: Watchdog med aktiv, safe mode, opstarter, crashes, sidste reset-årsag og drift før genstart — *uden* fejltekst og task-navne; Expansion Boards med board-nr., navn og Online/Offline/"Ingen data endnu" (ud fra seneste Modbus TCP-svar, offline efter 60 s) — *uden* IP-adresse og firmware.
-- **Kort der ikke kan vises offentligt** — Alarm Historik og Hændelseslog (logger fejlede logins og nægtet skriveadgang med brugernavn og IP), TCP Forbindelser (forbundne klienters IP-adresser) og Trend Recorder (registerværdier, som bevidst ikke vises uden login, BUG-406).
+- **Trend Recorder** (FEAT-441) viser kurver og seneste værdi for præcis de registre, der er valgt i Trend Recorderen (dashboardets Trend Recorder-kort) — det er det udvalg, der bliver offentligt. Kun de nyeste 240 samples sendes; siden henter hvert 10. s. Vælg kun registre, der må ses uden login.
+- **Kort der ikke kan vises offentligt** — Alarm Historik og Hændelseslog (logger fejlede logins og nægtet skriveadgang med brugernavn og IP) og TCP Forbindelser (forbundne klienters IP-adresser).
 
 `/dashboard#statusside` åbner fanen direkte (System-siden linker hertil). Samme liste kan sættes via REST: `POST /api/public-dashboard/cards` med `{"visible":"system,counters,ntp"}` (se [appendiks B](B_REST_API_Reference.md)).
 

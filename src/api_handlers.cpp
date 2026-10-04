@@ -911,6 +911,7 @@ static const api_route_info_t API_ROUTES[] = {
   {"GET",    "/api/public-dashboard/cards",         "FEAT-407: which dashboard cards are shown on the public status page"},
   {"POST",   "/api/public-dashboard/cards",         "FEAT-407: set which dashboard cards are shown on the public status page (admin)"},
   {"GET",    "/api/public-dashboard/extras",        "FEAT-435: auth-free watchdog/expansion status for the public status page (only selected cards)"},
+  {"GET",    "/api/public-dashboard/trend",         "FEAT-441: auth-free trend data (newest 240 samples) when the Trend Recorder card is public"},
   {"POST",   "/api/system/ota",                    "Upload firmware (OTA, FEAT-031)"},
   {"GET",    "/api/system/ota/status",              "OTA progress status (FEAT-031)"},
   {"POST",   "/api/system/ota/rollback",           "Rollback firmware (FEAT-031)"},
@@ -8474,7 +8475,8 @@ static const char *PUBLIC_DASHBOARD_CARD_IDS[] = {
   "system", "network", "modbusslave", "modbusmaster", "bushealth",
   "httpapi", "counters", "timers", "stlogic", "ntp", "rtutrafik",
   "dio", "analogio", "mbactivity",
-  "watchdog", "modbusexpansion"   // FEAT-435: data via GET /api/public-dashboard/extras
+  "watchdog", "modbusexpansion",  // FEAT-435: data via GET /api/public-dashboard/extras
+  "trendrec"                      // FEAT-441: data via GET /api/public-dashboard/trend
 };
 static const int PUBLIC_DASHBOARD_CARD_ID_COUNT =
   sizeof(PUBLIC_DASHBOARD_CARD_IDS) / sizeof(PUBLIC_DASHBOARD_CARD_IDS[0]);
@@ -10604,14 +10606,15 @@ esp_err_t api_handler_trend_clear(httpd_req_t *req)
   return api_send_json(req, "{\"status\":\"ok\",\"message\":\"Data ryddet\"}");
 }
 
-esp_err_t api_handler_trend_data_get(httpd_req_t *req)
+// FEAT-441: faelles afsendelse for /api/trend/data og den offentlige variant.
+// max_samples > 0 begraenser til de nyeste samples (mindre trafik paa den
+// login-fri statusside).
+static esp_err_t trend_send_data(httpd_req_t *req, uint16_t max_samples)
 {
-  http_server_stat_request();
-  CHECK_AUTH(req);
-
   trend_point_t points[TREND_MAX_POINTS];
   uint8_t point_count = trend_recorder_get_points(points, TREND_MAX_POINTS);
   uint16_t n = trend_recorder_count();
+  uint16_t first = (max_samples > 0 && n > max_samples) ? (uint16_t)(n - max_samples) : 0;
 
   // FEAT-149/BUG-332-lektie: chunked afsendelse, ikke én stor buffer — se
   // api_handler_modbus_activity_get()'s kommentar for hvorfor.
@@ -10645,11 +10648,11 @@ esp_err_t api_handler_trend_data_get(httpd_req_t *req)
   httpd_resp_send_chunk(req, head, HTTPD_RESP_USE_STRLEN);
 
   char item[256];
-  for (uint16_t i = 0; i < n; i++) {
+  for (uint16_t i = first; i < n; i++) {
     trend_sample_t s;
     if (!trend_recorder_get(i, &s)) break;
 
-    int p = snprintf(item, sizeof(item), "%s{\"t\":%lu,\"v\":[", (i == 0) ? "" : ",", (unsigned long)s.timestamp_ms);
+    int p = snprintf(item, sizeof(item), "%s{\"t\":%lu,\"v\":[", (i == first) ? "" : ",", (unsigned long)s.timestamp_ms);
     for (uint8_t k = 0; k < point_count; k++) {
       if (s.values[k] == TREND_VALUE_INVALID) {  // FEAT-425: ingen gyldig maaling
         p += snprintf(item + p, sizeof(item) - p, "%snull", (k == 0) ? "" : ",");
@@ -10666,6 +10669,30 @@ esp_err_t api_handler_trend_data_get(httpd_req_t *req)
 
   http_server_stat_success();
   return ESP_OK;
+}
+
+esp_err_t api_handler_trend_data_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+  return trend_send_data(req, 0);
+}
+
+// FEAT-441: GET /api/public-dashboard/trend — login-fri trend-data til
+// statussidens Trend Recorder-kort. Kun naar admin har valgt kortet til
+// statussiden; viser praecis de registre admin har sat i Trend Recorderen
+// (det er "udvalget"), og kun de nyeste 240 samples.
+esp_err_t api_handler_public_dashboard_trend_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_API_ENABLED(req);  // bevidst ingen bruger-auth — admin har valgt kortet
+  if (!http_rate_limit_check(req)) {
+    return api_send_error(req, 429, "Too many requests");
+  }
+  if (!public_card_selected("trendrec")) {
+    return api_send_error(req, 404, "Trend Recorder er ikke valgt til statussiden");
+  }
+  return trend_send_data(req, 240);
 }
 
 // POST /api/trend/{config|start|stop|clear}, GET /api/trend/{config|data} —
@@ -11351,6 +11378,7 @@ static const V1Route v1_routes[] = {
   {"/api/public-dashboard/cards", true, HTTP_GET,  api_handler_public_dashboard_cards_get},
   {"/api/public-dashboard/cards", true, HTTP_POST, api_handler_public_dashboard_cards_post},
   {"/api/public-dashboard/extras", true, HTTP_GET, api_handler_public_dashboard_extras_get},
+  {"/api/public-dashboard/trend", true, HTTP_GET, api_handler_public_dashboard_trend_get},
   {"/api/events/status",    true,  HTTP_GET,    api_handler_sse_status},
   {"/api/events/clients",   true,  HTTP_GET,    api_handler_sse_clients},
   {"/api/events/disconnect", true, HTTP_POST,   api_handler_sse_disconnect},
