@@ -446,7 +446,7 @@ IR 201 = 0x0009  →  Logic2 has error + is enabled (bits 0+3 set)
 | **210** | Logic3 | 16-bit | Number of execution errors |
 | **211** | Logic4 | 16-bit | Number of execution errors |
 
-**Note:** Nulstilles ved `set logic stats reset X` eller Modbus control bit 2.
+**Note:** Nulstilles ved `reset logic stats <id|all>` eller Modbus control bit 2.
 
 ---
 
@@ -786,22 +786,22 @@ Disse registre har **INGEN faste adresser**. Brugeren konfigurerer dem via CLI k
 
 ### Counter Registers
 
-Hver counter kan bruge op til **4 registre** (alle bruger-definerede adresser):
+Hver tæller har en **fast, auto-tildelt blok** (base = 100 + (id−1)×20). Adresserne kan ikke ændres — `value-reg:`, `raw-reg:`, `freq-reg:`, `ctrl-reg:` og `index-reg:` afvises af CLI'en:
 
-| Register Type | CLI Parameter | Type | Beskrivelse | Eksempel |
-|---------------|---------------|------|-------------|----------|
-| **value_reg** | `value-reg:X` | 16/32/64-bit | Scaled counter value = value × scale_factor | `value-reg:100` |
-| **raw_reg** | `raw-reg:Y` | 16/32/64-bit | Prescaled value = value / prescaler | `raw-reg:104` |
-| **freq_reg** | `freq-reg:Z` | 16-bit | Measured frequency in Hz (0-20000 Hz) | `freq-reg:108` |
-| **ctrl_reg** | `ctrl-reg:V` | 16-bit | Control/status register (bitfield) | `ctrl-reg:110` |
+| Register | Offset | Tæller 1 | Tæller 2 | Tæller 3 | Tæller 4 | Beskrivelse |
+|----------|--------|----------|----------|----------|----------|-------------|
+| **value_reg** | +0..+3 | HR100-103 | HR120-123 | HR140-143 | HR160-163 | Tælleværdi × scale (`CNT_VALUE`) |
+| **raw_reg** | +4..+7 | HR104-107 | HR124-127 | HR144-147 | HR164-167 | Tælleværdi ÷ prescaler, heltal (`CNT_RAW`) |
+| **freq_reg** | +8 | HR108 | HR128 | HR148 | HR168 | Frekvens i Hz (uden prescaler) |
+| **ctrl_reg** | +10 | HR110 | HR130 | HR150 | HR170 | Kontrol/status (bitfelt, se nedenfor) |
+| **compare_value_reg** | +11..+14 | HR111-114 | HR131-134 | HR151-154 | HR171-174 | Compare-tærskel (læses løbende) |
 
-**Multi-Register Support:**
-- 8-bit counters: 1 register (value_reg uses HR X only)
-- 16-bit counters: 1 register (value_reg uses HR X only)
-- 32-bit counters: 2 registers (value_reg uses HR X-X+1, LSW first)
-- 64-bit counters: 4 registers (value_reg uses HR X-X+3, LSW first)
+**Multi-Register Support** (value_reg, raw_reg og compare_value_reg):
+- 8/16-bit tællere: 1 register
+- 32-bit tællere: 2 registre (lavt ord først)
+- 64-bit tællere: 4 registre (lavt ord først)
 
-**Note:** raw_reg følger samme multi-register layout som value_reg baseret på bit_width.
+Sammenhængen mellem tælleværdi, startværdi, prescaler og skala er vist i manualens §9.1.1.
 
 ---
 
@@ -815,18 +815,18 @@ Hver counter kan bruge op til **4 registre** (alle bruger-definerede adresser):
 |-----|------|------|-------------|----------|
 | **0** | `RESET_CMD` | W | Reset command | Write 1 → nulstil counter til start_value. Auto-clears. |
 | **1** | `START_CMD` | W | Start command | Write 1 → start counting (one-shot). Auto-clears. |
-| **2** | `RUNNING_STATUS` | R | Running flag | Read-only: 1 = counting aktiv, 0 = stoppet |
+| **2** | `STOP_CMD` | W | Stop command | Write 1 → stop counting. Auto-clears. |
 | **3** | `OVERFLOW_FLAG` | R | Overflow detected | Read-only: 1 = overflow (værdi > max), 0 = normal |
-| **4** | `COMPARE_MATCH` | R | Compare triggered | Read-only: 1 = værdi ≥ threshold, 0 = below |
+| **4** | `COMPARE_MATCH` | R | Compare triggered | Sættes når værdien KRYDSER tærsklen; bliver stående til den slettes (se nedenfor) |
 | **5** | Reserved | - | Fremtidig brug | Altid 0 |
 | **6** | Reserved | - | Fremtidig brug | Altid 0 |
-| **7** | `DIRECTION_IND` | R | Direction | Read-only: 0 = counting up, 1 = counting down |
+| **7** | `RUNNING` | R/W | Running (vedvarende) | 1 = tælleren kører, 0 = stoppet. Skriv 1/0 for at starte/stoppe |
 | **8-15** | Reserved | - | Fremtidig brug | Altid 0 |
 
 #### Bit 0: RESET_CMD (Write-Only Command)
 - **Funktionalitet:**
   - Write `1` → Reset counter værdi til `start_value`
-  - Clearer overflow flag (bit 3) og compare match flag (bit 4)
+  - Clearer overflow flag (bit 3). Compare match (bit 4) slettes IKKE af reset
   - Auto-clears: Næste read viser bit 0 = 0
 - **Eksempel:**
   ```python
@@ -843,14 +843,13 @@ Hver counter kan bruge op til **4 registre** (alle bruger-definerede adresser):
   write_register(110, 0x0002)  # Start Counter1
   ```
 
-#### Bit 2: RUNNING_STATUS (Read-Only Status)
+#### Bit 2: STOP_CMD (Write-Only Command)
 - **Funktionalitet:**
-  - `1` = Counter aktiv (tæller edges/pulses)
-  - `0` = Counter stoppet
+  - Write `1` → stop counting
+  - Auto-clears
 - **Eksempel:**
   ```python
-  ctrl = read_register(110)
-  running = (ctrl & 0x0004) != 0
+  write_register(110, 0x0004)  # Stop Counter1
   ```
 
 #### Bit 3: OVERFLOW_FLAG (Read-Only Status)
@@ -869,10 +868,9 @@ Hver counter kan bruge op til **4 registre** (alle bruger-definerede adresser):
 
 #### Bit 4: COMPARE_MATCH (Read-Only Status)
 - **Funktionalitet:**
-  - `1` = Counter værdi ≥ compare_value
-  - `0` = Counter værdi < compare_value
+  - Sættes når værdien **krydser** compare-tærsklen (HR111-114) opad — se `docs/COUNTER_COMPARE_REFERENCE.md`
+  - Bliver stående, til den slettes: FC03-læsning af ctrl-reg med `reset-on-read:on`, eller skriv bit 4 = 0
   - Kun aktiv hvis compare_enabled=true
-  - Clears via RESET_CMD eller reset_on_read
 - **Eksempel:**
   ```python
   ctrl = read_register(110)
@@ -880,14 +878,15 @@ Hver counter kan bruge op til **4 registre** (alle bruger-definerede adresser):
       print("Compare threshold reached!")
   ```
 
-#### Bit 7: DIRECTION_IND (Read-Only Status)
+#### Bit 7: RUNNING (vedvarende tilstand)
 - **Funktionalitet:**
-  - `0` = Counting UP (incrementing)
-  - `1` = Counting DOWN (decrementing)
+  - `1` = Counter kører (tæller pulser), `0` = stoppet
+  - Skriv 1 for at starte, 0 for at stoppe. Efter genstart sættes den automatisk, hvis tælleren har auto-start (`set counter 1 control auto-start:on`)
+  - Retningen (op/ned) ses ikke i ctrl-reg — den står i tællerens konfiguration
 - **Eksempel:**
   ```python
   ctrl = read_register(110)
-  direction = "DOWN" if (ctrl & 0x0080) else "UP"
+  running = (ctrl & 0x0080) != 0
   ```
 
 #### Typiske Ctrl Reg Værdier
@@ -895,18 +894,18 @@ Hver counter kan bruge op til **4 registre** (alle bruger-definerede adresser):
 | Hex | Dec | Bits | Betydning |
 |-----|-----|------|-----------|
 | `0x0000` | 0 | None | Counter stopped, no flags |
-| `0x0004` | 4 | Bit 2 | Running (normal) |
-| `0x000C` | 12 | Bit 2+3 | Running + overflow |
-| `0x0014` | 20 | Bit 2+4 | Running + compare match |
-| `0x001C` | 28 | Bit 2+3+4 | Running + overflow + compare |
-| `0x0084` | 132 | Bit 2+7 | Running + counting DOWN |
+| `0x0080` | 128 | Bit 7 | Running (normal) |
+| `0x0088` | 136 | Bit 7+3 | Running + overflow |
+| `0x0090` | 144 | Bit 7+4 | Running + compare match |
+| `0x0098` | 152 | Bit 7+3+4 | Running + overflow + compare |
 
 ---
 
 **CLI Configuration Example:**
 ```bash
-set counter 1 value-reg:100 raw-reg:104 freq-reg:108 ctrl-reg:110
-set counter 1 enabled:true prescaler:16 scale:10 resolution:32
+# Registrene er auto-tildelt (HR100-114 for tæller 1) og kan ikke ændres
+set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling prescaler:16 scale:10 bit-width:32
+set counter 1 control auto-start:on running:on
 save
 ```
 
@@ -923,7 +922,7 @@ print(f"Counter1: value={value}, freq={freq_hz} Hz")
 
 # Check status flags
 ctrl = read_holding_register(110)
-running = (ctrl & 0x0004) != 0
+running = (ctrl & 0x0080) != 0
 overflow = (ctrl & 0x0008) != 0
 print(f"Running: {running}, Overflow: {overflow}")
 
@@ -932,70 +931,60 @@ write_register(110, 0x0001)
 ```
 
 **Register Count Per Counter:**
-- Minimum: 1 register (value_reg kun, 16-bit)
-- Maximum: 11 registers (value_reg 4 + raw_reg 4 + freq_reg 1 + ctrl_reg 1 + compare_value_reg 1, 64-bit mode)
-- Typical: 4 registers (value_reg, raw_reg, freq_reg, ctrl_reg)
-- Total capacity: Op til 4 counters × ~4 registers = ~16 registre typisk
+- Hver tæller har en fast blok på 15 registre: tæller 1 = HR100-114, 2 = HR120-134, 3 = HR140-154, 4 = HR160-174
+- Værdi (HR+0), prescaled (HR+4) og compare-værdi (HR+11) bruger 1/2/4 registre efter bit-width (lavt ord først); frekvens (HR+8) og ctrl (HR+10) 1 register
 
 ---
 
 ### Timer Registers
 
-Hver timer bruger **1 register** (bruger-defineret adresse):
+Hver timer kan have **1 kontrolregister** (valgfrit, sættes med `ctrl-reg:X` på timerens konfigurationslinje):
 
 | Register Type | CLI Parameter | Type | Beskrivelse | Eksempel |
 |---------------|---------------|------|-------------|----------|
-| **ctrl_reg** | `ctrl-reg:X` | 16-bit | Timer control/status register | `ctrl-reg:50` |
+| **ctrl_reg** | `ctrl-reg:X` | 16-bit | Timer-kommandoer | `ctrl-reg:50` |
 
-**Control Register Bits (ctrl_reg):**
-- Bit 0: Timer enabled (read/write)
-- Bit 1: Timer mode (0-4, read-only)
-- Bits 2-7: Timer state (mode-dependent, read-only)
-- Bit 8: Manual trigger (write 1 to trigger mode 1/2)
-- Bit 9: Reset timer (write 1 to reset)
+**Control Register Bits (ctrl_reg)** — kommandoer, slettes automatisk efter udførelse:
+- Bit 0: START
+- Bit 1: STOP
+- Bit 2: RESET
 
 **CLI Configuration Example:**
 ```bash
-set timer 1 ctrl-reg:50
-set timer 1 mode:3 enabled:true t1:1000 t2:500  # Astable blink
+# Hele timerens opsætning på én linje (Astable blink 1000/500 ms på coil 150)
+set timer 1 mode 3 on-ms:1000 off-ms:500 p1-output:1 p2-output:0 output-coil:150 ctrl-reg:50
 save
 ```
 
 **Modbus Control Example:**
 ```python
-# Enable Timer1
-ctrl = read_holding_register(50)
-ctrl |= 0x0001  # Set bit 0
-write_register(50, ctrl)
-
-# Trigger Timer1 (mode 1/2 only)
-write_register(50, 0x0100)  # Set bit 8
-
-# Read Timer1 state
-ctrl = read_holding_register(50)
-enabled = (ctrl & 0x0001) != 0
-mode = (ctrl >> 1) & 0x07
-print(f"Timer1: enabled={enabled}, mode={mode}")
+write_register(50, 0x0001)  # Start Timer1
+write_register(50, 0x0002)  # Stop Timer1
+write_register(50, 0x0004)  # Reset Timer1
 ```
 
 ---
 
 ### Persistent Registers
 
-**Persistent registers** er bruger-defineret data storage som gemmes til NVS.
+**Persistent registers** er navngivne grupper af holding-registre, hvis værdier gemmes i NVS.
 
-| CLI Parameter | Type | Beskrivelse | Eksempel |
-|---------------|------|-------------|----------|
-| `persist-reg:X=value` | 16-bit | Store arbitrary 16-bit value at address X | `persist-reg:150=4242` |
+| CLI-kommando | Beskrivelse |
+|--------------|-------------|
+| `set persist enable on\|off` | Slå persistence-systemet til/fra |
+| `set persist group <navn> add <reg-spec>` | Tilføj registre, fx `150-155` eller `150,152` |
+| `save registers all\|group <navn>` | Gem gruppens aktuelle værdier i NVS |
+| `load registers all\|group <navn>` | Genindlæs værdierne fra NVS |
+| `set persist auto-load enable` | Indlæs grupperne automatisk ved opstart |
 
-**Max Count:** 32 persistent registers (configurerbar)
+Se manualens appendiks A for alle `set persist`-kommandoer.
 
 **CLI Configuration:**
 ```bash
-set persist enable:true
-set persist group:0 persist-reg:150=4242
-set persist group:1 persist-reg:151=1234
+set persist enable on
+set persist group kalib add 150-151
 save
+save registers group kalib
 ```
 
 **Features:**
@@ -1011,7 +1000,7 @@ print(f"Persist reg 150: {value}")
 
 # Skriv til persistent register 150
 write_register(150, 9999)
-# Note: Auto-saves til NVS (konfigureret via CLI)
+# Note: gemmes i NVS ved `save registers` (eller fra ST med SAVE)
 ```
 
 ---
@@ -1135,11 +1124,13 @@ print(f"Timer1 output: {state}")
 
 **Best Practice:**
 ```bash
-# GODT: Counters i safe zone
-set counter 1 index-reg:10 raw-reg:11 freq-reg:12
+# Tællernes registre er auto-tildelt (HR100-174) og kan ikke flyttes
+# (index-reg:/raw-reg:/freq-reg:/ctrl-reg: afvises). Brug DYNAMIC-spejling,
+# hvis en master skal læse en tællerværdi på en anden adresse:
+set holding-reg DYNAMIC 90 counter1:index
 
-# DÅRLIGT: Collision med ST Logic!
-set counter 1 index-reg:200  # ❌ Overlaps med ST Logic Status!
+# DÅRLIGT: HR200-237 er ST Logics kontrol-/input-registre — afvises
+set holding-reg DYNAMIC 200 counter1:index   # ❌
 ```
 
 ---
@@ -1156,7 +1147,7 @@ show logic 1                  # Show Logic1 config
 # Control
 set logic 1 enabled:true      # Enable Logic1
 set logic interval:50         # Set execution interval to 50ms
-set logic stats reset all     # Reset all statistics
+reset logic stats all         # Reset all statistics
 set logic debug:true          # Enable debug output
 
 # Upload program
@@ -1168,43 +1159,42 @@ set logic 1 bind x reg:100    # Bind variable x to HR 100
 
 ### Counter Commands
 ```bash
-# Configuration
-set counter 1 index-reg:10 raw-reg:11 freq-reg:12
-set counter 1 enabled:true prescaler:16 scale:10
+# Configuration (hele opsætningen på én linje — se manualens §9.1)
+set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling prescaler:16 scale:10 bit-width:32
+set counter 1 control auto-start:on running:on
+save
 show counter 1
 
 # Reset via CLI
-set counter 1 reset           # Reset counter value
+reset counter 1               # Reset counter value til start-value
 ```
 
 ### Timer Commands
 ```bash
-# Configuration
-set timer 1 ctrl-reg:50
-set timer 1 mode:3 t1:1000 t2:500  # Astable blink
-set timer 1 enabled:true
+# Configuration (Astable blink 1000/500 ms på coil 150)
+set timer 1 mode 3 on-ms:1000 off-ms:500 p1-output:1 p2-output:0 output-coil:150
+save
 show timer 1
 
-# Control
-set timer 1 trigger           # Manual trigger (mode 1/2)
+# Slet
+set timer 1 disable
 ```
 
 ### GPIO Commands
 ```bash
 # Map GPIO pins
-set gpio 25 coil:10           # GPIO25 output → Coil #10
-set gpio 26 input-dis:20      # GPIO26 input → DI #20
+set gpio 25 coil 10           # GPIO25 output → Coil #10
+set gpio 26 input 20          # GPIO26 input → DI #20
 show gpio
 ```
 
 ### Persistent Register Commands
 ```bash
 # Enable persistence
-set persist enable:true
+set persist enable on
 
-# Define persistent registers
-set persist group:0 persist-reg:150=4242
-set persist group:1 persist-reg:151=1234
+# Define a persistent group of registers
+set persist group taeller add 100-101
 
 # Save to NVS
 save
@@ -1255,13 +1245,14 @@ client.write_register(237, 50)  # Low word
 
 ### Read Counter Values
 ```python
-# Antag Counter1: index-reg=10, freq-reg=12
-scaled_value = client.read_holding_registers(10, 1).registers[0]
-frequency = client.read_holding_registers(12, 1).registers[0]
+# Counter1 (auto-tildelt): værdi HR100-101 (32 bit, lavt ord først), frekvens HR108, ctrl HR110
+lo, hi = client.read_holding_registers(100, 2).registers
+scaled_value = (hi << 16) | lo
+frequency = client.read_holding_registers(108, 1).registers[0]
 print(f"Counter1: value={scaled_value}, freq={frequency} Hz")
 
-# Reset Counter1 via ctrl-reg (bit 3)
-client.write_register(104, 0x0008)
+# Reset Counter1 via ctrl-reg (bit 0 = reset-kommando)
+client.write_register(110, 0x0001)
 ```
 
 ### Control GPIO via Coils

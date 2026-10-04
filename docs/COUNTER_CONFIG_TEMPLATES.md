@@ -1,413 +1,192 @@
-# Counter Configuration Templates - ESP32 Modbus RTU Server
+# Tæller-skabeloner (Counter Configuration Templates)
 
-<!-- DOC-STATUS: historisk -->
-> ⚠️ **Historisk dokument — vedligeholdes ikke længere.** Skrevet til en ældre firmwareversion og kan være forældet (CLI-syntaks, pins, endpoints, standardværdier). Den aktuelle, vedligeholdte dokumentation er [brugermanualen](manual/00_INDEKS.md) (CLI: appendiks A, REST: appendiks B, ST: appendiks D). Markeret ved dokumentationsgennemgang 2026-09-28.
+**Gælder:** firmware v7.9.68.50+ · **Opdateret:** 2026-10-04 · Hovedreference: [manualens kapitel 9](manual/09_Taellere_og_Timere.md) (inkl. diagrammet i §9.1.1) og [appendiks A](manual/A_CLI_Kommando_Reference.md).
 
-
-**Version:** v4.2.0
-**Dato:** 2025-12-15
+Kopiér og tilpas. Alle kommandoer følger den aktuelle syntaks og er kontrolleret mod CLI-parseren.
 
 ---
 
-## 📋 Overview
+## Grundregler
 
-Dette dokument indeholder **pre-konfigurerede CLI templates** til almindelige counter setups. Kopier og tilpas efter dine behov.
+1. **Én `set counter <id> mode 1 …`-linje = hele tællerens opsætning.** Linjen bygges op fra standardværdierne; nøgler der ikke står på linjen, får standardværdien (undtagen auto-start, som bevares). Del derfor *aldrig* opsætningen over flere `mode`-linjer — den sidste overskriver de forrige.
+2. **Aktiveret ≠ kørende.** Tælleren tæller først, når den er startet: `set counter <id> control running:on`. Med `auto-start:on` starter den også efter hver genstart.
+3. **Gem:** `save` efter ændringer.
+4. **Startværdi er i pulser.** Prescaler og skala ændrer kun udgangsregistrene, ikke tællingen (se §9.1.1).
+5. `show config counter` viser opsætningen i et format, der kan sættes direkte ind igen.
 
-### Smart Register Defaults (v4.4.3+)
+**Nøgler** (`set counter <id> mode 1 key:value …`): `hw-mode` (`sw`/`sw-isr`/`hw`), `input-dis`, `interrupt-pin`, `hw-gpio`, `edge` (`rising`/`falling`/`both`), `direction` (`up`/`down`), `bit-width` (8/16/32/64), `start-value`, `prescaler`, `scale`, `debounce` (`on`/`off`), `debounce-ms`, `compare-enabled` (`on`/`off`), `compare-value`, `compare-mode` (0 = ≥, 1 = >, 2 = =), `compare-source` (0 = tælleværdi, 1 = prescaled, 2 = scaled), `reset-on-read` (compare-bit), `enable`/`disable`. De ældre navne `resolution`, `start`, `debounce-time`, `compare` og ordet `parameter` accepteres også.
 
-Starting with v4.4.3, counters får **automatiske logiske register adresser** (optimeret layout):
-
-| Counter | Value Reg | Raw Reg | Freq Reg | Ctrl Reg | Compare Reg |
-|---------|-----------|---------|----------|----------|-------------|
-| 1       | HR100-103 | HR104-107 | HR108  | HR110    | HR111-114   |
-| 2       | HR120-123 | HR124-127 | HR128  | HR130    | HR131-134   |
-| 3       | HR140-143 | HR144-147 | HR148  | HR150    | HR151-154   |
-| 4       | HR160-163 | HR164-167 | HR168  | HR170    | HR171-174   |
-
-**Note:** Value/Raw/Compare bruger 1-4 registre baseret på bit_width (16-bit=1, 32-bit=2, 64-bit=4).
-
-**Ctrl Reg bit layout:**
-- Bit 0: Reset (W), Bit 1: Start (W), Bit 2: Running (R)
-- Bit 3: **Overflow (R)** - konsolideret fra separat register
-- Bit 4: Compare match (R), Bit 7: Direction (R)
-
-**Du behøver IKKE specificere disse**, men kan override hvis ønsket.
+> **ES32D26:** kun `hw-mode:sw` kan bruges (DI1–8 sidder bag et skifteregister, og der er ingen ledige GPIO-pins). `sw-isr` og `hw` afvises med en forklaring (FEAT-430). Skabelon 2 gælder kun andre boards.
 
 ---
 
-## 🔧 Configuration Templates
+## Skabelon 1 — Pulstælling på en digital indgang (sw, alle boards)
 
-### **Template 1: HW Counter (PCNT Mode)**
-
-Bruges til at tælle hardware pulser direkte via GPIO med PCNT (Pulse Counter).
-
-**Hardware setup:**
-- Counter 1: GPIO25 (ESP32 PCNT Unit 0)
-- Counter 2: GPIO26 (ESP32 PCNT Unit 1)
-- Counter 3: GPIO27 (ESP32 PCNT Unit 2)
-- Counter 4: GPIO33 (ESP32 PCNT Unit 3)
-
-**CLI Commands:**
+DI8 (GPIO108) er discrete input 7. Indgangene på ES32D26 er aktiv-lave (1 = hvile), så der tælles på faldende flanke = når indgangen aktiveres.
 
 ```bash
-# Counter 1 - HW Mode (PCNT)
-set counter 1 mode 1 hw-mode:hw hw-gpio:25 edge:rising prescaler:1
-set counter 1 control running:on auto-start:on
+set gpio 108 input 7
+set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32 start-value:0 debounce:on debounce-ms:10
+set counter 1 control auto-start:on running:on
 save
-
-# Counter 2 - HW Mode (PCNT)
-set counter 2 mode 1 hw-mode:hw hw-gpio:26 edge:rising prescaler:1
-set counter 2 control running:off
-save
-
-# Counter 3 - HW Mode (PCNT)
-set counter 3 mode 1 hw-mode:hw hw-gpio:27 edge:rising prescaler:1
-set counter 3 control running:off
-save
-
-# Counter 4 - HW Mode (PCNT)
-set counter 4 mode 1 hw-mode:hw hw-gpio:33 edge:rising prescaler:1
-set counter 4 control running:off
-save
+show counter 1
 ```
 
-**Forklaring:**
-- `hw-mode:hw` - Brug hardware PCNT (mest præcis)
-- `hw-gpio:25` - GPIO pin for PCNT input
-- `edge:rising` - Tæl stijgende flanker
-- `prescaler:1` - Ingen prescaler (tæl alle pulser)
-- `running:on` - Start counter umiddelbart
-- `auto-start:on` - Start automatically efter reboot
-
-**Registre:**
-- HR100: Index value (scaled)
-- HR101: Raw value (prescaled)
-- HR102: Frequency (Hz)
-- HR103: Overload flag
-- HR104: Control register
+- `debounce:on debounce-ms:10` til mekaniske kontakter. Til rene elektroniske pulser kan `debounce:off` give lidt højere hastighed.
+- `sw` læser indgangen én gang pr. hovedløkke: realistisk ca. 50 Hz med debounce 10 ms, ca. 100–150 Hz uden. Pulser kan tabes, mens PLC'en gemmer til flash eller kompilerer.
 
 ---
 
-### **Template 2: SW Mode Counter (GPIO Polling)**
-
-Bruges til at læse en diskret input fra GPIO periodisk (polling).
+## Skabelon 2 — Hardware-tæller (hw/PCNT) og interrupt (sw-isr) — kun andre boards end ES32D26
 
 ```bash
-# Counter 2 - SW Mode (Polling)
-set counter 2 mode 1 hw-mode:sw input-dis:45 edge:rising prescaler:1
-set counter 2 control running:on
+# PCNT på en direkte GPIO (højeste hastighed)
+set counter 1 mode 1 hw-mode:hw hw-gpio:25 edge:rising bit-width:32
+set counter 1 control auto-start:on running:on
+save
+
+# GPIO-interrupt
+set counter 2 mode 1 hw-mode:sw-isr interrupt-pin:26 edge:rising bit-width:32
+set counter 2 control auto-start:on running:on
 save
 ```
 
-**Forklaring:**
-- `hw-mode:sw` - Software polling (læs GPIO hver iteration)
-- `input-dis:45` - Diskret input #45 (mappes til en GPIO)
-- `edge:rising` - Detect stijgende flanker
-- `prescaler:1` - Tæl alle flanker
-
-**Fordele:**
-- Fungerer på alle GPIO pins
-- Ingen hardware-setup nødvendig
-
-**Ulemper:**
-- Mindre præcis end HW (kan misse pulser hvis for hurtig)
-- Bruger mere CPU (polling i hver main loop iteration)
+Undgå strapping-pins (0, 2, 5, 12, 15) og pins der bruges af andet udstyr på boardet.
 
 ---
 
-### **Template 3: SW-ISR Mode Counter (Interrupt-Driven)**
+## Skabelon 3 — Prescaler (dele tællingen ned i HR104)
 
-Bruges til høj-frekvens tælling med hardware interrupt (mest præcis software mode).
+Prescaleren tæller **alle** pulser; den dividerer kun værdien, der skrives i HR104-105 (`CNT_RAW`). Den udvider ikke tællerens område og påvirker ikke HR100 eller frekvensen.
 
 ```bash
-# Counter 3 - SW-ISR Mode (Interrupt-driven)
-set counter 3 mode 1 hw-mode:sw-isr interrupt-pin:26 edge:rising prescaler:1
-set counter 3 control running:on
+# Flowmåler: 100 pulser pr. liter → HR104 = hele liter, HR100 = pulser
+set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32 prescaler:100
+set counter 1 control auto-start:on running:on
 save
 ```
 
-**Forklaring:**
-- `hw-mode:sw-isr` - Software ISR mode (interrupt-driven)
-- `interrupt-pin:26` - GPIO pin som skal bruges til interrupt
-- `edge:rising` - Trigger ISR på stijgende flanker
-- `prescaler:1` - Tæl alle flanker
+| Pulser | HR100 (`CNT_VALUE`) | HR104 (`CNT_RAW`) |
+|---|---|---|
+| 99 | 99 | 0 |
+| 100 | 100 | 1 |
+| 2537 | 2537 | 25 |
 
-**Fordele:**
-- Høj præcision (interrupt-baseret)
-- CPU-effektiv (ingen polling)
-
-**Ulemper:**
-- Kræver disponibel interrupt pin
-- Kan have jitter ved meget høje frekvenser
+Skal HR104 starte på 50 liter, sættes `start-value:5000` (i pulser).
 
 ---
 
-### **Template 4: Prescaler Setup**
-
-Hvis du vil tælle kun hver N'te puls (for at reducere overflow):
+## Skabelon 4 — Skala (enhedsomregning i HR100)
 
 ```bash
-# Counter 1 - Prescaler 10 (tæl kun hver 10. puls)
-set counter 1 mode 1 hw-mode:hw hw-gpio:25 edge:rising prescaler:10
-set counter 1 control running:on
+# Hver puls = 0,5 enhed → HR100 = pulser × 0,5 (afrundet)
+set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32 scale:0.5
+set counter 1 control auto-start:on running:on
 save
 ```
 
-**Eksempel:**
-- Uden prescaler: Counter tæller 0 til 65535 (16-bit), derefter overløb
-- Med prescaler:10: Counter tæller 0 til 655350 før overløb (10× mere range)
-
-**Note:** Prescaler påvirker IKKE frekvens-måling (Hz register) - det er altid præcist.
+100 pulser → HR100-101 = 50, HR104-105 = 100 (prescaler 1). HR101 er det **høje ord** af HR100's 32-bit værdi — ikke et separat register.
 
 ---
 
-### **Template 5: Compare Feature (Alarm ved værdi)**
-
-Trig alarm når counter når en bestemt værdi:
+## Skabelon 5 — Compare (statusbit ved en tærskel)
 
 ```bash
-# Counter 1 - Alert når værdi ≥ 1000
-set counter 1 mode 1 hw-mode:hw hw-gpio:25 edge:rising prescaler:1
-set counter 1 mode 2 compare:on compare-value:1000 compare-mode:0
-set counter 1 control running:on
+# Sæt bit 4 i kontrolregistret (HR110), når tælleværdien ≥ 1000
+set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32 compare-enabled:on compare-value:1000 compare-mode:0 compare-source:0 reset-on-read:on
+set counter 1 control auto-start:on running:on
 save
 ```
 
-**Forklaring:**
-- `compare:on` - Aktivér compare feature
-- `compare-value:1000` - Sammenlign med denne værdi
-- `compare-mode:0` - Mode: 0=≥ (greater-or-equal), 1=> (greater), 2=== (exact)
+- Statusbit: **HR110 bit 4** (Counter 2: HR130, 3: HR150, 4: HR170). Compare-værdien ligger i HR111-114.
+- `reset-on-read:on`: bit 4 slettes, når en Modbus-master læser kontrolregistret.
+- `compare-source`: 0 = tælleværdien, 1 = prescaled (HR104), 2 = scaled (HR100).
 
-**Resultatet:**
-- Når counter ≥ 1000: Bit 4 i control register sættes til 1
-- Master kan læse HR104 bit 4 for at detektere alarm
-- `reset-on-read:1` - Auto-clear alarm ved læsning (default)
+Se også [COUNTER_COMPARE_QUICK_START.md](COUNTER_COMPARE_QUICK_START.md).
 
 ---
 
-### **Template 6: Reset on Read Feature**
-
-Counter resets til start-værdi når den læses af Modbus master:
+## Skabelon 6 — Nedtælling fra en mængde
 
 ```bash
-# Counter 1 - Reset to 0 efter læsning
-set counter 1 mode 1 hw-mode:hw hw-gpio:25 edge:rising prescaler:1
-set counter 1 mode 2 start-value:0 reset-on-read:1
-set counter 1 control running:on
+# Tæller 500, 499, … 0 — ved næste puls tilbage til 500, og overflow-bit (HR110 bit 3) sættes
+set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32 direction:down start-value:500
+set counter 1 control auto-start:on running:on
 save
+reset counter 1
 ```
 
-**Use case:**
-- Master læser HR100 (counter værdi)
-- Counter resets til start-value:0
-- Næste iteration tæller fra 0 igen
-- Effektivt: "read and reset" i en operation
+`start-value` træder i kraft ved `reset counter`, ved (re)konfiguration og ved opstart.
 
 ---
 
-### **Template 7: Scale Factor**
+## Skabelon 7 — Læs og nulstil fra en Modbus-master
 
-Multiplicer counter værdi med scale factor for unit conversion:
+> ⚠️ `set counter <id> control counter-reg-reset-on-read:on` virker **ikke** vedvarende i den nuværende firmware: flaget ligger i kontrolregistrets bit 0, som også er reset-kommandoen, så tælleren nulstilles én gang, og flaget forsvinder (BUG-447, åben).
+
+Brug i stedet reset-kommandoen efter læsning: masteren læser HR100-101 og skriver derefter **1** (bit 0 = reset) i HR110. Tælleren går til `start-value`, og bitten slettes automatisk.
+
+---
+
+## Skabelon 8 — Fuld opsætning (ES32D26)
 
 ```bash
-# Counter 1 - Scale 0.5 (hver puls = 0.5 enheder)
-set counter 1 mode 1 hw-mode:hw hw-gpio:25 edge:rising prescaler:1
-set counter 1 mode 2 scale:0.5
-set counter 1 control running:on
+# Tæller 1: aktiveringer på DI8 (discrete input 7)
+set gpio 108 input 7
+set counter 1 mode 1 hw-mode:sw input-dis:7 edge:falling bit-width:32 start-value:0 debounce:on debounce-ms:10
+set counter 1 control auto-start:on running:on
+
+# Tæller 2: flowmåler på DI7 (discrete input 6), 100 pulser pr. liter
+set gpio 107 input 6
+set counter 2 mode 1 hw-mode:sw input-dis:6 edge:falling bit-width:32 prescaler:100 debounce:off
+set counter 2 control auto-start:on running:on
+
+# Tæller 3 og 4 bruges ikke
+set counter 3 disable
+set counter 4 disable
+
 save
-```
-
-**Eksempel:**
-- 100 pulses tælt
-- Scale factor: 0.5
-- HR100 (value register): 100 × 0.5 = 50 (scaled)
-- HR101 (raw register): 100 / 1 = 100 (prescaled)
-
-**Use case:**
-- Puls-frekvens til flow-rate konvertering
-- Tand-ratio kompensation
-- Unit scaling
-
----
-
-### **Template 8: Full Setup (Alle 4 Counters)**
-
-Komplet konfiguration af alle 4 counters med forskellige modes:
-
-```bash
-# ==========================================
-# COUNTER 1: HW Mode (PCNT) - Høj præcision
-# ==========================================
-set counter 1 mode 1 hw-mode:hw hw-gpio:25 edge:rising prescaler:1
-set counter 1 mode 2 start-value:0 scale:1.0
-set counter 1 control running:on auto-start:on
-save
-
-# ==========================================
-# COUNTER 2: SW-ISR Mode - Interrupt-driven
-# ==========================================
-set counter 2 mode 1 hw-mode:sw-isr interrupt-pin:26 edge:rising prescaler:1
-set counter 2 control running:off
-save
-
-# ==========================================
-# COUNTER 3: SW Mode - Polling
-# ==========================================
-set counter 3 mode 1 hw-mode:sw input-dis:45 edge:rising prescaler:1
-set counter 3 control running:off
-save
-
-# ==========================================
-# COUNTER 4: Reserved for future use
-# ==========================================
-# (not configured)
-
-# Save persistent configuration
-save
-```
-
-**Output (show counters):**
-
-```
-COUNTER CONFIGURATION
-Counter 1: HW (PCNT) on GPIO25, value-reg=100, running, auto-start enabled
-Counter 2: SW-ISR on GPIO26, value-reg=120, stopped
-Counter 3: SW on DI#45, value-reg=140, stopped
-Counter 4: Not configured
+show config counter
 ```
 
 ---
 
-## 🔍 Troubleshooting
+## Registre
 
-### Problem: "ERROR: Invalid GPIO pin (must be 1-39 for ESP32-WROOM-32)"
+Registrene tildeles automatisk og kan ikke ændres (`index-reg:`, `raw-reg:` m.fl. afvises):
 
-**Årsag:** GPIO pin uden for gyldig range.
+| Tæller | Værdi (× scale) | Prescaled (÷ prescaler) | Frekvens | Kontrol | Compare-værdi |
+|---|---|---|---|---|---|
+| 1 | HR100-103 | HR104-107 | HR108 | HR110 | HR111-114 |
+| 2 | HR120-123 | HR124-127 | HR128 | HR130 | HR131-134 |
+| 3 | HR140-143 | HR144-147 | HR148 | HR150 | HR151-154 |
+| 4 | HR160-163 | HR164-167 | HR168 | HR170 | HR171-174 |
 
-**Løsning:** Brug kun GPIO pins 1-39. Undgå strapping pins (0, 2, 15).
+Antal ord efter `bit-width`: 1 (≤ 16 bit), 2 (32 bit), 4 (64 bit) — **lavt ord først**.
 
-```bash
-# FEJL: GPIO 0 er invalid
-set counter 1 mode 1 hw-mode:hw hw-gpio:0
+**Kontrolregistret (HR110/130/150/170):**
 
-# KORREKT: Brug GPIO 25
-set counter 1 mode 1 hw-mode:hw hw-gpio:25
-```
+| Bit | Betydning | Adgang |
+|---|---|---|
+| 0 | Reset til `start-value` (kommando, slettes automatisk) | Skriv |
+| 1 | Start (kommando, slettes automatisk) | Skriv |
+| 2 | Stop (kommando, slettes automatisk) | Skriv |
+| 3 | Overflow/underflow | Læs |
+| 4 | Compare-match | Læs |
+| 7 | Kører (vedvarende tilstand — sæt for at starte, slet for at stoppe) | Læs/skriv |
 
----
-
-### Problem: "WARNING: GPIO 2 is a strapping pin - may affect boot behavior!"
-
-**Årsag:** GPIO 2, 15 påvirker boot.
-
-**Løsning:** Undgå hvis muligt. Hvis nødvendig, vær forsigtig.
-
-```bash
-# Brug GPIO 25 i stedet
-set counter 1 mode 1 hw-mode:hw hw-gpio:25
-```
+`control auto-start:on` gemmes i tællerens konfiguration, ikke i kontrolregistret (BUG-445).
 
 ---
 
-### Problem: Counter tæller ikke
+## Fejlfinding
 
-**Tjekklist:**
-1. `show counter 1` - Verify `en=1` (enabled)
-2. `show counter 1` - Verify control register `running:on`
-3. Check GPIO pin har signal
-4. Verify mode (HW/SW/ISR) matcher hardware setup
-5. Reboot: `reboot`
-
----
-
-### Problem: Frequency register (Hz) viser 0
-
-**Årsag:** Counter har været stoppet eller nul pulses.
-
-**Løsning:**
-1. Verify counter tæller (check value register)
-2. Ensure signal på GPIO pin
-3. Frekvens opdateres hver ~1 sekund
-
----
-
-### Problem: Counter værdi meget høj (overflow)?
-
-**Løsning 1:** Øg prescaler for at reducere tælle-rate
-
-```bash
-set counter 1 mode 1 hw-mode:hw hw-gpio:25 prescaler:10
-```
-
-**Løsning 2:** Aktivér reset-on-read for periodisk reset
-
-```bash
-set counter 1 mode 2 reset-on-read:1
-```
-
----
-
-## 📊 Register Map Reference (v4.4.3+)
-
-Hver counter bruger **4 basis registers** (plus multi-word for 32/64-bit):
-
-```
-Counter 1: HR100 (value) - HR104 (raw) - HR108 (freq) - HR110 (ctrl)
-Counter 2: HR120 (value) - HR124 (raw) - HR128 (freq) - HR130 (ctrl)
-Counter 3: HR140 (value) - HR144 (raw) - HR148 (freq) - HR150 (ctrl)
-Counter 4: HR160 (value) - HR164 (raw) - HR168 (freq) - HR170 (ctrl)
-```
-
-**Register typer:**
-- **Value Register (HR100/120/140/160):** Scaled counter value (value × scale_factor)
-  - 16-bit: 1 register, 32-bit: 2 registers (LSW first), 64-bit: 4 registers
-- **Raw Register (HR104/124/144/164):** Prescaled counter value (value / prescaler)
-  - Same multi-word layout as value_reg
-- **Frequency Register (HR108/128/148/168):** Measured frequency in Hz (1 register, updated ~1/sec)
-- **Control Register (HR110/130/150/170):** Bit-mapped control/status flags (1 register)
-  - Bit 0: Reset (W), Bit 1: Start (W), Bit 2: Running (R)
-  - Bit 3: **Overflow (R)** - replaces separate overload_reg
-  - Bit 4: Compare match (R), Bit 7: Direction (R)
-
----
-
-## 🎯 Best Practices
-
-1. **Altid sæt `running:on` eller `auto-start:on`** - Counter starter ikke automatisk uden dette
-2. **Brug HW (PCNT) mode for høj-frekvens** - Mest præcis og CPU-effektiv
-3. **Brug SW-ISR mode for medium-frekvens** - Gode præcision uden hardware-bindinger
-4. **Brug SW mode kun for lav-frekvens** - Polling er CPU-dyrere
-5. **Alltid `save` efter config** - Persistent efter reboot
-6. **Verify med `show counter`** - Confirmer setup før produktion
-
----
-
-## 📝 Quick Reference
-
-```bash
-# Minimal HW counter setup
-set counter 1 mode 1 hw-mode:hw hw-gpio:25 edge:rising prescaler:1
-set counter 1 control running:on
-save
-
-# Minimal SW-ISR counter setup
-set counter 2 mode 1 hw-mode:sw-isr interrupt-pin:26 edge:rising prescaler:1
-set counter 2 control running:on
-save
-
-# Minimal SW counter setup
-set counter 3 mode 1 hw-mode:sw input-dis:45 edge:rising prescaler:1
-set counter 3 control running:on
-save
-
-# View all counters
-show counters
-
-# View specific counter config
-show config
-```
-
----
-
-**Sidst opdateret:** 2025-12-15 (v4.2.0)
-**Maintainer:** Claude Code
+| Symptom | Årsag | Løsning |
+|---|---|---|
+| Tælleren tæller ikke, `show counter` viser værdien uændret | Aktiveret, men ikke startet | `set counter 1 control auto-start:on running:on` + `save` |
+| Tæller ikke efter genstart | auto-start ikke sat (eller firmware før v7.9.68.47) | Som ovenfor |
+| Tæller ved *slip* i stedet for tryk | Forkert flanke for indgangen | `edge:rising` ↔ `edge:falling` |
+| HR104 viser 0 | Tælleværdi < prescaler (heltalsdivision) | Forventet — se Skabelon 3 |
+| Indstillinger "forsvinder" | Opsætningen er delt over flere `mode 1`-linjer | Saml alt på én linje |
+| `hw-mode:hw`/`sw-isr` afvises | ES32D26 | Brug `sw` |
+| Frekvensen (HR108) er 0 | Ingen pulser, eller tælleren kører ikke | Tjek signal og `running` |
