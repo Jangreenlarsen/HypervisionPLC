@@ -16,6 +16,20 @@
 #include <esp_heap_caps.h>
 #include <string.h>
 #include <stdlib.h>
+#include <nvs.h>                      // FEAT-443: opsaetningen overlever genstart
+
+/* FEAT-443: Trend Recorderens OPSAETNING (punkter, interval, om den optager)
+ * gemmes straks i sin egen NVS-noegle — ikke i PersistConfig, saa ingen
+ * schema-migrering. Selve samples ligger kun i RAM (ringbuffer). */
+#define TREND_NVS_NS   "trend"
+#define TREND_NVS_KEY  "cfg"
+typedef struct __attribute__((packed)) {
+  uint8_t  version;     // 1
+  uint8_t  count;
+  uint16_t interval_ms;
+  uint8_t  recording;
+  trend_point_t points[TREND_MAX_POINTS];
+} trend_nvs_cfg_t;
 
 // Same PSRAM-first allocation pattern as mb_activity_log.cpp — 720 samples
 // x 8 points x ~36 bytes = ~26KB, trivial in PSRAM, falls back to regular
@@ -39,6 +53,39 @@ static portMUX_TYPE trend_spinlock = portMUX_INITIALIZER_UNLOCKED;
 
 static int32_t trend_read_point(const trend_point_t *p);  // FEAT-425: bruges af set_recording()
 
+static void trend_persist(void) {
+  trend_nvs_cfg_t c;
+  memset(&c, 0, sizeof(c));
+  c.version = 1;
+  c.count = g_point_count;
+  c.interval_ms = g_interval_ms;
+  c.recording = g_recording ? 1 : 0;
+  memcpy(c.points, g_points, sizeof(trend_point_t) * g_point_count);
+  nvs_handle_t h;
+  if (nvs_open(TREND_NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+  nvs_set_blob(h, TREND_NVS_KEY, &c, sizeof(c));
+  nvs_commit(h);
+  nvs_close(h);
+}
+
+static void trend_restore(void) {
+  nvs_handle_t h;
+  if (nvs_open(TREND_NVS_NS, NVS_READONLY, &h) != ESP_OK) return;
+  trend_nvs_cfg_t c;
+  size_t len = sizeof(c);
+  esp_err_t err = nvs_get_blob(h, TREND_NVS_KEY, &c, &len);
+  nvs_close(h);
+  if (err != ESP_OK || len != sizeof(c) || c.version != 1 || c.count > TREND_MAX_POINTS) return;
+  if (c.interval_ms < TREND_INTERVAL_MIN_MS || c.interval_ms > TREND_INTERVAL_MAX_MS) return;
+  g_point_count = c.count;
+  g_interval_ms = c.interval_ms;
+  memcpy(g_points, c.points, sizeof(trend_point_t) * c.count);
+  if (c.recording && c.count > 0) {
+    g_last_sample_ms = millis();  // foerste sample et helt interval efter opstart
+    g_recording = true;
+  }
+}
+
 void trend_recorder_init(void) {
   if (!sample_buf) {
     size_t bytes = (size_t)TREND_MAX_SAMPLES * sizeof(trend_sample_t);
@@ -60,6 +107,7 @@ void trend_recorder_init(void) {
   g_point_count = 0;
   g_interval_ms = 5000;
   g_recording = false;
+  trend_restore();  // FEAT-443
 }
 
 bool trend_recorder_configure(const trend_point_t *points, uint8_t count, uint16_t interval_ms) {
@@ -81,6 +129,7 @@ bool trend_recorder_configure(const trend_point_t *points, uint8_t count, uint16
   sample_count = 0;
   portEXIT_CRITICAL(&trend_spinlock);
 
+  trend_persist();  // FEAT-443
   return true;
 }
 
@@ -95,6 +144,7 @@ void trend_recorder_set_recording(bool enabled) {
     }
   }
   g_recording = enabled;
+  trend_persist();  // FEAT-443
 }
 
 bool trend_recorder_is_recording(void) {

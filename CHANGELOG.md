@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.65] - 2026-10-04
+
+### NEW FEATURES
+- **FEAT-444:** Trend Recorder har sin egen fane **Trend** i Monitor i stedet for et kort på Metrics.
+- **FEAT-443:** Trend Recorderens opsætning (punkter, interval, optagelse) overlever genstart.
+
 ## [7.9.68.64] - 2026-10-04
 
 ### BUG FIXES

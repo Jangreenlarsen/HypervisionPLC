@@ -148,6 +148,7 @@
 <button class="active" onclick="showPage('metrics',this)">Metrics</button>
 <button onclick="showPage('registers',this)">Registre</button>
 <button onclick="showPage('regmap',this)">Register Map</button>
+<button onclick="showPage('trend',this)">Trend</button>
 <button onclick="showPage('settings',this)">Indstillinger</button>
 <button onclick="showPage('statusside',this)" title="Vælg hvad den offentlige, login-fri statusside (/) viser">Statusside</button>
 </div>
@@ -361,41 +362,6 @@
 
 <!-- FEAT-099: Trend Recorder — periodisk sampling af vilkårlige registre til
      commissioning/debugging, RAM-only, CSV-eksport -->
-<div class="card card-wide" data-card-id="trendrec" data-tab="app">
-<h2>Trend Recorder <span class="badge badge-off" id="badgeTrend">0</span></h2>
-<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
-<span style="font-size:10px;color:#6c7086" id="trendInfo">-</span>
-<div style="display:flex;gap:6px;flex-wrap:wrap">
-<button id="trendToggleBtn" onclick="toggleTrendRecording()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Start</button>
-<button onclick="exportTrendCsv()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Eksporter CSV</button>
-<button onclick="clearTrendData()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Ryd data</button>
-</div>
-</div>
-<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
-<select id="trendNewSrc" onchange="updateTrendSrcFields()" title="Hvor punktet læses fra" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
-<option value="local">PLC (lokalt register)</option>
-<option value="rtu">Intern Modbus (RS485)</option>
-</select>
-<select id="trendNewCh" title="Kanal på expansion board" style="display:none;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
-<option value="1">Kanal A</option><option value="2">Kanal B</option>
-</select>
-<input type="number" id="trendNewSlave" min="1" max="247" placeholder="Slave-ID" title="Slave-ID (1-247)" style="display:none;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
-<select id="trendNewType" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
-<option value="hr">Holding Reg</option>
-<option value="ir">Input Reg</option>
-<option value="coil">Coil</option>
-<option value="di">Discrete In</option>
-</select>
-<input type="number" id="trendNewAddr" min="0" max="65535" placeholder="Adresse" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:70px">
-<button onclick="addTrendPoint()" style="font-size:10px;padding:3px 10px;background:#89b4fa;color:#1e1e2e;border:none;border-radius:3px;cursor:pointer;font-weight:600">+ Tilføj punkt</button>
-<span style="font-size:10px;color:#6c7086">Interval (ms):</span>
-<input type="number" id="trendInterval" value="5000" min="500" max="60000" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:65px" onchange="saveTrendConfig()">
-</div>
-<div id="trendPointList" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>
-<div id="trendBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen punkter konfigureret endnu</span></div>
-<p style="font-size:9px;color:#6c7086;margin-top:6px">Kilder: PLC'ens egne registre, slaver på den interne RS485-bus (Intern Modbus — kræver at Modbus Master er aktiveret) og kanaler på expansion boards. Eksterne punkter læses via samme kø/cache som ST Logic: hver sample viser seneste svar (højst ét interval gammelt); "-" = intet gyldigt svar (endnu). RAM-only — konfiguration og data nulstilles ved genstart. At tilføje/fjerne et punkt eller ændre interval stopper optagelsen og rydder allerede opsamlet data (en rekonfiguration er altid en frisk start).</p>
-</div>
-
 <!-- HTTP API + SSE -->
 <div class="card" data-card-id="httpapi" data-tab="connections">
 <h2>HTTP API</h2>
@@ -615,6 +581,44 @@
 <h2>Discrete Inputs (DI 0-255)</h2>
 <div class="regview" id="regmapDI"></div>
 </div>
+</div>
+</div>
+
+<!-- FEAT-444: Trend Recorder som egen fane (tidligere et kort på Metrics) -->
+<div class="page-view" id="pageTrend" style="padding:16px;overflow-y:auto">
+<div class="card" style="max-width:none">
+<h2>Trend Recorder <span class="badge badge-off" id="badgeTrend">0</span></h2>
+<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+<span style="font-size:10px;color:#6c7086" id="trendInfo">-</span>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+<button id="trendToggleBtn" onclick="toggleTrendRecording()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Start</button>
+<button onclick="exportTrendCsv()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Eksporter CSV</button>
+<button onclick="clearTrendData()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Ryd data</button>
+</div>
+</div>
+<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+<select id="trendNewSrc" onchange="updateTrendSrcFields()" title="Hvor punktet læses fra" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="local">PLC (lokalt register)</option>
+<option value="rtu">Intern Modbus (RS485)</option>
+</select>
+<select id="trendNewCh" title="Kanal på expansion board" style="display:none;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="1">Kanal A</option><option value="2">Kanal B</option>
+</select>
+<input type="number" id="trendNewSlave" min="1" max="247" placeholder="Slave-ID" title="Slave-ID (1-247)" style="display:none;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
+<select id="trendNewType" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
+<option value="hr">Holding Reg</option>
+<option value="ir">Input Reg</option>
+<option value="coil">Coil</option>
+<option value="di">Discrete In</option>
+</select>
+<input type="number" id="trendNewAddr" min="0" max="65535" placeholder="Adresse" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:70px">
+<button onclick="addTrendPoint()" style="font-size:10px;padding:3px 10px;background:#89b4fa;color:#1e1e2e;border:none;border-radius:3px;cursor:pointer;font-weight:600">+ Tilføj punkt</button>
+<span style="font-size:10px;color:#6c7086">Interval (ms):</span>
+<input type="number" id="trendInterval" value="5000" min="500" max="60000" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:65px" onchange="saveTrendConfig()">
+</div>
+<div id="trendPointList" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>
+<div id="trendBody" style="max-height:calc(100vh - 330px);min-height:240px;overflow-y:auto"><span class="empty-msg">Ingen punkter konfigureret endnu</span></div>
+<p style="font-size:9px;color:#6c7086;margin-top:6px">Kilder: PLC'ens egne registre, slaver på den interne RS485-bus (Intern Modbus — kræver at Modbus Master er aktiveret) og kanaler på expansion boards. Eksterne punkter læses via samme kø/cache som ST Logic: hver sample viser seneste svar (højst ét interval gammelt); "-" = intet gyldigt svar (endnu). Opsætningen (punkter, interval, om den optager) gemmes straks og overlever genstart — optager den, fortsætter den efter opstart (FEAT-443). De opsamlede data ligger kun i RAM og nulstilles ved genstart; brug "Eksporter CSV" for at gemme dem. At tilføje/fjerne et punkt eller ændre interval stopper optagelsen og rydder allerede opsamlet data (en rekonfiguration er altid en frisk start). Trend Recorderen kan også vises på den offentlige statusside (Statusside-fanen).</p>
 </div>
 </div>
 
@@ -885,6 +889,7 @@ function showPage(page,btn){
   if(st){st.classList.toggle('show',page==='metrics');}
   if(page==='metrics')applySubTab();
   if(page==='settings')buildSettingsTable();
+  if(page==='trend')loadTrendConfig();  // FEAT-444
   if(page==='statusside')pubLoad();
   // Forhaandsvisningen poller selv hvert 3. s — stop den uden for fanen
   // (HTTPS-serveren har kun faa samtidige forbindelser, jf. BUG-369c)
@@ -2219,6 +2224,7 @@ function updateTrendSrcFields(){
 
 async function loadTrendConfig(){
   if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
+  const tp=$('pageTrend');if(tp&&!tp.classList.contains('active'))return;  // FEAT-444: kun mens Trend-fanen er åben
   try{
     const r=await dashFetch('/api/trend/config',{});
     if(!r.ok)return;
@@ -3312,6 +3318,7 @@ function buildSettingsTable(){
   if(!body)return;
   let h='';
   for(const id of _allCardIds){
+    if(id==='trendrec')continue;  // FEAT-444: egen fane, ikke et kort (bliver i _allCardIds — indeks, BUG-365)
     const name=_cardNames[id]||id;
     const tab=getCardTab(id);
     const hidden=!!_hiddenCards[id];
@@ -3677,6 +3684,7 @@ document.getElementById('authUser').addEventListener('keydown',function(e){if(e.
 // BUG-369: updateUserBadge() flyttet ind i init()s forsinkede raekkefoelge
 // ovenfor — kaldtes tidligere ogsaa herfra, samtidigt med resten
 // FEAT-434: /dashboard#statusside aabner Statusside-fanen direkte (link fra System-siden)
+if(location.hash==='#trend'){const b=[...document.querySelectorAll('.hdr .nav button')].find(x=>x.textContent==='Trend');if(b)showPage('trend',b);}
 if(location.hash==='#statusside'){const b=[...document.querySelectorAll('.hdr .nav button')].find(x=>x.textContent==='Statusside');if(b)showPage('statusside',b);}
 </script>
 </body>
