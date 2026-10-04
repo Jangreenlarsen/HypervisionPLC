@@ -108,15 +108,11 @@ Kanaler aktiveres og kalibreres via CLI (`set analog <vi1-4|ii1-4|ao1-2> enabled
 
 **Tællere / Timere / ST Logic** — status og seneste værdier for hver af de 4 tællere, 4 timere og 4 ST-programmer.
 
-### Registre, Register Map og Indstillinger
+### Register Map, Trend, Indstillinger og Statusside
 
-Ud over selve "Metrics"-visningen (kort/faner, beskrevet ovenfor) har `/dashboard` tre yderligere undersider, valgt via knapperne øverst til venstre (Metrics/Registre/Register Map/Indstillinger):
+Ud over selve "Metrics"-visningen (kort/faner, beskrevet ovenfor) har `/dashboard` flere undersider, valgt via knapperne øverst til venstre (Metrics/Register Map/Trend/Indstillinger/Statusside). Den tidligere side **Registre** er fjernet (FEAT-445) — Register Map viser nu de samme værdier sammen med ejeren.
 
-**Registre** — en rå gitter-visning af hele register-lageret (Holding Registers, Input Registers, Coils, Discrete Inputs, 256 af hver), 16×16-tabeller hvor hver celle viser sin aktuelle værdi live og kan holdes over for detaljer. Nyttigt til hurtigt at bekræfte "står der overhovedet noget i register 142 lige nu", uden at skulle bruge CLI'ens `show hr`/`show coil` eller REST API'et:
-
-![Registre-visningen — rå HR/Coil-gitter](assets/screenshots/dashboard_registre.png)
-
-**Register Map** — viser hvem der EJER hvert register-interval (Counter/Timer/ST Logic/Manuel-System/Ledig), farvekodet efter ejer-type. Hver celle viser registrets aktuelle **værdi** (coils/DI som 1/0); registernummer, ejer og værdi står i tooltip, når musen holdes over cellen (BUG-450). Det samme formål som [`../../archive/docs/MODBUS_REGISTER_MAP.md`](../../archive/docs/MODBUS_REGISTER_MAP.md)-filen, men live og interaktivt i browseren i stedet for en statisk fil — praktisk når man skal finde en ledig registerblok til en ny binding uden at støde ind i noget der allerede er i brug:
+**Register Map** — viser hvem der EJER hvert register-interval (Counter/Timer/ST Logic/Manuel-System/Ledig), farvekodet efter ejer-type. Hver celle viser registrets aktuelle **værdi** (coils/DI som 1/0) og **blinker gult**, når værdien ændrer sig. Hold musen over en celle, så viser infolinjen over gitteret straks registernummer, ejer/navn og værdi (fx *HR[100] — Counter #1 Value = 42*); **klik** fastholder registret (gul ramme, 📌), så værdien kan følges — klik igen for at slippe (BUG-450, FEAT-445). Det samme formål som [`../../archive/docs/MODBUS_REGISTER_MAP.md`](../../archive/docs/MODBUS_REGISTER_MAP.md)-filen, men live og interaktivt i browseren i stedet for en statisk fil — praktisk når man skal finde en ledig registerblok til en ny binding uden at støde ind i noget der allerede er i brug:
 
 ![Register Map — register-allokering farvekodet efter ejer](assets/screenshots/dashboard_regmap.png)
 

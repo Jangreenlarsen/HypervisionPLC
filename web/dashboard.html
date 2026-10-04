@@ -82,6 +82,8 @@
 .regview .rc.coil-on{background:#2a4a2a;color:#a6e3a1}
 .regview .rc.coil-off{background:#313244;color:#585b70}
 .regmap{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+@keyframes rcflash{0%{background:#f9e2af;color:#1e1e2e}100%{}}
+.rc-flash{animation:rcflash 1s ease-out}
 .regmap .rm{padding:3px 8px;border-radius:3px;font-size:10px;white-space:nowrap}
 .rm-counter{background:#1e3a5f;color:#89b4fa}
 .rm-timer{background:#3a1e5f;color:#cba6f7}
@@ -146,7 +148,6 @@
 <h1>Monitor Dashboard</h1>
 <div class="nav">
 <button class="active" onclick="showPage('metrics',this)">Metrics</button>
-<button onclick="showPage('registers',this)">Registre</button>
 <button onclick="showPage('regmap',this)">Register Map</button>
 <button onclick="showPage('trend',this)">Trend</button>
 <button onclick="showPage('settings',this)">Indstillinger</button>
@@ -533,19 +534,6 @@
 </div>
 
 <!-- Register Viewer Page -->
-<div class="page-view" id="pageRegisters">
-<div class="card" style="margin-bottom:12px">
-<h2>Holding Registers (HR 0-255)</h2>
-<div style="font-size:10px;color:#6c7086;margin-bottom:6px">16 kolonner × 16 rækker — hover for detaljer</div>
-<div class="regview" id="regHR"></div>
-</div>
-<div class="card">
-<h2>Coils (0-255)</h2>
-<div style="font-size:10px;color:#6c7086;margin-bottom:6px">Grøn = ON, grå = OFF</div>
-<div class="regview" id="regCoils"></div>
-</div>
-</div>
-
 <!-- Register Map Page -->
 <div class="page-view" id="pageRegmap" style="padding:0">
 <div class="regmap-sticky">
@@ -559,6 +547,7 @@
 <span class="rm rm-free">Ledig</span>
 </div>
 </div>
+<div id="regmapInfo" style="font-size:12px;color:#cdd6f4;background:#181825;border:1px solid #313244;border-radius:4px;padding:4px 8px;margin-bottom:6px;min-height:20px">Hold musen over et register for navn og værdi — klik for at fastholde</div>
 <table class="tbl" id="allocTable" style="margin:0">
 <thead><tr><th>Ejer</th><th>Type</th><th>Register</th><th>Start</th><th>Slut</th><th>Antal</th></tr></thead>
 <tbody id="allocBody"></tbody>
@@ -890,7 +879,7 @@ function showPage(page,btn){
   if(page==='metrics')applySubTab();
   if(page==='settings')buildSettingsTable();
   if(page==='trend')loadTrendConfig();  // FEAT-444
-  if(page==='regmap'||page==='registers')_refreshBitVals(true);  // BUG-450
+  if(page==='regmap')_refreshBitVals(true);  // BUG-450
   if(page==='statusside')pubLoad();
   // Forhaandsvisningen poller selv hvert 3. s — stop den uden for fanen
   // (HTTPS-serveren har kun faa samtidige forbindelser, jf. BUG-369c)
@@ -1556,8 +1545,7 @@ function updateDashboard(m){
   }
 
   // Update register views if visible
-  updateRegisterViewer(m);
-  if($('pageRegmap').classList.contains('active')||$('pageRegisters').classList.contains('active'))_refreshBitVals(false);
+  if($('pageRegmap').classList.contains('active'))_refreshBitVals(false);
   updateRegisterMap(m);
 
   // Alarms
@@ -1569,48 +1557,34 @@ function updateDashboard(m){
   if(up!=null)$('hdrInfo').textContent='Uptime: '+fmtUp(up);
 }
 
-// === Register Viewer ===
-function updateRegisterViewer(m){
-  if(!$('pageRegisters').classList.contains('active'))return;
-  _lastRegMetrics=m;
-  // HR grid — BUG-450: metric hedder modbus_holding_register (ikke holding_register_value)
-  const hrGrid=$('regHR');
-  const hrVals=_metricRegVals(m,'modbus_holding_register');
-  let hrHtml='';
-  for(let i=0;i<256;i++){
-    const v=hrVals[i];
-    const cls=v!==0?'rc used':'rc';
-    hrHtml+='<div class="'+cls+'" title="HR['+i+'] = '+v+'">'+v+'</div>';
-  }
-  hrGrid.innerHTML=hrHtml;
-
-  // Coil grid
-  const coilGrid=$('regCoils');
-  let cHtml='';
-  for(let i=0;i<256;i++){
-    const v=_coilVals?_coilVals[i]:0;  // BUG-450: coils findes ikke i metrics
-    cHtml+='<div class="rc '+(v?'coil-on':'coil-off')+'" title="Coil['+i+'] = '+(v?'ON':'OFF')+'">'+(v?'1':'0')+'</div>';
-  }
-  coilGrid.innerHTML=cHtml;
-}
-
 // === Register Map ===
 // Helper: render a 256-cell grid from an alloc array
 // BUG-450: cellerne viser registrets VÆRDI (ikke registernummeret); ejer-
 // farven bevares, og nr + ejer + værdi står i tooltip. vals = 256 tal, eller
 // null = ukendt endnu (coils/DI hentes separat) → "-".
+// Opdaterer cellerne paa stedet (ikke innerHTML hver gang), saa et fastholdt
+// register bevarer sin markering, og en celle hvis vaerdi aendrer sig blinker.
+function regFlash(c){c.classList.remove('rc-flash');void c.offsetWidth;c.classList.add('rc-flash');}
 function renderMapGrid(el,alloc,prefix,vals,isBit){
-  let html='';
+  if(el.children.length!==256){
+    let html='';
+    for(let i=0;i<256;i++)html+='<div class="rc rm-free"></div>';
+    el.innerHTML=html;
+  }
   for(let i=0;i<256;i++){
-    const a=alloc[i];
+    const c=el.children[i], a=alloc[i];
     const v=vals?vals[i]:null;
     const txt=v==null?'-':(isBit?(v?'1':'0'):String(v));
-    let cls='rc rm-free';
-    let title=prefix+'['+i+'] Ledig';
-    if(a){cls='rc rm-'+a.type;title=prefix+'['+i+'] '+escHtml(a.label);}
-    html+='<div class="'+cls+'" title="'+title+' = '+txt+'">'+txt+'</div>';
+    const cls='rc '+(a?'rm-'+a.type:'rm-free')+(c.classList.contains('rc-flash')?' rc-flash':'');
+    if(c.className!==cls)c.className=cls;
+    c.title=prefix+'['+i+'] '+(a?a.label:'Ledig')+' = '+txt;
+    if(c.textContent!==txt){
+      const was=c.textContent;
+      c.textContent=txt;
+      if(was!==''&&was!=='-'&&txt!=='-')regFlash(c);
+    }
   }
-  el.innerHTML=html;
+  if(_regmapPinned&&el.contains(_regmapPinned))$('regmapInfo').textContent='📌 '+_regmapInfoText(_regmapPinned);
 }
 // BUG-450: HR/IR-værdier fra metrics (kun ikke-nul registre sendes → resten 0)
 function _metricRegVals(m,name){
@@ -1619,7 +1593,7 @@ function _metricRegVals(m,name){
   return v;
 }
 // BUG-450: coils/DI findes ikke i metrics — hentes med bulk-endpointet (ét
-// kald pr. type, max 256), kun mens Register Map/Registre er åben, hvert 3. kald.
+// kald pr. type, max 256), kun mens Register Map er åben, hvert 3. kald.
 let _coilVals=null,_diVals=null,_bitTick=0;
 async function _fetchBitVals(kind){
   const out=new Array(256).fill(0);
@@ -1633,10 +1607,27 @@ async function _fetchBitVals(kind){
 }
 function _refreshBitVals(force){
   if(!force&&(_bitTick++%3)!==0)return;
-  _fetchBitVals('coils').then(v=>{if(v){_coilVals=v;if(_lastRegMetrics){updateRegisterMap(_lastRegMetrics);updateRegisterViewer(_lastRegMetrics);}}}).catch(()=>{});
+  _fetchBitVals('coils').then(v=>{if(v){_coilVals=v;if(_lastRegMetrics)updateRegisterMap(_lastRegMetrics);}}).catch(()=>{});
   _fetchBitVals('di').then(v=>{if(v){_diVals=v;if(_lastRegMetrics)updateRegisterMap(_lastRegMetrics);}}).catch(()=>{});
 }
 let _lastRegMetrics=null;
+// Hover over et register → navn/ejer og værdi straks i infolinjen (title-
+// tooltip'et kommer først efter ~1 s og virker ikke på touch). Klik fastholder.
+let _regmapPinned=null;
+function _regmapInfoText(c){return c&&c.title?c.title.replace(/^(\w+)\[(\d+)\] /,'$1[$2] — '):'';}
+function initRegmapHover(){
+  ['regmapHR','regmapIR','regmapCoils','regmapDI'].forEach(id=>{
+    const g=$(id);if(!g)return;
+    g.addEventListener('mouseover',e=>{const c=e.target.closest('.rc');if(c&&!_regmapPinned)$('regmapInfo').textContent=_regmapInfoText(c);});
+    g.addEventListener('click',e=>{
+      const c=e.target.closest('.rc');if(!c)return;
+      if(_regmapPinned===c){_regmapPinned.style.outline='';_regmapPinned=null;return;}
+      if(_regmapPinned)_regmapPinned.style.outline='';
+      _regmapPinned=c;c.style.outline='2px solid #f9e2af';
+      $('regmapInfo').textContent='📌 '+_regmapInfoText(c);
+    });
+  });
+}
 
 // Helper: collect ranges from alloc array for table
 function collectRanges(alloc,prefix){
@@ -3486,12 +3477,11 @@ function sseApplyRegisterEvent(d){
   const addr=d.addr|0;
   const val=d.value|0;
   if(d.type==='hr'){
-    // Update both regHR grid and regmapHR grid
-    ['regHR','regmapHR'].forEach(gid=>{
+    ['regmapHR'].forEach(gid=>{
       const g=$(gid);if(!g||!g.children[addr])return;
       const cell=g.children[addr];
       cell.textContent=val;
-      if(gid==='regmapHR'){cell.title=cell.title.replace(/ = .*$/,'')+' = '+val;return;}  // BUG-450: behold ejer-farven
+      if(gid==='regmapHR'){cell.title=cell.title.replace(/ = .*$/,'')+' = '+val;regFlash(cell);return;}  // BUG-450: behold ejer-farven
       cell.title='HR['+addr+'] = '+val;
       cell.className=val!==0?'rc used':'rc';
     });
@@ -3500,14 +3490,15 @@ function sseApplyRegisterEvent(d){
       const cell=g.children[addr];
       cell.textContent=val;
       cell.title=cell.title.replace(/ = .*$/,'')+' = '+val;  // BUG-450: behold ejer-farven
+      regFlash(cell);
     }
   }else if(d.type==='coil'){
     if(_coilVals)_coilVals[addr]=val?1:0;
-    ['regCoils','regmapCoils'].forEach(gid=>{
+    ['regmapCoils'].forEach(gid=>{
       const g=$(gid);if(!g||!g.children[addr])return;
       const cell=g.children[addr];
       cell.textContent=val?'1':'0';
-      if(gid==='regmapCoils'){cell.title=cell.title.replace(/ = .*$/,'')+' = '+(val?'1':'0');return;}  // BUG-450
+      if(gid==='regmapCoils'){cell.title=cell.title.replace(/ = .*$/,'')+' = '+(val?'1':'0');regFlash(cell);return;}  // BUG-450
       cell.title='Coil['+addr+'] = '+(val?'ON':'OFF');
       cell.className='rc '+(val?'coil-on':'coil-off');
     });
@@ -3523,6 +3514,7 @@ function sseApplyRegisterEvent(d){
       const cell=g.children[addr];
       cell.textContent=val?'1':'0';
       cell.title=cell.title.replace(/ = .*$/,'')+' = '+(val?'1':'0');  // BUG-450: behold ejer-farven
+      regFlash(cell);
     }
   }
   sseLastEventMs=Date.now();
@@ -3602,14 +3594,7 @@ function sseConnect(){
 }
 
 function init(){
-  // Initialize register grids
-  let hrInit='',coilInit='';
-  for(let i=0;i<256;i++){
-    hrInit+='<div class="rc" title="HR['+i+']">0</div>';
-    coilInit+='<div class="rc coil-off" title="Coil['+i+']">0</div>';
-  }
-  $('regHR').innerHTML=hrInit;
-  $('regCoils').innerHTML=coilInit;
+  initRegmapHover();
 
   // Restore sub-tab selection
   try{

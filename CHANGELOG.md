@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.67] - 2026-10-04
+
+### CHANGES
+- **FEAT-445:** Monitor → Registre fjernet; Register Map viser navn/ejer og værdi i en infolinje ved hover (klik fastholder), og registre der ændrer sig blinker gult.
+
 ## [7.9.68.66] - 2026-10-04
 
 ### BUG FIXES
