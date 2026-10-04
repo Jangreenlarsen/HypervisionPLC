@@ -92,6 +92,14 @@ ST core with g++ and runs real ST programs through it (no hardware needed):
 bash test/st_host/run.sh      # must end with "ALLE TESTS OK"
 ```
 
+**Changed the CLI (`cli_parser.cpp`, `cli_commands.cpp`, counter/timer config)?** Run the
+CLI PC test — it compiles the real parser, auto-stubs everything else and runs command
+lines through it. Add a test for each new command and add the word to `CLI_WORDS_*`:
+
+```bash
+bash test/cli_host/run.sh     # must end with "ALLE TESTS OK"
+```
+
 **Changed web pages?** Syntax-check the `<script>` blocks (`node`), and show any text
 that comes from the device with `escHtml()` or `textContent` — never raw in `innerHTML`
 (BUG-435, SECURITY_INDEX #24).

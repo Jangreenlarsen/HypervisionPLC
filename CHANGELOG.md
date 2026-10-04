@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.56] - 2026-10-04
+
+### NEW FEATURES
+- **FEAT-437:** ukendte CLI-kommandoer giver nu forslag, fx `SHOW: ukendt argument 'otaa'` → `Mente du: ota?`.
+- **FEAT-436:** PC-test af CLI-parseren (`bash test/cli_host/run.sh`, 29 tests).
+
 ## [7.9.68.55] - 2026-10-04
 
 ### BUG FIXES

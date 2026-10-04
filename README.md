@@ -2,7 +2,7 @@
 
 **A network-connected PLC on an ESP32.** One firmware image provides a Modbus RTU slave and master, an IEC 61131-3 Structured Text runtime, counters/timers, a REST API and a web dashboard.
 
-[![Version](https://img.shields.io/badge/version-7.9.68.55-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-7.9.68.56-blue)](CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/platform-ESP32--WROOM--32%20%7C%20ES32D26%20(WROVER)-informational)](docs/manual/02_Hardware_og_Moduler.md)
 [![Framework](https://img.shields.io/badge/framework-PlatformIO%20%2F%20Arduino-orange)](platformio.ini)
 [![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
@@ -67,6 +67,7 @@ pio run -e es32d26 -t upload     # flash over USB
 pio device monitor               # serial CLI, 115200 baud
 
 bash test/st_host/run.sh         # ST compiler/VM tests on the PC (no hardware)
+bash test/cli_host/run.sh        # CLI parser tests on the PC (no hardware)
 ```
 
 After the first flash, update over the network: in the web UI choose **System → OTA**, or `POST /api/system/ota`.
@@ -82,6 +83,7 @@ src/, include/        Firmware (C++), ~30 modules — see CLAUDE_ARCH.md
 web/                  Web UI pages (minified + gzipped into the firmware at build time)
 scripts/              Build scripts (build info, web minify/gzip, LTO link) and release script
 test/st_host/         PC test harness for the ST compiler and VM
+test/cli_host/        PC test harness for the CLI parser
 docs/manual/          User manual (Danish) — the authoritative documentation
 docs/                 Focused guides: counters, ES32D26, DM56A04 display, release procedure
 docs/expansion/       Expansion board design and PLC integration contract

@@ -37,6 +37,14 @@ mb ?
 
 Kommandoer er **ikke versalfølsomme** — `SET WIFI DHCP ON` og `set wifi dhcp on` er ækvivalente.
 
+**Forslag ved tastefejl (FEAT-437):** et ukendt ord giver en besked med op til tre forslag og en henvisning til hjælpen:
+```
+> show otaa
+SHOW: ukendt argument 'otaa'
+  Mente du: ota?
+  Brug 'show ?' for en oversigt.
+```
+
 ## 5.3 Eksempler på almindelige opgaver
 
 ```

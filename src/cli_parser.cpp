@@ -40,6 +40,8 @@
 #include "ip_acl.h"
 #include "config_struct.h"
 #include <string.h>
+#include <strings.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -139,6 +141,93 @@ static bool str_eq_i(const char* a, const char* b) {
     b++;
   }
   return (*a == *b);  // Both must be at null terminator
+}
+
+/* ============================================================================
+ * FEAT-437: "mente du …?" ved ukendte kommandoer/argumenter.
+ * Ordlisterne er de gyldige ord paa foerste niveau efter hvert verbum. Den
+ * PC-baserede CLI-test (test/cli_host) tjekker at hvert ord herfra faktisk
+ * accepteres — en ny kommando BOER tilfoejes her, ellers foreslaas den bare
+ * ikke (ingen funktionel konsekvens).
+ * ============================================================================ */
+// extern: ogsaa brugt af PC-testen (test/cli_host), der tjekker at hvert ord accepteres
+extern const char* const CLI_WORDS_TOP[];
+extern const char* const CLI_WORDS_SHOW[];
+extern const char* const CLI_WORDS_SET[];
+extern const char* const CLI_WORDS_RESET[];
+const char* const CLI_WORDS_TOP[] = {
+  "show", "set", "reset", "clear", "save", "load", "defaults", "reboot", "delete",
+  "no", "read", "write", "help", "commands", "connect", "disconnect", "ping",
+  "test", "confirm", "exit", "mb", "mbx", NULL };
+const char* const CLI_WORDS_SHOW[] = {
+  "config", "counters", "counter", "timers", "timer", "registers", "coils", "inputs",
+  "stats", "version", "ota", "gpio", "echo", "wifi", "telnet", "modbus", "tasks",
+  "analog", "ethernet", "http", "sse", "acl", "ntp", "rate-limit", "metrics",
+  "status", "backup", "debug", "persist", "watchdog", "modbus-master",
+  "modbus-slave", "modbus-expansion", "holding-reg", "coil", "logic", "users", NULL };
+const char* const CLI_WORDS_SET[] = {
+  "counter", "timer", "gpio", "hostname", "wifi", "ethernet", "telnet", "http",
+  "sse", "ntp", "acl", "persist", "logic", "modbus-master", "modbus-slave",
+  "modbus-expansion", "watchdog", "debug", "echo", "rate-limit", "user", "rbac",
+  "analog", "baudrate", "slave-id", "module", "holding-reg", "coil", NULL };
+const char* const CLI_WORDS_RESET[] = { "counter", "logic", NULL };
+
+static uint8_t cli_edit_distance(const char *a, const char *b) {
+  // Levenshtein, case-insensitiv, kun til korte ord (<= 23 tegn)
+  size_t la = strlen(a), lb = strlen(b);
+  if (la > 23 || lb > 23) return 255;
+  uint8_t prev[24], cur[24];
+  for (size_t j = 0; j <= lb; j++) prev[j] = (uint8_t)j;
+  for (size_t i = 1; i <= la; i++) {
+    cur[0] = (uint8_t)i;
+    for (size_t j = 1; j <= lb; j++) {
+      uint8_t cost = (tolower((unsigned char)a[i - 1]) == tolower((unsigned char)b[j - 1])) ? 0 : 1;
+      uint8_t v = prev[j] + 1;
+      if (cur[j - 1] + 1 < v) v = cur[j - 1] + 1;
+      if (prev[j - 1] + cost < v) v = prev[j - 1] + cost;
+      cur[j] = v;
+    }
+    memcpy(prev, cur, lb + 1);
+  }
+  return prev[lb];
+}
+
+// Skriver "<prefix> ukendt <hvad> '<word>'" + op til 3 forslag + hjaelpehenvisning
+static void cli_print_unknown(const char *prefix, const char *what_kind, const char *word,
+                              const char *const *words, const char *help_hint) {
+  debug_print(prefix);
+  debug_print(" ukendt ");
+  debug_print(what_kind);
+  debug_print(" '");
+  debug_print(word ? word : "");
+  debug_println("'");
+  if (word && *word && words) {
+    const char *best[3] = {NULL, NULL, NULL};
+    uint8_t bestd[3] = {255, 255, 255};
+    size_t wl = strlen(word);
+    uint8_t maxd = wl <= 3 ? 1 : (wl <= 6 ? 2 : 3);
+    for (int i = 0; words[i]; i++) {
+      uint8_t d = cli_edit_distance(word, words[i]);
+      if (wl >= 2 && strncasecmp(words[i], word, wl) == 0) d = 0;  // praefiks: "coun" -> counter
+      if (d > maxd) continue;
+      for (int k = 0; k < 3; k++) {
+        if (d < bestd[k]) {
+          for (int m = 2; m > k; m--) { best[m] = best[m - 1]; bestd[m] = bestd[m - 1]; }
+          best[k] = words[i]; bestd[k] = d;
+          break;
+        }
+      }
+    }
+    if (best[0]) {
+      debug_print("  Mente du: ");
+      for (int k = 0; k < 3 && best[k]; k++) {
+        if (k) debug_print(", ");
+        debug_print(best[k]);
+      }
+      debug_println("?");
+    }
+  }
+  if (help_hint) debug_println(help_hint);
 }
 
 static const char* normalize_alias(const char* s) {
@@ -1181,7 +1270,7 @@ bool cli_parser_execute(char* line) {
       debug_println("");
       return true;
     } else {
-      debug_println("SHOW: unknown argument");
+      cli_print_unknown("SHOW:", "argument", argv[1], CLI_WORDS_SHOW, "  Brug 'show ?' for en oversigt.");
       return false;
     }
 
@@ -2641,7 +2730,7 @@ bool cli_parser_execute(char* line) {
       }
 
     } else {
-      debug_println("SET: unknown argument");
+      cli_print_unknown("SET:", "argument", argv[1], CLI_WORDS_SET, "  Brug 'set ?' for en oversigt.");
       return false;
     }
 
@@ -2800,7 +2889,7 @@ bool cli_parser_execute(char* line) {
         return false;
       }
     } else {
-      debug_println("RESET: unknown argument");
+      cli_print_unknown("RESET:", "argument", argv[1], CLI_WORDS_RESET, "  Brug: reset counter <id> | reset logic stats <id|all>");
       return false;
     }
 
@@ -3305,7 +3394,7 @@ bool cli_parser_execute(char* line) {
     return false;
 
   } else {
-    debug_println("Unknown command");
+    cli_print_unknown("", "kommando", argv[0], CLI_WORDS_TOP, "  Brug 'help' eller '?' for en oversigt.");
     return false;
   }
 }

@@ -34,7 +34,7 @@
 | **Microcontroller** | ES32D26 (ESP32-WROVER, 4 MB PSRAM) — also ESP32-WROOM-32 / ESP32-S3 builds |
 | **Interface** | RS-485 Modbus RTU — on ES32D26 ONE shared transceiver (GPIO1/3/21, same pins as the USB console) runs as Slave OR Master; Modbus TCP to expansion boards |
 | **Architecture** | 50+ modular .cpp/.h files |
-| **Version** | v7.9.68.55 |
+| **Version** | v7.9.68.56 |
 | **Main Components** | Modbus Master/Slave, Counters, Timers, ST Logic, CLI, Ethernet (W5500) |
 
 **Key improvement:** Monolithic code → Modular architecture with hardware abstraction layers
@@ -58,7 +58,8 @@ Security tracking:
 └─ SECURITY_INDEX.md - Sikkerhedsfund, fixede + åbne (~600 tokens)
 
 Tests:
-└─ test/st_host/ - PC-test af ST-compiler/VM (README.md, run.sh)
+├─ test/st_host/ - PC-test af ST-compiler/VM (README.md, run.sh)
+└─ test/cli_host/ - PC-test af CLI-parseren (README.md, run.sh)
 
 Archive (historisk, vedligeholdes ikke):
 └─ archive/ - gamle analyser, testplaner/-resultater, scripts (se archive/README.md)
@@ -98,6 +99,7 @@ Project files:
 
 ### "I need to run tests"
 1. ST compiler/VM on the PC: [`test/st_host/README.md`](test/st_host/README.md) (`bash test/st_host/run.sh`)
+   CLI parser on the PC: [`test/cli_host/README.md`](test/cli_host/README.md) (`bash test/cli_host/run.sh`)
 2. Hardware: build `pio run -e es32d26`, OTA to the test PLC, verify via CLI/REST
 3. Old test plans (v4–v6) are in [`archive/tests/`](archive/tests/) — historical only
 
@@ -209,6 +211,6 @@ EXCEPTION:
 ---
 
 **Last Updated:** 2026-10-03
-**Version:** v7.9.68.55
+**Version:** v7.9.68.56
 **Build:** #2003
 **Status:** ✅ Active & Maintained

@@ -64,3 +64,4 @@ certs/*.key
 
 # PC-test af ST (BUG-433)
 test/st_host/build/
+test/cli_host/build/
