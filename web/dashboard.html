@@ -1565,6 +1565,11 @@ function updateDashboard(m){
 // Opdaterer cellerne paa stedet (ikke innerHTML hver gang), saa et fastholdt
 // register bevarer sin markering, og en celle hvis vaerdi aendrer sig blinker.
 function regFlash(c){c.classList.remove('rc-flash');void c.offsetWidth;c.classList.add('rc-flash');}
+// SSE er den hurtige kilde: en celle SSE har opdateret inden for 10 s
+// overskrives ikke af metrics-opdateringen (hvert 3. s), som kan være hentet
+// FØR SSE's nyere værdi kom — ellers hoppede værdien tilbage (FEAT-445).
+const _sseCellTs=new WeakMap();
+const SSE_CELL_FRESH_MS=10000;
 function renderMapGrid(el,alloc,prefix,vals,isBit){
   if(el.children.length!==256){
     let html='';
@@ -1577,6 +1582,11 @@ function renderMapGrid(el,alloc,prefix,vals,isBit){
     const txt=v==null?'-':(isBit?(v?'1':'0'):String(v));
     const cls='rc '+(a?'rm-'+a.type:'rm-free')+(c.classList.contains('rc-flash')?' rc-flash':'');
     if(c.className!==cls)c.className=cls;
+    const sseTs=_sseCellTs.get(c);
+    if(sseTs&&Date.now()-sseTs<SSE_CELL_FRESH_MS){
+      c.title=prefix+'['+i+'] '+(a?a.label:'Ledig')+' = '+c.textContent;  // behold SSE-værdien
+      continue;
+    }
     c.title=prefix+'['+i+'] '+(a?a.label:'Ledig')+' = '+txt;
     if(c.textContent!==txt){
       const was=c.textContent;
@@ -3481,7 +3491,7 @@ function sseApplyRegisterEvent(d){
       const g=$(gid);if(!g||!g.children[addr])return;
       const cell=g.children[addr];
       cell.textContent=val;
-      if(gid==='regmapHR'){cell.title=cell.title.replace(/ = .*$/,'')+' = '+val;regFlash(cell);return;}  // BUG-450: behold ejer-farven
+      if(gid==='regmapHR'){cell.title=cell.title.replace(/ = .*$/,'')+' = '+val;regFlash(cell);_sseCellTs.set(cell,Date.now());return;}  // BUG-450: behold ejer-farven
       cell.title='HR['+addr+'] = '+val;
       cell.className=val!==0?'rc used':'rc';
     });
@@ -3490,7 +3500,7 @@ function sseApplyRegisterEvent(d){
       const cell=g.children[addr];
       cell.textContent=val;
       cell.title=cell.title.replace(/ = .*$/,'')+' = '+val;  // BUG-450: behold ejer-farven
-      regFlash(cell);
+      regFlash(cell);_sseCellTs.set(cell,Date.now());
     }
   }else if(d.type==='coil'){
     if(_coilVals)_coilVals[addr]=val?1:0;
@@ -3498,7 +3508,7 @@ function sseApplyRegisterEvent(d){
       const g=$(gid);if(!g||!g.children[addr])return;
       const cell=g.children[addr];
       cell.textContent=val?'1':'0';
-      if(gid==='regmapCoils'){cell.title=cell.title.replace(/ = .*$/,'')+' = '+(val?'1':'0');regFlash(cell);return;}  // BUG-450
+      if(gid==='regmapCoils'){cell.title=cell.title.replace(/ = .*$/,'')+' = '+(val?'1':'0');regFlash(cell);_sseCellTs.set(cell,Date.now());return;}  // BUG-450
       cell.title='Coil['+addr+'] = '+(val?'ON':'OFF');
       cell.className='rc '+(val?'coil-on':'coil-off');
     });
@@ -3514,9 +3524,10 @@ function sseApplyRegisterEvent(d){
       const cell=g.children[addr];
       cell.textContent=val?'1':'0';
       cell.title=cell.title.replace(/ = .*$/,'')+' = '+(val?'1':'0');  // BUG-450: behold ejer-farven
-      regFlash(cell);
+      regFlash(cell);_sseCellTs.set(cell,Date.now());
     }
   }
+  if(_regmapPinned)$('regmapInfo').textContent='📌 '+_regmapInfoText(_regmapPinned);  // FEAT-445: fastholdt følger SSE
   sseLastEventMs=Date.now();
   // Coil/DI changes drive DIO LEDs which come from /api/metrics gpio labels
   // — kick a debounced metrics refresh so LEDs flip instantly too.

@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.68] - 2026-10-04
+
+### BUG FIXES
+- **BUG-451:** Register Map viser igen ændringer straks: den periodiske opdatering skriver ikke længere en ældre værdi oven i SSE's nyere.
+
 ## [7.9.68.67] - 2026-10-04
 
 ### CHANGES
