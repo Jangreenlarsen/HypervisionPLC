@@ -573,7 +573,7 @@
 <!-- FEAT-446: eksterne registre som ST Logic læser/skriver (RS485-slaver + expansion boards) -->
 <div class="card" style="margin-bottom:12px">
 <h2>Eksterne registre (ST Logic) <span class="badge badge-off" id="badgeExt">-</span></h2>
-<div style="font-size:11px;color:#6c7086;margin-bottom:6px">Fundet ved at læse ST-programmerne 1–4 for <code>MB_READ_*</code>/<code>MB_WRITE_*</code> (RS485-slaver) og <code>MBX_*</code> (expansion boards). Værdien er den seneste, ST har læst eller skrevet (Modbus-cachen) og opdateres hvert 3. s. "beregnet" = adressen er ikke en konstant i koden.</div>
+<div style="font-size:11px;color:#6c7086;margin-bottom:6px">Fundet ved at læse ST-programmerne 1–4 for <code>MB_READ_*</code>/<code>MB_WRITE_*</code> (RS485-slaver) og <code>MBX_*</code> (expansion boards). Værdien er den seneste, ST har læst eller skrevet (Modbus-cachen) og opdateres straks via SSE (ellers hvert 3. s). "beregnet" = adressen er ikke en konstant i koden.</div>
 <table class="tbl" id="extTable">
 <thead><tr><th>Kilde</th><th>Register</th><th>Værdi</th><th>Brugt i ST</th><th>Status</th></tr></thead>
 <tbody id="extBody"><tr><td colspan="5" class="empty-msg">Indlæser…</td></tr></tbody>
@@ -1679,6 +1679,24 @@ async function _extLoadUses(){
   }
   _extUses=all;_extUsesAt=Date.now();
 }
+const _EXT_ST={ok:'<span style="color:#a6e3a1">OK</span>',pending:'<span style="color:#f9e2af">venter</span>',error:'<span style="color:#f38ba8">fejl</span>',empty:'-'};
+function _extValHtml(val,write){return escHtml(val)+(write?' <span style="color:#6c7086;font-weight:normal">(skrevet)</span>':'');}
+// FEAT-447: SSE "ext"-event — én cache-post har ændret værdi/status; opdatér
+// rækken straks (blink). Ukendt række → fuld genindlæsning (debounced).
+let _extFullPending=false;
+function sseApplyExtEvent(d){
+  if(!d||!$('pageRegmap').classList.contains('active'))return;
+  const k=_extKey(d), val=String(d.value);
+  const tr=$('extBody').querySelector('tr[data-k="'+(window.CSS&&CSS.escape?CSS.escape(k):k)+'"]');
+  if(!tr){
+    if(!_extFullPending){_extFullPending=true;setTimeout(()=>{_extFullPending=false;refreshExternalRegs(false);},500);}
+    return;
+  }
+  const vc=tr.querySelector('.ext-val'), sc=tr.querySelector('.ext-st');
+  if(vc){vc.innerHTML=_extValHtml(val,d.write);if(_extPrev[k]!==undefined&&_extPrev[k]!==val)regFlash(vc);}
+  if(sc)sc.innerHTML=(_EXT_ST[d.status]||escHtml(d.status))+(d.status==='ok'?' · lige nu':'');
+  _extPrev[k]=val;
+}
 function _extKey(o){return o.src==='mbx'?'mbx:'+o.board+':'+o.ch+':'+o.slave+':'+o.type+':'+o.addr:'rtu:'+o.slave+':'+o.type+':'+o.addr;}
 function _extSrcText(o){return o.src==='mbx'?'Board '+(o.board??'?')+' kanal '+(o.ch??'?')+' · slave '+(o.slave??'?'):'RS485 slave '+(o.slave??'?');}
 let _extBusy=false;
@@ -1702,7 +1720,6 @@ async function _refreshExternalRegs(force){
   const list=[...rows.entries()].sort((a,b)=>a[0]<b[0]?-1:1);
   badge($('badgeExt'),list.length>0,String(list.length));
   if(!list.length){$('extBody').innerHTML='<tr><td colspan="5" class="empty-msg">Ingen MB_*/MBX_*-kald i ST-programmerne</td></tr>';return;}
-  const stTxt={ok:'<span style="color:#a6e3a1">OK</span>',pending:'<span style="color:#f9e2af">venter</span>',error:'<span style="color:#f38ba8">fejl</span>',empty:'-'};
   $('extBody').innerHTML=list.map(([k,r])=>{
     const o=r.o, e=r.e;
     const reg=o.addr==null?'beregnet':(o.type.toUpperCase()+' '+o.addr);
@@ -1710,8 +1727,8 @@ async function _refreshExternalRegs(force){
     const age=e&&e.age_ms!=null&&e.status==='ok'?' · '+(e.age_ms<1000?e.age_ms+' ms':(e.age_ms/1000).toFixed(1)+' s')+' siden':'';
     const changed=e&&_extPrev[k]!==undefined&&_extPrev[k]!==val;
     if(e)_extPrev[k]=val;
-    return '<tr><td>'+escHtml(_extSrcText(o))+'</td><td>'+escHtml(reg)+'</td><td class="'+(changed?'rc-flash':'')+'" style="font-weight:600">'+escHtml(val)+(e&&e.write?' <span style="color:#6c7086;font-weight:normal">(skrevet)</span>':'')+'</td>'
-      +'<td style="font-size:11px">'+r.labels.map(escHtml).join('<br>')+'</td><td style="font-size:11px">'+(e?stTxt[e.status]||e.status:'ikke læst endnu')+age+'</td></tr>';
+    return '<tr data-k="'+escHtml(k)+'"><td>'+escHtml(_extSrcText(o))+'</td><td>'+escHtml(reg)+'</td><td class="ext-val'+(changed?' rc-flash':'')+'" style="font-weight:600">'+_extValHtml(val,e&&e.write)+'</td>'
+      +'<td style="font-size:11px">'+r.labels.map(escHtml).join('<br>')+'</td><td class="ext-st" style="font-size:11px">'+(e?_EXT_ST[e.status]||escHtml(e.status):'ikke læst endnu')+age+'</td></tr>';
   }).join('');
 }
 // Hover over et register → navn/ejer og værdi straks i infolinjen (title-
@@ -3698,6 +3715,9 @@ function sseConnect(){
       sseConn.addEventListener('counter',e=>{
         try{sseApplyCounterEvent(JSON.parse(e.data));}catch(err){}
       });
+      sseConn.addEventListener('ext',e=>{  // FEAT-447
+        try{sseApplyExtEvent(JSON.parse(e.data));}catch(err){}
+      });
       sseConn.addEventListener('timer',e=>{
         try{sseApplyTimerEvent(JSON.parse(e.data));}catch(err){}
       });
@@ -3771,7 +3791,15 @@ function init(){
   setInterval(fetchMbActivity,3000);
   setInterval(fetchSyslog,5000);
   setInterval(loadTrendConfig,5000);
-  setInterval(()=>{if(!document.hidden)refreshExternalRegs(false);},3000);  // FEAT-446 (kun mens Register Map er åben og fanen synlig)
+  // FEAT-446/447: med SSE kommer ændringer straks som "ext"-events — så er
+  // polling kun et sikkerhedsnet (10 s); uden SSE hvert 3. s.
+  let _extLastPoll=0;
+  setInterval(()=>{
+    if(document.hidden)return;
+    const sseOk=sseConn&&sseLastEventMs&&Date.now()-sseLastEventMs<sseStaleMs;
+    if(Date.now()-_extLastPoll<(sseOk?10000:3000))return;
+    _extLastPoll=Date.now();refreshExternalRegs(false);
+  },1000);
   setInterval(fetchNetworkInfo,10000);
   setInterval(fetchConnections,5000);
   // FEAT-409: 30s, ikke 3-15s som resten — hvert board-tjek er en ægte

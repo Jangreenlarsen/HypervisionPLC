@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.71] - 2026-10-04
+
+### CHANGES
+- **FEAT-447:** eksterne registre i Register Map opdateres nu straks via SSE (nyt event `ext`) i stedet for hvert 2.-3. sekund.
+
 ## [7.9.68.70] - 2026-10-04
 
 ### BUG FIXES

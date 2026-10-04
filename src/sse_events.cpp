@@ -39,6 +39,8 @@
 #include "build_version.h"
 #include "debug.h"
 #include "rbac.h"
+#include "mb_async.h"                // FEAT-447: eksterne registre (RS485-master-cache)
+#include "modbus_expansion_async.h"  // FEAT-447: eksterne registre (expansion-cache)
 
 // External functions from http_server.cpp
 extern void http_server_stat_request(void);
@@ -137,12 +139,78 @@ typedef struct {
 } SseClientState;
 
 // Full-range state for watch_all mode (heap-allocated, ~1.5 KB per client)
+// FEAT-447: sidst sendte tilstand pr. cache-slot for eksterne registre
+typedef struct {
+  uint32_t key;     // pakket nøgle (0 = intet sendt endnu)
+  int32_t  value;
+  uint8_t  status;
+} SseExtPrev;
+
 typedef struct {
   uint16_t hr[HOLDING_REGS_SIZE];     // 256 holding registers
   uint16_t ir[INPUT_REGS_SIZE];       // 256 input registers
   uint8_t  coils[256];                // 256 coils
   uint8_t  di[256];                   // 256 discrete inputs
+  SseExtPrev ext_rtu[MB_CACHE_MAX_ENTRIES];         // FEAT-447
+  SseExtPrev ext_mbx[MBX_ASYNC_CACHE_MAX_ENTRIES];  // FEAT-447
 } SseWatchAllState;
+
+/* FEAT-447: "ext"-events — ændringer i Modbus-cacherne (de eksterne registre
+ * ST læser/skriver), samme format som GET /api/modbus/external's poster plus
+ * "src". Sendes kun når en posts værdi, status eller nøgle ændrer sig. */
+static const char *sse_ext_type(uint8_t t) {
+  switch (t) { case 1: case 5: return "coil"; case 2: return "di"; case 3: case 6: return "hr"; case 4: return "ir"; default: return "?"; }
+}
+static const char *sse_ext_status(uint8_t s) {
+  switch (s) { case 1: return "pending"; case 2: return "ok"; case 3: return "error"; default: return "empty"; }
+}
+static bool sse_send_event_fd(int fd, const char *event_name, const char *data);
+static bool sse_scan_external(int fd, SseWatchAllState *st) {
+  char data[192];
+  for (uint8_t i = 0; i < MB_CACHE_MAX_ENTRIES; i++) {
+    mb_cache_entry_t e;
+    portENTER_CRITICAL(&mb_cache_spinlock);
+    bool used = i < g_mb_async.entry_count;
+    if (used) e = g_mb_async.entries[i];
+    portEXIT_CRITICAL(&mb_cache_spinlock);
+    if (!used || e.status == MB_CACHE_EMPTY) continue;
+    // En post der allerede har en værdi og blot opdateres (PENDING) er "ok" —
+    // ellers ville hver læsning give to events (ok→pending→ok).
+    if (e.status == MB_CACHE_PENDING && e.last_update_ms > 0) e.status = MB_CACHE_VALID;
+    uint8_t t = e.key.req_type;
+    int32_t v = (t == 1 || t == 2 || t == 5) ? (e.value.bool_val ? 1 : 0) : (int32_t)(uint16_t)e.value.int_val;
+    uint32_t key = ((uint32_t)e.key.slave_id << 24) | ((uint32_t)t << 16) | e.key.address;
+    SseExtPrev *p = &st->ext_rtu[i];
+    if (p->key == key && p->value == v && p->status == (uint8_t)e.status) continue;
+    snprintf(data, sizeof(data),
+             "{\"src\":\"rtu\",\"slave\":%u,\"type\":\"%s\",\"addr\":%u,\"value\":%ld,\"status\":\"%s\",\"write\":%s}",
+             e.key.slave_id, sse_ext_type(t), e.key.address, (long)v, sse_ext_status(e.status),
+             (e.last_fc == 5 || e.last_fc == 6 || e.last_fc == 8 || e.last_fc == 9) ? "true" : "false");
+    if (!sse_send_event_fd(fd, "ext", data)) return false;
+    p->key = key; p->value = v; p->status = (uint8_t)e.status;
+  }
+  for (uint16_t i = 0; i < MBX_ASYNC_CACHE_MAX_ENTRIES; i++) {
+    mbx_cache_entry_t e;
+    portENTER_CRITICAL(&mbx_cache_spinlock);
+    bool used = i < g_mbx_async.entry_count;
+    if (used) e = g_mbx_async.entries[i];
+    portEXIT_CRITICAL(&mbx_cache_spinlock);
+    if (!used || e.status == MBX_CACHE_EMPTY) continue;
+    if (e.status == MBX_CACHE_PENDING && e.last_update_ms > 0) e.status = MBX_CACHE_VALID;
+    uint8_t t = e.key.req_type;
+    int32_t v = (t == 1 || t == 2 || t == 5) ? (e.value.bool_val ? 1 : 0) : (int32_t)(uint16_t)e.value.int_val;
+    uint32_t key = ((uint32_t)e.key.board << 28) ^ ((uint32_t)e.key.channel << 24) ^ ((uint32_t)e.key.slave_id << 16)
+                   ^ ((uint32_t)t << 13) ^ e.key.address ^ 0x80000000u;
+    SseExtPrev *p = &st->ext_mbx[i];
+    if (p->key == key && p->value == v && p->status == (uint8_t)e.status) continue;
+    snprintf(data, sizeof(data),
+             "{\"src\":\"mbx\",\"board\":%u,\"ch\":%u,\"slave\":%u,\"type\":\"%s\",\"addr\":%u,\"value\":%ld,\"status\":\"%s\"}",
+             e.key.board, e.key.channel, e.key.slave_id, sse_ext_type(t), e.key.address, (long)v, sse_ext_status(e.status));
+    if (!sse_send_event_fd(fd, "ext", data)) return false;
+    p->key = key; p->value = v; p->status = (uint8_t)e.status;
+  }
+  return true;
+}
 
 // Per-client task parameters
 typedef struct {
@@ -638,6 +706,8 @@ static void sse_client_task(void *arg)
             all_state->di[i] = val;
           }
         }
+        // FEAT-447: eksterne registre (Modbus-cacherne)
+        if (!sse_scan_external(fd, all_state)) { free(all_state); free(state); goto done; }
       } else if (topics & SSE_TOPIC_REGISTERS) {
         // Watch-list mode: scan only specified addresses
         for (int i = 0; i < state->watch.hr_count; i++) {

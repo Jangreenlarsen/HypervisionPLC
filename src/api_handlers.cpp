@@ -8677,8 +8677,9 @@ esp_err_t api_handler_modbus_external_get(httpd_req_t *req)
   httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
   bool first = true;
   for (uint8_t i = 0; i < nr; i++) {
-    const mb_cache_entry_t *e = &rtu[i];
+    mb_cache_entry_t *e = &rtu[i];
     if (e->status == MB_CACHE_EMPTY) continue;
+    if (e->status == MB_CACHE_PENDING && e->last_update_ms > 0) e->status = MB_CACHE_VALID;  // FEAT-447: opdatering ≠ "venter"
     uint8_t t = e->key.req_type;
     long v = (t == 1 || t == 2 || t == 5) ? (e->value.bool_val ? 1 : 0) : (long)(uint16_t)e->value.int_val;
     snprintf(item, sizeof(item),
@@ -8692,8 +8693,9 @@ esp_err_t api_handler_modbus_external_get(httpd_req_t *req)
   httpd_resp_send_chunk(req, "],\"mbx\":[", HTTPD_RESP_USE_STRLEN);
   first = true;
   for (uint16_t i = 0; i < nx; i++) {
-    const mbx_cache_entry_t *e = &mbx[i];
+    mbx_cache_entry_t *e = &mbx[i];
     if (e->status == MBX_CACHE_EMPTY) continue;
+    if (e->status == MBX_CACHE_PENDING && e->last_update_ms > 0) e->status = MBX_CACHE_VALID;
     uint8_t t = e->key.req_type;
     long v = (t == 1 || t == 2 || t == 5) ? (e->value.bool_val ? 1 : 0) : (long)(uint16_t)e->value.int_val;
     snprintf(item, sizeof(item),
