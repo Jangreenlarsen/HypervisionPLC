@@ -573,7 +573,7 @@
 <!-- FEAT-446: eksterne registre som ST Logic læser/skriver (RS485-slaver + expansion boards) -->
 <div class="card" style="margin-bottom:12px">
 <h2>Eksterne registre (ST Logic) <span class="badge badge-off" id="badgeExt">-</span></h2>
-<div style="font-size:11px;color:#6c7086;margin-bottom:6px">Fundet ved at læse ST-programmerne 1–4 for <code>MB_READ_*</code>/<code>MB_WRITE_*</code> (RS485-slaver) og <code>MBX_*</code> (expansion boards). Værdien er den seneste, ST har læst eller skrevet (Modbus-cachen) og opdateres hvert 2. s. "beregnet" = adressen er ikke en konstant i koden.</div>
+<div style="font-size:11px;color:#6c7086;margin-bottom:6px">Fundet ved at læse ST-programmerne 1–4 for <code>MB_READ_*</code>/<code>MB_WRITE_*</code> (RS485-slaver) og <code>MBX_*</code> (expansion boards). Værdien er den seneste, ST har læst eller skrevet (Modbus-cachen) og opdateres hvert 3. s. "beregnet" = adressen er ikke en konstant i koden.</div>
 <table class="tbl" id="extTable">
 <thead><tr><th>Kilde</th><th>Register</th><th>Værdi</th><th>Brugt i ST</th><th>Status</th></tr></thead>
 <tbody id="extBody"><tr><td colspan="5" class="empty-msg">Indlæser…</td></tr></tbody>
@@ -1688,7 +1688,7 @@ async function refreshExternalRegs(force){
   try{await _refreshExternalRegs(force);}finally{_extBusy=false;}
 }
 async function _refreshExternalRegs(force){
-  if(force||!_extUses||Date.now()-_extUsesAt>30000)await _extLoadUses();
+  if(force||!_extUses||Date.now()-_extUsesAt>60000)await _extLoadUses();
   let cache={rtu:[],mbx:[]};
   try{const r=await dashFetch('/api/modbus/external',{});if(r.ok)cache=await r.json();}catch(e){}
   const rows=new Map();
@@ -3642,15 +3642,31 @@ function sseApplyTimerEvent(d){
   sseLastEventMs=Date.now();
   sseKickMetrics();
 }
+// BUG-452: tidligere gav dashboardet op FOR ALTID, hvis /api/events/status
+// fejlede (ingen retry i .catch) eller svarede med en fejlkode (429/503/401
+// blev læst som "SSE slået fra") — så kørte siden kun på den langsomme
+// polling. Nu: altid nyt forsøg efter 5 s; kun et gyldigt svar med
+// sse_enabled=false stopper, og selv det tjekkes igen hvert minut.
+let sseStaleMs=45000;  // 3 × heartbeat (fra /api/events/status), mindst 45 s
+function sseRetry(ms){
+  if(sseReconnectTimer)clearTimeout(sseReconnectTimer);
+  sseReconnectTimer=setTimeout(sseConnect,ms);
+}
 function sseConnect(){
+  if(sseConn)return;  // allerede forbundet/forbinder
   try{
     var auth=authGet();
     var opts=auth?{headers:{'Authorization':auth}}:{};
-    fetch('/api/events/status',opts).then(r=>r.json()).then(s=>{
+    fetch('/api/events/status',opts).then(r=>{
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      return r.json();
+    }).then(s=>{
       if(!s||!s.sse_enabled){
-        console.log('[SSE] disabled, using polling only');
+        console.log('[SSE] disabled, using polling only (tjekker igen om 60 s)');
+        sseRetry(60000);
         return;
       }
+      sseStaleMs=Math.max(45000,3*(s.heartbeat_ms||15000));
       let port=s.sse_port;
       if(!port||port===0){
         // Auto port = main port + 1
@@ -3666,10 +3682,12 @@ function sseConnect(){
         sseConn=new EventSource(url);
       }catch(e){
         console.log('[SSE] EventSource construct failed:',e);
+        sseRetry(5000);
         return;
       }
       sseConn.addEventListener('connected',()=>{
         console.log('[SSE] connected');
+        sseLastEventMs=Date.now();
         sseSetIndicator(true);
         // Slow polling since SSE handles instant updates
         if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,5000);}
@@ -3690,12 +3708,22 @@ function sseConnect(){
         if(sseConn){sseConn.close();sseConn=null;}
         // Restore fast polling as fallback
         if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,3000);}
-        if(sseReconnectTimer)clearTimeout(sseReconnectTimer);
-        sseReconnectTimer=setTimeout(sseConnect,5000);
+        sseRetry(5000);
       };
-    }).catch(e=>console.log('[SSE] status check failed:',e));
-  }catch(e){console.log('[SSE] init failed:',e);}
+    }).catch(e=>{console.log('[SSE] status check failed, retry om 5 s:',e);sseRetry(5000);});
+  }catch(e){console.log('[SSE] init failed:',e);sseRetry(5000);}
 }
+// BUG-452: vagt — er forbindelsen "åben", men der er hverken kommet events
+// eller heartbeats i 3 × heartbeat-intervallet, genforbindes den.
+setInterval(()=>{
+  if(sseConn&&sseLastEventMs&&Date.now()-sseLastEventMs>sseStaleMs){
+    console.log('[SSE] ingen heartbeat — genforbinder');
+    try{sseConn.close();}catch(e){}
+    sseConn=null;sseSetIndicator(false);
+    if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,3000);}
+    sseRetry(1000);
+  }
+},10000);
 
 function init(){
   initRegmapHover();
@@ -3743,7 +3771,7 @@ function init(){
   setInterval(fetchMbActivity,3000);
   setInterval(fetchSyslog,5000);
   setInterval(loadTrendConfig,5000);
-  setInterval(()=>refreshExternalRegs(false),2000);  // FEAT-446 (kun mens Register Map er åben)
+  setInterval(()=>{if(!document.hidden)refreshExternalRegs(false);},3000);  // FEAT-446 (kun mens Register Map er åben og fanen synlig)
   setInterval(fetchNetworkInfo,10000);
   setInterval(fetchConnections,5000);
   // FEAT-409: 30s, ikke 3-15s som resten — hvert board-tjek er en ægte

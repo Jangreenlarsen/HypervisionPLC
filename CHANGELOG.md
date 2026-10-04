@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.70] - 2026-10-04
+
+### BUG FIXES
+- **BUG-452:** dashboardet holdt op med at bruge SSE (og opdaterede derfor langsomt), hvis SSE-statuskaldet én gang fejlede eller blev afvist — prøver nu igen hvert 5. sekund og genforbinder selv ved manglende heartbeat.
+
 ## [7.9.68.69] - 2026-10-04
 
 ### NEW FEATURES
