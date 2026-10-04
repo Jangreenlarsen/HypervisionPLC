@@ -5062,6 +5062,10 @@ static void build_user_info_json(int uid, const char *token, char *buf, size_t b
   // FEAT-440: web-UI'et viser et advarselsbanner, mens standard-adgangskoden bruges
   if (uid >= 0 && rbac_uses_default_password(uid)) {
     strncat(token_field, ",\"default_password\":true", sizeof(token_field) - strlen(token_field) - 1);
+  } else if (uid >= 0 && rbac_has_write(uid) && rbac_any_default_password()) {
+    // FEAT-440b: brugere med skriveadgang (fx admin) får også at vide, at en
+    // ANDEN konto stadig har standard-adgangskoden — ligesom "show status"
+    strncat(token_field, ",\"any_default_password\":true", sizeof(token_field) - strlen(token_field) - 1);
   }
 
   if (uid < 0) {

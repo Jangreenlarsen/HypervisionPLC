@@ -179,11 +179,11 @@ function syslogTimeString(e){
 // standard-adgangskode. Fanger svaret fra /api/user/me, som alle login-sider
 // allerede henter — ingen ekstra forespørgsler mod enheden.
 function hfDefaultPwBanner(d){
-  if(!d||!d.default_password||document.getElementById('hfDefPw'))return;
+  if(!d||!(d.default_password||d.any_default_password)||document.getElementById('hfDefPw'))return;
   const b=document.createElement('div');
   b.id='hfDefPw';
   b.style.cssText='background:#f38ba8;color:#1e1e2e;padding:6px 14px;font-size:13px;font-weight:600;text-align:center';
-  b.innerHTML='⚠ Du bruger fabrikkens standard-adgangskode. Skift den under <a href="/system" style="color:#1e1e2e;text-decoration:underline">System → Brugerstyring</a>.';
+  b.innerHTML=(d.default_password?'⚠ Du bruger fabrikkens standard-adgangskode.':'⚠ En eller flere konti bruger stadig fabrikkens standard-adgangskode.')+' Skift den under <a href="/system" style="color:#1e1e2e;text-decoration:underline">System → Brugerstyring</a>.';
   document.body.insertBefore(b,document.body.firstChild);
 }
 (function(){

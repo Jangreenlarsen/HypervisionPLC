@@ -818,7 +818,8 @@ function _expCheckSequential(idx){
   const st=_expState[board.id]||(_expState[board.id]={fails:0});
   const next=()=>{_expRender(board);_expCheckSequential(idx+1);};
   dashFetch('/api/expansion/boards/'+board.id+'/status',{method:'POST'}).then(r=>{
-    if(!r.ok){st.note='Optaget — prøv igen om lidt';next();return;}  // 409: et andet kald kører — uafklaret
+    // BUG-454: vis den rigtige årsag (tidligere stod der "Optaget" ved ALLE fejlsvar)
+    if(!r.ok){st.note=r.status===409?'Optaget — et andet board-kald kører, prøver igen':r.status===403?'Kræver skriveadgang (log ind som admin)':r.status===401?'Log ind for at se board-status':r.status===429?'For mange forespørgsler — prøver igen':'Fejl (HTTP '+r.status+')';next();return;}
     _expPollResult(board,st,next);
   }).catch(()=>next());
 }

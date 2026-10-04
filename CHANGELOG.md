@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.73] - 2026-10-04
+
+### CHANGES
+- **FEAT-440b:** administratorer ser også advarselsbanneret, når en anden konto stadig har fabrikkens adgangskode.
+- **BUG-454:** Monitor → Expansion Boards viser den rigtige årsag ved fejl (optaget / kræver skriveadgang / for mange forespørgsler / HTTP-kode) i stedet for altid "Optaget".
+
 ## [7.9.68.72] - 2026-10-04
 
 ### BUG FIXES
