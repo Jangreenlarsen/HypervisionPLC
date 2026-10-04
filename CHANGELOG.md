@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.54] - 2026-10-04
+
+### BUG FIXES
+- **BUG-448 (del 1):** "Rollback mulig" viste altid "Nej" efter en normal opstart, og Rollback-knappen var låst. Viser nu den firmware, der ligger i den anden partition (fx "Ja — v7.9.68.54.2700 i ota_0").
+
 ## [7.9.68.53] - 2026-10-04
 
 ### NEW FEATURES

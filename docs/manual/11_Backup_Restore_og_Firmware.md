@@ -37,7 +37,7 @@ Firmware kan opdateres over netværket uden at skulle koble USB til igen:
 1. Log ind på `/ota`-siden i webgrænsefladen (eller `POST /api/system/ota` direkte med `.bin`-filen som request-body)
 2. Upload den nye `firmware.bin`
 3. Enheden skriver til den inaktive OTA-partition og genstarter automatisk ind i den nye firmware
-4. Går noget galt (fx firmwaren fejler ved boot), understøtter systemet **automatisk rollback** til den forrige, fungerende firmware (dual-bank OTA-partitionering)
+4. Den forrige firmware bliver liggende urørt i den anden partition (dual-bank OTA: `ota_0`/`ota_1` skiftes for hver opdatering) og kan rulles tilbage med ét klik — se §11.4. Om bootloaderen ruller *automatisk* tilbage ved en firmware der fejler ved opstart, er endnu ikke verificeret på hardware (BUG-448, punkt 2).
 
 **Størrelsesgrænse:** maks. ca. **1,8 MB** (1.900.544 bytes, svarende til én OTA-partition). Upload afvises med en tydelig fejlbesked hvis filen er for stor.
 
@@ -52,7 +52,7 @@ curl -u admin:modbus123 http://192.168.1.100/api/system/ota/status
 
 ## 11.4 Manuel rollback
 
-Ønskes en tilbagerulning uden at afvente en fejlet boot:
+System- og `/ota`-siden viser under **Rollback mulig** hvilken firmware der ligger i den anden partition, fx *"Ja — v7.9.68.54.2700 i ota_0"*, og **Rollback**-knappen er aktiv, når der ligger en gyldig firmware dér. Firmware fra før v7.9.68.54 kender sin egen version, men ikke den andens — så vises *"Ja — ukendt version i ota_0"* (BUG-448). Rollback skifter boot-partition og genstarter; samme kald via REST:
 ```bash
 curl -u admin:modbus123 -X POST http://192.168.1.100/api/system/ota/rollback
 ```

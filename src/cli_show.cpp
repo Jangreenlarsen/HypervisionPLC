@@ -2882,6 +2882,57 @@ void cli_cmd_show_st_logic_stats_modbus(void) {
  * SHOW VERSION
  * ============================================================================ */
 
+/* BUG-448: "show ota" — laeser otadata-partitionen RAAT via esp_partition_read()
+ * (ikke esp_ota_get_state_partition(), jf. BUG-423-kommentaren i main.cpp) og
+ * viser begge OTA-slots' sekvensnummer og tilstand. Bruges til at afklare om
+ * bootloader-rollback er aktiv: efter en OTA + genstart staar den nye firmware
+ * i PENDING_VERIFY, hvis bootloaderen har rollback slaaet til og appen ikke
+ * har bekraeftet den. Ren laesning — aendrer intet. */
+#include <esp_partition.h>
+#include <esp_ota_ops.h>
+extern "C" const char g_fw_version_marker[];
+
+static const char *ota_state_name(uint32_t s) {
+  switch (s) {
+    case 0x0: return "NEW";
+    case 0x1: return "PENDING_VERIFY";
+    case 0x2: return "VALID";
+    case 0x3: return "INVALID";
+    case 0x4: return "ABORTED";
+    case 0xFFFFFFFF: return "UNDEFINED";
+    default: return "?";
+  }
+}
+
+void cli_cmd_show_ota(void) {
+  debug_println("\n=== OTA ===\n");
+  const esp_partition_t *run = esp_ota_get_running_partition();
+  const esp_partition_t *boot = esp_ota_get_boot_partition();
+  debug_print("Koerer fra:   "); debug_println(run ? run->label : "?");
+  debug_print("Boot-valg:    "); debug_println(boot ? boot->label : "?");
+  debug_print("Denne fw:     "); debug_println(g_fw_version_marker + 12);
+
+  const esp_partition_t *od = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
+  if (!od) { debug_println("otadata: ikke fundet"); return; }
+  // esp_ota_select_entry_t: ota_seq(4) seq_label(20) ota_state(4) crc(4), et pr. 4 KB-sektor
+  for (int i = 0; i < 2; i++) {
+    uint32_t e[8];
+    if (esp_partition_read(od, i * 0x1000, e, sizeof(e)) != ESP_OK) { debug_println("otadata: laesefejl"); return; }
+    uint32_t seq = e[0], state = e[6];
+    char line[96];
+    if (seq == 0xFFFFFFFF) {
+      snprintf(line, sizeof(line), "otadata[%d]:  tom", i);
+    } else {
+      // seq 1,3,5.. -> ota_0 ; 2,4,6.. -> ota_1 (ved 2 app-slots)
+      snprintf(line, sizeof(line), "otadata[%d]:  seq=%lu -> ota_%lu, tilstand=%s (0x%lx)",
+               i, (unsigned long)seq, (unsigned long)((seq - 1) % 2), ota_state_name(state), (unsigned long)state);
+    }
+    debug_println(line);
+  }
+  debug_println("\nPENDING_VERIFY paa den koerende slot efter genstart = bootloader-rollback er");
+  debug_println("aktiv, og firmwaren er ikke bekraeftet (naeste reset ruller tilbage).");
+}
+
 void cli_cmd_show_version(void) {
   debug_println("\n=== FIRMWARE VERSION ===\n");
   debug_print("Version: ");

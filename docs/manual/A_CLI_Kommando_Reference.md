@@ -55,6 +55,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `show config [section]` | `section` (valgfri, case-insensitiv delstreng): `system`, `modbus`, `counter`, `timer`, `gpio`, `network`/`wifi`, `telnet`, `ethernet`/`eth`, `http`/`api`, `sse`, `ntp`/`time`, `rate`/`ratelimit`, `analog`/`ao`, `module`, `persist`, `logic`/`st`, `rbac`/`user` | Fuld (eller filtreret) persistent konfiguration. `show config \| s wifi` og `show config \| section wifi` accepteres også (pipe ignoreres). |
 | `show status` | — | Runtime-status: uptime, heap, GPIO, statistik |
 | `show version` / `ver` / `v` | — | Firmware-version, build-nummer, git-hash/branch, licens og kildekode-link |
+| `show ota` | — | OTA-diagnose (BUG-448): hvilken partition der køres/bootes fra, og begge otadata-slots' sekvens og tilstand (NEW/PENDING_VERIFY/VALID/…), læst råt fra flash. Kun læsning |
 | `show user` | — | Aktuel sessions auth-info (RBAC-status) |
 
 ### Modbus

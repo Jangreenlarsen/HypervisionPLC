@@ -91,6 +91,7 @@ void cli_cmd_show_st_logic_stats_modbus(void);
  * @brief Handle "show version" command
  */
 void cli_cmd_show_version(void);
+void cli_cmd_show_ota(void);   // BUG-448
 
 /**
  * @brief Handle "show gpio" command (GPIO mappings)

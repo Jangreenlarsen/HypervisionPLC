@@ -1031,7 +1031,7 @@ function fetchOtaStatus(){
     $('otaCurVer').textContent=d.current_version||'-';
     $('otaRunPart').textContent=d.running_partition||'-';
     $('otaBootPart').textContent=d.boot_partition||'-';
-    $('otaRollback').textContent=d.rollback_possible?'Ja':'Nej';
+    $('otaRollback').textContent=d.rollback_possible?('Ja — '+(d.rollback_version?'v'+d.rollback_version:'ukendt version')+' i '+d.rollback_partition):'Nej';
     $('otaRollbackBtn').disabled=!d.rollback_possible;
   }).catch(()=>{});
 }

@@ -324,6 +324,7 @@ static void print_show_help(void) {
   debug_println("    show config [section]  - Persistent konfiguration (+ set-kommandoer)");
   debug_println("    show status            - Runtime status (uptime, heap, stats, GPIO)");
   debug_println("    show version           - Firmware version");
+  debug_println("    show ota               - OTA-partitioner og otadata-tilstand (diagnose)");
   debug_println("");
   debug_println("  Modbus:");
   debug_println("    show modbus            - Modbus Slave + Master config (samlet)");
@@ -855,6 +856,9 @@ bool cli_parser_execute(char* line) {
       return true;
     } else if (!strcmp(what, "VERSION")) {
       cli_cmd_show_version();
+      return true;
+    } else if (!strcmp(what, "OTA")) {
+      cli_cmd_show_ota();  // BUG-448: raa otadata-diagnose
       return true;
     } else if (!strcmp(what, "GPIO")) {
       // show gpio [pin]

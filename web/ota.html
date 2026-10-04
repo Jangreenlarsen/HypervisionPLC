@@ -309,7 +309,7 @@ function fetchStatus(){
     document.getElementById('curVer').textContent=d.current_version||'-';
     document.getElementById('runPart').textContent=d.running_partition||'-';
     document.getElementById('bootPart').textContent=d.boot_partition||'-';
-    document.getElementById('rollbackOk').textContent=d.rollback_possible?'Ja':'Nej';
+    document.getElementById('rollbackOk').textContent=d.rollback_possible?('Ja — '+(d.rollback_version?'v'+d.rollback_version:'ukendt version')+' i '+d.rollback_partition):'Nej';
     document.getElementById('rollbackBtn').disabled=!d.rollback_possible;
     if(d.state==='receiving'){
       setProgress(d.percent);

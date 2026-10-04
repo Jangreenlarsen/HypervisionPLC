@@ -273,7 +273,7 @@ Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevari
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
 | POST | `/api/system/ota` | CHECK_AUTH_OTA | Chunked upload af `.bin`-firmware (streames direkte til flash, 4KB chunks). Validerer ESP32 magic byte (0xE9). Maks størrelse ~1,8125 MB. Ved succes: reboot efter 2000ms. Body: rå binærdata (ikke JSON). |
-| GET | `/api/system/ota/status` | CHECK_AUTH_OTA | `state`(`idle`/`receiving`/`verifying`/`done`/`error`), `received`,`total`,`percent`,`error`,`new_version`,`current_version`,`running_partition`,`boot_partition`,`rollback_possible` |
+| GET | `/api/system/ota/status` | CHECK_AUTH_OTA | `state`(`idle`/`receiving`/`verifying`/`done`/`error`), `received`,`total`,`percent`,`error`,`new_version`,`current_version`,`running_partition`,`boot_partition`,`rollback_possible` (gyldig firmware i den anden partition, BUG-448), `rollback_partition`, `rollback_version` (tom = ukendt, firmware fra før v7.9.68.54) |
 | POST | `/api/system/ota/rollback` | CHECK_AUTH_OTA | Skifter boot-partition til den anden OTA-slot og genstarter (2000ms delay) |
 
 ## B.16 Alarmer (FEAT-085)

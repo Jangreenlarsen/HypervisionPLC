@@ -96,6 +96,86 @@ static struct {
 };
 
 /* ============================================================================
+ * BUG-448: ROLLBACK-MAAL — findes der en gyldig firmware i den anden partition?
+ *
+ * Tidligere viste status "rollback_possible" = (running != boot), hvilket kun
+ * er sandt i sekunderne mellem en OTA og genstarten — efter en normal opstart
+ * stod der altid "Nej", selv om den forrige firmware laa urort i den anden
+ * partition. Nu: den anden partition (= den OTA ville skrive til) har et
+ * gyldigt app-image, hvis esp_ota_get_partition_description() kan laese dets
+ * app-header (ren esp_partition_read — IKKE esp_ota_get_state_partition(),
+ * se BUG-423-kommentaren i main.cpp). esp_ota_set_boot_partition() verificerer
+ * hele imaget foer der skiftes.
+ *
+ * Versionen: esp_app_desc_t.version er den samme i alle builds (kommer fra
+ * Arduino-frameworkets forkompilerede bibliotek), saa firmwaren indlejrer sin
+ * egen markoer, som soeges frem i den anden partition. Firmware fra foer
+ * v7.9.68.54 har ingen markoer → version "ukendt". Resultatet caches (den
+ * anden partition aendres kun af en OTA, som nulstiller cachen).
+ * ============================================================================ */
+
+#define BUG448_STR2(x) #x
+#define BUG448_STR(x) BUG448_STR2(x)
+#define FW_MARKER_PREFIX "HVPLC_FWVER:"
+extern "C" __attribute__((used)) const char g_fw_version_marker[] =
+  FW_MARKER_PREFIX PROJECT_VERSION "." BUG448_STR(BUILD_NUMBER);
+
+static struct {
+  bool valid;          // cache udfyldt
+  bool possible;       // gyldigt image i den anden partition
+  char label[17];      // partitionens navn
+  char version[32];    // fundet version, "" = ukendt
+} rb_cache = {false, false, {0}, {0}};
+
+static void rollback_target_refresh(void)
+{
+  rb_cache.possible = false;
+  rb_cache.label[0] = '\0';
+  rb_cache.version[0] = '\0';
+
+  const esp_partition_t *other = esp_ota_get_next_update_partition(NULL);
+  if (other) {
+    strncpy(rb_cache.label, other->label, sizeof(rb_cache.label) - 1);
+    rb_cache.label[sizeof(rb_cache.label) - 1] = '\0';
+    esp_app_desc_t desc;
+    if (esp_ota_get_partition_description(other, &desc) == ESP_OK) {
+      rb_cache.possible = true;
+      // Soeg markoeren frem i bidder med overlap (markoeren kan krydse en graense)
+      static const char prefix[] = FW_MARKER_PREFIX;
+      const size_t plen = sizeof(prefix) - 1;
+      const size_t CHUNK = 2048, OVL = 64;
+      uint8_t *buf = (uint8_t *)malloc(CHUNK + OVL);
+      if (buf) {
+        for (size_t off = 0; off < other->size && !rb_cache.version[0]; off += CHUNK) {
+          size_t n = CHUNK + OVL;
+          if (off + n > other->size) n = other->size - off;
+          if (esp_partition_read(other, off, buf, n) != ESP_OK) break;
+          // kun fund der STARTER foer overlappet — et fund i overlappet tages
+          // af naeste bid med hele versionen (ellers kunne den afkortes)
+          for (size_t i = 0; i < CHUNK && i + plen + 1 < n; i++) {
+            if (buf[i] != 'H' || memcmp(buf + i, prefix, plen) != 0) continue;
+            const uint8_t *v = buf + i + plen;
+            if (*v < '0' || *v > '9') continue;  // soege-literalen selv (efterfulgt af NUL)
+            size_t k = 0;
+            while (k < sizeof(rb_cache.version) - 1 && i + plen + k < n &&
+                   ((v[k] >= '0' && v[k] <= '9') || v[k] == '.')) {
+              rb_cache.version[k] = (char)v[k];
+              k++;
+            }
+            rb_cache.version[k] = '\0';
+            break;
+          }
+        }
+        free(buf);
+      }
+    }
+  }
+  rb_cache.valid = true;
+  ESP_LOGI(TAG, "Rollback-maal: %s, gyldigt=%d, version=%s",
+           rb_cache.label, rb_cache.possible, rb_cache.version[0] ? rb_cache.version : "ukendt");
+}
+
+/* ============================================================================
  * REBOOT TASK
  * ============================================================================ */
 
@@ -138,6 +218,7 @@ esp_err_t api_handler_ota_upload(httpd_req_t *req)
   ota_state.total = content_len;
   ota_state.error_msg[0] = '\0';
   ota_state.new_version[0] = '\0';
+  rb_cache.valid = false;  // BUG-448: den anden partition overskrives nu
 
   // Find next OTA partition
   const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
@@ -320,12 +401,18 @@ esp_err_t api_handler_ota_status(httpd_req_t *req)
   static const char *state_names[] = {"idle", "receiving", "verifying", "done", "error"};
   const char *state_str = (ota_state.state <= OTA_STATE_ERROR) ? state_names[ota_state.state] : "unknown";
 
-  char resp[512];
+  // BUG-448: rollback-maal fra den anden partition (kun naar ingen OTA koerer)
+  bool idle = (ota_state.state == OTA_STATE_IDLE || ota_state.state == OTA_STATE_ERROR);
+  if (idle && !rb_cache.valid) rollback_target_refresh();
+  bool rb_possible = idle && rb_cache.valid && rb_cache.possible;
+
+  char resp[640];
   int len = snprintf(resp, sizeof(resp),
     "{\"state\":\"%s\",\"received\":%lu,\"total\":%lu,\"percent\":%u,"
     "\"error\":\"%s\",\"new_version\":\"%s\","
     "\"current_version\":\"v%s.%d\",\"running_partition\":\"%s\","
-    "\"boot_partition\":\"%s\",\"rollback_possible\":%s}",
+    "\"boot_partition\":\"%s\",\"rollback_possible\":%s,"
+    "\"rollback_partition\":\"%s\",\"rollback_version\":\"%s\"}",
     state_str,
     (unsigned long)ota_state.received,
     (unsigned long)ota_state.total,
@@ -335,7 +422,9 @@ esp_err_t api_handler_ota_status(httpd_req_t *req)
     PROJECT_VERSION, BUILD_NUMBER,
     running_part ? running_part->label : "unknown",
     boot_part ? boot_part->label : "unknown",
-    (running_part && boot_part && running_part != boot_part) ? "true" : "false");
+    rb_possible ? "true" : "false",
+    rb_possible ? rb_cache.label : "",
+    (rb_possible && rb_cache.version[0]) ? rb_cache.version : "");
 
   httpd_resp_set_type(req, "application/json");
   return httpd_resp_send(req, resp, len);
@@ -364,9 +453,14 @@ esp_err_t api_handler_ota_rollback(httpd_req_t *req)
     return api_send_error(req, 400, "No previous firmware partition found");
   }
 
-  // Verify the other partition has valid firmware
-  esp_ota_img_states_t other_state;
-  esp_err_t err = esp_ota_get_state_partition(other, &other_state);
+  // BUG-448: gyldigt app-image i den anden partition? (header-laesning, ikke
+  // esp_ota_get_state_partition() — se BUG-423-kommentaren i main.cpp).
+  // esp_ota_set_boot_partition() nedenfor verificerer hele imaget.
+  if (ota_state.state == OTA_STATE_RECEIVING || ota_state.state == OTA_STATE_VERIFYING) {
+    return api_send_error(req, 409, "OTA upload in progress");
+  }
+  esp_app_desc_t other_desc;
+  esp_err_t err = esp_ota_get_partition_description(other, &other_desc);
   if (err != ESP_OK) {
     return api_send_error(req, 400, "Previous partition has no valid firmware");
   }
