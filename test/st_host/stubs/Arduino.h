@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 // Stub for Arduino.h — kun til PC-testen af ST-compiler/VM (BUG-433).
 #pragma once
 #include <stdint.h>

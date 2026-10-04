@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file registers.h
  * @brief Register storage and access (holding regs, input regs, coils, inputs)

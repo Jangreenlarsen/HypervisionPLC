@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file expansion_api_client.cpp
  * @brief FEAT-409: PLC-side klient mod en "HypervisionPLC Extension Board"s

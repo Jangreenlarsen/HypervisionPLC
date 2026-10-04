@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file sse_events.cpp
  * @brief Server-Sent Events (SSE) implementation (FEAT-023, v7.0.1)

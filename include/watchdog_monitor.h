@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file watchdog_monitor.h
  * @brief ESP32 Task Watchdog Monitor (LAYER 8)

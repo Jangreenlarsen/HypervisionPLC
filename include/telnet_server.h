@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file telnet_server.h
  * @brief Telnet protocol server for ESP32 (Layer 1.5)

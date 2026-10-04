@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file https_wrapper.c
  * @brief HTTPS/TLS server wrapper using ESP-IDF esp_https_server (FEAT-016)

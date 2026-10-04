@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file pcnt_driver.cpp
  * @brief PCNT driver implementation using ESP32 SDK

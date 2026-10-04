@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file sse_events.h
  * @brief Server-Sent Events (SSE) for real-time push notifications (FEAT-023, v7.0.0)

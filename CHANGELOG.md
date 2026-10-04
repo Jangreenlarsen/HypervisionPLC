@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [Unreleased] - 2026-10-04 (licens og oprydning)
+
+### CHANGES
+- **Licens:** projektet er udgivet under **AGPL-3.0-or-later** — `LICENSE` (officiel tekst fra gnu.org), SPDX-hoved i alle kildefiler (`src/`, `include/`, `scripts/`, `test/`, `nodered/`), Node-RED-noden skiftet fra MIT, README og manualens indeks opdateret.
+- **Repo-oprydning:** historisk materiale samlet i `archive/`, expansion-dokumenter i `docs/expansion/`, README omskrevet.
+
 ## [7.9.68.34 – 7.9.68.50] - 2026-09-29/10-02 (64 ST-variabler, watchdog-overvågning)
 
 ### NEW FEATURES

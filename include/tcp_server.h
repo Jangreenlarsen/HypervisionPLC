@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file tcp_server.h
  * @brief TCP server base functionality for ESP32 (Layer 1)

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file ota_handler.h
  * @brief OTA firmware update via HTTP API (FEAT-031)

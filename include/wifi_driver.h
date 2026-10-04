@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file wifi_driver.h
  * @brief ESP32 Wi-Fi driver for client mode (WPA2, DHCP, ICMP)

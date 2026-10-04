@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file cli_shell.cpp
  * @brief CLI shell implementation - console I/O and command loop (LAYER 7)

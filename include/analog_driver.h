@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file analog_driver.h
  * @brief Analog I/O hardware abstraction driver (FEAT-034/035/036, ES32D26)

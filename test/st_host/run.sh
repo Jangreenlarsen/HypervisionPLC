@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025-2026 Jan Green Larsen
 # PC-test af ST Logic-compiler + VM (BUG-433). Kraever g++ (fx MinGW paa Windows).
 # Koeres fra projektroden eller herfra:  bash test/st_host/run.sh
 set -e

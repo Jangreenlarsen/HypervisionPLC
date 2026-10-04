@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 // Stubs for at koere ST-compiler + VM paa PC'en (BUG-433-test). Ingen hardware.
 #include <stdarg.h>
 #include <stdio.h>

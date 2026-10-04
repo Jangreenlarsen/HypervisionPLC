@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file st_builtin_counters.cpp
  * @brief ST Counter Implementation (CTU, CTD, CTUD)

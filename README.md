@@ -5,6 +5,7 @@
 [![Version](https://img.shields.io/badge/version-7.9.68.50-blue)](CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/platform-ESP32--WROOM--32%20%7C%20ES32D26%20(WROVER)-informational)](docs/manual/02_Hardware_og_Moduler.md)
 [![Framework](https://img.shields.io/badge/framework-PlatformIO%20%2F%20Arduino-orange)](platformio.ini)
+[![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 [![Manual](https://img.shields.io/badge/manual-docs%2Fmanual-brightgreen)](docs/manual/00_INDEKS.md)
 
 ---
@@ -144,6 +145,12 @@ Tracking files in the root:
 
 ## License
 
-No license has been declared yet. All rights are reserved until one is added.
+Copyright (C) 2025-2026 Jan Green Larsen
+
+Hypervision PLC is free software: you can redistribute it and/or modify it under the terms of the **GNU Affero General Public License v3.0 or later** (AGPL-3.0-or-later), as published by the Free Software Foundation. See [LICENSE](LICENSE) for the full text.
+
+If you run a modified version on a device that users interact with over the network (web UI, REST API, Telnet), section 13 of the AGPL requires you to offer them the corresponding source code.
+
+Third-party components keep their own licenses: Arduino-ESP32 / ESP-IDF (Apache-2.0 / LGPL-2.1), ArduinoJson (MIT) and mbedTLS (Apache-2.0).
 
 **Maintainer:** Jan Green Larsen

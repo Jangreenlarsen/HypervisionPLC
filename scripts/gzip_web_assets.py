@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025-2026 Jan Green Larsen
 """
 Gzip-compress the embedded web UI pages at build time (FEAT-flash-optim).
 

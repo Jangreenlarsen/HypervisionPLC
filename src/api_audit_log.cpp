@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file api_audit_log.cpp
  * @brief REST API request audit log implementation (FEAT-033)

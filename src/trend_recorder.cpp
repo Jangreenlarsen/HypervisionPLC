@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file trend_recorder.cpp
  * @brief Trend Recorder implementation (FEAT-099)

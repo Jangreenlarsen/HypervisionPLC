@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file cli_commands_analog.h
  * @brief CLI `set analog` / `show analog` command handlers (FEAT-034/035/036/037)

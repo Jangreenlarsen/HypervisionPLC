@@ -83,4 +83,6 @@ Manualen er skrevet som en **modulær samling af selvstændige kapitler**, så d
 
 ---
 
+**Licens:** Hypervision PLC (firmware, web-UI, scripts og dokumentation) er udgivet under **GNU Affero General Public License v3.0 eller senere** (AGPL-3.0-or-later) — se [`../../LICENSE`](../../LICENSE). Kører man en *ændret* version på en enhed, som andre bruger over netværket (web-UI, REST, Telnet), skal man tilbyde dem kildekoden (AGPL §13).
+
 **Sprog:** Manualen er skrevet på dansk, i tråd med resten af projektets dokumentation (se [`../../CLAUDE.md`](../../CLAUDE.md)). Kodeeksempler, kommandoer og feltnavne følger engelsk konvention, som i selve systemet.

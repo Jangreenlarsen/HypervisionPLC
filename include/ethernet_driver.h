@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file ethernet_driver.h
  * @brief W5500 SPI Ethernet driver for ESP32 (Layer 0 hardware abstraction)

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file st_wdt.cpp
  * @brief FEAT-427 lag B: konfigurerbar watchdog pr. ST-program (se st_wdt.h)

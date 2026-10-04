@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file counter_sw_isr.cpp
  * @brief Software ISR (interrupt) mode counter (LAYER 5)

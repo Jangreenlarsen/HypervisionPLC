@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file web_common.h
  * @brief Shared CSS/JS asset handlers (flash-optimering v2)

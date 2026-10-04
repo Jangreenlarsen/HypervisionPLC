@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file modbus_parser.h
  * @brief Modbus frame parser - Convert raw bytes to request structs (LAYER 1)

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file cli_shell.h
  * @brief CLI shell - console input/output and command loop (LAYER 7)

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file system_log.cpp
  * @brief Delt haendelses-/registerændringslog implementation (FEAT-086/089)

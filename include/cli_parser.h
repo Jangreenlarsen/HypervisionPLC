@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file cli_parser.h
  * @brief CLI command parser and dispatcher (LAYER 7)

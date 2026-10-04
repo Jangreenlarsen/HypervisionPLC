@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file uart_driver.cpp
  * @brief UART hardware abstraction driver implementation (LAYER 0)

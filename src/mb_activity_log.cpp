@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file mb_activity_log.cpp
  * @brief Unified Modbus activity log implementation (FEAT-149)

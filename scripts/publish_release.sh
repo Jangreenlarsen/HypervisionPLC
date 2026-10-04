@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025-2026 Jan Green Larsen
 # scripts/publish_release.sh — FEAT-169: bygger firmware og publicerer den
 # som en GitHub Release, der matcher PROJECT_VERSION (include/constants.h).
 # Se docs/RELEASE_PROCEDURE.md for hvornaar og hvordan dette bruges.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file ip_acl.h
  * @brief IP Access Control List (FEAT-399) — IP/CIDR-baseret blokering pr.

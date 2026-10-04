@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file trend_recorder.h
  * @brief Trend Recorder — periodic sampling of arbitrary registers for

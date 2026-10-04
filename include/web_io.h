@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2025-2026 Jan Green Larsen
 /**
  * @file web_io.h
  * @brief Web-baseret I/O-konfigurationsside for Counters/Timers/GPIO (FEAT-171)
