@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.60] - 2026-10-04
+
+### SECURITY
+- **FEAT-440:** advarsel så længe fabrikkens adgangskode bruges — rødt banner i web-UI'et, besked efter telnet-login og i `show status`.
+
 ## [7.9.68.59] - 2026-10-04
 
 ### SECURITY

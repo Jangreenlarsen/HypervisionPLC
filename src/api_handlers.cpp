@@ -5047,9 +5047,13 @@ static int cli_buf_read_char(void *ctx, char *out) { return 0; }
 // "token" field (only api_handler_login passes one).
 static void build_user_info_json(int uid, const char *token, char *buf, size_t buf_len)
 {
-  char token_field[40] = "";
+  char token_field[72] = "";
   if (token) {
     snprintf(token_field, sizeof(token_field), ",\"token\":\"%s\"", token);
+  }
+  // FEAT-440: web-UI'et viser et advarselsbanner, mens standard-adgangskoden bruges
+  if (uid >= 0 && rbac_uses_default_password(uid)) {
+    strncat(token_field, ",\"default_password\":true", sizeof(token_field) - strlen(token_field) - 1);
   }
 
   if (uid < 0) {

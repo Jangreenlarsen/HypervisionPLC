@@ -5000,6 +5000,12 @@ void cli_cmd_show_metrics(void) {
 
 void cli_cmd_show_status(void) {
   debug_println("\n=== RUNTIME STATUS ===\n");
+  {
+    extern bool rbac_any_default_password(void);
+    if (rbac_any_default_password()) {
+      debug_println("*** ADVARSEL: fabrikkens standard-adgangskode bruges stadig (FEAT-440) — skift den ***\n");
+    }
+  }
 
   // --- System ---
   debug_println("[SYSTEM]");

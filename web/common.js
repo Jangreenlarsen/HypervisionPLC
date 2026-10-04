@@ -175,6 +175,28 @@ function syslogTimeString(e){
 // BUG-435: escaper ALT tekst fra serveren der indsaettes som HTML. Logposter
 // indeholder bl.a. det brugernavn et FEJLET login forsoegte med — uden
 // escaping kunne en uautentificeret angriber faa kode til at koere i en admins browser.
+// FEAT-440: rødt banner øverst, mens den indloggede bruger har fabrikkens
+// standard-adgangskode. Fanger svaret fra /api/user/me, som alle login-sider
+// allerede henter — ingen ekstra forespørgsler mod enheden.
+function hfDefaultPwBanner(d){
+  if(!d||!d.default_password||document.getElementById('hfDefPw'))return;
+  const b=document.createElement('div');
+  b.id='hfDefPw';
+  b.style.cssText='background:#f38ba8;color:#1e1e2e;padding:6px 14px;font-size:13px;font-weight:600;text-align:center';
+  b.innerHTML='⚠ Du bruger fabrikkens standard-adgangskode. Skift den under <a href="/system" style="color:#1e1e2e;text-decoration:underline">System → Brugerstyring</a>.';
+  document.body.insertBefore(b,document.body.firstChild);
+}
+(function(){
+  if(!window.fetch)return;
+  const _f=window.fetch;
+  window.fetch=function(u){
+    const p=_f.apply(this,arguments);
+    if(String(u&&u.url||u).indexOf('/api/user/me')>=0||String(u&&u.url||u).indexOf('/api/login')>=0){
+      p.then(r=>r.ok?r.clone().json():null).then(hfDefaultPwBanner).catch(()=>{});
+    }
+    return p;
+  };
+})();
 function escHtml(s){return s==null?'':String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 
 function syslogDetail(e){

@@ -379,6 +379,12 @@ static void telnet_handle_auth_input(TelnetServer *server, const char *input) {
       telnet_server_writeline(server, "");
       telnet_server_writeline(server, "Authentication successful. Welcome!");
       telnet_server_writeline(server, "");
+      // FEAT-440: advar mens fabrikkens adgangskode stadig bruges
+      if (rbac_is_default_password(trimmed_input)) {
+        telnet_server_writeline(server, "*** ADVARSEL: du bruger fabrikkens standard-adgangskode. ***");
+        telnet_server_writeline(server, "*** Skift den under System -> Brugerstyring, eller: set user <navn> password <ny> roles <roller> privilege <rw> + save ***");
+        telnet_server_writeline(server, "");
+      }
 
       // Send initial CLI prompt
       telnet_server_write(server, "> ");

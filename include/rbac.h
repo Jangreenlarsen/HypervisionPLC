@@ -32,6 +32,19 @@
 int rbac_authenticate(const char *username, const char *password);
 
 /**
+ * FEAT-440: bruger denne login-identitet stadig fabrikkens standard-
+ * adgangskode? uid = RBAC-brugerindex, eller 99 = legacy/virtuel admin.
+ * Sammenligner med de gemte hashes (ingen klartekst gemmes).
+ */
+bool rbac_uses_default_password(int uid);
+
+/** FEAT-440: bruger NOGEN login (RBAC-bruger, legacy-HTTP, legacy-telnet) standard-adgangskoden? */
+bool rbac_any_default_password(void);
+
+/** FEAT-440: er `password` en af fabrikkens standard-adgangskoder? (til telnet-login) */
+bool rbac_is_default_password(const char *password);
+
+/**
  * Authenticate from HTTP Basic Auth header (httpd_req_t).
  * Handles Base64 decoding and credential lookup.
  * @return User index (0-7) on success, -1 on failure.

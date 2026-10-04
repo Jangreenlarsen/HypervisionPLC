@@ -147,6 +147,58 @@ static bool rbac_legacy_auth(const char *username, const char *password)
   return rbac_hash_equal(computed, (const uint8_t *)g_persist_config.network.http.password);
 }
 
+/* ============================================================================
+ * FEAT-440: ADVARSEL OM STANDARD-ADGANGSKODE
+ * Fabrikkens adgangskoder: HTTP/RBAC "modbus123", legacy-telnet "telnet123".
+ * ============================================================================ */
+static const char *const RBAC_DEFAULT_PASSWORDS[] = {"modbus123", "telnet123", NULL};
+
+bool rbac_is_default_password(const char *password)
+{
+  if (!password) return false;
+  for (int i = 0; RBAC_DEFAULT_PASSWORDS[i]; i++) {
+    if (strcmp(password, RBAC_DEFAULT_PASSWORDS[i]) == 0) return true;
+  }
+  return false;
+}
+
+static bool rbac_hash_matches_default(const uint8_t salt[16], const uint8_t *stored)
+{
+  for (int i = 0; RBAC_DEFAULT_PASSWORDS[i]; i++) {
+    uint8_t computed[32];
+    rbac_hash_password(RBAC_DEFAULT_PASSWORDS[i], salt, computed);
+    if (rbac_hash_equal(computed, stored)) return true;
+  }
+  return false;
+}
+
+bool rbac_uses_default_password(int uid)
+{
+  if (uid >= 0 && uid < RBAC_MAX_USERS) {
+    const RbacUser *u = &g_persist_config.rbac.users[uid];
+    return u->active && rbac_hash_matches_default(g_persist_config.rbac_salt[uid], (const uint8_t *)u->password);
+  }
+  if (uid == 99 && !g_persist_config.rbac.enabled && g_persist_config.network.http.auth_enabled) {
+    return rbac_hash_matches_default(g_persist_config.http_legacy_salt,
+                                     (const uint8_t *)g_persist_config.network.http.password);
+  }
+  return false;
+}
+
+bool rbac_any_default_password(void)
+{
+  if (g_persist_config.rbac.enabled) {
+    for (int i = 0; i < RBAC_MAX_USERS; i++) {
+      if (rbac_uses_default_password(i)) return true;
+    }
+    return false;
+  }
+  if (rbac_uses_default_password(99)) return true;
+  // Legacy-telnet gemmer adgangskoden i klartekst
+  const char *tp = g_persist_config.network.telnet_password[0] ? g_persist_config.network.telnet_password : "telnet123";
+  return g_persist_config.network.telnet_enabled && rbac_is_default_password(tp);
+}
+
 static int rbac_legacy_from_basic(const char *auth_value)
 {
   if (!g_persist_config.network.http.auth_enabled) return 99; // No auth = virtual admin

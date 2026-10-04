@@ -86,6 +86,8 @@ Når enheden har en IP-adresse: åbn `http://<enhedens-ip>/` i en browser. **Sid
 
 ## 3.6 Hærdning efter installation
 
+Så længe fabrikkens adgangskode bruges, viser web-UI'et et rødt banner, og telnet og `show status` advarer (FEAT-440).
+
 **Gør dette FØR enheden går i produktion — det tager to minutter:**
 
 ```
