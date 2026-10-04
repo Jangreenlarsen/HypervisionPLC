@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.78] - 2026-10-05
+
+### BUG FIXES
+- **BUG-459:** OTA kunne afvise en korrekt signeret firmware som "Ugyldig signatur", når den interne RAM var fragmenteret — signaturkontrollen bruger nu PSRAM.
+
 ## [7.9.68.77] - 2026-10-05
 
 ### BUG FIXES

@@ -45,6 +45,8 @@
 #include <mbedtls/ecdsa.h>
 #include <mbedtls/ecp.h>
 #include <mbedtls/bignum.h>
+#include <mbedtls/platform.h>  // BUG-459: midlertidig PSRAM-allokator under verifikation
+
 
 // External functions from http_server.cpp / api_handlers.cpp
 extern void http_server_stat_request(void);
@@ -193,9 +195,36 @@ static void rollback_target_refresh(void)
 #define OTA_SIG_MAGIC       "HVPLCSG1"
 #define OTA_SIG_TRAILER_LEN 72
 
+// BUG-459: mbedTLS er bygget med CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC — kun
+// intern RAM. Er den fragmenteret (største blok fx 308 B, BUG-458), fejler
+// ECDSA-verifikationens bignum-allokeringer, og en KORREKT signeret fil blev
+// afvist som "Ugyldig signatur". Under verifikationen bruges derfor PSRAM
+// først (intern som fallback); standard-allokatoren gendannes bagefter.
+// heap_caps_free() frigiver fra begge heaps, så en anden mbedTLS-bruger, der
+// allokerer i samme vindue, er også sikker.
+static void *ota_mbedtls_calloc(size_t n, size_t sz) {
+  void *p = heap_caps_calloc(n, sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return p ? p : heap_caps_calloc(n, sz, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+static void ota_mbedtls_free(void *p) { heap_caps_free(p); }
+// Standarden med CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC (= esp_mbedtls_mem_calloc,
+// som ikke kan linkes herfra) — gendannes efter verifikationen
+static void *ota_mbedtls_internal_calloc(size_t n, size_t sz) {
+  return heap_caps_calloc(n, sz, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+static bool ota_signature_ok_inner(const uint8_t hash[32], const uint8_t *trailer);
 static bool ota_signature_ok(const uint8_t hash[32], const uint8_t *trailer)
 {
   if (memcmp(trailer, OTA_SIG_MAGIC, 8) != 0) return false;
+  mbedtls_platform_set_calloc_free(ota_mbedtls_calloc, ota_mbedtls_free);
+  bool ok = ota_signature_ok_inner(hash, trailer);
+  mbedtls_platform_set_calloc_free(ota_mbedtls_internal_calloc, ota_mbedtls_free);
+  return ok;
+}
+
+static bool ota_signature_ok_inner(const uint8_t hash[32], const uint8_t *trailer)
+{
   mbedtls_ecp_group grp;
   mbedtls_ecp_point q;
   mbedtls_mpi r, s;
