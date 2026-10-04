@@ -1,5 +1,6 @@
 # PlatformIO
 .pio/
+compile_commands.json
 .vscode/
 build/
 .clang_complete
@@ -50,7 +51,7 @@ debug_*.py
 *.tmp
 reconfigure_output.txt
 
-# Archived documentation (kept locally, not in repo)
+# Gamle lokale arbejdsnoter (ikke i repo) — det versionerede arkiv ligger i archive/
 docs/ARCHIVED/
 docs/.DS_Store
 

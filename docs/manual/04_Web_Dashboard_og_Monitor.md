@@ -116,7 +116,7 @@ Ud over selve "Metrics"-visningen (kort/faner, beskrevet ovenfor) har `/dashboar
 
 ![Registre-visningen — rå HR/Coil-gitter](assets/screenshots/dashboard_registre.png)
 
-**Register Map** — viser hvem der EJER hvert register-interval (Counter/Timer/ST Logic/Manuel-System/Ledig), farvekodet efter ejer-type. Det samme formål som [`../../MODBUS_REGISTER_MAP.md`](../../MODBUS_REGISTER_MAP.md)-filen, men live og interaktivt i browseren i stedet for en statisk fil — praktisk når man skal finde en ledig registerblok til en ny binding uden at støde ind i noget der allerede er i brug:
+**Register Map** — viser hvem der EJER hvert register-interval (Counter/Timer/ST Logic/Manuel-System/Ledig), farvekodet efter ejer-type. Det samme formål som [`../../archive/docs/MODBUS_REGISTER_MAP.md`](../../archive/docs/MODBUS_REGISTER_MAP.md)-filen, men live og interaktivt i browseren i stedet for en statisk fil — praktisk når man skal finde en ledig registerblok til en ny binding uden at støde ind i noget der allerede er i brug:
 
 ![Register Map — register-allokering farvekodet efter ejer](assets/screenshots/dashboard_regmap.png)
 
@@ -169,7 +169,7 @@ En fuld terminal-emulering i browseren, med samme kommandosæt som seriel/telnet
 
 ## 4.5 Real-time opdatering (SSE)
 
-Dashboardet bruger **Server-Sent Events** til at modtage register-, tæller- og timer-ændringer i realtid uden konstant polling. Falder SSE-forbindelsen væk, falder UI'et automatisk tilbage til almindelig polling — funktionaliteten er uændret, blot med lidt højere opdateringsforsinkelse. Se [`../SSE_USER_GUIDE.md`](../SSE_USER_GUIDE.md) for den tekniske protokol, hvis I bygger jeres eget klient-integration mod samme SSE-strøm.
+Dashboardet bruger **Server-Sent Events** til at modtage register-, tæller- og timer-ændringer i realtid uden konstant polling. Falder SSE-forbindelsen væk, falder UI'et automatisk tilbage til almindelig polling — funktionaliteten er uændret, blot med lidt højere opdateringsforsinkelse. Se [`../../archive/docs/SSE_USER_GUIDE.md`](../../archive/docs/SSE_USER_GUIDE.md) for den tekniske protokol, hvis I bygger jeres eget klient-integration mod samme SSE-strøm.
 
 ---
 

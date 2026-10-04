@@ -107,7 +107,7 @@ Telnet understøtter kun **én samtidig forbindelse**. Er en tidligere session i
 |-----------|---------|
 | [`../../BUGS_INDEX.md`](../../BUGS_INDEX.md) | Komplet historik over kendte og rettede fejl — søg efter symptomer eller BUG-ID |
 | [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) | Kendte, endnu-åbne sikkerhedspunkter |
-| [`../../MODBUS_REGISTER_MAP.md`](../../MODBUS_REGISTER_MAP.md) | Præcis register-for-register-reference |
+| Register Map-siden i web-dashboardet | Aktuel, live register-tildeling ([§4](04_Web_Dashboard_og_Monitor.md)) |
 | GitHub Issues (projektets repo) | Rapportér nye fejl — vedlæg altid `show version`-output og relevante `show`-kommandoers output |
 
 ---

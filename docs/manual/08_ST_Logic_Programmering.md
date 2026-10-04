@@ -105,7 +105,7 @@ Der er en **sikkerhedsgrænse på 10.000 VM-instruktioner pr. scan-cyklus** — 
 >
 > Tilstanden (elapsed tid, om timeren løber, osv.) huskes internt af systemet pr. **kaldested** i koden — ikke i en navngivet variabel — så to forskellige `TON(...)`-kald i samme program er automatisk to uafhængige timere, uden at man selv skal navngive eller allokere dem.
 
-Se [`../ST_USAGE_GUIDE.md`](../ST_USAGE_GUIDE.md) og [`../ST_IEC61131_COMPLIANCE.md`](../ST_IEC61131_COMPLIANCE.md) for fuld syntaksdetalje og afvigelser fra standarden.
+Se [`../../archive/docs/ST_USAGE_GUIDE.md`](../../archive/docs/ST_USAGE_GUIDE.md) og [`../../archive/docs/ST_IEC61131_COMPLIANCE.md`](../../archive/docs/ST_IEC61131_COMPLIANCE.md) for fuld syntaksdetalje og afvigelser fra standarden.
 
 ## 8.6 Kom i gang: et første program
 
@@ -226,7 +226,7 @@ curl -u admin:modbus123 -X POST http://192.168.1.100/api/registers/holding/50 \
      -H "Content-Type: application/json" -d '{"value": 750}'
 ```
 
-**Følg det hele i realtid** — abonnér på SSE-strømmen i stedet for at polle (se [`../SSE_USER_GUIDE.md`](../SSE_USER_GUIDE.md)), eller åbn Modbus Aktivitetsloggen i dashboardet for at se selve `MB_READ_HOLDING`/`MB_WRITE_COIL`-transaktionerne mod flowmåleren live, med kilde `st_logic` ([§4.2](04_Web_Dashboard_og_Monitor.md)).
+**Følg det hele i realtid** — abonnér på SSE-strømmen i stedet for at polle (se [`../../archive/docs/SSE_USER_GUIDE.md`](../../archive/docs/SSE_USER_GUIDE.md)), eller åbn Modbus Aktivitetsloggen i dashboardet for at se selve `MB_READ_HOLDING`/`MB_WRITE_COIL`-transaktionerne mod flowmåleren live, med kilde `st_logic` ([§4.2](04_Web_Dashboard_og_Monitor.md)).
 
 Dette mønster — ST Logic som lokal, altid-kørende beslutningslogik + REST API som fjern-overvågnings-/konfigurationslag — er den centrale arkitektur-idé i Hypervision PLC (se [§1.5](01_Systembeskrivelse.md#15-arkitektur-i-fugleperspektiv)).
 

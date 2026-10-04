@@ -43,7 +43,7 @@ set ntp timezone "CET-1CEST,M3.5.0,M10.5.0/3"
 show ntp
 ```
 
-Standard er **deaktiveret** ved fabriksnulstilling, med `pool.ntp.org` og dansk/central-europæisk tidszone (inkl. automatisk sommertid) som forudfyldte værdier. Tidszonen angives i POSIX TZ-format — se [`../NTP_TIMEZONE_GUIDE.md`](../NTP_TIMEZONE_GUIDE.md) for eksempler på andre tidszoner.
+Standard er **deaktiveret** ved fabriksnulstilling, med `pool.ntp.org` og dansk/central-europæisk tidszone (inkl. automatisk sommertid) som forudfyldte værdier. Tidszonen angives i POSIX TZ-format — se [`../../archive/docs/NTP_TIMEZONE_GUIDE.md`](../../archive/docs/NTP_TIMEZONE_GUIDE.md) for eksempler på andre tidszoner.
 
 ## 12.4 Diagnosticér netværksproblemer
 

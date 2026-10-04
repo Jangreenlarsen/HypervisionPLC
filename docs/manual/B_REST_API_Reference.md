@@ -125,7 +125,7 @@ Adresseområder: HR/IR 0–255, coils/DI 0–255.
 | GET | `/api/analog` | CHECK_AUTH | Alle 10 kanaler: `ai_voltage[]` (vi1-4), `ai_current[]` (ii1-4), `ao[]` (ao1-2). Hver AI-post: `channel`, `enabled`, `adc2` (bool), `wifi_blocked` (bool — sand hvis ADC2-kanal og WiFi tilsluttet), `raw_mv`, `value` (×100 fixed-point, -1 hvis wifi_blocked), `scale`, `offset`, `raw_reg`, `value_reg`. Hver AO-post: `channel`, `enabled`, `mode` (`voltage`/`current`), `setpoint` (×100), `scale`, `offset`, `value_reg` |
 | POST | `/api/analog` | CHECK_AUTH_WRITE | Body: `{"channel":"vi1\|...\|ao2", ...}`. Valgfrie felter: `enabled` (bool, kræver `save`+reboot for at slå register-allokering til), `scale`/`offset` (float, virker straks), `setpoint` (float, **kun AO-kanaler**, skriver direkte til runtime-registret — virker med det samme, ingen `save` nødvendig), `mode` (**FEAT-170**, kun `ao1`/`ao2`, `"voltage"`\|`"current"` — tidligere kun tilgængelig via fuld config-restore) |
 
-Register-adresser er faste i denne version (ikke bruger-omkonfigurerbare) — se [§6](06_Modbus_Interface.md) og `MODBUS_REGISTER_MAP.md` for den fulde adresseliste (HR 0-17).
+Register-adresser er faste i denne version (ikke bruger-omkonfigurerbare) — se [§6](06_Modbus_Interface.md) og Register Map-siden i dashboardet for den fulde adresseliste (HR 0-17).
 
 ## B.9 Counters
 

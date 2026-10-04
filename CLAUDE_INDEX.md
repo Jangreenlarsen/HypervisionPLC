@@ -57,17 +57,11 @@ Bug tracking:
 Security tracking:
 └─ SECURITY_INDEX.md - Sikkerhedsfund, fixede + åbne (~600 tokens)
 
-Test documentation:
-└─ tests/ - Strukturerede testplaner
-   ├─ TEST_INDEX.md - Test navigation hub
-   ├─ API_TEST_PLAN.md - HTTP REST API tests (41 tests)
-   ├─ ST_TEST_OPERATORS.md - Operator tests (20 tests)
-   ├─ ST_TEST_BUILTINS.md - Builtin function tests (23 tests)
-   ├─ ST_TEST_TIMERS.md - TON/TOF/TP tests (6 tests)
-   ├─ ST_TEST_GPIO.md - GPIO & Hardware tests (4 tests)
-   ├─ ST_TEST_CONTROL.md - Control structure tests (6 tests)
-   ├─ ST_TEST_TYPES.md - Type system tests (12 tests)
-   └─ ST_TEST_COMBINED.md - Combined tests (10 tests)
+Tests:
+└─ test/st_host/ - PC-test af ST-compiler/VM (README.md, run.sh)
+
+Archive (historisk, vedligeholdes ikke):
+└─ archive/ - gamle analyser, testplaner/-resultater, scripts (se archive/README.md)
 
 Project files:
 ├─ src/ - All C++ implementation files (30+)
@@ -103,9 +97,9 @@ Project files:
 3. If new bug, document it in BUGS.md
 
 ### "I need to run tests"
-1. Open [`tests/TEST_INDEX.md`](tests/TEST_INDEX.md) for overview
-2. Choose relevant test file (API, ST operators, etc.)
-3. Follow test procedures with copy/paste CLI commands
+1. ST compiler/VM on the PC: [`test/st_host/README.md`](test/st_host/README.md) (`bash test/st_host/run.sh`)
+2. Hardware: build `pio run -e es32d26`, OTA to the test PLC, verify via CLI/REST
+3. Old test plans (v4–v6) are in [`archive/tests/`](archive/tests/) — historical only
 
 ---
 

@@ -111,7 +111,7 @@ Læsninger er **asynkrone** — svaret kommer enten fra cachen med det samme (`"
 
 ## 7.7 Node-RED / SCADA-integration
 
-Se [`../API_HELLO_WORLD_GUIDE.md`](../API_HELLO_WORLD_GUIDE.md) for en trin-for-trin-gennemgang med et komplet eksempel (ST-program + GPIO + REST-kald), og [`../SSE_USER_GUIDE.md`](../SSE_USER_GUIDE.md) for real-time push-integration i stedet for polling.
+Se [`../../archive/docs/API_HELLO_WORLD_GUIDE.md`](../../archive/docs/API_HELLO_WORLD_GUIDE.md) for en trin-for-trin-gennemgang med et komplet eksempel (ST-program + GPIO + REST-kald), og [`../../archive/docs/SSE_USER_GUIDE.md`](../../archive/docs/SSE_USER_GUIDE.md) for real-time push-integration i stedet for polling.
 
 ---
 

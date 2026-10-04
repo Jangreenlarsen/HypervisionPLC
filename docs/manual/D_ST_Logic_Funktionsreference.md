@@ -6,7 +6,7 @@
 
 > Denne reference er udtrukket direkte fra kildekoden (`src/st_parser.cpp`, `src/st_compiler.cpp`, `src/st_vm.cpp`, `src/st_builtin_*.cpp`, `include/st_types.h`, `include/constants.h`) og er derfor autoritativ i forhold til hvad systemet faktisk understøtter. Se [kapitel 8](08_ST_Logic_Programmering.md) for en indførende gennemgang med eksempler — dette appendiks er et opslagsværk, ikke en tutorial.
 >
-> **Om de to ældre baggrundsdokumenter** `../ST_USAGE_GUIDE.md` og `../ST_IEC61131_COMPLIANCE.md`: sidstnævnte er stærkt forældet (beskriver en tidlig udviklingsfase — forkert INT-bredde, "FB'er ikke understøttet", ingen omtale af GLOBAL_VAR/STRING/STRUCT m.m.) og bør **ikke** bruges som kilde. `ST_USAGE_GUIDE.md` er langt mere opdateret, men mangler helt GLOBAL_VAR, brugerdefinerede FUNCTION/FUNCTION_BLOCK, TYPE/STRUCT, SAVE/LOAD, bit-funktionerne og STRING-funktionerne. Dette appendiks dækker alle af disse.
+> **Om de to ældre baggrundsdokumenter** `../../archive/docs/ST_USAGE_GUIDE.md` og `../../archive/docs/ST_IEC61131_COMPLIANCE.md`: sidstnævnte er stærkt forældet (beskriver en tidlig udviklingsfase — forkert INT-bredde, "FB'er ikke understøttet", ingen omtale af GLOBAL_VAR/STRING/STRUCT m.m.) og bør **ikke** bruges som kilde. `ST_USAGE_GUIDE.md` er langt mere opdateret, men mangler helt GLOBAL_VAR, brugerdefinerede FUNCTION/FUNCTION_BLOCK, TYPE/STRUCT, SAVE/LOAD, bit-funktionerne og STRING-funktionerne. Dette appendiks dækker alle af disse.
 
 ## D.1 Datatyper
 

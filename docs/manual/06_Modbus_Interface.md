@@ -39,7 +39,7 @@ Protokol: **Modbus RTU** over RS-485 (framing, CRC16) for systemets egen Slave/M
 | Coils | 256 bits (32 bytes) | 0-255 |
 | Discrete Inputs | 256 bits (32 bytes) | 0-255 |
 
-For den **komplette, adresse-for-adresse** oversigt over hvad hvert register betyder (systemregistre, ST Logic-eksporterede variabler, tæller-/timer-mapping, m.m.), se [**`../../MODBUS_REGISTER_MAP.md`**](../../MODBUS_REGISTER_MAP.md) — den autoritative, løbende vedligeholdte register-reference. Dette kapitel giver konceptet; den fil giver hver eneste adresse.
+For den **komplette, adresse-for-adresse** oversigt over hvad hvert register betyder (systemregistre, ST Logic-eksporterede variabler, tæller-/timer-mapping, m.m.), brug **Register Map**-siden i web-dashboardet ([§4](04_Web_Dashboard_og_Monitor.md)), som viser den aktuelle, live tildeling. Tællernes faste registerblokke (HR100-174) står i [`../COUNTER_CONFIG_TEMPLATES.md`](../COUNTER_CONFIG_TEMPLATES.md#registre). Den ældre adresse-for-adresse-fil [`MODBUS_REGISTER_MAP.md`](../../archive/docs/MODBUS_REGISTER_MAP.md) ligger i arkivet og er skrevet til v4.7 — brug den kun som baggrund.
 
 Kort orienteringsguide til de vigtigste blokke (se register-map-filen for præcise grænser og eventuelle ændringer):
 - **IR 220-251** — ST Logic EXPORT-variabler, synlige som Input Registers for eksterne SCADA-systemer

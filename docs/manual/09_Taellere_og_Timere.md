@@ -113,7 +113,7 @@ Som for tællerne er én `set timer … mode N`-linje hele timerens opsætning; 
 
 ## 9.3 Tilgængelighed fra Modbus og ST Logic
 
-Alle 4 tælleres og 4 timeres værdier og styre-/statusbits er tilgængelige som Modbus-registre — se [`../../MODBUS_REGISTER_MAP.md`](../../MODBUS_REGISTER_MAP.md) for de præcise adresser. De kan desuden læses og styres direkte fra ST Logic (`CNT_VALUE`, `CNT_CTRL`, `CNT_ENABLE` m.fl. — se [§8.5](08_ST_Logic_Programmering.md#85-indbyggede-funktioner-overblik)), så et program kan reagere på en tællerværdi uden at gå vejen om Modbus-registrene.
+Alle 4 tælleres og 4 timeres værdier og styre-/statusbits er tilgængelige som Modbus-registre — se registertabellen i [`../COUNTER_CONFIG_TEMPLATES.md`](../COUNTER_CONFIG_TEMPLATES.md#registre) for de præcise adresser. De kan desuden læses og styres direkte fra ST Logic (`CNT_VALUE`, `CNT_CTRL`, `CNT_ENABLE` m.fl. — se [§8.5](08_ST_Logic_Programmering.md#85-indbyggede-funktioner-overblik)), så et program kan reagere på en tællerværdi uden at gå vejen om Modbus-registrene.
 
 **Spejling til en anden adresse (DYNAMIC):** skal en Modbus-master læse en tællers værdi på en bestemt adresse, kan den spejles dertil:
 

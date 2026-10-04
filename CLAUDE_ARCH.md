@@ -568,12 +568,10 @@ pio clean && pio run # Clean rebuild
 
 - **BUGS_INDEX.md** - Known bugs by priority
 - **BUGS.md** - Detailed bug analysis
-- **TIMING_ANALYSIS.md** - ST Logic timing deep dive
-- **MODBUS_REGISTER_MAP.md** - Complete register reference
-- **ST_DEBUG_GUIDE.md** - ST Logic Debugger usage guide (v5.3.0)
-- **FEAT-003_PLAN.md** - FUNCTION/FUNCTION_BLOCK implementation plan (FEAT-003)
-- **tests/ST_TEST_FUNCTIONS.md** - FUNCTION/FUNCTION_BLOCK test cases
+- **docs/manual/00_INDEKS.md** - Brugermanual (aktuel reference)
+- **SECURITY_INDEX.md** - Sikkerhedsfund
 - **CHANGELOG.md** - Version history
+- **archive/** - Historiske analyser (TIMING_ANALYSIS, MODBUS_REGISTER_MAP, ST_DEBUG_GUIDE, FEAT-003_PLAN, testplaner m.m.) — vedligeholdes ikke
 
 ---
 

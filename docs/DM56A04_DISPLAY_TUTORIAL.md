@@ -324,8 +324,8 @@ ok := MB_WRITE_HOLDING(1, 0, 72);  (* ASCII 'H' = 72 *)
 ## 7. REFERENCER
 
 - [DM56A04 Modbus RTU Manual](DM56A04%20DM36B06%20MODBUS%20RTU%20Command.pdf) — Register map og kommandoer
-- [ST Logic Usage Guide](ST_USAGE_GUIDE.md) — Komplet ST syntax reference
-- [REST API Reference](REST_API.md) — Alle API endpoints
-- [API Hello World Guide](API_HELLO_WORLD_GUIDE.md) — Grundlæggende API opsætning
+- [ST Logic Usage Guide](../archive/docs/ST_USAGE_GUIDE.md) — Komplet ST syntax reference
+- [REST API Reference](../archive/docs/REST_API.md) — Alle API endpoints
+- [API Hello World Guide](../archive/docs/API_HELLO_WORLD_GUIDE.md) — Grundlæggende API opsætning
 - [BUG-239](../BUGS_INDEX.md) — Modbus Master config sync
 - [BUG-240](../BUGS_INDEX.md) — AST node memory reduktion
