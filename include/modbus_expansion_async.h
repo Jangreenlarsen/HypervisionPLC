@@ -37,7 +37,7 @@
 
 #define MBX_ASYNC_CACHE_MAX_ENTRIES   48   // Se designnote: dimensioneret til "et par boards/kanaler", ikke det fulde 64-kanals-loft (billigt at hæve — RAM er ikke knapt)
 #define MBX_ASYNC_QUEUE_SIZE          32
-#define MBX_ASYNC_TASK_STACK        6144   // Lidt mere end mb_async's 4096 — Modbus TCP-transaktionen (modbus_expansion.cpp) bruger WiFiClient, som fylder lidt mere på stakken end UART-kaldene gjorde
+#define MBX_ASYNC_TASK_STACK        4096   // BUG-458: målt brug ~1,4 KB under drift (v7.9.68.76) — var 6144 × 4 workers. Lidt mere end mb_async's 4096 — Modbus TCP-transaktionen (modbus_expansion.cpp) bruger WiFiClient, som fylder lidt mere på stakken end UART-kaldene gjorde
 #define MBX_ASYNC_TASK_PRIO             3
 #define MBX_ASYNC_TASK_CORE             0
 // BUG-417: modbus_expansion_async.cpp startede historisk (som mb_async.cpp)

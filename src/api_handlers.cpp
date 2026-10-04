@@ -8661,8 +8661,12 @@ esp_err_t api_handler_modbus_external_get(httpd_req_t *req)
   http_server_stat_request();
   CHECK_AUTH(req);
 
-  static mb_cache_entry_t rtu[MB_CACHE_MAX_ENTRIES];
-  static mbx_cache_entry_t mbx[MBX_ASYNC_CACHE_MAX_ENTRIES];
+  // BUG-458: snapshot-buffere i PSRAM (allokeres én gang), ikke intern .bss
+  static mb_cache_entry_t *rtu = NULL;
+  static mbx_cache_entry_t *mbx = NULL;
+  if (!rtu) rtu = (mb_cache_entry_t *)heap_caps_malloc(sizeof(mb_cache_entry_t) * MB_CACHE_MAX_ENTRIES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!mbx) mbx = (mbx_cache_entry_t *)heap_caps_malloc(sizeof(mbx_cache_entry_t) * MBX_ASYNC_CACHE_MAX_ENTRIES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!rtu || !mbx) return api_send_error(req, 500, "Out of memory");
   uint8_t nr; uint16_t nx;
   portENTER_CRITICAL(&mb_cache_spinlock);
   nr = g_mb_async.entry_count > MB_CACHE_MAX_ENTRIES ? MB_CACHE_MAX_ENTRIES : g_mb_async.entry_count;

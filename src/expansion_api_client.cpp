@@ -267,9 +267,13 @@ static void expansion_api_do_work(void) {
                       blen ? "Content-Type: application/json\r\n" : "", (unsigned)blen);
     if (hl > 0 && hl < (int)sizeof(hdr) && relay_send_all(s, hdr, (size_t)hl) &&
         (blen == 0 || relay_send_all(s, g_pending.body, blen))) {
-      static char rbuf[2048];  // kun exp_api-tasken (een ad gangen, g_expansion_api_sem)
+      // kun exp_api-tasken (een ad gangen). BUG-458: i PSRAM, ikke intern .bss
+      static char *rbuf = NULL;
+      const size_t RBUF_SIZE = 2048;
+      if (!rbuf) rbuf = (char *)heap_caps_malloc(RBUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      if (!rbuf) rbuf = (char *)malloc(RBUF_SIZE);
       char *body = NULL;
-      code = relay_read_response(s, rbuf, sizeof(rbuf), &body, 3);
+      code = rbuf ? relay_read_response(s, rbuf, RBUF_SIZE, &body, 3) : -1;
       if (code > 0 && body) {
         strncpy(res->response_json, body, sizeof(res->response_json) - 1);
         res->response_json[sizeof(res->response_json) - 1] = '\0';
@@ -296,7 +300,7 @@ static void expansion_api_do_work(void) {
 // fragmenteret (største blok ~5 KB), at xTaskCreate fejlede, og alle board-
 // kald gav "Kunne ikke starte kald". Den rå socket-klient (FEAT-442) kræver
 // langt mindre stak end HTTPClient gjorde.
-#define EXP_API_WORKER_STACK 6144
+#define EXP_API_WORKER_STACK 4096   // BUG-458: målt brug ~1,8 KB (status/channels-kald)
 static SemaphoreHandle_t g_expansion_work_sem = NULL;
 static TaskHandle_t g_expansion_worker = NULL;
 

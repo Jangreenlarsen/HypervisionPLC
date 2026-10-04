@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.77] - 2026-10-05
+
+### BUG FIXES
+- **BUG-458:** ca. 16 KB intern RAM frigjort: task-stakke tilpasset det målte forbrug (expansion-workers, board-API, SSE) og nye buffere flyttet til PSRAM.
+
 ## [7.9.68.76] - 2026-10-05
 
 ### BUG FIXES

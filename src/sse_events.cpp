@@ -806,7 +806,8 @@ static bool sse_slot_ensure(int slot)
     char name[12];
     snprintf(name, sizeof(name), "sse_w%d", slot);
     // BUG-336c: Core 0, samme begrundelse som HTTP(S)-serveren
-    if (xTaskCreatePinnedToCore(sse_slot_worker, name, 6144, sse_slot_queue[slot], 3,
+    // BUG-458: målt brug ~2,9 KB under en watch_all-session med ext-events
+    if (xTaskCreatePinnedToCore(sse_slot_worker, name, 4608, sse_slot_queue[slot], 3,
                                 &sse_slot_task[slot], 0) != pdPASS) {
       sse_slot_task[slot] = NULL;
       return false;
