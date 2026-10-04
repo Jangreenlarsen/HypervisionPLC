@@ -1667,17 +1667,23 @@ function _extParseSource(src,prog){
   }
   return uses;
 }
+// BUG-453: hvert program huskes for sig. Fejler en hentning (fx 429 fordi
+// serveren er travl), BEHOLDES den forrige analyse — tidligere blev hele listen
+// erstattet af en ufuldstændig/tom, og navnene forsvandt ("(ST, adresse beregnet)").
+// Kun 404 (intet program i slottet) rydder slottet.
+const _extUsesByProg={};
 async function _extLoadUses(){
-  const all=[];
   for(let id=1;id<=4;id++){
     try{
       const r=await dashFetch('/api/logic/'+id+'/source',{});
-      if(!r.ok)continue;
+      if(r.status===404){delete _extUsesByProg[id];continue;}
+      if(!r.ok)continue;  // midlertidig fejl: behold forrige
       const d=await r.json();
-      if(d.source)all.push(..._extParseSource(d.source,'Logic'+id+(d.name&&d.name!=='Logic'+id?' ('+d.name+')':'')));
-    }catch(e){}
+      _extUsesByProg[id]=d.source?_extParseSource(d.source,'Logic'+id+(d.name&&d.name!=='Logic'+id?' ('+d.name+')':'')):[];
+    }catch(e){}  // netværksfejl: behold forrige
   }
-  _extUses=all;_extUsesAt=Date.now();
+  _extUses=[].concat(...Object.keys(_extUsesByProg).sort().map(k=>_extUsesByProg[k]));
+  _extUsesAt=Date.now();
 }
 const _EXT_ST={ok:'<span style="color:#a6e3a1">OK</span>',pending:'<span style="color:#f9e2af">venter</span>',error:'<span style="color:#f38ba8">fejl</span>',empty:'-'};
 function _extValHtml(val,write){return escHtml(val)+(write?' <span style="color:#6c7086;font-weight:normal">(skrevet)</span>':'');}

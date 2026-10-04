@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.72] - 2026-10-04
+
+### BUG FIXES
+- **BUG-453:** eksterne registre i Register Map mistede deres ST-navne, når en genhentning af ST-koden midlertidigt fejlede — navnene bevares nu.
+
 ## [7.9.68.71] - 2026-10-04
 
 ### CHANGES
