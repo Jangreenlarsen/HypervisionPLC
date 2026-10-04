@@ -1207,6 +1207,7 @@ static const httpd_uri_t uri_public_dashboard_extras_get = {
   .handler  = api_handler_public_dashboard_extras_get,
   .user_ctx = NULL
 };
+// FEAT-446: /api/modbus/external delegeres af api_handler_modbus_get() (wildcard /api/modbus/*)
 // FEAT-441: login-fri trend-data (kun naar Trend Recorder-kortet er offentligt)
 extern esp_err_t api_handler_public_dashboard_trend_get(httpd_req_t *req);
 static const httpd_uri_t uri_public_dashboard_trend_get = {

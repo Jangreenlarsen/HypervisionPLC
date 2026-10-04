@@ -62,6 +62,7 @@
 #include "register_allocator.h"     // BUG-439
 #include "network_config.h"  // network_config_ip_to_str()
 #include "mb_async.h"
+#include "modbus_expansion_async.h"  // FEAT-446: expansion-cache til /api/modbus/external
 #include "mb_activity_log.h"
 #include "trend_recorder.h"
 #include "ntp_driver.h"
@@ -912,6 +913,7 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/public-dashboard/cards",         "FEAT-407: set which dashboard cards are shown on the public status page (admin)"},
   {"GET",    "/api/public-dashboard/extras",        "FEAT-435: auth-free watchdog/expansion status for the public status page (only selected cards)"},
   {"GET",    "/api/public-dashboard/trend",         "FEAT-441: auth-free trend data (newest 240 samples) when the Trend Recorder card is public"},
+  {"GET",    "/api/modbus/external",                "FEAT-446: snapshot of the RTU master + expansion caches (external registers ST reads/writes)"},
   {"POST",   "/api/system/ota",                    "Upload firmware (OTA, FEAT-031)"},
   {"GET",    "/api/system/ota/status",              "OTA progress status (FEAT-031)"},
   {"POST",   "/api/system/ota/rollback",           "Rollback firmware (FEAT-031)"},
@@ -3386,6 +3388,11 @@ esp_err_t api_handler_modbus_get(httpd_req_t *req)
   // stat/auth housekeeping runs, to avoid double-counting.
   if (strstr(req->uri, "/activity") != NULL) {
     return api_handler_modbus_activity_get(req);
+  }
+  // FEAT-446: samme grund — /api/modbus/external bag wildcard'en
+  if (strstr(req->uri, "/external") != NULL) {
+    extern esp_err_t api_handler_modbus_external_get(httpd_req_t *req);
+    return api_handler_modbus_external_get(req);
   }
 
   http_server_stat_request();
@@ -8624,6 +8631,85 @@ esp_err_t api_handler_public_dashboard_extras_get(httpd_req_t *req)
 }
 
 /* ============================================================================
+ * FEAT-446: GET /api/modbus/external — snapshot af de to Modbus-caches, som
+ * ST Logic læser/skriver eksterne registre igennem: RS485-masterens (MB_*)
+ * og expansion boardenes (MBX_*). Skrivninger opdaterer samme cache-post som
+ * læsninger (nøglet på læse-typen), så en post viser seneste kendte værdi —
+ * uanset om ST læste eller skrev den. Dashboardets Register Map kobler
+ * posterne til ST-kaldene (navne) ved at læse programmernes kildekode.
+ * Kopieres under cachernes spinlocks; ingen bus-trafik.
+ * ============================================================================ */
+static const char *ext_type_str(uint8_t t) {
+  switch (t) {
+    case 1: case 5: return "coil";  // læs/skriv coil
+    case 2:         return "di";
+    case 3: case 6: return "hr";    // læs/skriv holding
+    case 4:         return "ir";
+    default:        return "?";
+  }
+}
+static const char *ext_status_str(uint8_t s) {
+  switch (s) { case 1: return "pending"; case 2: return "ok"; case 3: return "error"; default: return "empty"; }
+}
+
+esp_err_t api_handler_modbus_external_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+
+  static mb_cache_entry_t rtu[MB_CACHE_MAX_ENTRIES];
+  static mbx_cache_entry_t mbx[MBX_ASYNC_CACHE_MAX_ENTRIES];
+  uint8_t nr; uint16_t nx;
+  portENTER_CRITICAL(&mb_cache_spinlock);
+  nr = g_mb_async.entry_count > MB_CACHE_MAX_ENTRIES ? MB_CACHE_MAX_ENTRIES : g_mb_async.entry_count;
+  memcpy(rtu, g_mb_async.entries, sizeof(mb_cache_entry_t) * nr);
+  portEXIT_CRITICAL(&mb_cache_spinlock);
+  portENTER_CRITICAL(&mbx_cache_spinlock);
+  nx = g_mbx_async.entry_count > MBX_ASYNC_CACHE_MAX_ENTRIES ? MBX_ASYNC_CACHE_MAX_ENTRIES : g_mbx_async.entry_count;
+  memcpy(mbx, g_mbx_async.entries, sizeof(mbx_cache_entry_t) * nx);
+  portEXIT_CRITICAL(&mbx_cache_spinlock);
+
+  const uint32_t now = millis();
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+  char item[160];
+  snprintf(item, sizeof(item), "{\"rtu\":[");
+  httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
+  bool first = true;
+  for (uint8_t i = 0; i < nr; i++) {
+    const mb_cache_entry_t *e = &rtu[i];
+    if (e->status == MB_CACHE_EMPTY) continue;
+    uint8_t t = e->key.req_type;
+    long v = (t == 1 || t == 2 || t == 5) ? (e->value.bool_val ? 1 : 0) : (long)(uint16_t)e->value.int_val;
+    snprintf(item, sizeof(item),
+             "%s{\"slave\":%u,\"type\":\"%s\",\"addr\":%u,\"value\":%ld,\"status\":\"%s\",\"age_ms\":%lu,\"write\":%s}",
+             first ? "" : ",", e->key.slave_id, ext_type_str(t), e->key.address, v, ext_status_str(e->status),
+             e->last_update_ms ? (unsigned long)(now - e->last_update_ms) : 0UL,
+             (e->last_fc == 5 || e->last_fc == 6 || e->last_fc == 8 || e->last_fc == 9) ? "true" : "false");
+    httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
+    first = false;
+  }
+  httpd_resp_send_chunk(req, "],\"mbx\":[", HTTPD_RESP_USE_STRLEN);
+  first = true;
+  for (uint16_t i = 0; i < nx; i++) {
+    const mbx_cache_entry_t *e = &mbx[i];
+    if (e->status == MBX_CACHE_EMPTY) continue;
+    uint8_t t = e->key.req_type;
+    long v = (t == 1 || t == 2 || t == 5) ? (e->value.bool_val ? 1 : 0) : (long)(uint16_t)e->value.int_val;
+    snprintf(item, sizeof(item),
+             "%s{\"board\":%u,\"ch\":%u,\"slave\":%u,\"type\":\"%s\",\"addr\":%u,\"value\":%ld,\"status\":\"%s\",\"age_ms\":%lu}",
+             first ? "" : ",", e->key.board, e->key.channel, e->key.slave_id, ext_type_str(t), e->key.address, v,
+             ext_status_str(e->status), e->last_update_ms ? (unsigned long)(now - e->last_update_ms) : 0UL);
+    httpd_resp_send_chunk(req, item, HTTPD_RESP_USE_STRLEN);
+    first = false;
+  }
+  httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN);
+  httpd_resp_send_chunk(req, NULL, 0);
+  http_server_stat_success();
+  return ESP_OK;
+}
+
+/* ============================================================================
  * FEAT-025: GET /api/system/watchdog
  * ============================================================================ */
 
@@ -11379,6 +11465,7 @@ static const V1Route v1_routes[] = {
   {"/api/public-dashboard/cards", true, HTTP_POST, api_handler_public_dashboard_cards_post},
   {"/api/public-dashboard/extras", true, HTTP_GET, api_handler_public_dashboard_extras_get},
   {"/api/public-dashboard/trend", true, HTTP_GET, api_handler_public_dashboard_trend_get},
+  {"/api/modbus/external",  true,  HTTP_GET,    api_handler_modbus_external_get},
   {"/api/events/status",    true,  HTTP_GET,    api_handler_sse_status},
   {"/api/events/clients",   true,  HTTP_GET,    api_handler_sse_clients},
   {"/api/events/disconnect", true, HTTP_POST,   api_handler_sse_disconnect},

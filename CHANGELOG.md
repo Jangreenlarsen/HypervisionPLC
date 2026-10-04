@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.69] - 2026-10-04
+
+### NEW FEATURES
+- **FEAT-446:** Register Map har en sektion "Eksterne registre (ST Logic)": de registre på RS485-slaver og expansion boards, som ST-programmerne læser/skriver, med navn fra ST-koden og seneste værdi fra Modbus-cachen.
+
 ## [7.9.68.68] - 2026-10-04
 
 ### BUG FIXES

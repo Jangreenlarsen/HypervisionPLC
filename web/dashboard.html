@@ -570,6 +570,15 @@
 <h2>Discrete Inputs (DI 0-255)</h2>
 <div class="regview" id="regmapDI"></div>
 </div>
+<!-- FEAT-446: eksterne registre som ST Logic læser/skriver (RS485-slaver + expansion boards) -->
+<div class="card" style="margin-bottom:12px">
+<h2>Eksterne registre (ST Logic) <span class="badge badge-off" id="badgeExt">-</span></h2>
+<div style="font-size:11px;color:#6c7086;margin-bottom:6px">Fundet ved at læse ST-programmerne 1–4 for <code>MB_READ_*</code>/<code>MB_WRITE_*</code> (RS485-slaver) og <code>MBX_*</code> (expansion boards). Værdien er den seneste, ST har læst eller skrevet (Modbus-cachen) og opdateres hvert 2. s. "beregnet" = adressen er ikke en konstant i koden.</div>
+<table class="tbl" id="extTable">
+<thead><tr><th>Kilde</th><th>Register</th><th>Værdi</th><th>Brugt i ST</th><th>Status</th></tr></thead>
+<tbody id="extBody"><tr><td colspan="5" class="empty-msg">Indlæser…</td></tr></tbody>
+</table>
+</div>
 </div>
 </div>
 
@@ -879,7 +888,7 @@ function showPage(page,btn){
   if(page==='metrics')applySubTab();
   if(page==='settings')buildSettingsTable();
   if(page==='trend')loadTrendConfig();  // FEAT-444
-  if(page==='regmap')_refreshBitVals(true);  // BUG-450
+  if(page==='regmap'){_refreshBitVals(true);refreshExternalRegs(true);}  // BUG-450, FEAT-446
   if(page==='statusside')pubLoad();
   // Forhaandsvisningen poller selv hvert 3. s — stop den uden for fanen
   // (HTTPS-serveren har kun faa samtidige forbindelser, jf. BUG-369c)
@@ -1621,6 +1630,90 @@ function _refreshBitVals(force){
   _fetchBitVals('di').then(v=>{if(v){_diVals=v;if(_lastRegMetrics)updateRegisterMap(_lastRegMetrics);}}).catch(()=>{});
 }
 let _lastRegMetrics=null;
+
+// === FEAT-446: Eksterne registre (ST Logic → RS485-slaver / expansion boards) ===
+// ST-kaldene findes ved at læse programmernes kildekode (ingen firmware-
+// analyse); værdierne kommer fra Modbus-cachen via /api/modbus/external.
+let _extUses=null, _extUsesAt=0, _extPrev={};
+const _EXT_FN=/\b(MBX?)_(READ|WRITE)_(COILS|COIL|INPUT_REG|INPUT|HOLDINGS|HOLDING)\s*\(([^()]*)\)/gi;
+function _extType(kind){kind=kind.toUpperCase();return kind.startsWith('COIL')?'coil':kind==='INPUT'?'di':kind==='INPUT_REG'?'ir':'hr';}
+function _extParseSource(src,prog){
+  const uses=[];
+  src=src.replace(/\(\*[\s\S]*?\*\)/g,' ').replace(/\/\/[^\n]*/g,' ');
+  // simple konstanter/startværdier: navn : TYPE := tal;
+  const consts={};
+  src.replace(/\b([A-Za-z_]\w*)\s*:\s*\w+\s*:=\s*(-?\d+)\s*;/g,(m,n,v)=>{consts[n.toLowerCase()]=parseInt(v,10);return m;});
+  const num=a=>{a=(a||'').trim();if(/^-?\d+$/.test(a))return parseInt(a,10);const c=consts[a.toLowerCase()];return c===undefined?null:c;};
+  let m;
+  _EXT_FN.lastIndex=0;
+  while((m=_EXT_FN.exec(src))){
+    const fam=m[1].toUpperCase(), op=m[2].toUpperCase(), kind=m[3].toUpperCase();
+    const args=m[4].split(',').map(s=>s.trim());
+    const off=fam==='MBX'?2:0;
+    const board=fam==='MBX'?num(args[0]):null, ch=fam==='MBX'?num(args[1]):null;
+    const slave=num(args[off]), addr=num(args[off+1]);
+    const multi=kind==='HOLDINGS'||kind==='COILS';
+    const count=multi?(num(args[off+2])||1):1;
+    // variabelnavn: "x := MB_READ…" (læs) eller "MB_WRITE…(…) := x" (skriv) eller 3./5. argument
+    const before=src.slice(Math.max(0,m.index-60),m.index), after=src.slice(m.index+m[0].length,m.index+m[0].length+60);
+    let vname='';
+    const lhs=before.match(/([A-Za-z_][\w.\[\]]*)\s*:=\s*$/), rhs=after.match(/^\s*:=\s*([^;]+)/);
+    if(op==='READ'&&lhs)vname=lhs[1]; else if(op==='WRITE'&&rhs)vname=rhs[1].trim(); else if(op==='WRITE'&&!multi&&args[off+2])vname=args[off+2];
+    const fn=m[1]+'_'+m[2]+'_'+m[3];
+    for(let k=0;k<count;k++){
+      uses.push({src:fam==='MBX'?'mbx':'rtu',board,ch,slave,type:_extType(kind),addr:addr==null?null:addr+k,
+        label:prog+': '+(vname?(op==='READ'?vname+' ← ':vname+' → '):'')+fn+(multi?'['+k+']':'')});
+    }
+  }
+  return uses;
+}
+async function _extLoadUses(){
+  const all=[];
+  for(let id=1;id<=4;id++){
+    try{
+      const r=await dashFetch('/api/logic/'+id+'/source',{});
+      if(!r.ok)continue;
+      const d=await r.json();
+      if(d.source)all.push(..._extParseSource(d.source,'Logic'+id+(d.name&&d.name!=='Logic'+id?' ('+d.name+')':'')));
+    }catch(e){}
+  }
+  _extUses=all;_extUsesAt=Date.now();
+}
+function _extKey(o){return o.src==='mbx'?'mbx:'+o.board+':'+o.ch+':'+o.slave+':'+o.type+':'+o.addr:'rtu:'+o.slave+':'+o.type+':'+o.addr;}
+function _extSrcText(o){return o.src==='mbx'?'Board '+(o.board??'?')+' kanal '+(o.ch??'?')+' · slave '+(o.slave??'?'):'RS485 slave '+(o.slave??'?');}
+let _extBusy=false;
+async function refreshExternalRegs(force){
+  if(!$('pageRegmap').classList.contains('active')||_extBusy)return;
+  _extBusy=true;
+  try{await _refreshExternalRegs(force);}finally{_extBusy=false;}
+}
+async function _refreshExternalRegs(force){
+  if(force||!_extUses||Date.now()-_extUsesAt>30000)await _extLoadUses();
+  let cache={rtu:[],mbx:[]};
+  try{const r=await dashFetch('/api/modbus/external',{});if(r.ok)cache=await r.json();}catch(e){}
+  const rows=new Map();
+  (_extUses||[]).forEach(u=>{
+    const k=u.addr==null?'calc:'+u.label:_extKey(u);
+    if(!rows.has(k))rows.set(k,{o:u,labels:[],e:null});
+    rows.get(k).labels.push(u.label);
+  });
+  (cache.rtu||[]).forEach(e=>{const o=Object.assign({src:'rtu'},e);const k=_extKey(o);if(!rows.has(k))rows.set(k,{o,labels:['(ST, adresse beregnet)'],e:null});rows.get(k).e=e;});
+  (cache.mbx||[]).forEach(e=>{const o=Object.assign({src:'mbx'},e);const k=_extKey(o);if(!rows.has(k))rows.set(k,{o,labels:['(ST, adresse beregnet)'],e:null});rows.get(k).e=e;});
+  const list=[...rows.entries()].sort((a,b)=>a[0]<b[0]?-1:1);
+  badge($('badgeExt'),list.length>0,String(list.length));
+  if(!list.length){$('extBody').innerHTML='<tr><td colspan="5" class="empty-msg">Ingen MB_*/MBX_*-kald i ST-programmerne</td></tr>';return;}
+  const stTxt={ok:'<span style="color:#a6e3a1">OK</span>',pending:'<span style="color:#f9e2af">venter</span>',error:'<span style="color:#f38ba8">fejl</span>',empty:'-'};
+  $('extBody').innerHTML=list.map(([k,r])=>{
+    const o=r.o, e=r.e;
+    const reg=o.addr==null?'beregnet':(o.type.toUpperCase()+' '+o.addr);
+    const val=e?String(e.value):'-';
+    const age=e&&e.age_ms!=null&&e.status==='ok'?' · '+(e.age_ms<1000?e.age_ms+' ms':(e.age_ms/1000).toFixed(1)+' s')+' siden':'';
+    const changed=e&&_extPrev[k]!==undefined&&_extPrev[k]!==val;
+    if(e)_extPrev[k]=val;
+    return '<tr><td>'+escHtml(_extSrcText(o))+'</td><td>'+escHtml(reg)+'</td><td class="'+(changed?'rc-flash':'')+'" style="font-weight:600">'+escHtml(val)+(e&&e.write?' <span style="color:#6c7086;font-weight:normal">(skrevet)</span>':'')+'</td>'
+      +'<td style="font-size:11px">'+r.labels.map(escHtml).join('<br>')+'</td><td style="font-size:11px">'+(e?stTxt[e.status]||e.status:'ikke læst endnu')+age+'</td></tr>';
+  }).join('');
+}
 // Hover over et register → navn/ejer og værdi straks i infolinjen (title-
 // tooltip'et kommer først efter ~1 s og virker ikke på touch). Klik fastholder.
 let _regmapPinned=null;
@@ -3650,6 +3743,7 @@ function init(){
   setInterval(fetchMbActivity,3000);
   setInterval(fetchSyslog,5000);
   setInterval(loadTrendConfig,5000);
+  setInterval(()=>refreshExternalRegs(false),2000);  // FEAT-446 (kun mens Register Map er åben)
   setInterval(fetchNetworkInfo,10000);
   setInterval(fetchConnections,5000);
   // FEAT-409: 30s, ikke 3-15s som resten — hvert board-tjek er en ægte
