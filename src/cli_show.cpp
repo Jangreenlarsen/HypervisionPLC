@@ -2901,6 +2901,10 @@ void cli_cmd_show_version(void) {
   debug_println("Target:  ESP32-WROOM-32");
 #endif
   debug_println("Project: Modbus RTU Server");
+  debug_print("License: ");
+  debug_println(PROJECT_LICENSE);
+  debug_print("Source:  ");
+  debug_println(PROJECT_SOURCE_URL);
 
   // Flash chip info (eFuse-reported size + mode/speed)
   uint32_t flash_size = ESP.getFlashChipSize();

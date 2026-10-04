@@ -4,7 +4,10 @@ All notable changes to this project are documented in this file.
 
 ---
 
-## [Unreleased] - 2026-10-04 (licens og oprydning)
+## [7.9.68.51] - 2026-10-04 (licens og oprydning)
+
+### NEW FEATURES
+- **FEAT-433:** link til kildekoden (AGPL-3.0 §13) på den offentlige statusside, på System-siden og i `show version`.
 
 ### CHANGES
 - **Licens:** projektet er udgivet under **AGPL-3.0-or-later** — `LICENSE` (officiel tekst fra gnu.org), SPDX-hoved i alle kildefiler (`src/`, `include/`, `scripts/`, `test/`, `nodered/`), Node-RED-noden skiftet fra MIT, README og manualens indeks opdateret.
