@@ -178,6 +178,7 @@ static const char* normalize_alias(const char* s) {
   if (str_eq_i(s, "INPUT") || str_eq_i(s, "IN")) return "INPUT";
   if (str_eq_i(s, "INPUT-REG") || str_eq_i(s, "INPUT_REG") || str_eq_i(s, "I-REG") || str_eq_i(s, "IREG")) return "I-REG";
   if (str_eq_i(s, "VERSION") || str_eq_i(s, "VER") || str_eq_i(s, "V")) return "VERSION";
+  if (str_eq_i(s, "OTA")) return "OTA";  // BUG-448: "show ota" (ukendte ord returneres i brugerens case)
   if (str_eq_i(s, "GPIO")) return "GPIO";
   if (str_eq_i(s, "ECHO")) return "ECHO";
   if (str_eq_i(s, "DEBUG") || str_eq_i(s, "DBG")) return "DEBUG";

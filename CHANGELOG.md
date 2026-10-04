@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.55] - 2026-10-04
+
+### BUG FIXES
+- **BUG-448:** `show ota` gav ingen output (ordet manglede i CLI'ens alias-tabel).
+
 ## [7.9.68.54] - 2026-10-04
 
 ### BUG FIXES
