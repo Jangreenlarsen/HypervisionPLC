@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.62] - 2026-10-04
+
+### DOCUMENTATION
+- SSE kører altid ukrypteret (SECURITY_INDEX #13): advarsel og anbefaling i System-sidens SSE-kort og manual §10.4 — slå SSE fra ved HTTPS, eller begræns med IP ACL.
+
 ## [7.9.68.61] - 2026-10-04
 
 ### NEW FEATURES

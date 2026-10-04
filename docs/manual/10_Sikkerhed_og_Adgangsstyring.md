@@ -99,7 +99,10 @@ Eller i web-GUI'en: `/system` → kortet "HTTPS / TLS".
 **Vigtige forbehold, læs før aktivering:**
 - Alle enheder bygget fra samme firmware **deler samme selvsignerede certifikat og private nøgle** (embeddet ved kompilering) — det giver kryptering på ledningen, men *ikke* enheds-unik identitet. Kompromitteres én enheds firmware, er nøglen kendt for alle enheder på samme build.
 - Browseren vil vise en sikkerhedsadvarsel (selvsigneret certifikat) ved hvert besøg, medmindre certifikatet eksplicit tilføjes som tillid i browseren/OS'et.
-- **SSE-strømmen (real-time push til dashboardet) krypteres ikke af `http tls`** — den kører på sin egen, separate raw-TCP-forbindelse. Med TLS aktiveret er dashboardets sider krypteret, men live-datastrømmen er det ikke. Se [`../../SECURITY_INDEX.md`](../../SECURITY_INDEX.md) for status.
+- **SSE-strømmen (real-time push til dashboardet) krypteres ikke af `http tls`** — den kører på sin egen, separate raw-TCP-forbindelse (sikkerhedsfund #13). Med TLS aktiveret er dashboardets sider krypteret, men live-værdierne og SSE-forbindelsens engangs-token i URL'en går i klartekst. **Anbefaling:**
+  - **Bruger I HTTPS, så slå SSE fra** (System → SSE Server-indstillinger, eller `set sse disable` + `save` + genstart). Dashboardet falder automatisk tilbage til polling, som går over HTTPS — opdateringen bliver blot lidt langsommere. Browsere blokerer desuden typisk en ukrypteret SSE-forbindelse fra en HTTPS-side (blandet indhold), så dashboardet poller i praksis allerede.
+  - **Skal SSE bruges** (fx af Node-RED eller et andet system), så begræns det med en IP ACL-regel for tjenesten *SSE* til de kendte klienters adresser ([§10.7](#107-ip-access-control-list-feat-399401402)), og hold SSE-porten inden for et betroet netværkssegment.
+  - System-sidens SSE-kort viser samme advarsel.
 
 ## 10.5 Telnet vs. Web-CLI
 

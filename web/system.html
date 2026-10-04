@@ -322,6 +322,7 @@
 <div class="card">
 <h2>SSE Server-indstillinger</h2>
 <p>Server-Sent Events bruges til live opdatering af dashboard/status uden polling. Kræver Gem + Genstart for port-ændring.</p>
+<div style="background:#3b2a1e;border:1px solid #fab387;color:#f9e2af;border-radius:4px;padding:6px 10px;font-size:11px;margin-bottom:8px"><b>⚠ SSE er altid ukrypteret</b> — også når HTTPS er slået til. Live-værdier og forbindelsens engangs-token sendes i klartekst på netværket (SECURITY_INDEX #13). Bruger I HTTPS, så slå SSE fra: dashboardet henter så data med almindelig polling over HTTPS (lidt langsommere opdatering). Skal SSE bruges (fx af Node-RED), så begræns det til kendte IP-adresser med en IP ACL-regel for tjenesten "SSE".</div>
 <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="sseEnabled"> SSE aktiveret</label>
 <div class="info-grid" style="grid-template-columns:150px 1fr;margin-bottom:8px">
 <span class="lbl">Port</span><input type="number" id="ssePort" min="1" max="65535" style="padding:3px 6px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px;width:90px">
