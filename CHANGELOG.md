@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.96] - 2026-10-05
+
+### BUG FIXES
+- **BUG-471:** I/O-siden viste "Kunne ikke hente boards" i v7.9.68.95. En rest fra redigeringsscriptet (`bs`) endte som en udefineret variabel i JavaScript for to knaptekster. Fejlen opstod først, når siden kørte, så syntakstjekket fangede den ikke.
+
 ## [7.9.68.95] - 2026-10-05
 
 ### FEATURES (kræver board-firmware 0.34.0)

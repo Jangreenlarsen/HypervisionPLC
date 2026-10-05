@@ -822,8 +822,8 @@ function loadExpBoards(){
         '<button class="btn btn-sm btn-primary" onclick="showExpChannels('+b.id+',\''+nameEsc+'\')">Kanaler</button> '+
         '<button class="btn btn-sm btn-primary" onclick="expFwPick('+b.id+')">Opdatér firmware…</button> '+
         '<button class="btn btn-sm btn-primary" title="Sæt boardets DHCP-hostname til '+escHtml(b.hostname||'')+' (genstarter boardet)" onclick="expAskHostname('+b.id+',\''+nameEsc+'\','+b.number+')">Hostname</button> '+
-        (b.board_config?'<button class="btn btn-sm btn-primary" title="Skriv PLC'+bs+"'"+'ens kopi af opsætningen tilbage (fx efter udskiftning)" onclick="expRestore('+b.id+')">Genskab</button> ':'')+
-        '<button class="btn btn-sm btn-primary" title="Sæt boardets PLC-IP til PLC'+bs+"'"+'ens aktuelle IP" onclick="expSetPlcIp('+b.id+')">PLC-IP</button> '+
+        (b.board_config?'<button class="btn btn-sm btn-primary" title="Skriv PLC\'ens kopi af opsætningen tilbage (fx efter udskiftning)" onclick="expRestore('+b.id+')">Genskab</button> ':'')+
+        '<button class="btn btn-sm btn-primary" title="Sæt boardets PLC-IP til PLC\'ens aktuelle IP" onclick="expSetPlcIp('+b.id+')">PLC-IP</button> '+
         '<button class="btn btn-sm btn-primary" onclick="expSyslogForm('+b.id+')">Syslog…</button> '+
         '<button class="btn btn-sm btn-primary" onclick="editExpBoard('+b.id+','+b.number+',\''+nameEsc+'\',\''+b.ip+'\',\''+b.type+'\')">Redigér</button> '+
         '<button class="btn btn-sm btn-danger" onclick="deleteExpBoard('+b.id+',\''+nameEsc+'\')">Slet</button></td></tr>';
