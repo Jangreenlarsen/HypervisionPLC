@@ -202,6 +202,10 @@ static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slav
     }
   }
 
+  // BUG-469: smid evt. sene svar fra en tidligere, timeout'et transaktion
+  // vaek, saa de ikke laeses som svar paa DENNE forespoergsel.
+  while (conn->client.available()) conn->client.read();
+
   uint16_t txn_id = conn->next_transaction_id++;
   uint16_t length = 1 + pdu_len;  // Unit ID + PDU
 
@@ -239,6 +243,11 @@ static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slav
       conn->client.stop();
       return MB_TIMEOUT;
     } else if (millis() - start > MBX_TRANSACTION_TIMEOUT_MS) {
+      // BUG-469: luk forbindelsen ved timeout — efter en board-genstart var
+      // socketen halvaaben (client.connected() blev ved med at sige ja), og
+      // PLC'en sendte i 8+ min ind i en doed forbindelse uden at genforbinde.
+      // Naeste kald forbinder paa ny (billigt paa LAN).
+      conn->client.stop();
       return MB_TIMEOUT;
     } else {
       delay(1);
@@ -262,6 +271,11 @@ static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slav
       conn->client.stop();
       return MB_TIMEOUT;
     } else if (millis() - start > MBX_TRANSACTION_TIMEOUT_MS) {
+      // BUG-469: luk forbindelsen ved timeout — efter en board-genstart var
+      // socketen halvaaben (client.connected() blev ved med at sige ja), og
+      // PLC'en sendte i 8+ min ind i en doed forbindelse uden at genforbinde.
+      // Naeste kald forbinder paa ny (billigt paa LAN).
+      conn->client.stop();
       return MB_TIMEOUT;
     } else {
       delay(1);
@@ -272,7 +286,7 @@ static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slav
   if (got > 0) g_mbx_board_last_rx_ms[board_idx] = conn->last_activity_ms ? conn->last_activity_ms : 1;  // BUG-431
   *resp_pdu_len = got;
 
-  if (got == 0) return MB_TIMEOUT;
+  if (got == 0) { conn->client.stop(); return MB_TIMEOUT; }  // BUG-469
   if (resp_pdu[0] & 0x80) return MB_EXCEPTION;  // Modbus-exception (fra slaven ELLER boardets egen gateway, se manualens §3.3/§5)
   return MB_OK;
 }

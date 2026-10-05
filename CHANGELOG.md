@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.91] - 2026-10-05
+
+### BUG FIXES
+- **BUG-469:** Efter en genstart af et expansion board fik PLC'en aldrig data fra boardet igen (MBX_* i ST: timeout i 8+ minutter, indtil PLC'en selv blev genstartet). Ved timeout blev Modbus TCP-forbindelsen ikke lukket, så PLC'en blev ved med at sende ind i en halvåben socket. Forbindelsen lukkes nu ved timeout og genoprettes ved næste kald, og sene svar fra en tidligere transaktion smides væk, før der sendes.
+
 ## [7.9.68.90] - 2026-10-05
 
 ### BUG FIXES / CHANGES
