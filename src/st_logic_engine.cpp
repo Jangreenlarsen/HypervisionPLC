@@ -223,9 +223,15 @@ bool st_logic_execute_program(st_logic_engine_state_t *state, uint8_t program_id
 
   // Update execution statistics
   prog->execution_count++;
+  if (prog->execution_count == 0) prog->execution_count = 1;  // BUG-460: spring 0 over ved wrap (0 = aldrig kørt, undgå /0)
 
   // Performance monitoring (v4.1.0): Track min/max/avg execution time
   prog->last_execution_us = elapsed_us;  // Store in microseconds for precision
+  // BUG-460: execution_count er 16-bit og løber rundt hvert ~11. min ved 10 ms;
+  // total_execution_us (32-bit) fortsatte, så gennemsnittet total/count blev
+  // urimeligt (fx 11 ms ved max 1,3 ms). Start summen forfra samtidig med
+  // tælleren, så gennemsnittet gælder de seneste op til 65535 kørsler.
+  if (prog->execution_count == 1) prog->total_execution_us = 0;
   prog->total_execution_us += elapsed_us;
 
   if (prog->execution_count == 1) {

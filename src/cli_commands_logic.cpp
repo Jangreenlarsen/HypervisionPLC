@@ -1271,7 +1271,7 @@ int cli_cmd_show_logic_stats(st_logic_engine_state_t *logic_state) {
     }
     debug_printf("\n");
 
-    debug_printf("  Executions:    %u\n", (unsigned int)prog->execution_count);
+    debug_printf("  Executions:    %u  (16-bit, wraps at 65535; avg covers current round)\n", (unsigned int)prog->execution_count);
 
     if (prog->execution_count > 0) {
       uint32_t avg_us = prog->total_execution_us / prog->execution_count;
@@ -1306,7 +1306,7 @@ int cli_cmd_show_logic_stats(st_logic_engine_state_t *logic_state) {
   }
 
   debug_printf("Use 'show logic X timing' for detailed timing analysis\n");
-  debug_printf("Use 'set logic stats reset' to clear statistics\n");
+  debug_printf("Use 'reset logic stats [all|<id>]' to clear statistics\n");
   debug_printf("=================================================\n\n");
 
   return 0;

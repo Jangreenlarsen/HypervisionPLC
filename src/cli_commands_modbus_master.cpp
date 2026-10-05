@@ -763,6 +763,9 @@ void cli_cmd_show_modbus_master() {
       else if (disp_fc == MB_REQ_READ_INPUT_REG) fc_str = "FC04";
       else if (disp_fc == MB_REQ_WRITE_COIL) fc_str = "FC05";
       else if (disp_fc == MB_REQ_WRITE_HOLDING) fc_str = "FC06";
+      else if (disp_fc == MB_REQ_READ_HOLDINGS) fc_str = "FC03";   // BUG-460: multi-register viste "?"
+      else if (disp_fc == MB_REQ_WRITE_HOLDINGS) fc_str = "FC16";
+      else if (disp_fc == MB_REQ_WRITE_COILS) fc_str = "FC15";
 
       uint32_t age_ms = (e->last_update_ms > 0) ? (millis() - e->last_update_ms) : 0;
       char age_buf[16];

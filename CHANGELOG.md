@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.79] - 2026-10-05
+
+### BUG FIXES
+- **BUG-460:** ST-programstatistik: gennemsnitlig køretid blev urimelig (fx 11 ms ved max 1,3 ms), fordi den 16-bit kørselstæller løb rundt, mens summen fortsatte. Summen nulstilles nu sammen med tælleren. Hjælpeteksten i `show logic stats` peger nu på `reset logic stats`, og `show modbus-master` viser FC03/FC16/FC15 for multi-register-cacheposter i stedet for `?`.
+
 ## [7.9.68.78] - 2026-10-05
 
 ### BUG FIXES
