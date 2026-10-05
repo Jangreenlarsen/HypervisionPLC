@@ -29,6 +29,9 @@
 .sub-tabs button:hover{background:#45475a;color:#cdd6f4}
 .sub-tabs button.active{background:#1e1e2e;color:#89b4fa;border-color:#89b4fa}
 /* FEAT-418: gemte kort-layouts */
+/* FEAT-453: Modbus-kortet i to kolonner (Slave | Master, cache-tal | cache-tabeller) — minimumsbredden
+   giver kortet dobbelt bredde i gitteret (naturalCardCols/selvhelbredelse) */
+.mb-cols{display:grid;grid-template-columns:minmax(230px,1fr) minmax(230px,1fr);gap:0 20px}
 .layout-tools{margin-left:auto;position:relative;display:flex;gap:6px;align-items:center}
 .layout-presets{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:340px;max-width:calc(100vw - 32px);background:#1e1e2e;border:1px solid #45475a;border-radius:6px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:12px;color:#cdd6f4}
 .layout-presets.show{display:block}
@@ -265,6 +268,7 @@
      belastning og bus-fejl ligger i RS-485 / UART-kortet. -->
 <div class="card" data-card-id="modbus" data-tab="modbus">
 <h2>Modbus <span class="badge badge-off" id="badgeSlave">-</span> <span class="badge badge-off" id="badgeMaster">-</span></h2>
+<div class="mb-cols"><div>
 <div class="subhdr">Slave (indgående forespørgsler)</div>
 <div class="row"><span class="lbl">Slave-ID</span><span class="val val-n" id="msConfigInfo">-</span></div>
 <div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="msTotal">-</span></div>
@@ -275,7 +279,8 @@
 <div class="row"><span class="lbl">Rate (nu)</span><span class="val val-n" id="msRateNow">-</span></div>
 <div class="spark-row"><span class="sl">Requests</span><svg id="sparkMbSlave" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
 <div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="msRateMinMax" style="font-size:10px;color:#6c7086">-</span></div>
-<div class="subhdr sep">Master (udgående forespørgsler)</div>
+</div><div>
+<div class="subhdr">Master (udgående forespørgsler)</div>
 <div class="row"><span class="lbl">Statistik siden</span><span class="val val-n" id="mmStatsSince">-</span></div>
 <div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="mmTotal">-</span></div>
 <div class="row"><span class="lbl">Success</span><span class="val val-ok" id="mmOk">-</span></div>
@@ -286,8 +291,9 @@
 <div class="row"><span class="lbl">Rate (nu)</span><span class="val val-n" id="mmRateNow">-</span></div>
 <div class="spark-row"><span class="sl">Requests</span><svg id="sparkMbMaster" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
 <div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="mmRateMinMax" style="font-size:10px;color:#6c7086">-</span></div>
+</div></div>
 <div class="subhdr sep">Master-cache (ST Logic MB_*)</div>
-<div>
+<div class="mb-cols"><div>
 <div class="row"><span class="lbl">Cache entries</span><span class="val val-n" id="mcEntries">-</span></div>
 <div class="row"><span class="lbl">Cache hits/misses</span><span class="val val-n" id="mcHitMiss">-</span></div>
 <div class="row"><span class="lbl">Hit rate</span><span class="val val-n" id="mcHitRate">-</span></div>
@@ -297,10 +303,11 @@
 <div class="row"><span class="lbl">Queue full drops</span><span class="val val-err" id="mcQueueFull">-</span></div>
 <div class="row"><span class="lbl">Priority drops</span><span class="val val-warn" id="mcPrioDrop">-</span></div>
 <div class="row"><span class="lbl">Cache TTL</span><span class="val val-n" id="mcTtl">-</span></div>
+</div><div>
 <div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
 <div id="mcBackoff" style="margin-top:6px"></div>
+</div></div>
 <div style="border-top:1px solid #313244;margin-top:8px;padding-top:6px;text-align:center"><button id="btnResetMasterStats" onclick="resetMasterStats()" style="background:#45475a;color:#cdd6f4;border:1px solid #585b70;border-radius:4px;padding:4px 14px;cursor:pointer;font-size:12px">Nulstil statistik</button></div>
-</div>
 </div>
 
 <!-- FEAT-409: Modbus Expansion Boards — online/offline-status for eksterne
@@ -879,13 +886,23 @@ function showSubTab(tab,btn){
   applySubTab();
 }
 
+function _setAutoHidden(elId,on){
+  const c=$(elId);if(!c)return;
+  const v=on?'1':'';
+  if((c.dataset.autoHidden||'')===v)return;
+  c.dataset.autoHidden=v;
+  applySubTab();  // genberegn synlighed + gitterplads
+}
 function applySubTab(){
   const grid=$('grid');
   if(!grid)return;
   grid.querySelectorAll('.card[data-card-id]').forEach(c=>{
     const id=c.dataset.cardId;
     const hidden=_hiddenCards[id];
-    if(hidden){c.style.display='none';return;}
+    // FEAT-453: kort uden data (fx Analog I/O uden aktive kanaler) skjules af
+    // metrics via data-auto-hidden — ellers viste denne funktion dem igen UDEN
+    // gitterplads, og de 'hang' under gitteret
+    if(hidden||c.dataset.autoHidden==='1'){c.style.display='none';return;}
     // FEAT-167: "Custom"-fanen viser et uafhaengigt, brugervalgt kort-sæt —
     // et kort her bevarer STADIG sin normale fane (getCardTab), det er en
     // ekstra visning ved siden af, ikke en omplacering.
@@ -1369,13 +1386,7 @@ function updateDashboard(m){
     _tcpNtpSyncs=g(m,'ntp_sync_count')||0;
   }
 
-  // === FEAT-085: Alarm Historik ===
-  {
-    const cnt=g(m,'alarm_log_count')||0;
-    const unack=g(m,'alarm_unacknowledged_count')||0;
-    badge($('badgeAlarm'),unack>0,String(unack));
-    $('alarmInfo').textContent=cnt+' alarmer totalt, '+unack+' ukvitterede';
-  }
+  // FEAT-452b: Alarm Historik-kortet er flyttet til /logs
 
   // === FEAT-095: Digital I/O ===
   {
@@ -1401,9 +1412,7 @@ function updateDashboard(m){
       }
       $('dioOutputs').innerHTML=h;
     }
-    if(dins.length===0&&douts.length===0){
-      $('cardDio').style.display='none';
-    }
+    _setAutoHidden('cardDio',dins.length===0&&douts.length===0);
   }
 
   // === FEAT-034/035/036/037/094: Analog I/O + trending ===
@@ -1445,9 +1454,7 @@ function updateDashboard(m){
       }
       $('analogOut').innerHTML=h+'</table>';
     }
-    if(aiv.length===0&&aii.length===0&&aoset.length===0){
-      $('cardAnalogIo').style.display='none';
-    }
+    _setAutoHidden('cardAnalogIo',aiv.length===0&&aii.length===0&&aoset.length===0);
   }
 
   // Update register views if visible

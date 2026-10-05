@@ -95,6 +95,22 @@ def js_syntax_check(src_rel, minified):
             raise SystemExit(f"gzip_web_assets: JS-SYNTAKSFEJL i {src_rel} (script {i}):\n{msg}")
 
 
+def dangling_id_check(src_rel, text):
+    """BUG-464: $('id')-opslag mod et element der ikke findes paa siden giver
+    en TypeError ved koersel (fx $('alarmInfo').textContent=...) og stopper
+    resten af funktionen — node --check fanger det ikke. Kraever at hvert
+    bogstavelige $('x') i en .html-side har et id="x" et sted paa siden
+    (ogsaa i JS-strenge, der bygger HTML)."""
+    import re
+    if not src_rel.endswith(".html"):
+        return
+    used = set(re.findall(r"\$\('([A-Za-z0-9_-]+)'\)", text))
+    have = set(re.findall(r"id=\\?[\"']([A-Za-z0-9_-]+)", text))
+    missing = sorted(used - have)
+    if missing:
+        raise SystemExit(f"gzip_web_assets: {src_rel} slaar element-id'er op, som ikke findes paa siden: {', '.join(missing)}")
+
+
 total_raw = 0
 total_gz = 0
 
@@ -106,6 +122,7 @@ for src_rel, sym, out_rel in PAGES:
     with open(src_path, "rb") as f:
         raw = minify(f.read())
     js_syntax_check(src_rel, raw)
+    dangling_id_check(src_rel, raw.decode("utf-8"))
     compressed = gzip.compress(raw, compresslevel=9)
 
     total_raw += len(raw)

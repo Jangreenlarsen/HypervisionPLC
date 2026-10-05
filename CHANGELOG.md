@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.87] - 2026-10-05
+
+### BUG FIXES
+- **BUG-464:** Fejlen kom med v7.9.68.86. Metrics-opdateringen skrev stadig til det fjernede Alarm-korts felter. Det gav en script-fejl midt i hver opdatering, så Digital I/O ("Ikke tilgængelig"), Analog I/O og resten af opdateringen stoppede, og bunden viste "Forbindelse tabt…". Rettet. Web-buildet stopper nu, hvis en side slår et element-id op, som ikke findes.
+- **Analog I/O-kortet** hang uden for gitteret nederst på siden: kortet skjules, når der ikke er aktive kanaler, men fanevisningen viste det igen uden gitterplads. Kort uden data (Analog I/O, Digital I/O) skjules nu via et flag, som fanevisningen respekterer.
+
+### CHANGES
+- **FEAT-453:** Modbus-kortet er lagt i to kolonner (Slave | Master, cache-tal | cache-tabeller) og får derfor dobbelt bredde og cirka halv højde.
+
 ## [7.9.68.86] - 2026-10-05
 
 ### BUG FIXES
