@@ -89,6 +89,12 @@ typedef struct {
 /** BUG-455: opret den vedvarende worker-task (kald ved opstart, før heapen fragmenteres) */
 void expansion_api_client_init(void);
 
+/* FEAT-449: baggrunds-sundhedstjek (GET /api/status) af boards uden data-trafik.
+ * health_ok_ms: millis() for seneste HTTP 200 (0 = aldrig).
+ * health_http: seneste resultat (0 = ikke tjekket, -1 = netværksfejl, ellers HTTP-kode). */
+uint32_t expansion_api_board_health_ok_ms(uint8_t index);
+int expansion_api_board_health_http(uint8_t index);
+
 bool expansion_api_start_status(uint8_t board_index);
 bool expansion_api_start_channels(uint8_t board_index);
 

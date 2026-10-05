@@ -5821,6 +5821,10 @@ static void expansion_board_to_json(uint8_t index, const ExpansionBoard *b, Json
   // naar denne er frisk, uanset om management-API'et svarer langsomt.
   uint32_t rx = modbus_expansion_board_last_rx_ms(index + 1);
   jo["data_age_ms"] = rx ? (long)(millis() - rx) : -1L;
+  // FEAT-449: baggrunds-sundhedstjek (kun boards uden data-trafik)
+  uint32_t hok = expansion_api_board_health_ok_ms(index);
+  jo["health_age_ms"] = hok ? (long)(millis() - hok) : -1L;
+  jo["health_http"] = expansion_api_board_health_http(index);
 }
 
 // GET /api/expansion/boards — liste over konfigurerede boards. Returnerer
@@ -8590,6 +8594,7 @@ static bool public_card_selected(const char *id)
 }
 
 #define PUBLIC_EXP_FRESH_MS 60000UL  // samme graense som dashboardets EXP_DATA_FRESH_MS
+#define PUBLIC_EXP_HEALTH_FRESH_MS 150000UL  // FEAT-449: 8 boards x 15 s round-robin + margin
 
 esp_err_t api_handler_public_dashboard_extras_get(httpd_req_t *req)
 {
@@ -8620,12 +8625,22 @@ esp_err_t api_handler_public_dashboard_extras_get(httpd_req_t *req)
       jo["number"] = i + 1;
       jo["name"] = b->name;
       uint32_t rx = modbus_expansion_board_last_rx_ms(i + 1);
-      if (!rx) {
-        jo["state"] = "unknown";   // intet Modbus TCP-svar siden opstart
+      uint32_t hok = expansion_api_board_health_ok_ms(i);  // FEAT-449
+      uint32_t now = millis();
+      if (rx && (now - rx) < PUBLIC_EXP_FRESH_MS) {
+        jo["state"] = "online";
+        jo["age_s"] = (now - rx) / 1000;
+      } else if (hok && (now - hok) < PUBLIC_EXP_HEALTH_FRESH_MS) {
+        // FEAT-449: ingen data-trafik (fx board som ST ikke bruger), men
+        // management-API'et svarer — boardet er i orden, bare ledigt
+        jo["state"] = "online";
+        jo["idle"] = true;
+        jo["age_s"] = (now - hok) / 1000;
+      } else if (rx || expansion_api_board_health_http(i) != 0) {
+        jo["state"] = "offline";
+        if (rx) jo["age_s"] = (now - rx) / 1000;
       } else {
-        uint32_t age = millis() - rx;
-        jo["state"] = age < PUBLIC_EXP_FRESH_MS ? "online" : "offline";
-        jo["age_s"] = age / 1000;
+        jo["state"] = "unknown";   // hverken data-svar eller sundhedstjek endnu
       }
     }
   }

@@ -896,7 +896,7 @@ function renderPublicExtras(d){
     else{
       const txt={online:['Online','val-ok'],offline:['Offline','val-err'],unknown:['Ingen data endnu','val-n']};
       set('expPubList',ex.map(b=>{const t=txt[b.state]||txt.unknown;
-        return '<div class="row"><span class="lbl">#'+b.number+' '+escHtml(b.name)+'</span><span class="val '+t[1]+'">'+t[0]+(b.state==='online'?' · '+b.age_s+' s siden':'')+'</span></div>';}).join(''));
+        return '<div class="row"><span class="lbl">#'+b.number+' '+escHtml(b.name)+'</span><span class="val '+t[1]+'">'+t[0]+(b.state==='online'?(b.idle?' · ledig (tjekket '+b.age_s+' s siden)':' · '+b.age_s+' s siden'):'')+'</span></div>';}).join(''));
       const on=ex.filter(b=>b.state==='online').length;
       badge($('badgeExpansion'),on===ex.length,on+'/'+ex.length+' online');
     }

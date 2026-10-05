@@ -35,6 +35,7 @@
 #include "config_struct.h"
 #include "network_config.h"
 #include "debug.h"
+#include "modbus_expansion.h"
 
 /* ============================================================================
  * BOARD CRUD
@@ -304,10 +305,79 @@ static void expansion_api_do_work(void) {
 static SemaphoreHandle_t g_expansion_work_sem = NULL;
 static TaskHandle_t g_expansion_worker = NULL;
 
+/* FEAT-449: let sundhedstjek af boards uden data-trafik. Et board som ST ikke
+ * bruger (ingen Modbus TCP-svar) stod tidligere som "Ingen data endnu" for
+ * evigt, selv om det var tændt og i orden. Når workeren er ledig, hentes
+ * GET /api/status fra ét sådant board ad gangen (round-robin). Boards med
+ * friske data-plan-svar springes over — dér beviser trafikken allerede, at
+ * boardet lever. Status + token valideres (kun HTTP 200 tæller som OK). */
+#define EXP_HEALTH_PERIOD_MS     15000UL
+#define EXP_HEALTH_DATA_FRESH_MS 60000UL   // samme grænse som dashboardets EXP_DATA_FRESH_MS
+static volatile uint32_t g_exp_health_ok_ms[EXPANSION_BOARD_MAX];
+static volatile int16_t  g_exp_health_http[EXPANSION_BOARD_MAX];  // 0 = ikke tjekket, -1 = netværksfejl
+static uint8_t g_exp_health_next = 0;
+
+uint32_t expansion_api_board_health_ok_ms(uint8_t index) {
+  return index < EXPANSION_BOARD_MAX ? g_exp_health_ok_ms[index] : 0;
+}
+
+int expansion_api_board_health_http(uint8_t index) {
+  return index < EXPANSION_BOARD_MAX ? g_exp_health_http[index] : 0;
+}
+
+static void expansion_health_probe(uint8_t i) {
+  char ip[16];
+  char token[EXPANSION_TOKEN_MAX];
+  network_config_ip_to_str(g_persist_config.expansion_boards[i].ip, ip);
+  strncpy(token, g_persist_config.expansion_boards[i].token, sizeof(token) - 1);
+  token[sizeof(token) - 1] = '\0';
+
+  int code = -1;
+  int s = relay_connect(ip);
+  if (s >= 0) {
+    struct timeval io = { 3, 0 };
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &io, sizeof(io));
+    char hdr[256];
+    int hl = snprintf(hdr, sizeof(hdr),
+                      "GET /api/status HTTP/1.1\r\nHost: %s:8080\r\n"
+                      "Authorization: Bearer %s\r\nConnection: close\r\n\r\n", ip, token);
+    static char *pbuf = NULL;  // kun exp_api-tasken; i PSRAM (BUG-458)
+    if (!pbuf) pbuf = (char *)heap_caps_malloc(1024, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    char *body = NULL;
+    if (pbuf && hl > 0 && hl < (int)sizeof(hdr) && relay_send_all(s, hdr, (size_t)hl)) {
+      code = relay_read_response(s, pbuf, 1024, &body, 3);
+    }
+    close(s);
+  }
+  memset(token, 0, sizeof(token));
+  g_exp_health_http[i] = (int16_t)code;
+  if (code == 200) {
+    uint32_t now = millis();
+    g_exp_health_ok_ms[i] = now ? now : 1;
+  }
+}
+
+static void expansion_health_tick(void) {
+  for (uint8_t n = 0; n < EXPANSION_BOARD_MAX; n++) {
+    uint8_t i = (uint8_t)((g_exp_health_next + n) % EXPANSION_BOARD_MAX);
+    const ExpansionBoard *b = &g_persist_config.expansion_boards[i];
+    if (!b->configured || b->token[0] == '\0') continue;
+    uint32_t rx = modbus_expansion_board_last_rx_ms(i + 1);
+    if (rx && (millis() - rx) < EXP_HEALTH_DATA_FRESH_MS) continue;
+    g_exp_health_next = (uint8_t)(i + 1);
+    expansion_health_probe(i);
+    return;
+  }
+}
+
 static void expansion_api_worker(void *pv) {
   (void)pv;
   for (;;) {
-    xSemaphoreTake(g_expansion_work_sem, portMAX_DELAY);
+    if (xSemaphoreTake(g_expansion_work_sem, pdMS_TO_TICKS(EXP_HEALTH_PERIOD_MS)) != pdTRUE) {
+      // FEAT-449: ingen kald i kø — brug pausen til et sundhedstjek
+      if (!g_expansion_api_result.in_progress) expansion_health_tick();
+      continue;
+    }
     expansion_api_do_work();
     g_expansion_api_result.done = true;
     g_expansion_api_result.in_progress = false;

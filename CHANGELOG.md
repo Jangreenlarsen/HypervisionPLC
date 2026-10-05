@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.80] - 2026-10-05
+
+### FEATURES
+- **FEAT-449:** Expansion boards som ST ikke bruger (ingen Modbus TCP-trafik) sundhedstjekkes nu i baggrunden (`GET /api/status` med token, ét board ad gangen hvert 15. s, når API-workeren er ledig). Statussiden viser dem som "Online · ledig" i stedet for "Ingen data endnu", og `/api/expansion/boards` har nye felter `health_age_ms`/`health_http`.
+
 ## [7.9.68.79] - 2026-10-05
 
 ### BUG FIXES
