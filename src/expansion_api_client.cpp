@@ -444,6 +444,39 @@ bool expansion_api_start_reboot(uint8_t board_index) {
   return expansion_api_spawn();
 }
 
+/* FEAT-455: boardets visningsnavn -> gyldigt DHCP-hostname (RFC 1123-label,
+ * samme regler som board-firmwarens `hostname`-kommando): alt andet end
+ * bogstaver/tal bliver til '-', flere '-' i træk samles, '-' fjernes forrest
+ * og bagerst, højst 32 tegn. Tomt resultat (fx et navn kun af specialtegn)
+ * giver "hvplc-exp-<nr>". Fx "Skab 007" -> "Skab-007", "Kælder/øst" -> "K-lder-st". */
+void expansion_hostname_from_name(uint8_t board_index, char *out, size_t out_size) {
+  if (!out || out_size < 2) return;
+  const char *name = (board_index < EXPANSION_BOARD_MAX) ? g_persist_config.expansion_boards[board_index].name : "";
+  size_t n = 0;
+  const size_t max_len = (out_size - 1 < 32) ? out_size - 1 : 32;
+  for (size_t i = 0; name[i] && n < max_len; i++) {
+    char c = name[i];
+    bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    if (ok) {
+      out[n++] = c;
+    } else if (n > 0 && out[n - 1] != '-') {
+      out[n++] = '-';
+    }
+  }
+  while (n > 0 && out[n - 1] == '-') n--;
+  out[n] = 0;
+  if (n == 0) snprintf(out, out_size, "hvplc-exp-%u", (unsigned)(board_index + 1));
+}
+
+bool expansion_api_start_set_hostname(uint8_t board_index) {
+  char host[33];
+  expansion_hostname_from_name(board_index, host, sizeof(host));
+  char body[64];
+  snprintf(body, sizeof(body), "{\"hostname\":\"%s\"}", host);
+  if (!expansion_api_begin(board_index, "POST", "/api/hostname", body, "hostname")) return false;
+  return expansion_api_spawn();
+}
+
 bool expansion_api_start_config_push(uint8_t board_index, uint8_t channel,
                                       bool enabled, const char *mode, uint32_t baudrate,
                                       const char *parity, uint8_t stop_bits,

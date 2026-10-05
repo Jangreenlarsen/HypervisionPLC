@@ -382,6 +382,7 @@ Administration af eksterne HypervisionPLC Extension Boards (se [kapitel 6.7](06_
 | `mbx <board> status` | Alias for `show modbus-expansion <board>` |
 | `mbx <board> ota status` | Boardets firmware-/OTA-status: `running_version`, `pending_confirm`, `confirm_remaining_s`, `last_update_rolled_back` (FEAT-420) |
 | `mbx <board> ota confirm` | Bekræft en ny board-firmware, der afventer bekræftelse (annullerer automatisk rollback). Idempotent (FEAT-420) |
+| `mbx <board> hostname` | **FEAT-455.** Sæt boardets DHCP-hostname til dets PLC-navn (ugyldige tegn → `-`, maks 32 tegn) og genstart boardet (advarsel vises; ca. 5–10 s uden data). Kræver board-firmware ≥ 0.32.0 |
 | `mbx <board> reboot` | Genstart boardet. **NB:** afventer boardet bekræftelse af ny firmware, ruller genstarten tilbage til den forrige firmware (FEAT-420). Selve firmware-filen uploades kun via web-UI'et |
 | `mbx <board> <kanal> read <fc> <slave_id> <address> [quantity]` | Diagnostisk Modbus-læsning (FC01-04) direkte mod boardets kanal |
 | `mbx <board> <kanal> write <fc> <slave_id> <address> <value...>` | Diagnostisk Modbus-skrivning (FC05/06/16, sidstnævnte med flere værdier) |

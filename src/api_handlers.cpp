@@ -930,6 +930,7 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/expansion/boards/{id}/ota-status",  "Start async board OTA status fetch (FEAT-420)"},
   {"POST",   "/api/expansion/boards/{id}/ota-confirm", "Confirm new board firmware, cancels auto-rollback (FEAT-420)"},
   {"POST",   "/api/expansion/boards/{id}/reboot",   "Reboot board - rolls back while pending_confirm (FEAT-420)"},
+  {"POST",   "/api/expansion/boards/{id}/hostname", "Set board DHCP hostname from its PLC name (FEAT-455, board fw >= 0.32.0; reboot board after)"},
   {"GET",    "/api/expansion/connections",          "Modbus TCP connection-pool snapshot (v7.9.68.7)"},
   {"POST",   "/api/expansion/boards/{id}/channels/{n}/read",  "Start async diagnostic Modbus read (FEAT-409)"},
   {"POST",   "/api/expansion/boards/{id}/channels/{n}/write", "Start async diagnostic Modbus write (FEAT-409)"},
@@ -5817,6 +5818,9 @@ static void expansion_board_to_json(uint8_t index, const ExpansionBoard *b, Json
   jo["ip"] = ip_str;
   jo["type"] = b->board_type;
   jo["has_token"] = (b->token[0] != '\0');
+  char host[33];  // FEAT-455: det hostname navnet bliver til på boardet
+  expansion_hostname_from_name(index, host, sizeof(host));
+  jo["hostname"] = host;
   // BUG-431: alder paa boardets seneste Modbus TCP-svar (data-planen ST
   // bruger). -1 = intet svar siden opstart. Dashboardet viser boardet online
   // naar denne er frisk, uanset om management-API'et svarer langsomt.
@@ -6126,6 +6130,7 @@ static const ExpansionSimpleAction EXPANSION_SIMPLE_ACTIONS[] = {
   { "%d/ota-status",   false, expansion_api_start_ota_status },     // FEAT-420
   { "%d/ota-confirm",  true,  expansion_api_start_ota_confirm },    // FEAT-420
   { "%d/reboot",       true,  expansion_api_start_reboot },         // FEAT-420 (ruller tilbage hvis pending_confirm)
+  { "%d/hostname",     true,  expansion_api_start_set_hostname },   // FEAT-455 (boardet skal genstartes bagefter)
 };
 
 // POST /api/expansion/boards/{id}/status              — start status-kald
@@ -6274,7 +6279,7 @@ esp_err_t api_handler_expansion_action_status_get(httpd_req_t *req)
   http_server_stat_request();
   CHECK_AUTH(req);
 
-  ExpansionApiResult res;
+  static ExpansionApiResult res;  // BUG-470: ~1,6 KB — ikke paa httpd-stakken (handlers koerer serielt i httpd-tasken)
   if (!expansion_api_poll(&res)) {
     return api_send_json(req, "{\"valid\":false}");
   }

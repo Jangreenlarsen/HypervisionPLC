@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.92] - 2026-10-05
+
+### FEATURES
+- **FEAT-455:** Expansion boards får deres hostname fra PLC'en. Det er det navn, boardet er oprettet med under I/O → Expansion Boards; ugyldige tegn bliver til "-", og navnet er højst 32 tegn. Det sendes, når et board oprettes eller omdøbes, eller med knappen **Hostname** / `mbx <board> hostname`. Der vises altid en advarsel først, fordi boardet genstartes, så Ethernet tager det nye navn. Det kræver board-firmware 0.32.0 eller nyere. Nyt REST-kald `POST /api/expansion/boards/{id}/hostname`, og `GET /api/expansion/boards` viser det afledte `hostname`.
+
+### BUG FIXES
+- **BUG-470:** `mbx <board> hostname` fra web-CLI'en crashede PLC'en (panic) under testen, fordi to resultat-buffere på ca. 1,6 KB lå på httpd-stakken samtidig. Det er rettet før release. De samme buffere i `mbx`-resultatudskrivningen og `/api/expansion/action-status` ligger nu statisk, så web-CLI'ens øvrige `mbx`-kommandoer ikke kan ramme samme fejl.
+
 ## [7.9.68.91] - 2026-10-05
 
 ### BUG FIXES

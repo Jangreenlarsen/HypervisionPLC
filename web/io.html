@@ -806,6 +806,7 @@ function loadExpBoards(){
         '<td><button class="btn btn-sm btn-primary" onclick="testExpBoardConnection('+b.id+')">Test forbindelse</button> '+
         '<button class="btn btn-sm btn-primary" onclick="showExpChannels('+b.id+',\''+nameEsc+'\')">Kanaler</button> '+
         '<button class="btn btn-sm btn-primary" onclick="expFwPick('+b.id+')">Opdatér firmware…</button> '+
+        '<button class="btn btn-sm btn-primary" title="Sæt boardets DHCP-hostname til '+escHtml(b.hostname||'')+' (genstarter boardet)" onclick="expAskHostname('+b.id+',\''+nameEsc+'\','+b.number+')">Hostname</button> '+
         '<button class="btn btn-sm btn-primary" onclick="editExpBoard('+b.id+','+b.number+',\''+nameEsc+'\',\''+b.ip+'\',\''+b.type+'\')">Redigér</button> '+
         '<button class="btn btn-sm btn-danger" onclick="deleteExpBoard('+b.id+',\''+nameEsc+'\')">Slet</button></td></tr>';
     }).join('');
@@ -844,16 +845,45 @@ function submitExpBoard(){
         if(!ok)throw new Error(j.error||'Fejl');
         showAlert('expBoardsAlert','ok','Board tilføjet — husk Save øverst');
         clearExpForm();loadExpBoards();
+        if(j&&j.id!=null)expAskHostname(j.id,name,number);  // FEAT-455
       }).catch(e=>showAlert('expBoardsAlert','err','Fejl: '+e.message));
   }else{
     const body={name,ip};if(token)body.token=token;if(type)body.type=type;
+    const editId=expEditingId,oldName=(_expBoards[editId]||{}).name,num=(_expBoards[editId]||{}).number;  // FEAT-455
     api('/api/expansion/boards/'+expEditingId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
         if(!ok)throw new Error(j.error||'Fejl');
         showAlert('expBoardsAlert','ok','Board opdateret — husk Save øverst');
         clearExpForm();loadExpBoards();
+        if(oldName!==undefined&&oldName!==name)expAskHostname(editId,name,num);  // FEAT-455: kun ved navneskift
       }).catch(e=>showAlert('expBoardsAlert','err','Fejl: '+e.message));
   }
+}
+// FEAT-455: boardets DHCP-hostname = dets PLC-navn (ugyldige tegn -> '-').
+// Samme regel som firmwarens expansion_hostname_from_name(), så brugeren ser
+// resultatet FØR det sendes. Boardet genstartes bagefter (Ethernet tager først
+// et nyt hostname ved opstart) — derfor altid en advarsel først.
+function expHostnameFromName(name,number){
+  let h=String(name||'').replace(/[^A-Za-z0-9]+/g,'-').replace(/^-+/,'').slice(0,32).replace(/-+$/,'');
+  return h||('hvplc-exp-'+number);
+}
+function expAskHostname(id,name,number){
+  const host=expHostnameFromName(name,number);
+  askConfirm('Sæt hostname på boardet',
+    'Board "'+name+'" får hostname "'+host+'" i routeren/DHCP. ADVARSEL: Boardet genstartes bagefter — ca. 5-10 s uden data fra det (ST Logic\'s MBX_*-kald fejler imens).',
+    ()=>expSetHostname(id,name,host));
+}
+async function expSetHostname(id,name,host){
+  showAlert('expBoardsAlert','ok','Sætter hostname "'+host+'" på "'+name+'"…');
+  try{
+    const d=await expCall(id,'hostname');
+    if(!d.transport_ok)throw new Error('boardet svarede ikke');
+    if(d.http_status===404)throw new Error('boardets firmware kan ikke sætte hostname — opdatér til 0.32.0 eller nyere');
+    if(d.http_status!==200)throw new Error((d.response&&(d.response.message||d.response.error))||('HTTP '+d.http_status));
+    const r=await expCall(id,'reboot');
+    if(!r.transport_ok||r.http_status!==200)throw new Error('hostname sat, men genstart fejlede — genstart boardet manuelt');
+    showAlert('expBoardsAlert','ok','Hostname "'+host+'" sat på "'+name+'" — boardet genstarter og er tilbage om ca. 10 s.');
+  }catch(e){showAlert('expBoardsAlert','err','Hostname: '+e.message);}
 }
 function deleteExpBoard(id,name){
   askConfirm('Fjern board','Fjern "'+name+'" fra listen? Selve boardet påvirkes ikke — det kan tilføjes igen senere med samme token.',()=>{
@@ -1000,7 +1030,7 @@ function saveExpChannelConfig(boardId,channel){
 // firmware som ikke bekræftes inden 600 s, eller som crasher, ruller boardet
 // selv tilbage. Browseren taler KUN med PLC'en; PLC'en relay'er til boardet.
 const EXP_FW_MARKER='HVEXT-FWID:hypervisionplc-extension-board:';
-const EXP_KIND={'status':'status','channels':'channels','capabilities':'capabilities','ota-status':'ota_status','ota-confirm':'ota_confirm','reboot':'reboot'};
+const EXP_KIND={'status':'status','channels':'channels','capabilities':'capabilities','ota-status':'ota_status','ota-confirm':'ota_confirm','reboot':'reboot','hostname':'hostname'};
 let _expBoards={};       // id → {name, number}
 let _expFw={};           // id → seneste GET /api/ota/status-svar fra boardet
 let _expFwLoadGen=0;     // afbryder en igangværende baggrunds-indlæsning af firmware-status

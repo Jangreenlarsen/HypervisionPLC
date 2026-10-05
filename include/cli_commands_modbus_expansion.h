@@ -23,6 +23,7 @@ void cli_cmd_show_modbus_expansion(uint8_t argc, char **argv);
 
 // "mbx <board> status | <board> <channel> read ... | <board> <channel> write ..."
 void cli_cmd_mbx_status(uint8_t argc, char **argv);
+void cli_cmd_mbx_hostname(uint8_t argc, char **argv);  // FEAT-455: <board> hostname
 void cli_cmd_mbx_ota(uint8_t argc, char **argv);   // FEAT-420: <board> ota status|confirm, <board> reboot
 void cli_cmd_mbx_read(uint8_t argc, char **argv);
 void cli_cmd_mbx_write(uint8_t argc, char **argv);

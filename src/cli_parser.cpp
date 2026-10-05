@@ -627,6 +627,7 @@ static void print_modbus_expansion_help(void) {
   debug_println("  mbx <board> status                        - Alias for 'show modbus-expansion <board>'");
   debug_println("  mbx <board> ota status|confirm            - Boardets firmware-/OTA-status, bekraeft ny firmware (FEAT-420)");
   debug_println("  mbx <board> reboot                        - Genstart boardet (ruller tilbage hvis ny firmware er ubekraeftet)");
+  debug_println("  mbx <board> hostname                      - Saet boardets hostname til dets navn + genstart det (FEAT-455)");
   debug_println("  mbx <board> <kanal> read <fc> <slave> <addr> [qty]     - Diagnostisk læsning");
   debug_println("  mbx <board> <kanal> write <fc> <slave> <addr> <val...> - Diagnostisk skrivning");
   debug_println("");
@@ -3382,6 +3383,12 @@ bool cli_parser_execute(char* line) {
 
     if (argc >= 3 && !strcasecmp(argv[2], "status")) {
       cli_cmd_mbx_status(1, argv + 1);
+      return true;
+    }
+
+    // FEAT-455: mbx <board> hostname
+    if (argc >= 3 && !strcasecmp(argv[2], "hostname")) {
+      cli_cmd_mbx_hostname(argc - 1, argv + 1);
       return true;
     }
 

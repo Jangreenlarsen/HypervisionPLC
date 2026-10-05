@@ -112,6 +112,12 @@ Et "HypervisionPLC Extension Board" er et separat, fysisk board med sine egne RS
 
 Luk ikke siden under selve uploadet (typisk 10-60 s). PLC'ens web-UI er optaget, mens uploadet står på — ligesom ved PLC'ens egen firmwareopdatering. Planlæg opdateringer uden for kritisk drift. Fejlbeskeder viser altid boardets egen forklaring. Lukkes browseren midt i uploadet, kasserer boardet det og kører uændret videre.
 
+**Hostname fra PLC'en (FEAT-455, board-firmware ≥ 0.32.0):** boardets netværksnavn i routeren/DHCP sættes til det navn, boardet er oprettet med her. Bogstaver og tal bevares, alt andet bliver til "-", og navnet afkortes til højst 32 tegn, fx "Skab 007" → `Skab-007`. Det sker:
+- når et board **oprettes**, eller når et boards **navn ændres**. Der vises først en advarsel, fordi boardet genstartes bagefter: Ethernet tager først et nyt hostname ved opstart, og det giver ca. 5–10 s uden data fra boardet.
+- manuelt med knappen **Hostname** ud for boardet, eller `mbx <board> hostname` i CLI'en.
+
+Ældre board-firmware uden funktionen giver fejlen "opdatér til 0.32.0 eller nyere".
+
 **Kontinuerlig datatrafik i ST Logic (FEAT-410):** den løbende, høj-frekvente Modbus-trafik mod feltbusserne bag et expansion-board går via Modbus TCP direkte til boardet (ikke gennem PLC'ens web-UI), og kan læses/skrives fra ST Logic-programmer med `MBX_*`-funktionsfamilien — samme non-blocking cache/kø-mønster som den lokale RS485-bus' `MB_*`-funktioner (se [Appendiks D.5.9b](D_ST_Logic_Funktionsreference.md#d59b-modbus-expansion-board-mbx_-feat-410)), blot med et ekstra `board`- og `kanal`-argument foran. **v7.9.68.0:** multi-register/coil WRITE tilføjet (`MBX_WRITE_HOLDINGS`/FC16, `MBX_WRITE_COILS`/FC15) — multi-**read** (`MBX_READ_HOLDINGS`) findes stadig ikke. Kø/cache-diagnostik: `show modbus-expansion queue` (se [Appendiks A](A_CLI_Kommando_Reference.md#modbus-expansion-board-feat-409)).
 
 **Dashboard-badge (Monitor):** Dashboardet ([kapitel 4](04_Web_Dashboard_og_Monitor.md)) har et tilsvarende "Modbus Expansion Boards"-kort med et online/offline-badge pr. board (grøn = online + fw-version/kanaltal, rød = offline, grå = endnu ikke tjekket), plus et samlet "N/M online"-badge i kort-overskriften. Boards tjekkes automatisk hvert 30. sekund, så længe dashboardet er åbent i en browser — luk fanen, og pollingen stopper (enheden selv ringer aldrig ud af sig selv uopfordret).

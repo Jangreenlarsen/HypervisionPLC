@@ -69,7 +69,7 @@ static void mbx_print_unknown_board(const char *arg) {
 // Faelles "start kald, vent, print raa/pae\u0301nt resultat"-flow. `kind` bruges
 // kun til en menneskelig label i output, ikke til logik.
 static void mbx_print_result(const char *label) {
-  ExpansionApiResult res;
+  static ExpansionApiResult res;  // BUG-470: ~1,6 KB — ikke paa httpd-stakken (web-CLI)
   bool finished = expansion_api_wait_result(MBX_WAIT_TIMEOUT_MS, &res);
   if (!finished) {
     debug_printf("FEJL: %s - intet svar fra boardet indenfor %d ms (tjek IP/netvaerk/at boardet er taendt)\n",
@@ -308,6 +308,53 @@ void cli_cmd_mbx_ota(uint8_t argc, char **argv) {
   if (reboot) {
     debug_println("NB: Afventede boardet bekraeftelse af ny firmware (pending_confirm), ruller");
     debug_println("    denne genstart boardet tilbage til den forrige firmware.");
+  }
+}
+
+// FEAT-455: mbx <board> hostname — sæt boardets DHCP-hostname til dets
+// PLC-navn (ugyldige tegn -> '-') og genstart boardet, så Ethernet får det.
+void cli_cmd_mbx_hostname(uint8_t argc, char **argv) {
+  if (argc < 1) return;
+  int idx = mbx_resolve_board(argv[0]);
+  if (idx < 0) { mbx_print_unknown_board(argv[0]); return; }
+  if (expansion_api_is_busy()) {
+    debug_println("FEJL: Et andet expansion-board-kald er allerede i gang — vent til det er faerdigt");
+    return;
+  }
+  char host[33];
+  expansion_hostname_from_name((uint8_t)idx, host, sizeof(host));
+  debug_printf("Saetter hostname '%s' paa board %d (%s)...\n", host, idx + 1,
+               g_persist_config.expansion_boards[idx].name);
+  debug_println("ADVARSEL: boardet genstartes bagefter - ca. 5-10 s uden data fra det.");
+  if (!expansion_api_start_set_hostname((uint8_t)idx)) {
+    debug_println("FEJL: Kunne ikke starte kald mod boardet");
+    return;
+  }
+  // BUG-470: statisk — ExpansionApiResult er ~1,6 KB, og web-CLI'en kører i
+  // httpd-tasken (~3,4 KB fri stak). Et lokalt resultat + mbx_print_result()'s
+  // eget lokale resultat gav stak-overløb og panic (PLC-genstart).
+  static ExpansionApiResult res;
+  if (!expansion_api_wait_result(MBX_WAIT_TIMEOUT_MS, &res) || !res.transport_ok) {
+    debug_println("FEJL: Boardet svarede ikke - hostname ikke sat");
+    return;
+  }
+  if (res.http_status == 404) {
+    debug_println("FEJL: Boardets firmware kan ikke saette hostname (kraever board-firmware 0.32.0 eller nyere)");
+    return;
+  }
+  if (res.http_status != 200) {
+    debug_printf("FEJL: HTTP %d: %s\n", res.http_status, res.response_json);
+    return;
+  }
+  debug_printf("OK: %s\n", res.response_json);
+  if (!expansion_api_start_reboot((uint8_t)idx)) {
+    debug_println("FEJL: Kunne ikke genstarte boardet - goer det med 'mbx <board> reboot'");
+    return;
+  }
+  if (expansion_api_wait_result(MBX_WAIT_TIMEOUT_MS, &res) && res.transport_ok && res.http_status == 200) {
+    debug_println("Boardet genstarter - tilbage om ca. 10 s.");
+  } else {
+    debug_println("ADVARSEL: genstart-kaldet fik ikke svar - tjek boardet med 'mbx <board> status'");
   }
 }
 

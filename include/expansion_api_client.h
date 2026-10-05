@@ -136,6 +136,12 @@ bool expansion_api_start_ota_confirm(uint8_t board_index);  // POST /api/ota/con
 // ruller en reboot BEVIDST tilbage til den forrige firmware ("Rul tilbage nu").
 bool expansion_api_start_reboot(uint8_t board_index);
 
+/* FEAT-455: sæt boardets DHCP-hostname til dets PLC-navn (POST /api/hostname,
+ * board-firmware >= 0.32.0). Kræver genstart af boardet for Ethernet. */
+bool expansion_api_start_set_hostname(uint8_t board_index);
+/* FEAT-455: navn -> gyldigt hostname (bogstaver/tal/'-', maks 32 tegn) */
+void expansion_hostname_from_name(uint8_t board_index, char *out, size_t out_size);
+
 // FEAT-420: SYNKRONT relay af en firmware-upload browser → PLC → board
 // (POST /api/ota paa boardet). Koerer paa den KALDENDE task (httpd) og
 // streamer req's body videre i bidder — filen gemmes aldrig paa PLC'en.
