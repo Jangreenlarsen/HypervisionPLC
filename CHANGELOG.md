@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.90] - 2026-10-05
+
+### BUG FIXES / CHANGES
+- **FEAT-454:** Offentlig statusside og dens opsætning er rettet:
+  - Kortlisten havde stadig de fire gamle Modbus-kort. Den har nu de samlede kort **Modbus** og **RS-485 / UART** som på dashboardet, og gamle valg oversættes automatisk.
+  - ALARM-banneret (fx "HTTP auth failures") og dets Afstem-knap er fjernet fra den login-frie side.
+  - Uden valgte kort viser siden en forklaring i stedet for en tom flade.
+- **BUG-468:** Master-cache-tabellen på dashboard og statusside viste "FC8" for FC16-skrivninger med flere registre (og FC7/FC9 for FC03/FC15). Metrics sender nu det rigtige Modbus-funktionsnummer.
+
 ## [7.9.68.89] - 2026-10-05
 
 ### BUG FIXES

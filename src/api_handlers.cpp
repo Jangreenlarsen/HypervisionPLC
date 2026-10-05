@@ -8492,7 +8492,8 @@ static const char *PUBLIC_DASHBOARD_CARD_IDS[] = {
   "httpapi", "counters", "timers", "stlogic", "ntp", "rtutrafik",
   "dio", "analogio", "mbactivity",
   "watchdog", "modbusexpansion",  // FEAT-435: data via GET /api/public-dashboard/extras
-  "trendrec"                      // FEAT-441: data via GET /api/public-dashboard/trend
+  "trendrec",                     // FEAT-441: data via GET /api/public-dashboard/trend
+  "modbus", "rs485"               // FEAT-454: samlede kort (de gamle id'er ovenfor accepteres stadig)
 };
 static const int PUBLIC_DASHBOARD_CARD_ID_COUNT =
   sizeof(PUBLIC_DASHBOARD_CARD_IDS) / sizeof(PUBLIC_DASHBOARD_CARD_IDS[0]);
@@ -9681,6 +9682,11 @@ static esp_err_t send_metrics_response(httpd_req_t *req, bool include_registers)
                          (e->status == MB_CACHE_ERROR) ? "error" : "empty";
         uint32_t age_ms = (e->last_update_ms > 0) ? (millis() - e->last_update_ms) : 0;
         uint8_t disp_fc = (e->last_fc > 0) ? e->last_fc : e->key.req_type;
+        // BUG-468: req_type er en intern enum — 1-6 = FC01-06, men 7/8/9 er
+        // multi-register-typerne (viste "FC8" for en FC16-skrivning)
+        if (disp_fc == MB_REQ_READ_HOLDINGS) disp_fc = 3;
+        else if (disp_fc == MB_REQ_WRITE_HOLDINGS) disp_fc = 16;
+        else if (disp_fc == MB_REQ_WRITE_COILS) disp_fc = 15;
         PROM_APPEND("modbus_master_slave_status{slave=\"%d\",addr=\"%d\",fc=\"%d\",status=\"%s\",age_ms=\"%u\"} %d\n",
                      e->key.slave_id, e->key.address, disp_fc, st, age_ms,
                      (e->status == MB_CACHE_VALID) ? 1 : (e->status == MB_CACHE_ERROR) ? -1 : 0);

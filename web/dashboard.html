@@ -806,10 +806,8 @@ function showPage(page,btn){
 const PUB_CATALOG=[
   {id:'system',label:'System',info:'Firmware, oppetid, hukommelse'},
   {id:'network',label:'Netværk',info:'WiFi/Ethernet-status, IP, signal'},
-  {id:'modbusslave',label:'Modbus Slave',info:'Slave-ID, requests, fejl'},
-  {id:'modbusmaster',label:'Modbus Master',info:'Requests, timeouts, cache'},
-  {id:'bushealth',label:'RS-485 Bus Health',info:'Fejlrater på bussen'},
-  {id:'rtutrafik',label:'Modbus RTU Trafik',info:'Trafiktællere og sparklines'},
+  {id:'modbus',label:'Modbus',info:'Slave og master: requests, fejl, rate, cache'},
+  {id:'rs485',label:'RS-485 / UART',info:'Portopsætning, målt bus-belastning, fejl og kollisioner'},
   {id:'mbactivity',label:'Modbus Aktivitetslog',info:'Seneste Modbus-transaktioner'},
   {id:'httpapi',label:'HTTP API',info:'Requests og fejl'},
   {id:'counters',label:'Tællere',info:'Tællerværdier og frekvens'},
@@ -832,7 +830,10 @@ function pubLoad(){
   $('pubUnavail').innerHTML=PUB_UNAVAILABLE.map(u=>'<li><b>'+escHtml(u[0])+'</b> — '+escHtml(u[1])+'</li>').join('');
   $('pubPreview').src='/';
   fetch('/api/public-dashboard/cards').then(r=>r.json()).then(d=>{
-    const vis=(d.visible||'').split(',').map(s=>s.trim()).filter(Boolean);
+    // FEAT-454: gemte valg fra foer FEAT-450 (de fire gamle Modbus-kort) peger paa de nye
+    const pubAlias={modbusslave:'modbus',modbusmaster:'modbus',rtutrafik:'modbus',bushealth:'rs485'};
+    const vis=[];
+    (d.visible||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(id=>{id=pubAlias[id]||id;if(!vis.includes(id))vis.push(id);});
     _pubOn={};vis.forEach(id=>{_pubOn[id]=true;});
     // valgte kort foerst i gemt raekkefoelge, derefter resten i katalog-orden
     _pubOrder=vis.filter(id=>PUB_CATALOG.some(c=>c.id===id))

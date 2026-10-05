@@ -16,6 +16,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 .card{background:#181825;border:1px solid #313244;border-radius:8px;padding:14px 16px;width:340px;flex-grow:1;max-width:480px}
 .card-wide{max-width:900px}
 .card h2{font-size:13px;color:#89b4fa;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #313244;display:flex;align-items:center;gap:6px}
+.mb-cols{display:grid;grid-template-columns:minmax(230px,1fr) minmax(230px,1fr);gap:0 20px}
+/* FEAT-454: Modbus-kortet har to kolonner og skal have plads til begge */
+.card[data-card-id="modbus"]{flex:2 1 560px;min-width:560px;max-width:none}
+@media(max-width:640px){.card[data-card-id="modbus"]{min-width:0}.mb-cols{grid-template-columns:1fr}}
+.pub-empty{margin:40px auto;max-width:520px;text-align:center;color:#a6adc8;font-size:13px;line-height:1.6;background:#181825;border:1px solid #313244;border-radius:8px;padding:24px}
 .subhdr{font-size:11px;font-weight:700;color:#a6adc8;text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
 .tbl{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
 .tbl th{text-align:left;padding:4px 6px;color:#89b4fa;border-bottom:1px solid #313244;font-weight:600}
@@ -39,8 +44,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <span class="info" id="hdrInfo"></span>
 </div>
 
-<div class="alarm-bar" id="alarmBar"></div>
 
+
+<div class="pub-empty" id="pubEmpty" style="display:none">Der er endnu ikke valgt nogen kort til den offentlige statusside.<br>En administrator vælger dem under <b>Monitor → Statusside</b>.</div>
 <div class="grid" id="grid">
 
 <div class="card" data-card-id="system">
@@ -81,33 +87,35 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 </div>
 </div>
 
-<div class="card" data-card-id="modbusslave">
-<h2>Modbus Slave <span class="badge badge-off" id="badgeSlave">-</span></h2>
-<div class="row"><span class="lbl">Interface</span><span class="val val-n" id="msConfigInfo" style="font-size:11px">-</span></div>
+<!-- FEAT-454: samme Modbus- og RS-485 / UART-kort som dashboardet (FEAT-450/453) -->
+<div class="card" data-card-id="modbus">
+<h2>Modbus <span class="badge badge-off" id="badgeSlave">-</span> <span class="badge badge-off" id="badgeMaster">-</span></h2>
+<div class="mb-cols"><div>
+<div class="subhdr">Slave (indgående forespørgsler)</div>
+<div class="row"><span class="lbl">Slave-ID</span><span class="val val-n" id="msConfigInfo">-</span></div>
 <div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="msTotal">-</span></div>
 <div class="row"><span class="lbl">Success</span><span class="val val-ok" id="msOk">-</span></div>
 <div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="msCrc">-</span></div>
-<div class="row"><span class="lbl">Exceptions</span><span class="val val-err" id="msExc">-</span></div>
+<div class="row"><span class="lbl">Exceptions</span><span class="val val-warn" id="msExc">-</span></div>
 <div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="msRate">-</span></div>
 <div class="row"><span class="lbl">Rate (nu)</span><span class="val val-n" id="msRateNow">-</span></div>
 <div class="spark-row"><span class="sl">Requests</span><svg id="sparkMbSlave" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
 <div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="msRateMinMax" style="font-size:10px;color:#6c7086">-</span></div>
-</div>
-
-<div class="card" data-card-id="modbusmaster">
-<h2>Modbus Master <span class="badge badge-off" id="badgeMaster">-</span></h2>
-<div class="row"><span class="lbl">Interface</span><span class="val val-n" id="mmConfigInfo" style="font-size:11px">-</span></div>
-<div class="row"><span class="lbl">Statistik siden</span><span class="val val-n" id="mmStatsSince" style="font-size:11px">-</span></div>
+</div><div>
+<div class="subhdr">Master (udgående forespørgsler)</div>
+<div class="row"><span class="lbl">Statistik siden</span><span class="val val-n" id="mmStatsSince">-</span></div>
 <div class="row"><span class="lbl">Requests total</span><span class="val val-n" id="mmTotal">-</span></div>
 <div class="row"><span class="lbl">Success</span><span class="val val-ok" id="mmOk">-</span></div>
 <div class="row"><span class="lbl">Timeout fejl</span><span class="val val-err" id="mmTimeout">-</span></div>
 <div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="mmCrc">-</span></div>
-<div class="row"><span class="lbl">Bus busy (kontention)</span><span class="val val-err" id="mmBusBusy">-</span></div>
+<div class="row"><span class="lbl">Exceptions</span><span class="val val-warn" id="mmExc">-</span></div>
 <div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="mmRate">-</span></div>
 <div class="row"><span class="lbl">Rate (nu)</span><span class="val val-n" id="mmRateNow">-</span></div>
 <div class="spark-row"><span class="sl">Requests</span><svg id="sparkMbMaster" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
 <div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="mmRateMinMax" style="font-size:10px;color:#6c7086">-</span></div>
-<div style="border-top:1px solid #313244;margin-top:6px;padding-top:6px">
+</div></div>
+<div class="subhdr sep">Master-cache (ST Logic MB_*)</div>
+<div class="mb-cols"><div>
 <div class="row"><span class="lbl">Cache entries</span><span class="val val-n" id="mcEntries">-</span></div>
 <div class="row"><span class="lbl">Cache hits/misses</span><span class="val val-n" id="mcHitMiss">-</span></div>
 <div class="row"><span class="lbl">Hit rate</span><span class="val val-n" id="mcHitRate">-</span></div>
@@ -117,16 +125,32 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="row"><span class="lbl">Queue full drops</span><span class="val val-err" id="mcQueueFull">-</span></div>
 <div class="row"><span class="lbl">Priority drops</span><span class="val val-warn" id="mcPrioDrop">-</span></div>
 <div class="row"><span class="lbl">Cache TTL</span><span class="val val-n" id="mcTtl">-</span></div>
+</div><div>
 <div id="mcSlaves"><span class="empty-msg">Ingen aktive slaves</span></div>
 <div id="mcBackoff" style="margin-top:6px"></div>
-</div>
+</div></div>
 </div>
 
-<div class="card" data-card-id="bushealth">
-<h2>RS-485 Bus Health</h2>
+<div class="card" data-card-id="rs485">
+<h2>RS-485 / UART <span class="badge badge-off" id="badgeRs485">-</span></h2>
+<div class="row"><span class="lbl">Transceiver</span><span class="val val-n" id="uxXcvr">-</span></div>
+<div class="row"><span class="lbl">Pins</span><span class="val val-n" id="uxPins">-</span></div>
+<div class="row"><span class="lbl">Slave-port</span><span class="val val-n" id="uxSlaveCfg">-</span></div>
+<div class="row"><span class="lbl">Master-port</span><span class="val val-n" id="uxMasterCfg">-</span></div>
+<div class="subhdr sep">Belastning (målt)</div>
+<div class="row"><span class="lbl">Bus-udnyttelse</span><span class="val val-n" id="uxBusPct">-</span></div>
+<div class="row"><span class="lbl">… inkl. t3.5-pauser</span><span class="val val-n" id="uxBusGapPct">-</span></div>
+<div class="row"><span class="lbl">TX (sendt)</span><span class="val val-n" id="uxTx">-</span></div>
+<div class="row"><span class="lbl">RX (modtaget)</span><span class="val val-n" id="uxRx">-</span></div>
+<div class="spark-row"><span class="sl">Bus %</span><svg id="sparkRs485" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
+<div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="uxBusMinMax" style="font-size:10px;color:#6c7086">-</span></div>
+<div class="subhdr sep">Fejl</div>
 <div class="row"><span class="lbl">Kombineret fejlrate</span><span class="val val-n" id="bhErrorRate">-</span></div>
-<div class="row"><span class="lbl">Bus busy / kontention</span><span class="val val-err" id="bhBusBusy">-</span></div>
-<div class="row"><span class="lbl">Bus-belastning (estimeret)</span><span class="val val-n" id="bhBusyRatio">-</span></div>
+<div class="row"><span class="lbl">CRC fejl (slave / master)</span><span class="val val-err" id="uxCrc">-</span></div>
+<div class="row"><span class="lbl">Timeouts (master)</span><span class="val val-err" id="uxTimeout">-</span></div>
+<div class="row"><span class="lbl">Exceptions (slave / master)</span><span class="val val-warn" id="uxExc">-</span></div>
+<div class="row"><span class="lbl">Kollision / bus optaget</span><span class="val val-err" id="bhBusBusy">-</span></div>
+<p style="font-size:9px;color:#6c7086;margin-top:6px">Belastningen er målt: firmwaren tæller de bytes, slave og master faktisk sender og modtager, og omregner med portens rigtige tegnlængde (start + 8 data + paritet + stop) og baudrate. "Inkl. t3.5-pauser" lægger den lovpligtige 3,5-tegns stilhed efter hver frame til. "Kollision / bus optaget" tæller de gange masteren ikke fik den delte transceiver inden for 2 s.</p>
 </div>
 
 <div class="card" data-card-id="httpapi">
@@ -187,25 +211,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 <div class="row"><span class="lbl">Lokal tid</span><span class="val val-n" id="ntpTime" style="font-size:14px;color:#89b4fa">-</span></div>
 <div class="row"><span class="lbl">Antal syncs</span><span class="val val-n" id="ntpSyncs">-</span></div>
 <div class="row"><span class="lbl">Sidste sync</span><span class="val val-n" id="ntpAge">-</span></div>
-</div>
-
-<div class="card" data-card-id="rtutrafik">
-<h2>Modbus RTU Trafik</h2>
-<div class="subhdr">Slave (indgående forespørgsler)</div>
-<div class="row"><span class="lbl">Rate</span><span class="val val-n" id="rtSlaveRate">-</span></div>
-<div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="rtSlaveSucc">-</span></div>
-<div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="rtSlaveCrc">-</span></div>
-<div class="row"><span class="lbl">Exceptions</span><span class="val val-warn" id="rtSlaveExc">-</span></div>
-<div class="spark-row"><span class="sl">Rate</span><svg id="sparkRtSlave" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
-<div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="rtSlaveMinMax" style="font-size:10px;color:#6c7086">-</span></div>
-<div class="subhdr sep">Master (udgående forespørgsler)</div>
-<div class="row"><span class="lbl">Rate</span><span class="val val-n" id="rtMasterRate">-</span></div>
-<div class="row"><span class="lbl">Success rate</span><span class="val val-n" id="rtMasterSucc">-</span></div>
-<div class="row"><span class="lbl">CRC fejl</span><span class="val val-err" id="rtMasterCrc">-</span></div>
-<div class="row"><span class="lbl">Timeouts</span><span class="val val-err" id="rtTimeout">-</span></div>
-<div class="row"><span class="lbl">Exceptions</span><span class="val val-warn" id="rtMasterExc">-</span></div>
-<div class="spark-row"><span class="sl">Rate</span><svg id="sparkRtMaster" width="200" height="24" viewBox="0 0 200 24" preserveAspectRatio="none"></svg></div>
-<div class="row"><span class="lbl" style="font-size:10px;color:#6c7086">Min/max</span><span class="val val-n" id="rtMasterMinMax" style="font-size:10px;color:#6c7086">-</span></div>
 </div>
 
 <div class="card card-wide" data-card-id="mbactivity">
@@ -280,7 +285,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#1e1e2e;color:#cdd6f
 // INGEN write-kontroller er portet med (alt der ville POST/DELETE er
 // bevidst udeladt, da denne side ikke har noget login-flow overhovedet).
 const HIST_MAX=120;
-let history={heap:[],mbSlave:[],mbMaster:[],rtSlave:[],rtMaster:[],fragPct:[],rssi:[],analog:{}};
+let _rs485Prev=null;  // FEAT-454
+let history={heap:[],mbSlave:[],mbMaster:[],rs485:[],fragPct:[],rssi:[],analog:{}};
 let prevMbSlave=null,prevMbMaster=null;
 let prevSlaveTotal=null,prevMasterTotal=null;
 let _lastPollTs=null;
@@ -505,9 +511,9 @@ function updateDashboard(m){
   $('msExc').textContent=fmtN(g(m,'modbus_slave_exceptions_total'));
   $('msRate').textContent=rate(msO,msT);
   const msEn=g(m,'modbus_slave_config_enabled');
-  badge($('badgeSlave'),msEn===1&&msT>0,msEn===1?(msT>0?'Aktiv':'Idle'):'Deaktiveret');
+  badge($('badgeSlave'),msEn===1&&msT>0,'Slave '+(msEn===1?(msT>0?'aktiv':'idle'):'fra'));
   {const baud=g(m,'modbus_slave_config_baudrate');const par=g(m,'modbus_slave_config_parity');const sb=g(m,'modbus_slave_config_stopbits');const sid=g(m,'modbus_slave_config_id');
-  if(baud!=null){const pStr=par===1?'Even':par===2?'Odd':'None';const bK=baud>=1000?(baud/1000)+'K':baud;$('msConfigInfo').textContent=msEn===1?'ID:'+sid+' Baud:'+bK+' Data:8 Parity:'+pStr+' Stop:'+sb:'deaktiveret';}}
+  if(baud!=null){const pStr=par===1?'Even':par===2?'Odd':'None';const bK=baud>=1000?(baud/1000)+'K':baud;$('msConfigInfo').textContent=msEn===1?String(sid):'deaktiveret';}}
   if(msT!=null){
     const delta=prevMbSlave!=null?msT-prevMbSlave:0;
     prevMbSlave=msT;
@@ -528,12 +534,11 @@ function updateDashboard(m){
   $('mmOk').textContent=fmtN(mmO);
   $('mmTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
   $('mmCrc').textContent=fmtN(g(m,'modbus_master_crc_errors_total'));
-  $('mmBusBusy').textContent=fmtN(g(m,'modbus_master_bus_busy_errors_total'));
+  $('mmExc').textContent=fmtN(g(m,'modbus_master_exception_errors_total'));
   $('mmRate').textContent=rate(mmO,mmT);
   const mmEn=g(m,'modbus_master_config_enabled');
-  badge($('badgeMaster'),mmEn===1&&mmT>0,mmEn===1?(mmT>0?'Aktiv':'Idle'):'Deaktiveret');
-  {const baud=g(m,'modbus_master_config_baudrate');const par=g(m,'modbus_master_config_parity');const sb=g(m,'modbus_master_config_stopbits');
-  if(baud!=null){const pStr=par===1?'Even':par===2?'Odd':'None';const bK=baud>=1000?(baud/1000)+'K':baud;$('mmConfigInfo').textContent=mmEn===1?'Baud:'+bK+' Data:8 Parity:'+pStr+' Stop:'+sb:'deaktiveret';}}
+  badge($('badgeMaster'),mmEn===1&&mmT>0,'Master '+(mmEn===1?(mmT>0?'aktiv':'idle'):'fra'));
+  // FEAT-454: seriel opsaetning vises i RS-485 / UART-kortet
   if(mmT!=null){
     const delta=prevMbMaster!=null?mmT-prevMbMaster:0;
     prevMbMaster=mmT;
@@ -545,23 +550,65 @@ function updateDashboard(m){
     $('mmRateMinMax').textContent=histMinMax(history.mbMaster);
   }
 
-  // RS-485 Bus Health
+  // FEAT-450: RS-485 / UART — opsætning, MÅLT belastning og bus-fejl.
+  // Belastning = (Δbytes × bit pr. tegn ÷ baudrate) ÷ Δtid, pr. rolle; RS-485
+  // er half-duplex, så TX + RX optager den samme leder.
   {
     const msErr=(g(m,'modbus_slave_crc_errors_total')||0)+(g(m,'modbus_slave_exceptions_total')||0);
     const mmErr=(g(m,'modbus_master_timeout_errors_total')||0)+(g(m,'modbus_master_crc_errors_total')||0)+(g(m,'modbus_master_exception_errors_total')||0);
     const combTotal=(msT||0)+(mmT||0);
     const combErr=msErr+mmErr;
-    $('bhErrorRate').textContent=combTotal>0?((combErr/combTotal)*100).toFixed(2)+'% ('+combErr+'/'+combTotal+')':'-';
+    const errPct=combTotal>0?combErr/combTotal*100:0;
+    $('bhErrorRate').textContent=combTotal>0?errPct.toFixed(2)+'% ('+combErr+'/'+combTotal+')':'-';
     $('bhBusBusy').textContent=fmtN(g(m,'modbus_master_bus_busy_errors_total'));
-    const msRateNow=history.mbSlave.length?history.mbSlave[history.mbSlave.length-1]:0;
-    const mmRateNow=history.mbMaster.length?history.mbMaster[history.mbMaster.length-1]:0;
-    const msBaud=g(m,'modbus_slave_config_baudrate')||9600;
-    const mmBaud=g(m,'modbus_master_config_baudrate')||9600;
-    const AVG_FRAME_BYTES=30, BITS_PER_BYTE=11;
-    const msBusy=msRateNow*AVG_FRAME_BYTES*BITS_PER_BYTE/msBaud;
-    const mmBusy=mmRateNow*AVG_FRAME_BYTES*BITS_PER_BYTE/mmBaud;
-    const busyPct=Math.min(100,(msBusy+mmBusy)*100);
-    $('bhBusyRatio').textContent=(msRateNow>0||mmRateNow>0)?busyPct.toFixed(1)+'%':'-';
+    $('uxCrc').textContent=fmtN(g(m,'modbus_slave_crc_errors_total'))+' / '+fmtN(g(m,'modbus_master_crc_errors_total'));
+    $('uxTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
+    $('uxExc').textContent=fmtN(g(m,'modbus_slave_exceptions_total'))+' / '+fmtN(g(m,'modbus_master_exception_errors_total'));
+    const info=(m['rs485_info']||[])[0];
+    if(info){
+      const L=info.labels;
+      $('uxXcvr').textContent=(L.shared==='1'?'Delt (én transceiver)':'Separate')+' · mode '+L.mode;
+      $('uxPins').textContent='TX '+L.tx_pin+' · RX '+L.rx_pin+' · DE '+L.de_pin;
+    }
+    const port=(role)=>{
+      const pre=role==='slave'?'modbus_slave_config_':'modbus_master_config_';
+      const en=g(m,pre+'enabled'),baud=g(m,pre+'baudrate')||0,par=g(m,pre+'parity')||0,sb=g(m,pre+'stopbits')||1;
+      return {en:en===1,baud,bits:1+8+(par?1:0)+sb,label:baud+' '+'8'+(par===1?'E':par===2?'O':'N')+sb};
+    };
+    const ports={slave:port('slave'),master:port('master')};
+    $('uxSlaveCfg').textContent=ports.slave.en?ports.slave.label+' baud':'deaktiveret';
+    $('uxMasterCfg').textContent=ports.master.en?ports.master.label+' baud':'deaktiveret';
+    const cur={};
+    ['slave','master'].forEach(r=>{
+      cur[r]={tx:g(m,'rs485_tx_bytes_total',{role:r}),rx:g(m,'rs485_rx_bytes_total',{role:r}),
+              tf:g(m,'rs485_tx_frames_total',{role:r}),rf:g(m,'rs485_rx_frames_total',{role:r})};
+    });
+    const d32=(a,b)=>(a==null||b==null)?0:(a>=b?a-b:a+4294967296-b);  // uint32-wrap
+    if(cur.master.tx!=null){
+      if(_rs485Prev&&_dtSec){
+        let txS=0,rxS=0,gapS=0,txB=0,rxB=0;
+        ['slave','master'].forEach(r=>{
+          const p=ports[r];if(!p.baud)return;
+          const dTx=d32(cur[r].tx,_rs485Prev[r].tx),dRx=d32(cur[r].rx,_rs485Prev[r].rx);
+          const dFr=d32(cur[r].tf,_rs485Prev[r].tf)+d32(cur[r].rf,_rs485Prev[r].rf);
+          txB+=dTx;rxB+=dRx;
+          txS+=dTx*p.bits/p.baud;rxS+=dRx*p.bits/p.baud;
+          gapS+=dFr*3.5*p.bits/p.baud;
+        });
+        const txPct=Math.min(100,txS/_dtSec*100),rxPct=Math.min(100,rxS/_dtSec*100);
+        const busPct=Math.min(100,txPct+rxPct),gapPct=Math.min(100,busPct+gapS/_dtSec*100);
+        $('uxBusPct').textContent=busPct.toFixed(1)+' %';
+        $('uxBusGapPct').textContent=gapPct.toFixed(1)+' %';
+        $('uxTx').textContent=txPct.toFixed(1)+' % · '+Math.round(txB/_dtSec)+' B/s';
+        $('uxRx').textContent=rxPct.toFixed(1)+' % · '+Math.round(rxB/_dtSec)+' B/s';
+        history.rs485.push(busPct);if(history.rs485.length>HIST_MAX)history.rs485.shift();
+        drawSparkline('sparkRs485',history.rs485,'#f9e2af');
+        $('uxBusMinMax').textContent=history.rs485.length?'min '+Math.min(...history.rs485).toFixed(1)+' % / max '+Math.max(...history.rs485).toFixed(1)+' %':'-';
+        const ok=gapPct<70&&errPct<5;
+        badge($('badgeRs485'),ok,gapPct.toFixed(0)+' %'+(ok?'':(errPct>=5?' · fejl':' · høj')));
+      }
+      _rs485Prev=cur;
+    }
   }
 
   // HTTP API
@@ -659,34 +706,6 @@ function updateDashboard(m){
       $('ntpTime').textContent=ntpOn?'Venter på sync...':'Deaktiveret';
       $('ntpAge').textContent='-';
     }
-  }
-
-  // RTU Trafik
-  {
-    const sT=g(m,'modbus_slave_requests_total')||0;
-    const mT=g(m,'modbus_master_requests_total')||0;
-    const sDelta=prevSlaveTotal!=null?sT-prevSlaveTotal:0;
-    const mDelta=prevMasterTotal!=null?mT-prevMasterTotal:0;
-    prevSlaveTotal=sT;prevMasterTotal=mT;
-    const sRate=(_dtSec!=null)?sDelta/_dtSec:0;
-    const mRate=(_dtSec!=null)?mDelta/_dtSec:0;
-    history.rtSlave.push(sRate);if(history.rtSlave.length>HIST_MAX)history.rtSlave.shift();
-    history.rtMaster.push(mRate);if(history.rtMaster.length>HIST_MAX)history.rtMaster.shift();
-    $('rtSlaveRate').textContent=fmtRate(sRate);
-    $('rtMasterRate').textContent=fmtRate(mRate);
-    $('rtSlaveMinMax').textContent=histMinMax(history.rtSlave);
-    $('rtMasterMinMax').textContent=histMinMax(history.rtMaster);
-    const sO=g(m,'modbus_slave_success_total')||0;
-    const mO=g(m,'modbus_master_success_total')||0;
-    $('rtSlaveSucc').textContent=rate(sO,sT);
-    $('rtMasterSucc').textContent=rate(mO,mT);
-    $('rtSlaveCrc').textContent=fmtN(g(m,'modbus_slave_crc_errors_total')||0);
-    $('rtMasterCrc').textContent=fmtN(g(m,'modbus_master_crc_errors_total')||0);
-    $('rtTimeout').textContent=fmtN(g(m,'modbus_master_timeout_errors_total'));
-    $('rtSlaveExc').textContent=fmtN(g(m,'modbus_slave_exceptions_total')||0);
-    $('rtMasterExc').textContent=fmtN(g(m,'modbus_master_exception_errors_total')||0);
-    drawSparkline('sparkRtSlave',history.rtSlave,'#89b4fa');
-    drawSparkline('sparkRtMaster',history.rtMaster,'#cba6f7');
   }
 
   // Modbus Master Cache
@@ -836,7 +855,8 @@ function updateDashboard(m){
     if(aiv.length===0&&aii.length===0&&aoset.length===0)$('cardAnalogIo').style.display='none';
   }
 
-  checkAlarms(m);
+  // FEAT-454: intet ALARM-banner paa den login-frie side (viste fx 'HTTP auth
+  // failures' og en Afstem-knap, som enhver kunne trykke paa)
   $('footRefresh').textContent='Opdateret: '+new Date().toLocaleTimeString('da-DK');
   const up=g(m,'esp32_uptime_seconds');
   if(up!=null)$('hdrInfo').textContent='Uptime: '+fmtUp(up);
@@ -858,8 +878,13 @@ async function fetchMetrics(){
 // hentes ÉN gang ved indlæsning (listen ændres ikke mens siden er åben).
 function applyPublicCardVisibility(){
   fetch('/api/public-dashboard/cards',{}).then(r=>r.json()).then(d=>{
-    const visible=(d.visible||'').split(',').map(s=>s.trim()).filter(Boolean);
+    // FEAT-454: gemte valg fra foer sammenlaegningen peger paa de nye kort
+    const alias={modbusslave:'modbus',modbusmaster:'modbus',rtutrafik:'modbus',bushealth:'rs485'};
+    const visible=[];
+    (d.visible||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(id=>{id=alias[id]||id;if(!visible.includes(id))visible.push(id);});
     const grid=document.getElementById('grid');
+    const em=document.getElementById('pubEmpty');
+    if(em)em.style.display=visible.length?'none':'';
     document.querySelectorAll('#grid .card[data-card-id]').forEach(c=>{
       c.style.display=visible.includes(c.dataset.cardId)?'':'none';
     });
