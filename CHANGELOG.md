@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.89] - 2026-10-05
+
+### BUG FIXES
+- **BUG-466:** Analog I/O-kortet blev vist på alle faner i Monitor (Register Map, Trend, Indstillinger og Statusside) og hang under gitteret. Gitteret og Metrics-siden blev lukket *før* kortet i HTML'en, så kortet lå uden for begge. Nu ligger det i gitteret som de andre kort.
+- **BUG-467:** Dashboardet var langsomt til at opdatere. Med SSE forbundet blev metrics kun hentet hvert 5. sekund, og SSE dækker kun registre, tællere, timere og eksterne registre. System, Modbus, RS-485, ST Logic, Watchdog m.fl. opdateres nu hvert 2. sekund, uanset SSE. PLC'en svarer på ca. 0,1 s.
+
 ## [7.9.68.88] - 2026-10-05
 
 ### BUG FIXES

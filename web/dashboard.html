@@ -422,9 +422,6 @@
 </div>
 </div>
 
-</div>
-</div>
-
 <!-- FEAT-034/035/036/037: Analog I/O -->
 <div class="card" data-card-id="analogio" data-tab="app" id="cardAnalogIo">
 <h2>Analog I/O</h2>
@@ -442,6 +439,9 @@
 </div>
 <div style="font-size:9px;color:#6c7086;margin-top:6px">Kalibrering (scale/offset), mode (spænding/strøm) og aktivering: system-siden → Analog I/O</div>
 </div>
+
+</div><!-- /grid (BUG-466: Analog I/O laa tidligere UDEN for gitteret) -->
+</div><!-- /pageMetrics -->
 
 <!-- Register Viewer Page -->
 <!-- Register Map Page -->
@@ -636,6 +636,7 @@ let _dragOrResizeActive=false;
 let _dashFetchActive=0;
 const _dashFetchQueue=[];
 const DASH_FETCH_MAX_CONCURRENT=2;
+const METRICS_POLL_MS=2000;  // BUG-467: metrics-opdatering (med og uden SSE)
 
 
 
@@ -3309,8 +3310,10 @@ function sseConnect(){
         console.log('[SSE] connected');
         sseLastEventMs=Date.now();
         sseSetIndicator(true);
-        // Slow polling since SSE handles instant updates
-        if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,5000);}
+        // BUG-467: SSE daekker kun registre/taellere/timere/ext — System, Modbus,
+        // RS-485, ST, Watchdog m.fl. kommer fra metrics. Tidligere 5 s med SSE
+        // (oplevet som langsomt); nu fast METRICS_POLL_MS (svar ~0,1 s paa PLC'en).
+        if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,METRICS_POLL_MS);}
       });
       sseConn.addEventListener('register',e=>{
         try{sseApplyRegisterEvent(JSON.parse(e.data));}catch(err){}
@@ -3330,7 +3333,7 @@ function sseConnect(){
         sseSetIndicator(false);
         if(sseConn){sseConn.close();sseConn=null;}
         // Restore fast polling as fallback
-        if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,3000);}
+        if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,METRICS_POLL_MS);}
         sseRetry(5000);
       };
     }).catch(e=>{console.log('[SSE] status check failed, retry om 5 s:',e);sseRetry(5000);});
@@ -3343,7 +3346,7 @@ setInterval(()=>{
     console.log('[SSE] ingen heartbeat — genforbinder');
     try{sseConn.close();}catch(e){}
     sseConn=null;sseSetIndicator(false);
-    if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,3000);}
+    if(refreshTimer){clearInterval(refreshTimer);refreshTimer=setInterval(fetchMetrics,METRICS_POLL_MS);}
     sseRetry(1000);
   }
 },10000);
@@ -3384,7 +3387,7 @@ function init(){
   setTimeout(loadTrendConfig, 960);
   setTimeout(fetchExpansionList, 1080);
   setTimeout(fetchWatchdog, 1200);  // FEAT-427
-  refreshTimer=setInterval(fetchMetrics,3000);
+  refreshTimer=setInterval(fetchMetrics,METRICS_POLL_MS);
   setInterval(fetchBindings,15000);
   setInterval(fetchWatchdog,5000);  // FEAT-427
   setInterval(loadTrendConfig,5000);
