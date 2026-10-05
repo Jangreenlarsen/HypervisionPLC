@@ -51,7 +51,9 @@
 // ikke gættes på fremtidige typers detaljer på forhånd.
 typedef struct { const char *value; const char *label; } ExpansionBoardTypeInfo;
 static const ExpansionBoardTypeInfo EXPANSION_BOARD_KNOWN_TYPES[] = {
-  { EXPANSION_BOARD_TYPE_MODBUS_2CH, "Modbus Expansion (2x RS485/RS232-kanaler)" },
+  // FEAT-466: værdien "modbus_2ch" bevares (gemt i NVS/backups); det faktiske kanaltal
+  // (2, eller 4 med CJMCU-752) aflæses fra boardet selv (active_channels/board_type).
+  { EXPANSION_BOARD_TYPE_MODBUS_2CH, "Modbus Expansion (RS485/RS232, 2 eller 4 kanaler)" },
 };
 #define EXPANSION_BOARD_KNOWN_TYPES_COUNT (sizeof(EXPANSION_BOARD_KNOWN_TYPES) / sizeof(EXPANSION_BOARD_KNOWN_TYPES[0]))
 
@@ -343,6 +345,11 @@ int expansion_api_board_health_http(uint8_t index) {
  * JSON-allokering i den interne heap. */
 #define EXP_CHANFETCH_PERIOD_MS 300000UL
 static uint32_t g_exp_chanfetch_ms[EXPANSION_BOARD_MAX];
+static uint8_t g_exp_active_ch[EXPANSION_BOARD_MAX];     // FEAT-466: 0 = ukendt
+static char g_exp_hw_type[EXPANSION_BOARD_MAX][12];      // FEAT-466: fx "4xRS485"
+
+uint8_t expansion_board_active_channels(uint8_t i) { return i < EXPANSION_BOARD_MAX ? g_exp_active_ch[i] : 0; }
+const char *expansion_board_hw_type(uint8_t i) { return i < EXPANSION_BOARD_MAX ? g_exp_hw_type[i] : ""; }
 
 static void expansion_parse_channel_timeouts(uint8_t board_index, const char *body) {
   const char *p = body;
@@ -507,6 +514,20 @@ static void expansion_health_tick(void) {
     if (!got && code == 404) got = expansion_http_get(i, "/api/channels", &body, &code);  // ældre board-fw
     if (got) {
       expansion_parse_channel_timeouts(i, body);
+      // FEAT-466: boardets faktiske kanaltal og hardware-type (fx "4xRS485")
+      char *sb = NULL;
+      int sc = -1;
+      if (expansion_http_get(i, "/api/status", &sb, &sc)) {
+        const char *p = strstr(sb, "\"active_channels\":");
+        if (p) g_exp_active_ch[i] = (uint8_t)atoi(p + 18);
+        p = strstr(sb, "\"board_type\":\"");
+        if (p) {
+          p += 14;
+          size_t n = 0;
+          while (p[n] && p[n] != '"' && n < sizeof(g_exp_hw_type[i]) - 1) { g_exp_hw_type[i][n] = p[n]; n++; }
+          g_exp_hw_type[i][n] = 0;
+        }
+      }
       g_exp_health_http[i] = 200;
       g_exp_health_ok_ms[i] = now ? now : 1;
     } else {

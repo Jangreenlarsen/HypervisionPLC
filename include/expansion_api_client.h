@@ -144,7 +144,10 @@ bool expansion_api_start_set_hostname(uint8_t board_index);
 /* FEAT-462: seneste kendte board-opsætning (GET /api/config) — NULL hvis ingen */
 const char *expansion_board_config_snapshot(uint8_t board_index);
 void expansion_board_config_snapshot_set(uint8_t board_index, const char *json);
-bool expansion_api_start_restore(uint8_t board_index);      // "Genskab board" (kanaler, PLC-IP, syslog, hostname)
+bool expansion_api_start_restore(uint8_t board_index);
+/* FEAT-466: boardets faktiske kanaltal (0 = ukendt) og hardware-type ("4xRS485") */
+uint8_t expansion_board_active_channels(uint8_t board_index);
+const char *expansion_board_hw_type(uint8_t board_index);      // "Genskab board" (kanaler, PLC-IP, syslog, hostname)
 /* FEAT-465: PLC'ens egen IP (Ethernet, ellers WiFi) og sæt den som boardets plc_ip */
 bool expansion_plc_own_ip(char *out16);
 bool expansion_api_start_set_plc_ip(uint8_t board_index);

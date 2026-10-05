@@ -144,7 +144,7 @@
      løbende konfiguration/diagnose sker herfra, "single pane of glass". -->
 <div class="card" style="grid-column:1/-1">
 <h2>Modbus Expansion Boards</h2>
-<p>Eksterne HypervisionPLC Extension Boards (separate ESP32-boards med egne RS485/RS232-kanaler, kanal A+B pr. board). PLC'en taler til hvert board over dets eget REST management-API (Bearer-token) — boardet konfigureres UDELUKKENDE herfra, aldrig via sin egen serielle CLI (den er kun til første netværksopsætning).</p>
+<p>Eksterne HypervisionPLC Extension Boards (separate ESP32-boards med egne RS485/RS232-kanaler, kanal A-B, eller A-D med et CJMCU-752-modul — kanaltallet aflæses fra boardet). PLC'en taler til hvert board over dets eget REST management-API (Bearer-token) — boardet konfigureres UDELUKKENDE herfra, aldrig via sin egen serielle CLI (den er kun til første netværksopsætning).</p>
 <table class="tbl" id="expBoardsTable">
 <thead><tr><th>Nr</th><th>Navn</th><th>Type</th><th>IP</th><th>Token</th><th>Status</th><th>Firmware</th><th></th></tr></thead>
 <tbody id="expBoardsBody"><tr><td colspan="8" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
@@ -809,12 +809,12 @@ function loadExpBoards(){
       return;
     }
     testSel.innerHTML=d.boards.map(b=>'<option value="'+b.id+'">#'+b.number+' — '+escHtml(b.name)+'</option>').join('')+EXP_TEST_INTERNAL_OPT;
-    _expBoards={};_expBoardsFull={};d.boards.forEach(b=>{_expBoards[b.id]={name:b.name,number:b.number};_expBoardsFull[b.id]=b});
+    _expBoards={};_expBoardsFull={};d.boards.forEach(b=>{_expBoards[b.id]={name:b.name,number:b.number,channels:b.channels||2};_expBoardsFull[b.id]=b});
     if(prevSel==='internal'||d.boards.some(b=>String(b.id)===prevSel))testSel.value=prevSel;
     updateExpTestFields();
     tbody.innerHTML=d.boards.map(b=>{
       const nameEsc=b.name.replace(/'/g,"\\'");
-      const typeLabel=_expTypeLabels[b.type]||b.type;
+      const typeLabel=(b.hw_type?b.hw_type+' — '+(b.channels||'?')+' kanaler':(_expTypeLabels[b.type]||b.type));  // FEAT-466: faktisk hardware
       return '<tr><td>'+b.number+'</td><td>'+escHtml(b.name)+'</td><td style="font-size:11px">'+escHtml(typeLabel)+'</td><td>'+escHtml(b.ip)+'</td><td>'+(b.has_token?'<span style="color:#a6e3a1">Sat</span>':'<span style="color:#f38ba8">Mangler</span>')+
         '</td><td style="color:#6c7086"><span id="expStatus'+b.id+'">-</span>'+expWarnHtml(b)+'</td>'+
         '<td id="expFw'+b.id+'" style="font-size:11px">'+expFwCellHtml(b.id)+'</td>'+
@@ -1475,6 +1475,10 @@ function updateExpTestFields(){
   const internal=expTestIsInternal();
   // Intern: ingen kanal, kun FC01-06 og én værdi (endpointet kender ikke antal/FC15/16)
   $('expTestChannelWrap').style.display=internal?'none':'block';
+  // FEAT-466: kanalvalg efter boardets faktiske kanaltal (A-B eller A-D)
+  {const sel=$('expTestChannel'),bid=parseInt($('expTestBoard').value,10);
+   const n=(!internal&&_expBoards[bid]&&_expBoards[bid].channels)||2;
+   if(sel.options.length!==n){const cur=sel.value;sel.innerHTML='';for(let i=1;i<=n;i++){const o=document.createElement('option');o.value=String(i);o.textContent=String.fromCharCode(64+i);sel.appendChild(o)}if(parseInt(cur,10)<=n)sel.value=cur}}
   const fcSel=$('expTestFc');
   for(const o of fcSel.options){const n=parseInt(o.value,10);o.disabled=internal&&(n===15||n===16)}
   if(internal&&(fcSel.value==='15'||fcSel.value==='16'))fcSel.value='3';

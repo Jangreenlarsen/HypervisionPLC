@@ -5909,6 +5909,8 @@ static void expansion_board_to_json(uint8_t index, const ExpansionBoard *b, Json
   jo["health_http"] = expansion_api_board_health_http(index);
   // FEAT-465: forkert token + boardets plc_ip vs. PLC'ens egen IP
   jo["token_invalid"] = (expansion_api_board_health_http(index) == 401);
+  jo["channels"] = expansion_board_active_channels(index);   // FEAT-466: 0 = ukendt endnu
+  jo["hw_type"] = expansion_board_hw_type(index);
   const char *snap = expansion_board_config_snapshot(index);
   if (snap) {
     jo["board_config"] = serialized(snap);  // FEAT-462: seneste kopi (ikke-hemmelig)

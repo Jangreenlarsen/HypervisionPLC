@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.97] - 2026-10-05
+
+### FEATURES
+- **FEAT-466:** PLC'en aflæser hvert expansion boards faktiske kanaltal og hardware-type (`GET /api/status`: `active_channels`, `board_type`, fx `4xRS485` med CJMCU-752). I/O-siden viser dem i typekolonnen, og testpanelets kanalvalg følger boardet (A–B eller A–D). `GET /api/expansion/boards` har de nye felter `channels` og `hw_type`. Typens værdi `modbus_2ch` er bevaret af hensyn til gemt opsætning og backups, men teksten er nu "RS485/RS232, 2 eller 4 kanaler".
+
 ## [7.9.68.96] - 2026-10-05
 
 ### BUG FIXES
