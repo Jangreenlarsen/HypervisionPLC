@@ -2110,8 +2110,7 @@ async function wdtPost(body){
 }
 // FEAT-448: nulpunkt for watchdog-statistikken (fx ved idriftsættelse)
 async function resetWdtStats(){
-  if(!confirm('Nulstil watchdog-statistikken (genstarter, crashes og sidste fejl)?
-Bruges typisk ved idriftsættelse. Timeout og en evt. aktiv safe mode er uændret.'))return;
+  if(!confirm('Nulstil watchdog-statistikken (genstarter, crashes og sidste fejl)?\n\nBruges typisk ved idriftsættelse. Timeout og en evt. aktiv safe mode er uændret.'))return;
   try{await wdtPost({action:'reset_stats'});fetchWatchdog();}
   catch(e){alert('Fejl: '+e.message);}
 }

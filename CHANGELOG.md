@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.81] - 2026-10-05
+
+### BUG FIXES
+- **BUG-461:** Monitor Dashboard var helt i stykker siden v7.9.68.75 (ingen data, badges oven i hinanden): bekræftelsesteksten til "Nulstil statistik" (FEAT-448) indeholdt et rigtigt linjeskift i en JavaScript-streng, hvilket er en syntaksfejl, der stoppede hele sidens script. Rettet, og web-buildet (`scripts/gzip_web_assets.py`) kører nu `node --check` på alle minificerede scripts og fejler buildet ved syntaksfejl.
+
 ## [7.9.68.80] - 2026-10-05
 
 ### FEATURES

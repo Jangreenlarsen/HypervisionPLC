@@ -62,6 +62,39 @@ def minify(raw):
     return "\n".join(out).encode("utf-8")
 
 
+def js_syntax_check(src_rel, minified):
+    """BUG-461: kontroller at de MINIFICEREDE scripts kan parses (node --check).
+    En enkelt syntaksfejl (fx et rigtigt linjeskift i en '...'-streng) stopper
+    hele sidens JavaScript — dashboardet viste da ingen data og ødelagte
+    badges. Fejler buildet i stedet. Springes over (med advarsel) uden node."""
+    import re
+    import shutil
+    import subprocess
+    import tempfile
+    node = shutil.which("node")
+    if not node:
+        print("gzip_web_assets: ADVARSEL node ikke fundet - JS-syntakstjek sprunget over")
+        return
+    text = minified.decode("utf-8")
+    if src_rel.endswith(".js"):
+        scripts = [text]
+    elif src_rel.endswith(".html"):
+        scripts = re.findall(r"<script(?![^>]*src)[^>]*>(.*?)</script>", text, flags=re.S)
+    else:
+        return
+    for i, js in enumerate(scripts):
+        fd, tmp = tempfile.mkstemp(suffix=".js")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(js)
+        try:
+            r = subprocess.run([node, "--check", tmp], capture_output=True, text=True)
+        finally:
+            os.remove(tmp)
+        if r.returncode != 0:
+            msg = "\n".join(r.stderr.splitlines()[:6])
+            raise SystemExit(f"gzip_web_assets: JS-SYNTAKSFEJL i {src_rel} (script {i}):\n{msg}")
+
+
 total_raw = 0
 total_gz = 0
 
@@ -72,6 +105,7 @@ for src_rel, sym, out_rel in PAGES:
 
     with open(src_path, "rb") as f:
         raw = minify(f.read())
+    js_syntax_check(src_rel, raw)
     compressed = gzip.compress(raw, compresslevel=9)
 
     total_raw += len(raw)
