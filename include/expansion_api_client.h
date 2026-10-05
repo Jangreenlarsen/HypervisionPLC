@@ -141,6 +141,15 @@ bool expansion_api_start_reboot(uint8_t board_index);
 /* FEAT-455: sæt boardets DHCP-hostname til dets PLC-navn (POST /api/hostname,
  * board-firmware >= 0.32.0). Kræver genstart af boardet for Ethernet. */
 bool expansion_api_start_set_hostname(uint8_t board_index);
+/* FEAT-462: seneste kendte board-opsætning (GET /api/config) — NULL hvis ingen */
+const char *expansion_board_config_snapshot(uint8_t board_index);
+void expansion_board_config_snapshot_set(uint8_t board_index, const char *json);
+bool expansion_api_start_restore(uint8_t board_index);      // "Genskab board" (kanaler, PLC-IP, syslog, hostname)
+/* FEAT-465: PLC'ens egen IP (Ethernet, ellers WiFi) og sæt den som boardets plc_ip */
+bool expansion_plc_own_ip(char *out16);
+bool expansion_api_start_set_plc_ip(uint8_t board_index);
+/* FEAT-463: {"targets":[...]} videre til boardets POST /api/syslog */
+bool expansion_api_start_syslog(uint8_t board_index, const char *body);
 /* FEAT-455: navn -> gyldigt hostname (bogstaver/tal/'-', maks 32 tegn) */
 void expansion_hostname_from_name(uint8_t board_index, char *out, size_t out_size);
 

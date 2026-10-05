@@ -36,6 +36,8 @@
 #include "network_config.h"
 #include "debug.h"
 #include "modbus_expansion.h"
+#include "ethernet_driver.h"
+#include "network_manager.h"
 
 /* ============================================================================
  * BOARD CRUD
@@ -240,6 +242,7 @@ static bool expansion_api_begin(uint8_t board_index, const char *method, const c
 static int relay_connect(const char *ip);
 static bool relay_send_all(int s, const char *buf, size_t len);
 static int relay_read_response(int s, char *buf, size_t buf_size, char **body, int timeout_s);
+static void expansion_restore_sequence(uint8_t i, char *summary, size_t cap);  // FEAT-462
 
 // Selve netværksarbejdet — returnerer NORMALT (se filens toptekst for hvorfor
 // det er en selvstændig funktion og ikke inline i task-entry'en nedenfor).
@@ -250,6 +253,13 @@ static int relay_read_response(int s, char *buf, size_t buf_size, char **body, i
 static void expansion_api_do_work(void) {
   ExpansionApiResult *res = &g_expansion_api_result;
   int code = -1;
+
+  if (strcmp(g_pending.kind, "restore") == 0) {  // FEAT-462: flere kald i ét
+    expansion_restore_sequence(g_pending.board_index, res->response_json, sizeof(res->response_json));
+    res->http_status = 200;
+    res->transport_ok = true;
+    return;
+  }
 
   int s = relay_connect(g_pending.ip);
   if (s >= 0) {
@@ -348,7 +358,10 @@ static void expansion_parse_channel_timeouts(uint8_t board_index, const char *bo
   }
 }
 
-static bool expansion_http_get(uint8_t i, const char *path, char **body_out, int *code_out) {
+/* Ét HTTP-kald mod boardet fra exp_api-tasken (method/path/valgfri JSON-body).
+ * Svaret ligger i en PSRAM-buffer, der genbruges ved næste kald. */
+static bool exp_http(uint8_t i, const char *method, const char *path, const char *body,
+                     char **body_out, int *code_out) {
   char ip[16];
   char token[EXPANSION_TOKEN_MAX];
   network_config_ip_to_str(g_persist_config.expansion_boards[i].ip, ip);
@@ -357,24 +370,114 @@ static bool expansion_http_get(uint8_t i, const char *path, char **body_out, int
   static char *pbuf = NULL;  // kun exp_api-tasken; i PSRAM (BUG-458)
   if (!pbuf) pbuf = (char *)heap_caps_malloc(EXP_HEALTH_BUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   int code = -1;
-  char *body = NULL;
+  char *resp = NULL;
+  size_t blen = body ? strlen(body) : 0;
   int s = relay_connect(ip);
   if (s >= 0) {
     struct timeval io = { 3, 0 };
     setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &io, sizeof(io));
-    char hdr[256];
+    char hdr[320];
     int hl = snprintf(hdr, sizeof(hdr),
-                      "GET %s HTTP/1.1\r\nHost: %s:8080\r\n"
-                      "Authorization: Bearer %s\r\nConnection: close\r\n\r\n", path, ip, token);
-    if (pbuf && hl > 0 && hl < (int)sizeof(hdr) && relay_send_all(s, hdr, (size_t)hl)) {
-      code = relay_read_response(s, pbuf, EXP_HEALTH_BUF, &body, 3);
+                      "%s %s HTTP/1.1\r\nHost: %s:8080\r\nAuthorization: Bearer %s\r\n"
+                      "%sContent-Length: %u\r\nConnection: close\r\n\r\n",
+                      method, path, ip, token, blen ? "Content-Type: application/json\r\n" : "", (unsigned)blen);
+    if (pbuf && hl > 0 && hl < (int)sizeof(hdr) && relay_send_all(s, hdr, (size_t)hl) &&
+        (blen == 0 || relay_send_all(s, body, blen))) {
+      code = relay_read_response(s, pbuf, EXP_HEALTH_BUF, &resp, 3);
     }
     close(s);
   }
   memset(token, 0, sizeof(token));
   *code_out = code;
-  *body_out = body;
-  return code == 200 && body != NULL;
+  *body_out = resp;
+  return code == 200 && resp != NULL;
+}
+
+static bool expansion_http_get(uint8_t i, const char *path, char **body_out, int *code_out) {
+  return exp_http(i, "GET", path, NULL, body_out, code_out);
+}
+
+/* FEAT-462: seneste kendte opsætning pr. board (GET /api/config, board-fw
+ * >= 0.34.0) — til PLC-backup og "Genskab board". PSRAM, 1,5 KB pr. board.
+ * Opdateres kun fra et board, der ER sat op (har plc_ip), så et nyt, tomt
+ * erstatnings-board ikke overskriver den gode kopi. */
+#define EXP_SNAP_MAX 1536
+static char *g_exp_cfg_snap[EXPANSION_BOARD_MAX];
+
+const char *expansion_board_config_snapshot(uint8_t i) {
+  return (i < EXPANSION_BOARD_MAX && g_exp_cfg_snap[i] && g_exp_cfg_snap[i][0]) ? g_exp_cfg_snap[i] : NULL;
+}
+
+void expansion_board_config_snapshot_set(uint8_t i, const char *json) {
+  if (i >= EXPANSION_BOARD_MAX || !json) return;
+  if (!g_exp_cfg_snap[i]) g_exp_cfg_snap[i] = (char *)heap_caps_calloc(1, EXP_SNAP_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!g_exp_cfg_snap[i]) return;
+  strncpy(g_exp_cfg_snap[i], json, EXP_SNAP_MAX - 1);
+  g_exp_cfg_snap[i][EXP_SNAP_MAX - 1] = 0;
+}
+
+static bool exp_snapshot_is_configured(const char *json) {
+  const char *p = strstr(json, "\"plc_ip\":\"");
+  return p && p[10] != '"';
+}
+
+/* FEAT-465: PLC'ens egen IP — Ethernet hvis forbundet, ellers WiFi. */
+bool expansion_plc_own_ip(char *out16) {
+  uint32_t ip = ethernet_driver_get_local_ip();
+  if (!ip) ip = network_manager_get_local_ip();
+  if (!ip) { out16[0] = 0; return false; }
+  network_config_ip_to_str(ip, out16);
+  return true;
+}
+
+/* FEAT-462: "Genskab board" — skriv kopien tilbage: kanalopsætning (hver
+ * kanal-objekt fra /api/config er allerede i PUT /api/channels/{n}/config-
+ * format), PLC-IP (PLC'ens AKTUELLE IP), syslog-modtagere og hostname.
+ * Kører i exp_api-tasken som ét samlet kald. */
+static void expansion_restore_sequence(uint8_t i, char *summary, size_t cap) {
+  const char *snap = expansion_board_config_snapshot(i);
+  if (!snap) { snprintf(summary, cap, "{\"ok\":false,\"error\":\"no_snapshot\",\"message\":\"PLC'en har ingen kopi af boardets opsaetning\"}"); return; }
+  int ok = 0, fail = 0, code = -1;
+  char *resp = NULL;
+  char path[40];
+  static char *body = NULL;  // PSRAM, kun exp_api-tasken
+  if (!body) body = (char *)heap_caps_malloc(640, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!body) { snprintf(summary, cap, "{\"ok\":false,\"error\":\"no_memory\"}"); return; }
+  // 1) kanaler
+  const char *ch = strstr(snap, "\"channels\":[");
+  while (ch && (ch = strstr(ch, "{\"channel\":")) != NULL) {
+    const char *end = strchr(ch, '}');
+    if (!end) break;
+    size_t len = (size_t)(end - ch + 1);
+    int n = atoi(ch + 11);
+    if (len < 600 && n >= 1 && n <= 8) {
+      memcpy(body, ch, len); body[len] = 0;
+      snprintf(path, sizeof(path), "/api/channels/%d/config", n);
+      if (exp_http(i, "PUT", path, body, &resp, &code)) ok++;
+      else if (code != 404) fail++;   // 404 = kanalen findes ikke på dette board (fx C/D)
+    }
+    ch = end + 1;
+  }
+  // 2) PLC-IP = PLC'ens aktuelle IP
+  char own[16];
+  if (expansion_plc_own_ip(own)) {
+    snprintf(body, 640, "{\"plc_ip\":\"%s\"}", own);
+    if (exp_http(i, "POST", "/api/plc-ip", body, &resp, &code)) ok++; else fail++;
+  }
+  // 3) syslog
+  const char *sl = strstr(snap, "\"syslog\":[");
+  const char *se = sl ? strchr(sl, ']') : NULL;
+  if (sl && se && (size_t)(se - sl) < 600) {
+    snprintf(body, 640, "{\"targets\":%.*s}", (int)(se - (sl + 9) + 1), sl + 9);
+    if (exp_http(i, "POST", "/api/syslog", body, &resp, &code)) ok++; else fail++;
+  }
+  // 4) hostname fra PLC-navnet
+  char host[33];
+  expansion_hostname_from_name(i, host, sizeof(host));
+  snprintf(body, 640, "{\"hostname\":\"%s\"}", host);
+  if (exp_http(i, "POST", "/api/hostname", body, &resp, &code)) ok++; else fail++;
+  snprintf(summary, cap, "{\"ok\":%s,\"applied\":%d,\"failed\":%d,\"plc_ip\":\"%s\",\"hostname\":\"%s\",\"reboot_required\":true}",
+           fail == 0 ? "true" : "false", ok, fail, own, host);
 }
 
 static void expansion_health_probe(uint8_t i) {
@@ -399,7 +502,10 @@ static void expansion_health_tick(void) {
     g_exp_chanfetch_ms[i] = now ? now : 1;
     char *body = NULL;
     int code = -1;
-    if (expansion_http_get(i, "/api/channels", &body, &code)) {
+    bool got = expansion_http_get(i, "/api/config", &body, &code);   // FEAT-462 (board-fw >= 0.34.0)
+    if (got && exp_snapshot_is_configured(body)) expansion_board_config_snapshot_set(i, body);
+    if (!got && code == 404) got = expansion_http_get(i, "/api/channels", &body, &code);  // ældre board-fw
+    if (got) {
       expansion_parse_channel_timeouts(i, body);
       g_exp_health_http[i] = 200;
       g_exp_health_ok_ms[i] = now ? now : 1;
@@ -539,6 +645,28 @@ bool expansion_api_start_set_hostname(uint8_t board_index) {
   char body[64];
   snprintf(body, sizeof(body), "{\"hostname\":\"%s\"}", host);
   if (!expansion_api_begin(board_index, "POST", "/api/hostname", body, "hostname")) return false;
+  return expansion_api_spawn();
+}
+
+/* FEAT-462/463/465 */
+bool expansion_api_start_restore(uint8_t board_index) {
+  if (!expansion_board_config_snapshot(board_index)) return false;
+  if (!expansion_api_begin(board_index, "POST", "/api/(restore)", NULL, "restore")) return false;
+  return expansion_api_spawn();
+}
+
+bool expansion_api_start_set_plc_ip(uint8_t board_index) {
+  char own[16];
+  if (!expansion_plc_own_ip(own)) return false;
+  char body[48];
+  snprintf(body, sizeof(body), "{\"plc_ip\":\"%s\"}", own);
+  if (!expansion_api_begin(board_index, "POST", "/api/plc-ip", body, "plc_ip")) return false;
+  return expansion_api_spawn();
+}
+
+bool expansion_api_start_syslog(uint8_t board_index, const char *body) {
+  if (!body || strlen(body) >= 500) return false;
+  if (!expansion_api_begin(board_index, "POST", "/api/syslog", body, "syslog")) return false;
   return expansion_api_spawn();
 }
 

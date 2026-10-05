@@ -150,6 +150,21 @@
 <tbody id="expBoardsBody"><tr><td colspan="8" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
 </table>
 <div class="alert" id="expBoardsAlert"></div>
+<!-- FEAT-464: firmware-overblik -->
+<div style="display:flex;gap:10px;align-items:center;margin-top:8px"><button class="btn btn-sm btn-primary" onclick="expFwPickAll()">Opdatér alle boards…</button><span id="expFwNote" style="font-size:12px;color:#fab387"></span></div>
+<!-- FEAT-463: syslog-modtager på et board -->
+<div id="expSyslogForm" style="display:none;margin-top:10px;background:#181825;border:1px solid #313244;border-radius:6px;padding:10px">
+<div style="font-weight:600;color:#89b4fa;margin-bottom:6px" id="expSyslogTitle">Syslog-modtager</div>
+<input type="hidden" id="expSyslogBoard">
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px">
+<label>IP <input id="expSyslogIp" placeholder="10.1.1.75" style="width:120px"></label>
+<label>Port <input id="expSyslogPort" type="number" min="1" max="65535" style="width:70px"></label>
+<label>Tag <input id="expSyslogTag" maxlength="24" style="width:120px"></label>
+<label>Level <select id="expSyslogLevel"><option value="1">1 fejl</option><option value="2">2 advarsel</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6 info</option><option value="7">7</option><option value="8">8 debug</option></select></label>
+<button class="btn btn-sm btn-success" onclick="expSyslogSend(false)">Gem på board</button>
+<button class="btn btn-sm btn-danger" onclick="expSyslogSend(true)">Fjern alle modtagere</button>
+<button class="btn btn-sm" onclick="$('expSyslogForm').style.display='none'">Luk</button>
+</div></div>
 <!-- FEAT-420: board-firmwareopdatering — fremdrift for den igangværende opdatering/rollback -->
 <input type="file" id="expFwFile" accept=".bin,application/octet-stream" style="display:none" onchange="expFwFileChosen(this)">
 <div id="expFwPanel" style="display:none;margin-top:12px;background:#181825;border:1px solid #313244;border-radius:6px;padding:10px">
@@ -794,19 +809,22 @@ function loadExpBoards(){
       return;
     }
     testSel.innerHTML=d.boards.map(b=>'<option value="'+b.id+'">#'+b.number+' — '+escHtml(b.name)+'</option>').join('')+EXP_TEST_INTERNAL_OPT;
-    _expBoards={};d.boards.forEach(b=>{_expBoards[b.id]={name:b.name,number:b.number}});
+    _expBoards={};_expBoardsFull={};d.boards.forEach(b=>{_expBoards[b.id]={name:b.name,number:b.number};_expBoardsFull[b.id]=b});
     if(prevSel==='internal'||d.boards.some(b=>String(b.id)===prevSel))testSel.value=prevSel;
     updateExpTestFields();
     tbody.innerHTML=d.boards.map(b=>{
       const nameEsc=b.name.replace(/'/g,"\\'");
       const typeLabel=_expTypeLabels[b.type]||b.type;
       return '<tr><td>'+b.number+'</td><td>'+escHtml(b.name)+'</td><td style="font-size:11px">'+escHtml(typeLabel)+'</td><td>'+escHtml(b.ip)+'</td><td>'+(b.has_token?'<span style="color:#a6e3a1">Sat</span>':'<span style="color:#f38ba8">Mangler</span>')+
-        '</td><td id="expStatus'+b.id+'" style="color:#6c7086">-</td>'+
+        '</td><td style="color:#6c7086"><span id="expStatus'+b.id+'">-</span>'+expWarnHtml(b)+'</td>'+
         '<td id="expFw'+b.id+'" style="font-size:11px">'+expFwCellHtml(b.id)+'</td>'+
         '<td><button class="btn btn-sm btn-primary" onclick="testExpBoardConnection('+b.id+')">Test forbindelse</button> '+
         '<button class="btn btn-sm btn-primary" onclick="showExpChannels('+b.id+',\''+nameEsc+'\')">Kanaler</button> '+
         '<button class="btn btn-sm btn-primary" onclick="expFwPick('+b.id+')">Opdatér firmware…</button> '+
         '<button class="btn btn-sm btn-primary" title="Sæt boardets DHCP-hostname til '+escHtml(b.hostname||'')+' (genstarter boardet)" onclick="expAskHostname('+b.id+',\''+nameEsc+'\','+b.number+')">Hostname</button> '+
+        (b.board_config?'<button class="btn btn-sm btn-primary" title="Skriv PLC'+bs+"'"+'ens kopi af opsætningen tilbage (fx efter udskiftning)" onclick="expRestore('+b.id+')">Genskab</button> ':'')+
+        '<button class="btn btn-sm btn-primary" title="Sæt boardets PLC-IP til PLC'+bs+"'"+'ens aktuelle IP" onclick="expSetPlcIp('+b.id+')">PLC-IP</button> '+
+        '<button class="btn btn-sm btn-primary" onclick="expSyslogForm('+b.id+')">Syslog…</button> '+
         '<button class="btn btn-sm btn-primary" onclick="editExpBoard('+b.id+','+b.number+',\''+nameEsc+'\',\''+b.ip+'\',\''+b.type+'\')">Redigér</button> '+
         '<button class="btn btn-sm btn-danger" onclick="deleteExpBoard('+b.id+',\''+nameEsc+'\')">Slet</button></td></tr>';
     }).join('');
@@ -884,6 +902,72 @@ async function expSetHostname(id,name,host){
     if(!r.transport_ok||r.http_status!==200)throw new Error('hostname sat, men genstart fejlede — genstart boardet manuelt');
     showAlert('expBoardsAlert','ok','Hostname "'+host+'" sat på "'+name+'" — boardet genstarter og er tilbage om ca. 10 s.');
   }catch(e){showAlert('expBoardsAlert','err','Hostname: '+e.message);}
+}
+// FEAT-462/463/465: statusadvarsler + handlinger pr. board
+function expWarnHtml(b){
+  let h='';
+  if(b.token_invalid)h+='<div style="color:#f38ba8;font-size:11px">⚠ Token afvist (401) — opdatér token under Redigér</div>';
+  if(b.board_plc_ip!==undefined&&b.plc_ip_ok===false)
+    h+='<div style="color:#fab387;font-size:11px">⚠ Boardets PLC-IP er '+escHtml(b.board_plc_ip||'(ikke sat)')+' — data afvises. <button class="btn btn-sm btn-primary" onclick="expSetPlcIp('+b.id+')">Ret PLC-IP</button></div>';
+  return h;
+}
+async function expSimpleAction(id,action,okMsg){
+  const name=(_expBoards[id]||{}).name||('#'+id);
+  try{
+    const d=await expCall(id,action);
+    if(!d.transport_ok)throw new Error('boardet svarede ikke');
+    if(d.http_status===404)throw new Error('boardets firmware understøtter det ikke — opdatér til 0.34.0 eller nyere');
+    if(d.http_status!==200||(d.response&&d.response.ok===false))throw new Error((d.response&&(d.response.message||d.response.error))||('HTTP '+d.http_status));
+    showAlert('expBoardsAlert','ok',okMsg(name,d.response||{}));
+    return d.response||{};
+  }catch(e){showAlert('expBoardsAlert','err',name+': '+e.message);return null;}
+}
+function expSetPlcIp(id){
+  askConfirm('Sæt PLC-IP på boardet','Boardet får PLC\'ens aktuelle IP som den eneste adresse, der må hente data (Modbus TCP).',
+    ()=>expSimpleAction(id,'plc-ip',(n,r)=>'PLC-IP '+(r.plc_ip||'')+' sat på "'+n+'".').then(()=>loadExpBoards()));
+}
+function expRestore(id){
+  const name=(_expBoards[id]||{}).name||('#'+id);
+  askConfirm('Genskab board','Skriv PLC\'ens kopi af "'+name+'"s opsætning tilbage til boardet: kanaler, PLC-IP, syslog og hostname. Bruges fx efter udskiftning af et board. ADVARSEL: boardet genstartes bagefter (ca. 5-10 s uden data).',
+    async ()=>{
+      const r=await expSimpleAction(id,'restore',(n,r)=>'"'+n+'" genskabt: '+r.applied+' indstillinger skrevet'+(r.failed?', '+r.failed+' fejlede':'')+'. Genstarter boardet…');
+      if(r)await expCall(id,'reboot').catch(()=>{});
+    });
+}
+function expSyslogForm(id){
+  const b=_expBoardsFull[id]||{};
+  const cur=(b.board_config&&b.board_config.syslog&&b.board_config.syslog[0])||{};
+  $('expSyslogBoard').value=id;
+  $('expSyslogTitle').textContent='Syslog-modtager for "'+(b.name||('#'+id))+'"';
+  $('expSyslogIp').value=cur.ip||'';$('expSyslogPort').value=cur.port||514;
+  $('expSyslogTag').value=cur.tag||(b.hostname||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,24);
+  $('expSyslogLevel').value=cur.level||6;
+  $('expSyslogForm').style.display='block';
+}
+function expSyslogSend(clear){
+  const id=parseInt($('expSyslogBoard').value,10);
+  const ip=$('expSyslogIp').value.trim(),port=parseInt($('expSyslogPort').value,10)||514,tag=$('expSyslogTag').value.trim(),level=parseInt($('expSyslogLevel').value,10);
+  if(!clear&&(!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)||!/^[A-Za-z0-9_-]{1,24}$/.test(tag)||!(level>=1&&level<=8))){
+    showAlert('expBoardsAlert','err','Syslog: angiv IP, tag (bogstaver/tal/_/-) og level 1-8');return;
+  }
+  const body=JSON.stringify({targets:clear?[]:[{ip,port,tag,level}]});
+  showAlert('expBoardsAlert','ok','Sender syslog-opsætning…');
+  expCallRaw(id,'/api/expansion/boards/'+id+'/syslog',{method:'POST',headers:{'Content-Type':'application/json'},body},'syslog')
+    .then(d=>{
+      if(!d.transport_ok||d.http_status!==200)throw new Error(d.http_status===404?'boardets firmware understøtter det ikke — opdatér til 0.34.0 eller nyere':((d.response&&(d.response.message||d.response.error))||('HTTP '+d.http_status)));
+      showAlert('expBoardsAlert','ok',clear?'Syslog-modtagere fjernet.':'Syslog sendes nu til '+ip+':'+port+' (tag '+tag+', level '+level+').');
+      $('expSyslogForm').style.display='none';
+    }).catch(e=>showAlert('expBoardsAlert','err','Syslog: '+e.message));
+}
+// FEAT-464: firmware-overblik — advar når boardene kører forskellige versioner
+function expFwMismatchNote(){
+  const vers=[...new Set(Object.values(_expFw).filter(s=>s&&s.running_version).map(s=>s.running_version))];
+  const el=$('expFwNote');if(!el)return;
+  el.innerHTML=vers.length>1?'⚠ Boardene kører forskellige firmware-versioner: '+vers.map(escHtml).join(', '):'';
+}
+function expFwPickAll(){
+  if(_expFwBusy){showAlert('expBoardsAlert','err','En firmwareopdatering kører allerede');return}
+  const inp=$('expFwFile');inp.value='';inp.dataset.board='all';inp.click();
 }
 function deleteExpBoard(id,name){
   askConfirm('Fjern board','Fjern "'+name+'" fra listen? Selve boardet påvirkes ikke — det kan tilføjes igen senere med samme token.',()=>{
@@ -1030,8 +1114,9 @@ function saveExpChannelConfig(boardId,channel){
 // firmware som ikke bekræftes inden 600 s, eller som crasher, ruller boardet
 // selv tilbage. Browseren taler KUN med PLC'en; PLC'en relay'er til boardet.
 const EXP_FW_MARKER='HVEXT-FWID:hypervisionplc-extension-board:';
-const EXP_KIND={'status':'status','channels':'channels','capabilities':'capabilities','ota-status':'ota_status','ota-confirm':'ota_confirm','reboot':'reboot','hostname':'hostname'};
+const EXP_KIND={'status':'status','channels':'channels','capabilities':'capabilities','ota-status':'ota_status','ota-confirm':'ota_confirm','reboot':'reboot','hostname':'hostname','restore':'restore','plc-ip':'plc_ip','syslog':'syslog'};
 let _expBoards={};       // id → {name, number}
+let _expBoardsFull={};   // FEAT-462: id → hele board-objektet (inkl. board_config)
 let _expFw={};           // id → seneste GET /api/ota/status-svar fra boardet
 let _expFwLoadGen=0;     // afbryder en igangværende baggrunds-indlæsning af firmware-status
 let _expFwBusy=false;    // en opdatering eller rollback kører
@@ -1101,6 +1186,7 @@ async function loadExpFwStatuses(ids){
     if(gen!==_expFwLoadGen||_expFwBusy)return;
     await refreshExpFw(id);
   }
+  expFwMismatchNote();  // FEAT-464
 }
 
 function expFwPanel(title){
@@ -1150,9 +1236,10 @@ const EXP_FW_ERRTEXT={
 };
 
 async function expFwFileChosen(inp){
-  const id=parseInt(inp.dataset.board,10);
+  const all=inp.dataset.board==='all';  // FEAT-464: opdatér alle boards
+  const id=all?-1:parseInt(inp.dataset.board,10);
   const file=inp.files&&inp.files[0];
-  if(!file||isNaN(id))return;
+  if(!file||(!all&&isNaN(id)))return;
   const board=_expBoards[id]||{name:'#'+id};
   const buf=await file.arrayBuffer();
   const u8=new Uint8Array(buf);
@@ -1163,6 +1250,20 @@ async function expFwFileChosen(inp){
   const newVer=(k>=0&&end>k)?txt.substring(k+EXP_FW_MARKER.length,end):'';
   if(!newVer||newVer.length>40||!/^[\w.\-]+$/.test(newVer)){
     showAlert('expBoardsAlert','err','Dette er ikke en Expansion Board-firmware ('+file.name+')');return;
+  }
+  if(all){
+    const ids=Object.keys(_expBoards).map(Number);
+    askConfirm('Opdatér alle boards','Opdatér '+ids.length+' board(s) til '+newVer+' — ét ad gangen. Boards der allerede kører '+newVer+' springes over. Hvert boards Modbus-kanaler er utilgængelige i ca. 15 s under sin genstart.',
+      async ()=>{
+        for(const bid of ids){
+          let c=await refreshExpFw(bid);
+          if(!c||c.unsupported||c.pending_confirm){showAlert('expBoardsAlert','err','"'+((_expBoards[bid]||{}).name||bid)+'" springes over (status ukendt eller afventer bekræftelse)');continue}
+          if(c.running_version===newVer)continue;
+          await expFwRun(bid,buf,newVer,c.running_version||'?');
+        }
+        expFwMismatchNote();
+      });
+    return;
   }
   let cur=_expFw[id];
   if(!cur||cur.unsupported){cur=await refreshExpFw(id)}

@@ -404,6 +404,33 @@ void alarm_check_thresholds() {
         s_board_state[i] = (int8_t)st;
       }
     }
+    // FEAT-465: ugyldigt token (sundhedstjek gav 401) og forkert plc_ip på
+    // boardet (boardet afviser så PLC'ens Modbus TCP) — én alarm pr. tilstand.
+    static bool s_tok_bad[EXPANSION_BOARD_MAX], s_ip_bad[EXPANSION_BOARD_MAX];
+    for (uint8_t i = 0; i < EXPANSION_BOARD_MAX; i++) {
+      const ExpansionBoard *b = &g_persist_config.expansion_boards[i];
+      if (!b->configured) { s_tok_bad[i] = s_ip_bad[i] = false; continue; }
+      bool tok_bad = expansion_api_board_health_http(i) == 401;
+      if (tok_bad && !s_tok_bad[i]) {
+        char buf[ALARM_MSG_MAX];
+        snprintf(buf, sizeof(buf), "Expansion #%u '%s': token afvist (401) - opdatér token", (unsigned)(i + 1), b->name);
+        alarm_log_add(2, buf);
+      }
+      s_tok_bad[i] = tok_bad;
+      bool ip_bad = false;
+      const char *snap = expansion_board_config_snapshot(i);
+      char own[16];
+      if (snap && expansion_plc_own_ip(own)) {
+        const char *q = strstr(snap, "\"plc_ip\":\"");
+        if (q) { q += 10; size_t n = strlen(own); ip_bad = !(strncmp(q, own, n) == 0 && q[n] == '"'); }
+      }
+      if (ip_bad && !s_ip_bad[i]) {
+        char buf[ALARM_MSG_MAX];
+        snprintf(buf, sizeof(buf), "Expansion #%u '%s': boardets PLC-IP er ikke %s - data afvises", (unsigned)(i + 1), b->name, own);
+        alarm_log_add(1, buf);
+      }
+      s_ip_bad[i] = ip_bad;
+    }
     if (s_win_start_ms == 0 || now - s_win_start_ms >= 60000UL) {
       bool first = (s_win_start_ms == 0);
       s_win_start_ms = now ? now : 1;
@@ -5880,6 +5907,18 @@ static void expansion_board_to_json(uint8_t index, const ExpansionBoard *b, Json
   uint32_t hok = expansion_api_board_health_ok_ms(index);
   jo["health_age_ms"] = hok ? (long)(millis() - hok) : -1L;
   jo["health_http"] = expansion_api_board_health_http(index);
+  // FEAT-465: forkert token + boardets plc_ip vs. PLC'ens egen IP
+  jo["token_invalid"] = (expansion_api_board_health_http(index) == 401);
+  const char *snap = expansion_board_config_snapshot(index);
+  if (snap) {
+    jo["board_config"] = serialized(snap);  // FEAT-462: seneste kopi (ikke-hemmelig)
+    char bip[16] = "";
+    const char *p = strstr(snap, "\"plc_ip\":\"");
+    if (p) { p += 10; size_t n = 0; while (p[n] && p[n] != '"' && n < 15) { bip[n] = p[n]; n++; } bip[n] = 0; }
+    char own[16];
+    jo["board_plc_ip"] = bip;
+    jo["plc_ip_ok"] = expansion_plc_own_ip(own) ? (strcmp(own, bip) == 0) : true;
+  }
 }
 
 // GET /api/expansion/boards — liste over konfigurerede boards. Returnerer
@@ -6181,6 +6220,8 @@ static const ExpansionSimpleAction EXPANSION_SIMPLE_ACTIONS[] = {
   { "%d/ota-confirm",  true,  expansion_api_start_ota_confirm },    // FEAT-420
   { "%d/reboot",       true,  expansion_api_start_reboot },         // FEAT-420 (ruller tilbage hvis pending_confirm)
   { "%d/hostname",     true,  expansion_api_start_set_hostname },   // FEAT-455 (boardet skal genstartes bagefter)
+  { "%d/restore",      true,  expansion_api_start_restore },        // FEAT-462 (kræver kopi; genstart bagefter)
+  { "%d/plc-ip",       true,  expansion_api_start_set_plc_ip },     // FEAT-465 (PLC'ens aktuelle IP)
 };
 
 // POST /api/expansion/boards/{id}/status              — start status-kald
@@ -6218,6 +6259,23 @@ esp_err_t api_handler_expansion_board_action_post(httpd_req_t *req)
   if (uri_match_ints(tail, "%d/ota", &idx, NULL)) {
     CHECK_AUTH_WRITE(req);
     return expansion_board_ota_relay(req, idx);
+  }
+
+  // FEAT-463: POST .../{id}/syslog  body {"targets":[{"ip","port","tag","level"}]} -> boardet
+  if (uri_match_ints(tail, "%d/syslog", &idx, NULL)) {
+    CHECK_AUTH_WRITE(req);
+    if (idx < 0 || idx >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[idx].configured) {
+      return api_send_error(req, 404, "Board ikke fundet");
+    }
+    if (expansion_api_is_busy()) return api_send_error(req, 409, "Et andet expansion-board-kald er allerede i gang");
+    char content[500];
+    if (req->content_len == 0 || req->content_len >= sizeof(content)) return api_send_error(req, 400, "Tom eller for stor body");
+    int ret = httpd_req_recv(req, content, req->content_len);
+    if (ret <= 0) return api_send_error(req, 400, "Failed to read request body");
+    content[ret] = '\0';
+    if (!strstr(content, "\"targets\"")) return api_send_error(req, 400, "Forventede {\"targets\":[...]}");
+    if (!expansion_api_start_syslog((uint8_t)idx, content)) return api_send_error(req, 500, "Kunne ikke starte kald");
+    return api_send_json(req, "{\"status\":\"started\"}");
   }
 
   bool is_read = false, is_write = false;
@@ -7386,6 +7444,8 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
       o["ip"] = ip_str;
       o["token"] = b->token;
       o["board_type"] = b->board_type;
+      const char *snap = expansion_board_config_snapshot(i);  // FEAT-462
+      if (snap) o["board_config"] = serialized(snap);
     }
   }
   {
@@ -7637,6 +7697,10 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
       b->ip = parse_ip_field(o["ip"]);
       backup_copy_str(b->token, sizeof(b->token), o["token"] | "");
       backup_copy_str(b->board_type, sizeof(b->board_type), o["board_type"] | "");
+      if (o["board_config"].is<JsonObject>()) {  // FEAT-462: kopi til "Genskab board"
+        static char snapbuf[1536];
+        if (serializeJson(o["board_config"], snapbuf, sizeof(snapbuf)) > 0) expansion_board_config_snapshot_set(n, snapbuf);
+      }
       n++;
     }
     g_persist_config.expansion_board_count = n;

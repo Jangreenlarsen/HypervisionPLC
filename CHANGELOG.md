@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.95] - 2026-10-05
+
+### FEATURES (kræver board-firmware 0.34.0)
+- **FEAT-462:** PLC'en holder en kopi af hvert boards opsætning (`GET /api/config` hvert 5. min, i PSRAM). Kopien kommer med i PLC-backup og restore, og **Genskab board** skriver kanaler, PLC-IP, syslog og hostname tilbage.
+- **FEAT-463:** Boardets syslog-modtager sættes fra I/O-siden (**Syslog…**).
+- **FEAT-464:** **Opdatér alle boards…** (én fil, ét board ad gangen, springer over boards der allerede er opdaterede) og advarsel ved forskellige firmware-versioner.
+- **FEAT-465:** Knappen **PLC-IP** sætter boardets eneste tilladte Modbus TCP-peer til PLC'ens aktuelle IP. Forkert PLC-IP giver en advarsel og ADV-alarm, et afvist token (401) giver en advarsel og KRIT-alarm.
+
 ## [7.9.68.94] - 2026-10-05
 
 ### FEATURES
