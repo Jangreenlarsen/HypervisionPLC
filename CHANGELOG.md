@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.84] - 2026-10-05
+
+### BUG FIXES
+- **BUG-462:** På Logs-, I/O- og OTA-siden stod Save-knappen midt i topmenuen i stedet for ved siden af brugerknappen ("admin"), fordi begge elementer havde `margin-left:auto`. Nu ens med de øvrige sider.
+
 ## [7.9.68.83] - 2026-10-05
 
 ### FEATURES
