@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.88] - 2026-10-05
+
+### BUG FIXES
+- **BUG-465:** På ES32D26 var fabriksværdien for Modbus-UART'en UART2, og den gav ca. 20–24 % timeouts. RS-485 sidder på GPIO1/3, de samme ben som USB/UART0, og UART0 lyttede stadig med på RX-benet. Fejlen kom altid på forespørgslen lige efter et svar. Fabriksværdien er nu UART0, og boot-loggen advarer, hvis en anden UART bruges på GPIO1/3. Målt på hardware: 20–24 % → 0,9 % timeouts.
+
 ## [7.9.68.87] - 2026-10-05
 
 ### BUG FIXES

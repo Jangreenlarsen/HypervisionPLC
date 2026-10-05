@@ -180,8 +180,12 @@ static void config_init_defaults(PersistConfig* cfg) {
 
   // UART selection defaults (board-dependent)
 #if defined(BOARD_ES32D26)
-  cfg->modbus_slave_uart = 2;             // ES32D26: UART2 (Serial2) on GPIO1/3
-  cfg->modbus_master_uart = 2;            // ES32D26: UART2 (shared transceiver)
+  // BUG-465: UART0 — RS485-transceiveren sidder paa GPIO1/3 (samme ben som
+  // USB/UART0). Med UART2 routet ind paa de samme ben lyttede UART0 (konsol-
+  // driveren) STADIG paa RX-benet, og ca. 20-24 % af master-forespoergslerne
+  // (altid den efter et svar) fik timeout. UART0 = én ejer af benene: 0,9 %.
+  cfg->modbus_slave_uart = 0;             // ES32D26: UART0 on GPIO1/3 (deler USB-konsol)
+  cfg->modbus_master_uart = 0;            // ES32D26: UART0 (shared transceiver)
 #else
   cfg->modbus_slave_uart = 1;             // Other boards: UART1 (Serial1) on GPIO4/5
   cfg->modbus_master_uart = 1;            // Other boards: UART1 (Serial1) on GPIO25/26
@@ -530,8 +534,8 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->ao2_mode = AO_MODE_VOLTAGE;        // Default: 0-10V
       // UART selection defaults
 #if defined(BOARD_ES32D26)
-      out->modbus_slave_uart = 2;             // ES32D26: UART2
-      out->modbus_master_uart = 2;            // ES32D26: UART2 (shared)
+      out->modbus_slave_uart = 0;             // ES32D26: UART0 (BUG-465)
+      out->modbus_master_uart = 0;            // ES32D26: UART0 (shared, BUG-465)
 #else
       out->modbus_slave_uart = 1;             // Other: UART1
       out->modbus_master_uart = 1;            // Other: UART1

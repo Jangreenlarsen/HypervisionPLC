@@ -115,6 +115,13 @@ void uart_driver_init(void) {
   debug_print_uint(active_rx_pin);
   debug_println(")");
 
+  // BUG-465: en anden UART end UART0 paa GPIO1/3 deler RX-benet med UART0/
+  // USB-konsollen (begge lytter) — gav ~20 % Modbus-timeouts paa ES32D26.
+  if (modbus_slave_uart_num != 0 && active_rx_pin == 3 && active_tx_pin == 1) {
+    debug_println("ADVARSEL: RS485 paa GPIO1/3 bruger ikke UART0 - giver Modbus-timeouts.");
+    debug_println("  Ret med: set modbus slave uart 0 + set modbus master uart 0 + save + reboot");
+  }
+
   // Determine if safe to init at boot
   bool shares_usb = (active_rx_pin == 3 && active_tx_pin == 1) ||
                     (modbus_slave_uart_num == 0);

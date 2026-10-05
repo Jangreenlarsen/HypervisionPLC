@@ -77,6 +77,21 @@ Den afgørende forskel fra A/B: her hjælper `Reinit` faktisk (nulstiller den fa
 
 **Andre typiske årsager til "værdien opdateres aldrig" i et ST-program:** forkert register (fx kanal 2 i stedet for kanal 1 på et temperaturmodul), `/` brugt til heltalsdivision (giver REAL), eller at samme værdi skrives igen (write-dedup) — se [§8.7 "Faldgruber"](08_ST_Logic_Programmering.md#faldgruber-ved-modbus-fra-st).
 
+### Mange Modbus-timeouts i fast takt — altid forespørgslen efter et svar (BUG-465)
+
+Symptom: 20–25 % timeouts på **alle** slaver, men ikke tilfældigt fordelt — Modbus Aktivitetsloggen (`/logs#modbus`) viser fejl med fast takt (fx hver 4.–5. transaktion), og det er altid forespørgslen **lige efter** et svar, der ikke får svar. Elektrisk ser alt fint ud.
+
+Årsag på ES32D26: RS-485-transceiveren sidder på GPIO1/3 — samme ben som USB/UART0. Står Modbus på `uart2` (fabriksværdien før v7.9.68.88), kobles UART2 ind på benene, men UART0/USB-konsollen lytter stadig med på RX-benet, og timingen omkring "bussen er stille" skrider. Tjek med `show config` / backup-feltet `modbus_slave_uart`, og ret med:
+
+```
+set modbus slave uart 0
+set modbus master uart 0
+save
+reboot
+```
+
+Målt efter rettelsen: 20–24 % → 0,9 %. Fra v7.9.68.88 er `uart0` fabriksværdien på ES32D26, og firmwaren skriver en advarsel i boot-loggen, hvis en anden UART bruges på GPIO1/3.
+
 ## 13.4b "PLC'en er i safe mode"
 
 **Symptom:** ST-programmerne kører ikke, udgangene står fast, alarmloggen viser "SAFE MODE", og `show watchdog` siger `Safe mode: *** AKTIV ***`.

@@ -156,8 +156,8 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | Kommando | Parametre | Beskrivelse |
 |---|---|---|
 | `set modbus mode <slave\|master\|off>` | — | Vælg RS485-transceiver-rolle (ES32D26 har kun én RS485 — enten slave eller master) |
-| `set modbus slave uart <uart0\|uart1\|uart2>` | — | Vælg pin-override-slot for Modbus Slave (navn, ikke separat UART-perifer — ES32D26 har fysisk kun ét UART0-perifer) |
-| `set modbus master uart <uart0\|uart1\|uart2>` | — | Vælg pin-override-slot for Modbus Master (samme bemærkning) |
+| `set modbus slave uart <uart0\|uart1\|uart2>` | ES32D26: `uart0` (BUG-465) | Vælg UART-perifer for Modbus Slave. **ES32D26: brug `uart0`** — RS485 sidder på GPIO1/3 (samme ben som USB/UART0); `uart2` på de ben gav ~20 % timeouts (UART0 lytter stadig med på RX). Kræver `save` + `reboot` |
+| `set modbus master uart <uart0\|uart1\|uart2>` | ES32D26: `uart0` (BUG-465) | Vælg UART-perifer for Modbus Master (samme bemærkning — slave og master skal stå ens på ES32D26) |
 | `set modul rs485 <uart1\|uart2> [tx <pin> rx <pin> dir <pin>]` | — | Sæt pin-override for slot 1/2 (kun navngivning — ikke separate UART-perifer-hardware på alle boards; se `show modules` for hvad der reelt er i brug på jeres board) |
 | `set modul ethernet <enable\|disable>` | — | Aktivér/deaktivér W5500 Ethernet (bruger GPIO 4,5,18,19,25,26 — AO1/AO2 er slået fra mens Ethernet er aktiveret, BUG-423) |
 | `set ao1 mode <voltage\|current>` | kun ES32D26 | Analog output 1: 0–10V eller 4–20mA |
