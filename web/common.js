@@ -122,6 +122,9 @@ function checkAlarms(m){
   if(stOvr!=null&&stOvrPct>5)addAlarm('stOvr',stOvr,'ST Logic overruns: '+fmtN(stOvr)+' ('+stOvrPct.toFixed(1)+'%)',false);
   const authFail=g(m,'http_auth_failures_total');
   if(authFail!=null&&authFail>20)addAlarm('authFail',authFail,'HTTP auth failures: '+fmtN(authFail),false);
+  // FEAT-456: expansion boards der er offline (expansion_board_online == 0)
+  const expOff=gAll(m,'expansion_board_online').filter(e=>e.value===0).map(e=>'#'+e.labels.board);
+  if(expOff.length)addAlarm('expOff',expOff.length,'Expansion board offline: '+expOff.join(', '),false);
 
   const bar=$('alarmBar');
   if(alarms.length){

@@ -378,6 +378,56 @@ void alarm_check_thresholds() {
     }
   }
 
+
+  // FEAT-456: expansion boards — alarm ved offline/online-skift og ved høj
+  // timeout-rate på en kanal (vurderes pr. 60 s-vindue, mindst 10 kald,
+  // > 20 % timeouts, højst én alarm pr. kanal pr. 10 min).
+  {
+    static int8_t s_board_state[EXPANSION_BOARD_MAX] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    static uint32_t s_win_start_ms = 0;
+    static uint32_t s_win_req[EXPANSION_BOARD_MAX][MBX_STAT_CHANNELS];
+    static uint32_t s_win_to[EXPANSION_BOARD_MAX][MBX_STAT_CHANNELS];
+    static uint32_t s_last_alarm_ms[EXPANSION_BOARD_MAX][MBX_STAT_CHANNELS];
+    for (uint8_t i = 0; i < EXPANSION_BOARD_MAX; i++) {
+      const ExpansionBoard *b = &g_persist_config.expansion_boards[i];
+      if (!b->configured) { s_board_state[i] = -1; continue; }
+      int st = expansion_board_online_state(i);
+      if (st >= 0 && st != s_board_state[i]) {
+        char buf[ALARM_MSG_MAX];
+        if (st == 0) {
+          snprintf(buf, sizeof(buf), "Expansion board #%u '%s' offline", (unsigned)(i + 1), b->name);
+          alarm_log_add(2, buf);
+        } else if (s_board_state[i] == 0) {
+          snprintf(buf, sizeof(buf), "Expansion board #%u '%s' online igen", (unsigned)(i + 1), b->name);
+          alarm_log_add(0, buf);
+        }
+        s_board_state[i] = (int8_t)st;
+      }
+    }
+    if (s_win_start_ms == 0 || now - s_win_start_ms >= 60000UL) {
+      bool first = (s_win_start_ms == 0);
+      s_win_start_ms = now ? now : 1;
+      for (uint8_t i = 0; i < EXPANSION_BOARD_MAX; i++) {
+        for (uint8_t c = 0; c < MBX_STAT_CHANNELS; c++) {
+          mbx_chan_stats_t cs;
+          if (!modbus_expansion_get_chan_stats(i + 1, c + 1, &cs)) continue;
+          uint32_t dreq = cs.requests - s_win_req[i][c];
+          uint32_t dto = cs.timeouts - s_win_to[i][c];
+          s_win_req[i][c] = cs.requests;
+          s_win_to[i][c] = cs.timeouts;
+          if (first || dreq < 10 || dto * 5 <= dreq) continue;   // <= 20 %
+          if (s_last_alarm_ms[i][c] && now - s_last_alarm_ms[i][c] < 600000UL) continue;
+          s_last_alarm_ms[i][c] = now ? now : 1;
+          char buf[ALARM_MSG_MAX];
+          snprintf(buf, sizeof(buf), "Expansion #%u kanal %c: %lu%% timeouts (%lu/%lu sidste min)",
+                   (unsigned)(i + 1), (char)('A' + c), (unsigned long)(dto * 100 / dreq),
+                   (unsigned long)dto, (unsigned long)dreq);
+          alarm_log_add(1, buf);
+        }
+      }
+    }
+  }
+
   // ST Logic overruns
   st_logic_engine_state_t *ls = st_logic_get_state();
   if (ls && ls->total_cycles > 100) {
@@ -9612,6 +9662,37 @@ static esp_err_t send_metrics_response(httpd_req_t *req, bool include_registers)
   PROM_APPEND("# HELP modbus_master_bus_busy_errors_total Modbus master UART-mutex ikke opnaaet (bus optaget)\n");
   PROM_APPEND("# TYPE modbus_master_bus_busy_errors_total counter\n");
   PROM_APPEND("modbus_master_bus_busy_errors_total %lu\n", g_modbus_bus_busy_errors);
+
+
+  // --- FEAT-456/457/458: expansion boards pr. board og kanal (PLC'ens syn) ---
+  {
+    PROM_APPEND("# HELP expansion_board_online Expansion board: 1 online, 0 offline, -1 ukendt\n");
+    PROM_APPEND("# TYPE expansion_board_online gauge\n");
+    for (uint8_t i = 0; i < EXPANSION_BOARD_MAX; i++) {
+      if (!g_persist_config.expansion_boards[i].configured) continue;
+      PROM_APPEND("expansion_board_online{board=\"%u\"} %d\n", (unsigned)(i + 1), expansion_board_online_state(i));
+    }
+    PROM_APPEND("# HELP mbx_channel_requests_total MBX-transaktioner pr. board/kanal (PLC-siden)\n");
+    PROM_APPEND("# TYPE mbx_channel_requests_total counter\n");
+    for (uint8_t i = 0; i < EXPANSION_BOARD_MAX; i++) {
+      if (!g_persist_config.expansion_boards[i].configured) continue;
+      for (uint8_t c = 1; c <= MBX_STAT_CHANNELS; c++) {
+        mbx_chan_stats_t cs;
+        if (!modbus_expansion_get_chan_stats(i + 1, c, &cs)) continue;
+        uint32_t last_ok_age = cs.last_ok_ms ? (uint32_t)(millis() - cs.last_ok_ms) : 0;
+        PROM_APPEND("mbx_channel_requests_total{board=\"%u\",channel=\"%u\"} %lu\n", (unsigned)(i + 1), (unsigned)c, (unsigned long)cs.requests);
+        PROM_APPEND("mbx_channel_ok_total{board=\"%u\",channel=\"%u\"} %lu\n", (unsigned)(i + 1), (unsigned)c, (unsigned long)cs.ok);
+        PROM_APPEND("mbx_channel_timeouts_total{board=\"%u\",channel=\"%u\"} %lu\n", (unsigned)(i + 1), (unsigned)c, (unsigned long)cs.timeouts);
+        PROM_APPEND("mbx_channel_exceptions_total{board=\"%u\",channel=\"%u\"} %lu\n", (unsigned)(i + 1), (unsigned)c, (unsigned long)cs.exceptions);
+        PROM_APPEND("mbx_channel_errors_total{board=\"%u\",channel=\"%u\"} %lu\n", (unsigned)(i + 1), (unsigned)c, (unsigned long)cs.errors);
+        PROM_APPEND("mbx_channel_last_ok_age_ms{board=\"%u\",channel=\"%u\"} %lu\n", (unsigned)(i + 1), (unsigned)c, (unsigned long)last_ok_age);
+        PROM_APPEND("mbx_channel_timeout_ms{board=\"%u\",channel=\"%u\"} %lu\n", (unsigned)(i + 1), (unsigned)c,
+                    (unsigned long)modbus_expansion_effective_timeout_ms(i + 1, c));
+        PROM_APPEND("mbx_channel_board_timeout_ms{board=\"%u\",channel=\"%u\"} %u\n", (unsigned)(i + 1), (unsigned)c,
+                    (unsigned)modbus_expansion_get_board_timeout(i + 1, c));
+      }
+    }
+  }
 
   // --- FEAT-450: målt RS-485/UART-trafik pr. rolle (bytes/frames på bussen) ---
   {

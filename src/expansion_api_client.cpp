@@ -312,6 +312,7 @@ static TaskHandle_t g_expansion_worker = NULL;
  * friske data-plan-svar springes over — dér beviser trafikken allerede, at
  * boardet lever. Status + token valideres (kun HTTP 200 tæller som OK). */
 #define EXP_HEALTH_PERIOD_MS     15000UL
+#define EXP_HEALTH_BUF           2048    // FEAT-458: /api/channels med 4 kanaler ~1,5 KB
 #define EXP_HEALTH_DATA_FRESH_MS 60000UL   // samme grænse som dashboardets EXP_DATA_FRESH_MS
 static volatile uint32_t g_exp_health_ok_ms[EXPANSION_BOARD_MAX];
 static volatile int16_t  g_exp_health_http[EXPANSION_BOARD_MAX];  // 0 = ikke tjekket, -1 = netværksfejl
@@ -325,31 +326,61 @@ int expansion_api_board_health_http(uint8_t index) {
   return index < EXPANSION_BOARD_MAX ? g_exp_health_http[index] : 0;
 }
 
-static void expansion_health_probe(uint8_t i) {
+/* FEAT-458: hent boardets kanalliste (GET /api/channels) hvert
+ * EXP_CHANFETCH_PERIOD_MS og husk hver kanals timeout_ms, så PLC'ens
+ * transaktions-timeout følger boardets. Parses med simpel tekstsøgning
+ * (kendt format: [{"channel":1,...,"timeout_ms":500,...},...]) — ingen
+ * JSON-allokering i den interne heap. */
+#define EXP_CHANFETCH_PERIOD_MS 300000UL
+static uint32_t g_exp_chanfetch_ms[EXPANSION_BOARD_MAX];
+
+static void expansion_parse_channel_timeouts(uint8_t board_index, const char *body) {
+  const char *p = body;
+  while ((p = strstr(p, "\"channel\":")) != NULL) {
+    p += 10;
+    int ch = atoi(p);
+    const char *next = strstr(p, "\"channel\":");
+    const char *t = strstr(p, "\"timeout_ms\":");
+    if (t && (!next || t < next) && ch >= 1) {
+      long ms = atol(t + 13);
+      if (ms > 0 && ms < 60000) modbus_expansion_set_board_timeout(board_index + 1, (uint8_t)ch, (uint16_t)ms);
+    }
+  }
+}
+
+static bool expansion_http_get(uint8_t i, const char *path, char **body_out, int *code_out) {
   char ip[16];
   char token[EXPANSION_TOKEN_MAX];
   network_config_ip_to_str(g_persist_config.expansion_boards[i].ip, ip);
   strncpy(token, g_persist_config.expansion_boards[i].token, sizeof(token) - 1);
-  token[sizeof(token) - 1] = '\0';
-
+  token[sizeof(token) - 1] = 0;
+  static char *pbuf = NULL;  // kun exp_api-tasken; i PSRAM (BUG-458)
+  if (!pbuf) pbuf = (char *)heap_caps_malloc(EXP_HEALTH_BUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   int code = -1;
+  char *body = NULL;
   int s = relay_connect(ip);
   if (s >= 0) {
     struct timeval io = { 3, 0 };
     setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &io, sizeof(io));
     char hdr[256];
     int hl = snprintf(hdr, sizeof(hdr),
-                      "GET /api/status HTTP/1.1\r\nHost: %s:8080\r\n"
-                      "Authorization: Bearer %s\r\nConnection: close\r\n\r\n", ip, token);
-    static char *pbuf = NULL;  // kun exp_api-tasken; i PSRAM (BUG-458)
-    if (!pbuf) pbuf = (char *)heap_caps_malloc(1024, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    char *body = NULL;
+                      "GET %s HTTP/1.1\r\nHost: %s:8080\r\n"
+                      "Authorization: Bearer %s\r\nConnection: close\r\n\r\n", path, ip, token);
     if (pbuf && hl > 0 && hl < (int)sizeof(hdr) && relay_send_all(s, hdr, (size_t)hl)) {
-      code = relay_read_response(s, pbuf, 1024, &body, 3);
+      code = relay_read_response(s, pbuf, EXP_HEALTH_BUF, &body, 3);
     }
     close(s);
   }
   memset(token, 0, sizeof(token));
+  *code_out = code;
+  *body_out = body;
+  return code == 200 && body != NULL;
+}
+
+static void expansion_health_probe(uint8_t i) {
+  char *body = NULL;
+  int code = -1;
+  expansion_http_get(i, "/api/status", &body, &code);
   g_exp_health_http[i] = (int16_t)code;
   if (code == 200) {
     uint32_t now = millis();
@@ -358,6 +389,26 @@ static void expansion_health_probe(uint8_t i) {
 }
 
 static void expansion_health_tick(void) {
+  // FEAT-458: først — hvis det er tid — boardets kanalliste (timeouts); gælder
+  // ALLE boards, også dem med frisk data-trafik.
+  uint32_t now = millis();
+  for (uint8_t i = 0; i < EXPANSION_BOARD_MAX; i++) {
+    const ExpansionBoard *b = &g_persist_config.expansion_boards[i];
+    if (!b->configured || b->token[0] == '\0') continue;
+    if (g_exp_chanfetch_ms[i] != 0 && (now - g_exp_chanfetch_ms[i]) < EXP_CHANFETCH_PERIOD_MS) continue;
+    g_exp_chanfetch_ms[i] = now ? now : 1;
+    char *body = NULL;
+    int code = -1;
+    if (expansion_http_get(i, "/api/channels", &body, &code)) {
+      expansion_parse_channel_timeouts(i, body);
+      g_exp_health_http[i] = 200;
+      g_exp_health_ok_ms[i] = now ? now : 1;
+    } else {
+      g_exp_health_http[i] = (int16_t)code;
+      g_exp_chanfetch_ms[i] = (now - (EXP_CHANFETCH_PERIOD_MS - 60000UL)) | 1;  // prøv igen om ~1 min
+    }
+    return;  // højst ét kald pr. tick
+  }
   for (uint8_t n = 0; n < EXPANSION_BOARD_MAX; n++) {
     uint8_t i = (uint8_t)((g_exp_health_next + n) % EXPANSION_BOARD_MAX);
     const ExpansionBoard *b = &g_persist_config.expansion_boards[i];
@@ -368,6 +419,20 @@ static void expansion_health_tick(void) {
     expansion_health_probe(i);
     return;
   }
+}
+
+/* FEAT-456: samlet online-tilstand pr. board — samme regel som statussiden:
+ * frisk Modbus TCP-svar (< 60 s) ELLER frisk sundhedstjek (< 150 s) = online;
+ * har vi set boardet/tjekket det, men intet er friskt = offline; ellers ukendt. */
+int expansion_board_online_state(uint8_t i) {
+  if (i >= EXPANSION_BOARD_MAX || !g_persist_config.expansion_boards[i].configured) return -1;
+  uint32_t now = millis();
+  uint32_t rx = modbus_expansion_board_last_rx_ms(i + 1);
+  uint32_t hok = g_exp_health_ok_ms[i];
+  if (rx && (now - rx) < EXP_HEALTH_DATA_FRESH_MS) return 1;
+  if (hok && (now - hok) < 150000UL) return 1;
+  if (rx || g_exp_health_http[i] != 0) return 0;
+  return -1;
 }
 
 static void expansion_api_worker(void *pv) {

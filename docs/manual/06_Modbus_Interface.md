@@ -118,6 +118,12 @@ Luk ikke siden under selve uploadet (typisk 10-60 s). PLC'ens web-UI er optaget,
 
 Ældre board-firmware uden funktionen giver fejlen "opdatér til 0.32.0 eller nyere".
 
+**Overvågning af boards (FEAT-456/457/458):**
+- **Alarmer:** Et board, der går offline, giver en KRIT-alarm i Alarm Historik (`/logs#alarm`) og vises i ALARM-banneret. Offline betyder intet Modbus TCP-svar i 60 s og intet sundhedstjek i 150 s. Når boardet er tilbage, kommer en INFO-alarm. En kanal med over 20 % timeouts i et minut (mindst 10 kald) giver en ADV-alarm, højst én pr. kanal pr. 10 min.
+- **Kanalstatistik:** Dashboardets "Modbus Expansion Boards"-kort viser en linje pr. kanal under hvert board med kald pr. sekund, OK-procent og antal timeouts. Det er PLC'ens eget syn på den trafik, ST Logic laver.
+- **Timeout:** PLC'en henter hvert 5. minut boardets kanalopsætning og venter boardets kanal-timeout + 300 ms (mindst 800 ms, højst 5 s) på et svar. Så giver PLC'en ikke op, mens boardet stadig venter på slaven.
+- **Metrics:** `expansion_board_online{board}`, `mbx_channel_requests_total`/`_ok_total`/`_timeouts_total`/`_exceptions_total`/`_errors_total`/`_last_ok_age_ms`/`_timeout_ms`/`_board_timeout_ms` `{board,channel}`.
+
 **Kontinuerlig datatrafik i ST Logic (FEAT-410):** den løbende, høj-frekvente Modbus-trafik mod feltbusserne bag et expansion-board går via Modbus TCP direkte til boardet (ikke gennem PLC'ens web-UI), og kan læses/skrives fra ST Logic-programmer med `MBX_*`-funktionsfamilien — samme non-blocking cache/kø-mønster som den lokale RS485-bus' `MB_*`-funktioner (se [Appendiks D.5.9b](D_ST_Logic_Funktionsreference.md#d59b-modbus-expansion-board-mbx_-feat-410)), blot med et ekstra `board`- og `kanal`-argument foran. **v7.9.68.0:** multi-register/coil WRITE tilføjet (`MBX_WRITE_HOLDINGS`/FC16, `MBX_WRITE_COILS`/FC15) — multi-**read** (`MBX_READ_HOLDINGS`) findes stadig ikke. Kø/cache-diagnostik: `show modbus-expansion queue` (se [Appendiks A](A_CLI_Kommando_Reference.md#modbus-expansion-board-feat-409)).
 
 **Dashboard-badge (Monitor):** Dashboardet ([kapitel 4](04_Web_Dashboard_og_Monitor.md)) har et tilsvarende "Modbus Expansion Boards"-kort med et online/offline-badge pr. board (grøn = online + fw-version/kanaltal, rød = offline, grå = endnu ikke tjekket), plus et samlet "N/M online"-badge i kort-overskriften. Boards tjekkes automatisk hvert 30. sekund, så længe dashboardet er åbent i en browser — luk fanen, og pollingen stopper (enheden selv ringer aldrig ud af sig selv uopfordret).

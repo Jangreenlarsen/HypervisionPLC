@@ -604,7 +604,8 @@ function authSet(v){}
 function authClear(){}
 let refreshTimer=null;
 const HIST_MAX=120; // 120 samples, typisk ~3-5s/poll (varierer, se _dtSec) = ca. 6-10 min
-let _rs485Prev=null;  // FEAT-450: forrige rs485_*-taellere (delta -> belastning)
+let _rs485Prev=null;
+let _mbxPrev={};  // FEAT-457: forrige mbx_channel_requests_total pr. board/kanal  // FEAT-450: forrige rs485_*-taellere (delta -> belastning)
 let history={heap:[],mbSlave:[],mbMaster:[],rs485:[],fragPct:[],rssi:[],analog:{}};
 let prevMbSlave=null,prevMbMaster=null;
 let prevSlaveTotal=null,prevMasterTotal=null;
@@ -710,7 +711,7 @@ function fetchExpansionList(){
     _expBoardList=d.boards;
     if(changed){
       refreshTrendSrcOptions();  // FEAT-425: boards som trend-kilder
-      list.innerHTML=d.boards.map(b=>'<div class="row"><span class="lbl">#'+b.number+' '+escHtml(b.name)+'</span><span class="val val-n" id="expDashBoard'+b.id+'">Tjekker...</span></div>').join('');
+      list.innerHTML=d.boards.map(b=>'<div class="row"><span class="lbl">#'+b.number+' '+escHtml(b.name)+'</span><span class="val val-n" id="expDashBoard'+b.id+'">Tjekker...</span></div><div data-exp-ch="'+b.number+'"></div>').join('');  // FEAT-457: kanallinjer
     }
     d.boards.forEach(_expRender);  // data-planen giver status med det samme
     _expCheckSequential(0);
@@ -1088,6 +1089,27 @@ function updateDashboard(m){
     drawSparkline('sparkMbMaster',history.mbMaster,'#89b4fa');
     $('mmRateNow').textContent=fmtRate(r);
     $('mmRateMinMax').textContent=histMinMax(history.mbMaster);
+  }
+
+
+  // FEAT-457: kanalstatistik pr. expansion board (PLC'ens syn på MBX-trafikken)
+  {
+    const by={};
+    for(const e of gAll(m,'mbx_channel_requests_total')){by[e.labels.board+'/'+e.labels.channel]={b:+e.labels.board,c:+e.labels.channel,req:e.value,ok:0,timeouts:0,tmo:0};}
+    const put=(name,field)=>{for(const e of gAll(m,name)){const x=by[e.labels.board+'/'+e.labels.channel];if(x)x[field]=e.value;}};
+    put('mbx_channel_ok_total','ok');put('mbx_channel_timeouts_total','timeouts');put('mbx_channel_timeout_ms','tmo');
+    const html={};
+    for(const k in by){
+      const x=by[k],p=_mbxPrev[k];
+      let rate=null;
+      if(p&&_dtSec)rate=Math.max(0,x.req-p.req)/_dtSec;
+      _mbxPrev[k]={req:x.req};
+      const okPct=x.req>0?x.ok/x.req*100:0;
+      const cls=okPct>=95?'val-ok':okPct>=80?'val-warn':'val-err';
+      (html[x.b]=html[x.b]||[]).push('<div class="row" style="font-size:11px"><span class="lbl" style="padding-left:12px">Kanal '+String.fromCharCode(64+x.c)+'</span><span class="val '+cls+'" title="PLC-timeout '+x.tmo+' ms (følger boardets kanal-timeout)">'
+        +(rate!=null?rate.toFixed(1)+'/s · ':'')+okPct.toFixed(1)+' % OK · '+fmtN(x.timeouts)+' timeouts</span></div>');
+    }
+    document.querySelectorAll('[data-exp-ch]').forEach(el=>{el.innerHTML=(html[+el.dataset.expCh]||[]).join('');});
   }
 
   // FEAT-450: RS-485 / UART — opsætning, MÅLT belastning og bus-fejl.

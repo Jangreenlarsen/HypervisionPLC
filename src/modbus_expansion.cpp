@@ -27,17 +27,12 @@
 #include "config_struct.h"
 #include "network_config.h"
 #include "debug.h"
+#include <esp_heap_caps.h>
 
 static const char *TAG = "MBX_TRANSPORT";
 
-// Ingen per-kanal timeout-config cachet PLC-side (kanal-config er bevidst
-// IKKE duplikeret her, se expansion_api_client.h's designnote — boardet er
-// selv autoritativt). Datatransaktioner bruger derfor en generøs, fast
-// timeout (MODBUS_EXPANSION_TRANSACTION_TIMEOUT_MS, .h) fremfor et ekstra
-// REST-opslag pr. transaktion (upraktisk ved høj-frekvent polling).
-// Fremtidig forbedring: cache boardets konfigurerede timeout_ms lokalt og
-// genbruge den her.
-#define MBX_TRANSACTION_TIMEOUT_MS  MODBUS_EXPANSION_TRANSACTION_TIMEOUT_MS
+// FEAT-458: transaktions-timeouten følger boardets kanal-timeout (+ margin),
+// når den er kendt — se modbus_expansion_effective_timeout_ms().
 #define MBX_CONNECT_TIMEOUT_MS      1500
 
 typedef struct {
@@ -55,6 +50,63 @@ static volatile uint32_t g_mbx_board_last_rx_ms[EXPANSION_BOARD_MAX];  // BUG-43
 uint32_t modbus_expansion_board_last_rx_ms(uint8_t board) {
   if (board < 1 || board > EXPANSION_BOARD_MAX) return 0;
   return g_mbx_board_last_rx_ms[board - 1];
+}
+
+/* FEAT-457: PLC'ens egen statistik pr. (board, kanal) — det ST faktisk
+ * oplever (inkl. forbindelsesfejl), ikke boardets RTU-tal. Ligger i PSRAM
+ * (allokeres ved første brug) for ikke at koste intern RAM (BUG-458). */
+static mbx_chan_stats_t *g_mbx_stats = NULL;   // [EXPANSION_BOARD_MAX * MBX_STAT_CHANNELS]
+/* FEAT-458: boardets egen kanal-timeout (ms), hentet af exp_api-workeren fra
+ * GET /api/channels. 0 = ukendt -> fast MODBUS_EXPANSION_TRANSACTION_TIMEOUT_MS. */
+static volatile uint16_t g_mbx_board_timeout_ms[EXPANSION_BOARD_MAX][MBX_STAT_CHANNELS];
+
+static mbx_chan_stats_t *mbx_stats_slot(uint8_t board, uint8_t channel) {
+  if (board < 1 || board > EXPANSION_BOARD_MAX || channel < 1 || channel > MBX_STAT_CHANNELS) return NULL;
+  if (!g_mbx_stats) {
+    g_mbx_stats = (mbx_chan_stats_t *)heap_caps_calloc(EXPANSION_BOARD_MAX * MBX_STAT_CHANNELS, sizeof(mbx_chan_stats_t),
+                                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!g_mbx_stats) return NULL;
+  }
+  return &g_mbx_stats[(board - 1) * MBX_STAT_CHANNELS + (channel - 1)];
+}
+
+static void mbx_stats_record(uint8_t board, uint8_t channel, mb_error_code_t err) {
+  mbx_chan_stats_t *s = mbx_stats_slot(board, channel);
+  if (!s) return;
+  s->requests++;
+  if (err == MB_OK) { s->ok++; s->last_ok_ms = millis(); }
+  else if (err == MB_TIMEOUT) s->timeouts++;
+  else if (err == MB_EXCEPTION) s->exceptions++;
+  else s->errors++;
+}
+
+bool modbus_expansion_get_chan_stats(uint8_t board, uint8_t channel, mbx_chan_stats_t *out) {
+  if (!out || !g_mbx_stats) return false;
+  mbx_chan_stats_t *s = mbx_stats_slot(board, channel);
+  if (!s) return false;
+  *out = *s;
+  return s->requests > 0;
+}
+
+void modbus_expansion_set_board_timeout(uint8_t board, uint8_t channel, uint16_t timeout_ms) {
+  if (board < 1 || board > EXPANSION_BOARD_MAX || channel < 1 || channel > MBX_STAT_CHANNELS) return;
+  g_mbx_board_timeout_ms[board - 1][channel - 1] = timeout_ms;
+}
+
+uint16_t modbus_expansion_get_board_timeout(uint8_t board, uint8_t channel) {
+  if (board < 1 || board > EXPANSION_BOARD_MAX || channel < 1 || channel > MBX_STAT_CHANNELS) return 0;
+  return g_mbx_board_timeout_ms[board - 1][channel - 1];
+}
+
+/* FEAT-458: PLC'en skal vente længere end boardet selv venter på RTU-slaven
+ * (+ TCP/gateway-margin) — ellers giver PLC'en op, mens boardet stadig venter,
+ * og svaret ankommer for sent (dét gav BUG-469's sene bytes). */
+uint32_t modbus_expansion_effective_timeout_ms(uint8_t board, uint8_t channel) {
+  uint32_t t = MODBUS_EXPANSION_TRANSACTION_TIMEOUT_MS;
+  uint16_t bt = modbus_expansion_get_board_timeout(board, channel);
+  if (bt > 0 && (uint32_t)bt + MBX_TIMEOUT_MARGIN_MS > t) t = (uint32_t)bt + MBX_TIMEOUT_MARGIN_MS;
+  if (t > MBX_TIMEOUT_MAX_MS) t = MBX_TIMEOUT_MAX_MS;
+  return t;
 }
 
 // BUG-419: g_mbx_conn[] was written under the original assumption of a
@@ -172,9 +224,9 @@ uint8_t modbus_expansion_get_connections(mbx_connection_info_t *out, uint8_t max
 // Selve transaktionen: bygger [MBAP(7)][PDU], sender, modtager svar, pakker
 // svar-PDU'en ud. Returnerer MB_OK/MB_TIMEOUT/MB_CRC_ERROR/MB_EXCEPTION/
 // MB_INVALID_ADDRESS(boardet ikke fundet)/MB_BUS_BUSY(kunne ikke forbinde).
-static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slave_id,
-                                     const uint8_t *pdu, uint8_t pdu_len,
-                                     uint8_t *resp_pdu, uint8_t *resp_pdu_len, uint8_t max_resp_pdu_len) {
+static mb_error_code_t mbx_transact_inner(uint8_t board, uint8_t channel, uint8_t slave_id,
+                                           const uint8_t *pdu, uint8_t pdu_len,
+                                           uint8_t *resp_pdu, uint8_t *resp_pdu_len, uint8_t max_resp_pdu_len) {
   *resp_pdu_len = 0;
 
   if (board < 1 || board > EXPANSION_BOARD_MAX || channel < 1 || channel > 8) {
@@ -206,6 +258,7 @@ static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slav
   // vaek, saa de ikke laeses som svar paa DENNE forespoergsel.
   while (conn->client.available()) conn->client.read();
 
+  const uint32_t tmo_ms = modbus_expansion_effective_timeout_ms(board, channel);  // FEAT-458
   uint16_t txn_id = conn->next_transaction_id++;
   uint16_t length = 1 + pdu_len;  // Unit ID + PDU
 
@@ -242,7 +295,7 @@ static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slav
     } else if (!conn->client.connected()) {
       conn->client.stop();
       return MB_TIMEOUT;
-    } else if (millis() - start > MBX_TRANSACTION_TIMEOUT_MS) {
+    } else if (millis() - start > tmo_ms) {
       // BUG-469: luk forbindelsen ved timeout — efter en board-genstart var
       // socketen halvaaben (client.connected() blev ved med at sige ja), og
       // PLC'en sendte i 8+ min ind i en doed forbindelse uden at genforbinde.
@@ -270,7 +323,7 @@ static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slav
     } else if (!conn->client.connected()) {
       conn->client.stop();
       return MB_TIMEOUT;
-    } else if (millis() - start > MBX_TRANSACTION_TIMEOUT_MS) {
+    } else if (millis() - start > tmo_ms) {
       // BUG-469: luk forbindelsen ved timeout — efter en board-genstart var
       // socketen halvaaben (client.connected() blev ved med at sige ja), og
       // PLC'en sendte i 8+ min ind i en doed forbindelse uden at genforbinde.
@@ -289,6 +342,16 @@ static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slav
   if (got == 0) { conn->client.stop(); return MB_TIMEOUT; }  // BUG-469
   if (resp_pdu[0] & 0x80) return MB_EXCEPTION;  // Modbus-exception (fra slaven ELLER boardets egen gateway, se manualens §3.3/§5)
   return MB_OK;
+}
+
+// FEAT-457: alle transaktioner går hertil, så statistikken pr. (board, kanal)
+// tælles ét sted, uanset udfald.
+static mb_error_code_t mbx_transact(uint8_t board, uint8_t channel, uint8_t slave_id,
+                                     const uint8_t *pdu, uint8_t pdu_len,
+                                     uint8_t *resp_pdu, uint8_t *resp_pdu_len, uint8_t max_resp_pdu_len) {
+  mb_error_code_t err = mbx_transact_inner(board, channel, slave_id, pdu, pdu_len, resp_pdu, resp_pdu_len, max_resp_pdu_len);
+  if (err != MB_INVALID_ADDRESS) mbx_stats_record(board, channel, err);
+  return err;
 }
 
 mb_error_code_t modbus_expansion_read_coil(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, bool *result) {

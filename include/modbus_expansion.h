@@ -76,8 +76,26 @@ uint32_t modbus_expansion_board_last_rx_ms(uint8_t board);
  */
 #define MODBUS_EXPANSION_MAX_CONNECTIONS 8
 
-// Ingen per-kanal timeout-config cachet PLC-side (se modbus_expansion.cpp's
-// designnote) — én fast, generøs transaktions-timeout for hele data-planet.
+// Minimum-timeout for en data-transaktion. FEAT-458: er boardets egen kanal-
+// timeout kendt (hentet fra GET /api/channels), bruges boardets + margin.
 #define MODBUS_EXPANSION_TRANSACTION_TIMEOUT_MS 800
+#define MBX_TIMEOUT_MARGIN_MS  300
+#define MBX_TIMEOUT_MAX_MS     5000
+
+/* FEAT-457: PLC'ens statistik pr. (board, kanal) — det ST oplever. */
+#define MBX_STAT_CHANNELS 4   // boardet har op til 4 kanaler (A-D, board-fw 0.31.0)
+typedef struct {
+  uint32_t requests;
+  uint32_t ok;
+  uint32_t timeouts;
+  uint32_t exceptions;
+  uint32_t errors;        // forbindelses-/protokolfejl o.l.
+  uint32_t last_ok_ms;    // millis() ved seneste OK (0 = aldrig)
+} mbx_chan_stats_t;
+bool modbus_expansion_get_chan_stats(uint8_t board, uint8_t channel, mbx_chan_stats_t *out);  // false = ingen trafik endnu
+/* FEAT-458 */
+void modbus_expansion_set_board_timeout(uint8_t board, uint8_t channel, uint16_t timeout_ms);
+uint16_t modbus_expansion_get_board_timeout(uint8_t board, uint8_t channel);   // 0 = ukendt
+uint32_t modbus_expansion_effective_timeout_ms(uint8_t board, uint8_t channel);
 
 #endif // MODBUS_EXPANSION_H

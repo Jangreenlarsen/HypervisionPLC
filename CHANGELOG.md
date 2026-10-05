@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.93] - 2026-10-05
+
+### FEATURES
+- **FEAT-456:** Alarmer for expansion boards. Offline giver KRIT i Alarm Historik og ALARM-banneret, og der kommer en INFO, når boardet er online igen. En kanal med over 20 % timeouts pr. minut giver ADV (højst én pr. 10 min).
+- **FEAT-457:** Kanalstatistik pr. board-kanal på dashboardet (kald/s, OK %, timeouts) og nye `mbx_channel_*`-metrics. Tællingen ligger i PSRAM.
+- **FEAT-458:** PLC'ens MBX-timeout følger boardets kanal-timeout + 300 ms (800 ms–5 s). Boardets kanalliste hentes hvert 5. min af exp_api-workeren.
+
 ## [7.9.68.92] - 2026-10-05
 
 ### FEATURES
