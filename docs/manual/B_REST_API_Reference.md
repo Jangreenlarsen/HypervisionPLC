@@ -334,7 +334,7 @@ Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevari
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
-| GET | `/api/metrics` | *Ingen* (kun `CHECK_API_ENABLED` + rate limit) | Prometheus text-exposition-format. Dækker: system, HTTP-stats, Modbus slave/master (config+stats+cache+backoff pr. slave), SSE, WiFi/Ethernet/Telnet, counters, timers, ST Logic (globalt + pr. program), GPIO, alle non-zero HR/IR-registre, persistence-grupper, watchdog, FreeRTOS task stack, firmware-info, NTP, alarm-log-tælling |
+| GET | `/api/metrics` | *Ingen* (kun `CHECK_API_ENABLED` + rate limit) | Prometheus text-exposition-format. Dækker: system, HTTP-stats, Modbus slave/master (config+stats+cache+backoff pr. slave), RS-485-trafik (FEAT-450: `rs485_tx_bytes_total`, `rs485_rx_bytes_total`, `rs485_tx_frames_total`, `rs485_rx_frames_total` med `role="slave"|"master"`, samt `rs485_info{mode,shared,tx_pin,rx_pin,de_pin}`), SSE, WiFi/Ethernet/Telnet, counters, timers, ST Logic (globalt + pr. program), GPIO, alle non-zero HR/IR-registre, persistence-grupper, watchdog, FreeRTOS task stack, firmware-info, NTP, alarm-log-tælling |
 | GET | `/api/metrics/public` | *Ingen* (kun `CHECK_API_ENABLED` + rate limit) | **FEAT-407.** Samme Prometheus-output som `/api/metrics`, men UDEN register-dump — til den login-fri offentlige statusside |
 | GET | `/api/public-dashboard/cards` | *Ingen* | **FEAT-407.** Hvilke dashboard-kort der vises på den offentlige statusside (`/`) — ren konfigurationsmetadata |
 | POST | `/api/public-dashboard/cards` | CHECK_AUTH_WRITE | **FEAT-407.** Sæt listen af kort-ID'er for den offentlige statusside — kommasepareret, rækkefølgen er visningsrækkefølgen (FEAT-434) |

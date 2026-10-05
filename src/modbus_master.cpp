@@ -14,6 +14,7 @@
 #include "uart_driver.h"
 #include "config_struct.h"
 #include <HardwareSerial.h>
+#include "rs485_stats.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>    // vTaskDelay() — BUG-336
 #include <freertos/semphr.h>  // SemaphoreHandle_t — BUG-337
@@ -420,12 +421,14 @@ mb_error_code_t modbus_master_send_request(
   {
     uint16_t pending = uart1_available();
     dbg_txn.drained = (uint8_t)(pending > 255 ? 255 : pending);
+    rs485_count_rx_bytes(RS485_ROLE_MASTER, pending);  // FEAT-450: sene/fremmede bytes optog også bussen
   }
   uart1_flush_rx();
 #else
   while (ModbusSerial.available()) {
     ModbusSerial.read();
     if (dbg_txn.drained < 255) dbg_txn.drained++;
+    rs485_count_rx_bytes(RS485_ROLE_MASTER, 1);  // FEAT-450
   }
 #endif
 
@@ -439,6 +442,9 @@ mb_error_code_t modbus_master_send_request(
   uart1_flush_tx();
 #else
   ModbusSerial.write(request, request_len);
+#endif
+  rs485_count_tx_frame(RS485_ROLE_MASTER, request_len);  // FEAT-450
+#if !MODBUS_SINGLE_TRANSCEIVER
   ModbusSerial.flush(); // Wait for TX complete
 #endif
 
@@ -561,6 +567,10 @@ mb_error_code_t modbus_master_send_request(
   }
 
   *response_len = bytes_received;
+  if (bytes_received > 0) {  // FEAT-450
+    rs485_count_rx_bytes(RS485_ROLE_MASTER, bytes_received);
+    rs485_count_rx_frame(RS485_ROLE_MASTER);
+  }
 
   // Extract slave_id and address from request for error tracking
   uint8_t req_slave_id = request[0];

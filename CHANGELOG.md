@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.82] - 2026-10-05
+
+### FEATURES
+- **FEAT-450:** Monitor Dashboard: ét samlet **Modbus**-kort (slave, master, cache og RTU-trafik — tidligere tre kort) og et nyt **RS-485 / UART**-kort med transceiver, pins, portopsætning (baud/data/paritet/stop), **målt** bus-belastning (TX/RX/i alt og inkl. t3.5-pauser, med graf) og bus-fejl (fejlrate, CRC, timeouts, exceptions, kollision/bus optaget). Firmwaren tæller nu de faktiske bytes og frames pr. rolle (`rs485_*`-metrics); det tidligere estimat (30 byte × 11 bit pr. request) er fjernet. Gemte layouts flyttes automatisk til de nye kort.
+
 ## [7.9.68.81] - 2026-10-05
 
 ### BUG FIXES

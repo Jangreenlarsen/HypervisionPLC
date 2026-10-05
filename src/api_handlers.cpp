@@ -58,6 +58,7 @@
 #include "rbac.h"
 #include "ip_acl.h"
 #include "expansion_api_client.h"  // FEAT-409
+#include "rs485_stats.h"            // FEAT-450
 #include "modbus_expansion.h"      // v7.9.68.7: connection-pool snapshot for dashboard
 #include "register_allocator.h"     // BUG-439
 #include "network_config.h"  // network_config_ip_to_str()
@@ -9605,6 +9606,30 @@ static esp_err_t send_metrics_response(httpd_req_t *req, bool include_registers)
   PROM_APPEND("# HELP modbus_master_bus_busy_errors_total Modbus master UART-mutex ikke opnaaet (bus optaget)\n");
   PROM_APPEND("# TYPE modbus_master_bus_busy_errors_total counter\n");
   PROM_APPEND("modbus_master_bus_busy_errors_total %lu\n", g_modbus_bus_busy_errors);
+
+  // --- FEAT-450: målt RS-485/UART-trafik pr. rolle (bytes/frames på bussen) ---
+  {
+    static const char *roles[2] = {"slave", "master"};
+    PROM_APPEND("# HELP rs485_tx_bytes_total Bytes sendt paa RS-485 (pr. rolle)\n");
+    PROM_APPEND("# TYPE rs485_tx_bytes_total counter\n");
+    for (int r = 0; r < 2; r++) PROM_APPEND("rs485_tx_bytes_total{role=\"%s\"} %lu\n", roles[r], (unsigned long)g_rs485_stats[r].tx_bytes);
+    PROM_APPEND("# HELP rs485_rx_bytes_total Bytes modtaget paa RS-485 (pr. rolle)\n");
+    PROM_APPEND("# TYPE rs485_rx_bytes_total counter\n");
+    for (int r = 0; r < 2; r++) PROM_APPEND("rs485_rx_bytes_total{role=\"%s\"} %lu\n", roles[r], (unsigned long)g_rs485_stats[r].rx_bytes);
+    PROM_APPEND("# HELP rs485_tx_frames_total Frames sendt paa RS-485 (pr. rolle)\n");
+    PROM_APPEND("# TYPE rs485_tx_frames_total counter\n");
+    for (int r = 0; r < 2; r++) PROM_APPEND("rs485_tx_frames_total{role=\"%s\"} %lu\n", roles[r], (unsigned long)g_rs485_stats[r].tx_frames);
+    PROM_APPEND("# HELP rs485_rx_frames_total Frames modtaget paa RS-485 (pr. rolle)\n");
+    PROM_APPEND("# TYPE rs485_rx_frames_total counter\n");
+    for (int r = 0; r < 2; r++) PROM_APPEND("rs485_rx_frames_total{role=\"%s\"} %lu\n", roles[r], (unsigned long)g_rs485_stats[r].rx_frames);
+    const char *mode = g_persist_config.modbus_mode == MODBUS_MODE_MASTER ? "master" :
+                       g_persist_config.modbus_mode == MODBUS_MODE_OFF ? "off" : "slave";
+    PROM_APPEND("# HELP rs485_info RS-485-transceiver: mode, delt transceiver, pins\n");
+    PROM_APPEND("# TYPE rs485_info gauge\n");
+    PROM_APPEND("rs485_info{mode=\"%s\",shared=\"%d\",tx_pin=\"%d\",rx_pin=\"%d\",de_pin=\"%d\"} 1\n",
+                mode, MODBUS_SINGLE_TRANSCEIVER ? 1 : 0,
+                (int)MODBUS_MASTER_TX_PIN, (int)MODBUS_MASTER_RX_PIN, (int)MODBUS_MASTER_DE_PIN);
+  }
 
   // --- Modbus Master Async Cache metrics ---
   const mb_async_state_t *mb_async = mb_async_get_state();

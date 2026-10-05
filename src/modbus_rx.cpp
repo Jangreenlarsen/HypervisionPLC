@@ -14,6 +14,7 @@
 #include "debug.h"
 #include <Arduino.h>
 #include <string.h>
+#include "rs485_stats.h"
 
 /* ============================================================================
  * STATIC STATE
@@ -48,6 +49,7 @@ modbus_rx_state_t modbus_rx_process(ModbusFrame* frame) {
         if (byte >= 0) {
           rx_buffer[0] = (uint8_t)byte;
           rx_index = 1;
+          rs485_count_rx_bytes(RS485_ROLE_SLAVE, 1);  // FEAT-450
           last_rx_time = current_time;
           rx_state = MODBUS_RX_RECEIVING;
         }
@@ -61,12 +63,14 @@ modbus_rx_state_t modbus_rx_process(ModbusFrame* frame) {
         if (byte >= 0) {
           rx_buffer[rx_index++] = (uint8_t)byte;
           last_rx_time = current_time;
+          rs485_count_rx_bytes(RS485_ROLE_SLAVE, 1);  // FEAT-450
         }
       }
 
       // Check for timeout (3.5 character times)
       if ((current_time - last_rx_time) >= MODBUS_TIMEOUT_MS) {
         // Timeout detected - frame complete
+        rs485_count_rx_frame(RS485_ROLE_SLAVE);  // FEAT-450
         if (rx_index >= 5) {  // Minimum: slave_id + FC + data (1 byte) + CRC (2)
           // Parse frame
           frame->slave_id = rx_buffer[0];

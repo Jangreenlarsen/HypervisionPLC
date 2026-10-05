@@ -14,6 +14,7 @@
 #include "constants.h"
 #include "debug.h"
 #include <Arduino.h>
+#include "rs485_stats.h"
 
 /* ============================================================================
  * STATIC STATE
@@ -60,6 +61,7 @@ bool modbus_tx_send_frame(const ModbusFrame* frame) {
 
   // Transmit via UART1
   uart1_write_buffer(tx_buffer, tx_index);
+  rs485_count_tx_frame(RS485_ROLE_SLAVE, tx_index);  // FEAT-450
 
   // Wait for TX to complete
   uart1_flush_tx();

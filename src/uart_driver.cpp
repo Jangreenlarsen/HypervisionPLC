@@ -24,6 +24,10 @@
 #include "config_struct.h"
 #include "debug.h"
 #include <Arduino.h>
+#include "rs485_stats.h"
+
+// FEAT-450: målt RS-485-trafik pr. rolle (se rs485_stats.h)
+Rs485RoleStats g_rs485_stats[2] = {};
 
 // All three UART peripherals available
 static HardwareSerial Serial1_inst(1);
