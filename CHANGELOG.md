@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.83] - 2026-10-05
+
+### FEATURES
+- **FEAT-451:** Logs-siden har fået en tredje fane, **Modbus Aktivitetslog**, med samme filtre, start/stop, CSV-eksport og Ryd log som dashboard-kortet, i fuld sidebredde og op til 500 linjer. `/logs#modbus` åbner fanen direkte, og den valgte fane huskes i adressen.
+
 ## [7.9.68.82] - 2026-10-05
 
 ### FEATURES

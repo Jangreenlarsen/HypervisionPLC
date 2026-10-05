@@ -57,7 +57,7 @@
 <!-- Header -->
 <div class="hdr">
 <h1>Logs</h1>
-<span class="info">API Audit Log og System Hændelseslog</span>
+<span class="info">API Audit Log, System Hændelseslog og Modbus Aktivitetslog</span>
 </div>
 
 <!-- Login Modal -->
@@ -92,6 +92,7 @@
 <div class="tabs">
 <div class="tab-btn active" id="tabBtnAudit" onclick="switchTab('audit')">API Audit Log</div>
 <div class="tab-btn" id="tabBtnSys" onclick="switchTab('sys')">System Hændelseslog</div>
+<div class="tab-btn" id="tabBtnMb" onclick="switchTab('mb')">Modbus Aktivitetslog</div>
 </div>
 
 <!-- Content -->
@@ -144,6 +145,39 @@
 <div class="tbl-wrap" id="syslogBody"><span class="empty-msg">Indlæser...</span></div>
 </div>
 
+
+<!-- FEAT-451: Modbus Aktivitetslog panel (samme data som dashboardets kort, FEAT-149/153) -->
+<div id="panelMb" class="card" hidden>
+<h2>Modbus Aktivitetslog <span class="badge" id="mbActBadge">0</span></h2>
+<div class="toolbar">
+<span class="badge" id="mbActInfo">-</span>
+<div class="spacer"></div>
+<select id="mbActRole" onchange="renderMbAct()">
+<option value="any">Master + Slave</option>
+<option value="master">Kun Master</option>
+<option value="slave">Kun Slave</option>
+</select>
+<select id="mbActSrc" onchange="renderMbAct()">
+<option value="any">Alle kilder</option>
+<option value="st_logic">ST Logic</option>
+<option value="cli">CLI</option>
+<option value="dashboard">Dashboard</option>
+<option value="external">Ekstern master</option>
+</select>
+<select id="mbActStatus" onchange="renderMbAct()">
+<option value="any">OK + Fejlede</option>
+<option value="ok">Kun OK</option>
+<option value="failed">Kun fejlede</option>
+</select>
+<input type="number" id="mbActSlave" min="0" max="247" placeholder="Slave adr" title="Filtrér på slave-adresse (tom = alle)" oninput="renderMbAct()" style="width:80px">
+<input type="number" id="mbActLimit" value="200" min="5" max="500" onchange="fetchMbAct()" title="Max antal linjer der hentes og vises" style="width:70px">
+<button class="btn btn-sm" id="mbActToggleBtn" onclick="toggleMbAct()" style="background:#313244;color:#a6adc8">Stop logning</button>
+<button class="btn btn-sm" onclick="exportMbAct()" style="background:#313244;color:#a6adc8">Eksporter CSV</button>
+<button class="btn btn-danger btn-sm" onclick="clearMbAct()">Ryd log</button>
+</div>
+<div class="tbl-wrap" id="mbActBody"><span class="empty-msg">Indlæser...</span></div>
+</div>
+
 </div><!-- content -->
 
 <div class="foot"><span>HyberFusion PLC Logs</span><span id="footVer"></span></div>
@@ -160,13 +194,15 @@ let pendingConfirmFn=null;
 
 
 // --- Tabs ---
+// FEAT-451: tre faner; den valgte huskes i URL'ens #hash (logs#modbus)
+const _tabs={audit:['panelAudit','tabBtnAudit',()=>fetchLogs()],sys:['panelSys','tabBtnSys',()=>fetchSyslog()],mb:['panelMb','tabBtnMb',()=>fetchMbAct()]};
+let _activeTab='audit';
 function switchTab(name){
-  const isAudit=name==='audit';
-  $('panelAudit').hidden=!isAudit;
-  $('panelSys').hidden=isAudit;
-  $('tabBtnAudit').classList.toggle('active',isAudit);
-  $('tabBtnSys').classList.toggle('active',!isAudit);
-  if(isAudit)fetchLogs(); else fetchSyslog();
+  if(!_tabs[name])name='audit';
+  _activeTab=name;
+  Object.keys(_tabs).forEach(k=>{$(_tabs[k][0]).hidden=k!==name;$(_tabs[k][1]).classList.toggle('active',k===name);});
+  try{history.replaceState(null,'',name==='audit'?location.pathname:'#'+(name==='mb'?'modbus':name));}catch(e){}
+  _tabs[name][2]();
 }
 
 // --- Auth ---
@@ -388,10 +424,104 @@ function clearSyslog(){
   });
 }
 
+
+// ============================================================
+// MODBUS AKTIVITETSLOG (FEAT-451) — samme log som dashboardets
+// "Modbus Aktivitetslog"-kort (FEAT-149/153): hver transaktion paa
+// RS-485 (master og slave), RAM-only, 500 poster paa enheden.
+// ============================================================
+let _mbAct=[],_mbActLogging=true,_mbActTotal=0;
+const _mbFcNames={1:'Read Coil',2:'Read Discrete',3:'Read Holding',4:'Read Input Reg',5:'Write Coil',6:'Write Holding',15:'Write Coils',16:'Write Holdings'};
+const _mbSrcNames={st_logic:'ST Logic',cli:'CLI',dashboard:'Dashboard',external:'Ekstern master',unknown:'-'};
+function fetchMbAct(){
+  const lim=Math.max(5,parseInt($('mbActLimit').value)||200);
+  api('/api/modbus/activity?limit='+lim).then(r=>r.json()).then(d=>{
+    _mbAct=Array.isArray(d)?d:(d.entries||[]);
+    if(!Array.isArray(d)){_mbActLogging=(d.logging!==false);_mbActTotal=d.total||_mbAct.length;}
+    updateMbActToggleBtn();
+    renderMbAct();
+  }).catch(()=>{$('mbActBody').innerHTML='<span class="empty-msg">Kunne ikke hente Modbus-loggen</span>';});
+}
+function updateMbActToggleBtn(){
+  const b=$('mbActToggleBtn');
+  b.textContent=_mbActLogging?'Stop logning':'Start logning';
+  b.style.color=_mbActLogging?'#a6adc8':'#f9e2af';
+  b.style.borderColor=_mbActLogging?'#45475a':'#f9e2af';
+}
+function toggleMbAct(){
+  const ep=_mbActLogging?'/api/modbus/activity/stop':'/api/modbus/activity/start';
+  api(ep,{method:'POST'}).then(r=>r.json()).then(d=>{
+    _mbActLogging=(d.logging!==false);
+    updateMbActToggleBtn();
+    renderMbAct();
+  }).catch(()=>{});
+}
+function exportMbAct(){
+  api('/api/modbus/activity').then(r=>r.json()).then(d=>{
+    const rows=Array.isArray(d)?d:(d.entries||[]);
+    if(!rows.length){alert('Loggen er tom');return;}
+    const nl=String.fromCharCode(10);
+    let csv='tid;uptime_ms;epoch_s;rolle;kilde;slave;fc;fc_navn;adresse;antal;vaerdi;status;fejlkode'+nl;
+    for(const a of rows){
+      csv+=mbActTimeString(a)+';'+a.timestamp_ms+';'+(a.epoch_s||0)+';'+a.role+';'+a.source+';'
+        +a.slave_id+';'+a.fc+';'+(_mbFcNames[a.fc]||('FC'+a.fc))+';'+a.address+';'+a.count+';'
+        +(a.count>1?'':a.value)+';'+(a.success?'OK':'FEJL')+';'+a.error+nl;
+    }
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');
+    const now=new Date();
+    const pad=n=>String(n).padStart(2,'0');
+    link.href=url;
+    link.download='modbus_log_'+now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())+'.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }).catch(e=>alert('Eksport fejlede: '+e.message));
+}
+function renderMbAct(){
+  $('mbActBadge').textContent=String(_mbAct.length);
+  const el=$('mbActBody');
+  if(!_mbAct.length){
+    el.innerHTML='<span class="empty-msg">Ingen Modbus-aktivitet endnu</span>';
+    $('mbActInfo').textContent='0 transaktioner'+(_mbActLogging?'':' — LOGNING STOPPET');
+    return;
+  }
+  const role=$('mbActRole').value,src=$('mbActSrc').value,st=$('mbActStatus').value;
+  const slStr=$('mbActSlave').value.trim(),sl=slStr===''?null:parseInt(slStr,10);
+  const limit=Math.max(5,parseInt($('mbActLimit').value)||200);
+  const filtered=_mbAct.filter(a=>{
+    if(role!=='any'&&a.role!==role)return false;
+    if(src!=='any'&&a.source!==src)return false;
+    if(st==='ok'&&!a.success)return false;
+    if(st==='failed'&&a.success)return false;
+    if(sl!==null&&!isNaN(sl)&&a.slave_id!==sl)return false;
+    return true;
+  });
+  const fails=_mbAct.filter(a=>!a.success).length;
+  $('mbActInfo').textContent=(_mbActTotal||_mbAct.length)+' på enheden, '+filtered.length+' vist, '+fails+' fejlede'+(_mbActLogging?'':' — LOGNING STOPPET');
+  if(!filtered.length){el.innerHTML='<span class="empty-msg">Ingen transaktioner matcher filter</span>';return;}
+  let h='<table class="tbl"><thead><tr><th>Tid</th><th>Rolle</th><th>Kilde</th><th>Slave</th><th>FC</th><th>Adresse</th><th>Antal</th><th>Værdi</th><th>Status</th></tr></thead><tbody>';
+  for(const a of filtered.slice(-limit).reverse()){
+    const roleLbl=a.role==='master'?'<span style="color:#89b4fa">Master</span>':'<span style="color:#f9e2af">Slave</span>';
+    const stLbl=a.success?'<span class="status-ok">OK</span>':'<span class="status-err" title="Fejlkode '+a.error+'">FEJL('+a.error+')</span>';
+    h+='<tr><td>'+mbActTimeString(a)+'</td><td>'+roleLbl+'</td><td>'+escHtml(_mbSrcNames[a.source]||a.source)+'</td><td>'+a.slave_id+'</td>'
+      +'<td title="FC'+a.fc+'">'+(_mbFcNames[a.fc]||('FC'+a.fc))+'</td><td>'+a.address+'</td><td>'+a.count+'</td><td>'+(a.count>1?'-':a.value)+'</td><td>'+stLbl+'</td></tr>';
+  }
+  el.innerHTML=h+'</tbody></table>';
+}
+function clearMbAct(){
+  askConfirm('Ryd Modbus-log','Ryd hele Modbus-aktivitetsloggen?',()=>{
+    api('/api/modbus/activity/clear',{method:'POST'}).then(()=>fetchMbAct()).catch(()=>{});
+  });
+}
+
 // ============================================================
 // BOOTSTRAP
 // ============================================================
-setInterval(()=>{if(!$('panelAudit').hidden)fetchLogs(); else fetchSyslog();},5000);
+setInterval(()=>{_tabs[_activeTab][2]();},5000);
+{const h=location.hash.replace('#','');if(h==='modbus')switchTab('mb');else if(h==='sys')switchTab('sys');}
 updateUserBadge();
 api('/api/version').then(r=>r.json()).then(d=>{$('footVer').textContent='v'+(d.firmware_version||'-');}).catch(()=>{});
 </script>
