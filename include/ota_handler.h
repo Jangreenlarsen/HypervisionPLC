@@ -38,4 +38,10 @@ esp_err_t api_handler_ota_status(httpd_req_t *req);
  */
 esp_err_t api_handler_ota_rollback(httpd_req_t *req);
 
+/**
+ * BUG-463: udfoer en planlagt OTA-/rollback-genstart, naar tiden er gaaet.
+ * Kaldes fra loop() — kraever ingen task-oprettelse eller allokering.
+ */
+void ota_reboot_poll(void);
+
 #endif // OTA_HANDLER_H

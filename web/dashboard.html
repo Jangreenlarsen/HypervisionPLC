@@ -69,7 +69,6 @@
    Aktivitetslog + Alarm Historik) så den ikke scroller ud af billedet.
    box-shadow i stedet for border-bottom, da border-collapse:collapse ellers
    lader kanten scrolle væk sammen med indholdet. */
-#mbActivityBody .tbl th,#alarmBody .tbl th{position:sticky;top:0;background:#181825;z-index:2;box-shadow:inset 0 -1px 0 #313244}
 .empty-msg{color:#6c7086;font-size:11px;padding:8px 0}
 /* Trend-graf-SVG'erne har en fast 200x24 viewBox (koordinatsystemet
    drawSparkline() tegner i), men skal VISUELT fylde resten af raekken —
@@ -341,41 +340,8 @@
 <p style="font-size:9px;color:#6c7086;margin-top:6px">Belastningen er målt: firmwaren tæller de bytes, slave og master faktisk sender og modtager, og omregner med portens rigtige tegnlængde (start + 8 data + paritet + stop) og baudrate. "Inkl. t3.5-pauser" lægger den lovpligtige 3,5-tegns stilhed efter hver frame til. "Kollision / bus optaget" tæller de gange masteren ikke fik den delte transceiver inden for 2 s.</p>
 </div>
 
-<!-- FEAT-149: Modbus Aktivitetslog (Master + Slave, RAM-only, wire-level) -->
-<div class="card card-wide" data-card-id="mbactivity" data-tab="modbus">
-<h2>Modbus Aktivitetslog <span class="badge badge-off" id="badgeMbActivity">0</span></h2>
-<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
-<span style="font-size:10px;color:#6c7086" id="mbActivityInfo">-</span>
-<div style="display:flex;gap:6px;flex-wrap:wrap">
-<button id="mbActToggleBtn" onclick="toggleMbActivity()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Stop logning</button>
-<button onclick="exportMbActivity()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Eksporter CSV</button>
-<button onclick="clearMbActivity()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Ryd log</button>
-</div>
-</div>
-<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
-<select id="mbActRole" onchange="renderMbActivity()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
-<option value="any">Master + Slave</option>
-<option value="master">Kun Master</option>
-<option value="slave">Kun Slave</option>
-</select>
-<select id="mbActSrc" onchange="renderMbActivity()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
-<option value="any">Alle kilder</option>
-<option value="st_logic">ST Logic</option>
-<option value="cli">CLI</option>
-<option value="dashboard">Dashboard</option>
-<option value="external">Ekstern master</option>
-</select>
-<select id="mbActStatus" onchange="renderMbActivity()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
-<option value="any">OK + Fejlede</option>
-<option value="ok">Kun OK</option>
-<option value="failed">Kun fejlede</option>
-</select>
-<input type="number" id="mbActSlave" min="0" max="247" placeholder="Slave adr" title="Filtrér på slave-adresse (tom = alle)" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:70px" oninput="renderMbActivity()">
-<input type="number" id="mbActLimit" value="100" min="5" max="500" onchange="fetchMbActivity()" title="Max antal linjer der hentes og vises" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
-</div>
-<div id="mbActivityBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen aktivitet endnu</span></div>
-</div>
-
+<!-- FEAT-452: Modbus Aktivitetslog, Alarm Historik og Hændelseslog er flyttet
+     til Logs-siden (/logs) — "vi samler alle logs i logs". -->
 <!-- FEAT-099: Trend Recorder — periodisk sampling af vilkårlige registre til
      commissioning/debugging, RAM-only, CSV-eksport -->
 <!-- HTTP API + SSE -->
@@ -430,61 +396,6 @@
 <div class="card" data-card-id="tcpmonitor" data-tab="connections">
 <h2>TCP/UDP Forbindelser <span class="badge badge-off" id="badgeTcp">0</span></h2>
 <div id="tcpConnBody"><span class="empty-msg">Ingen aktive forbindelser</span></div>
-</div>
-
-<!-- FEAT-085: Alarm Historik (expanded v7.8.3.1) -->
-<div class="card card-wide" data-card-id="alarms" data-tab="overview">
-<h2>Alarm Historik <span class="badge badge-off" id="badgeAlarm">0</span></h2>
-<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
-<span style="font-size:10px;color:#6c7086" id="alarmInfo">-</span>
-<button onclick="ackAlarms()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Kvittér alle</button>
-</div>
-<!-- FEAT-134: Alarm filter bar -->
-<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
-<select id="alarmSev" onchange="renderAlarms()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
-<option value="-1">Alle severity</option>
-<option value="2">Kritiske</option>
-<option value="1">Advarsler</option>
-<option value="0">Info</option>
-</select>
-<select id="alarmAck" onchange="renderAlarms()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
-<option value="any">Alle</option>
-<option value="unack">Kun ukvitterede</option>
-<option value="ack">Kun kvitterede</option>
-</select>
-<input type="text" id="alarmSearch" placeholder="Søg i tekst..." oninput="renderAlarms()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;flex:1;min-width:120px">
-<input type="number" id="alarmLimit" value="25" min="5" max="500" onchange="renderAlarms()" title="Max antal" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
-<button onclick="clearAlarmFilter()" style="font-size:10px;padding:3px 8px;background:#45475a;color:#cdd6f4;border:none;border-radius:3px;cursor:pointer">Nulstil</button>
-</div>
-<div id="alarmBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen alarmer</span></div>
-</div>
-
-<!-- FEAT-086/089: Haendelses- og registerandringslog -->
-<div class="card card-wide" data-card-id="syslog" data-tab="overview">
-<h2>Hændelseslog <span class="badge badge-off" id="badgeSyslog">0</span></h2>
-<div style="display:flex;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
-<span style="font-size:10px;color:#6c7086" id="syslogInfo">-</span>
-<div style="display:flex;gap:6px;flex-wrap:wrap">
-<button id="syslogToggleBtn" onclick="toggleSyslog()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Stop logning</button>
-<button onclick="exportSyslog()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Eksporter CSV</button>
-<button onclick="clearSyslog()" style="font-size:10px;padding:2px 8px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer">Ryd log</button>
-</div>
-</div>
-<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
-<select id="syslogCat" onchange="renderSyslog()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
-<option value="any">Alle kategorier</option>
-<option value="event">Hændelser</option>
-<option value="regchange">Registerændringer</option>
-</select>
-<select id="syslogSrc" onchange="renderSyslog()" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px">
-<option value="any">Alle kilder</option>
-<option value="rest">REST API</option>
-<option value="modbus_slave">Modbus (ekstern master)</option>
-<option value="system">System</option>
-</select>
-<input type="number" id="syslogLimit" value="100" min="5" max="500" onchange="fetchSyslog()" title="Max antal linjer der hentes og vises" style="padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:3px;font-size:10px;width:60px">
-</div>
-<div id="syslogBody" style="max-height:320px;overflow-y:auto"><span class="empty-msg">Ingen hændelser endnu</span></div>
 </div>
 
 <!-- FEAT-095: Digital I/O Dashboard -->
@@ -854,15 +765,6 @@ try{alarmAck=JSON.parse(sessionStorage.getItem('hfplc_alarm_ack')||'{}');}catch(
 let alarmCurrentValues={};
 let lastMetricsRaw=null;
 let _stBindings=null;
-let _alarmLog=[];
-let _mbActivityLog=[];
-let _mbActivityLogging=true;   // FEAT-153: loggen koerer som udgangspunkt
-let _mbActivityTotal=0;        // FEAT-153: antal poster paa enheden (kan overstige det hentede)
-// FEAT-086/089: Haendelses- og registerandringslog
-let _syslogEntries=[];
-let _syslogLogging=true;
-let _syslogTotal=0;
-const _syslogSrcNames={rest:'REST API',modbus_slave:'Modbus (ekstern)',system:'System'};
 
 let _activeSubTab='all';
 const _defaultTabs={watchdog:'overview',system:'overview',network:'overview',alarms:'overview',syslog:'overview',modbus:'modbus',rs485:'modbus',mbactivity:'modbus',modbusexpansion:'modbus',httpapi:'connections',tcpmonitor:'connections',ntp:'connections',counters:'app',timers:'app',stlogic:'app',dio:'app',analogio:'app',trendrec:'app'};
@@ -2118,230 +2020,7 @@ async function clearSafeMode(){
   catch(e){alert('Fejl: '+e.message);}
 }
 
-async function fetchAlarms(){
-  if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
-  try{
-    const r=await dashFetch('/api/alarms',{});
-    if(!r.ok)return;
-    _alarmLog=await r.json();
-    renderAlarms();
-  }catch(e){}
-}
-// FEAT-134: Client-side alarm filtering
-function clearAlarmFilter(){
-  $('alarmSev').value='-1';
-  $('alarmAck').value='any';
-  $('alarmSearch').value='';
-  $('alarmLimit').value='25';
-  renderAlarms();
-}
-function renderAlarms(){
-  const el=$('alarmBody');
-  if(!_alarmLog||_alarmLog.length===0){
-    el.innerHTML='<span class="empty-msg">Ingen alarmer</span>';
-    return;
-  }
-  const sevFilter=parseInt($('alarmSev').value);
-  const ackFilter=$('alarmAck').value;
-  const search=($('alarmSearch').value||'').toLowerCase();
-  const limit=Math.max(5,parseInt($('alarmLimit').value)||25);
-  // Filter
-  const filtered=_alarmLog.filter(a=>{
-    if(sevFilter>=0&&a.severity!==sevFilter)return false;
-    if(ackFilter==='unack'&&a.acknowledged)return false;
-    if(ackFilter==='ack'&&!a.acknowledged)return false;
-    if(search){
-      const hay=(a.message+' '+(a.source_ip||'')+' '+(a.username||'')+' '+(a.time||'')).toLowerCase();
-      if(hay.indexOf(search)<0)return false;
-    }
-    return true;
-  });
-  $('alarmInfo').textContent=_alarmLog.length+' total, '+filtered.length+' matcher filter';
-  if(filtered.length===0){
-    el.innerHTML='<span class="empty-msg">Ingen alarmer matcher filter</span>';
-    return;
-  }
-  // Show newest first
-  const recent=filtered.slice(-limit).reverse();
-  let h='<table class="tbl"><tr><th>Tid</th><th>Sev.</th><th>Alarm</th><th>Kilde / Detaljer</th><th>Kvit</th></tr>';
-  for(const a of recent){
-    const sevCls=a.severity===2?'val-err':a.severity===1?'val-warn':'val-ok';
-    const sevLbl=a.severity===2?'KRIT':a.severity===1?'ADV':'INFO';
-    const ack=a.acknowledged?'<span class="dot dot-off" title="Kvitteret"></span>':'<span class="dot dot-r" title="Aktiv"></span>';
-    const timeStr=a.time||a.uptime;
-    let src='';
-    if(a.source_ip)src+='<span title="Klient IP" style="color:#89b4fa">'+escHtml(a.source_ip)+'</span>';
-    if(a.username)src+=(src?' / ':'')+'<span title="Bruger" style="color:#cba6f7">'+escHtml(a.username)+'</span>';
-    const txMatch=a.message.match(/TX\s*->\s*ID:(\d+)\s*@(\d+)/);
-    const rxMatch=a.message.match(/RX\s*<-\s*ID:(\d+)/);
-    if(txMatch)src+=(src?'<br>':'')+'<span title="Master TX til slave" style="color:#fab387">TX &rarr; Slave ID:'+txMatch[1]+' Reg:'+txMatch[2]+'</span>';
-    else if(rxMatch)src+=(src?'<br>':'')+'<span title="Slave RX" style="color:#fab387">RX &larr; Slave ID:'+rxMatch[1]+'</span>';
-    if(!src)src='<span style="color:#585b70">-</span>';
-    h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
-    h+='<td class="'+sevCls+'" style="font-weight:700;font-size:10px">'+sevLbl+'</td>';
-    h+='<td>'+escHtml(a.message)+'</td>';
-    h+='<td style="font-size:10px">'+src+'</td>';
-    h+='<td>'+ack+'</td></tr>';
-  }
-  h+='</table>';
-  el.innerHTML=h;
-  applyGridLayout();
-}
-async function ackAlarms(){
-  try{
-    var auth=authGet();
-    var opts={method:'POST',headers:{}};
-    if(auth)opts.headers['Authorization']=auth;
-    await fetch('/api/alarms/ack',opts);
-    fetchAlarms();
-  }catch(e){}
-}
-// FEAT-149: Modbus Activity Log (Master+Slave, RAM-only, wire-level)
-const _mbFcNames={1:'Read Coil',2:'Read Discrete',3:'Read Holding',4:'Read Input Reg',5:'Write Coil',6:'Write Holding',15:'Write Coils',16:'Write Holdings'};
-const _mbSrcNames={st_logic:'ST Logic',cli:'CLI',dashboard:'Dashboard',external:'Ekstern master',unknown:'-'};
-async function fetchMbActivity(){
-  if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
-  try{
-    // FEAT-153: hent kun det vi viser. Loggen rummer 500 poster; uden
-    // limit ville hver polling (hvert 3. sek) traekke det hele over WiFi.
-    const lim=Math.max(5,parseInt($('mbActLimit')?$('mbActLimit').value:100)||100);
-    const r=await dashFetch('/api/modbus/activity?limit='+lim,{});
-    if(!r.ok)return;
-    const d=await r.json();
-    // Bagudkompatibelt: gammelt format var et bart array, nyt er et objekt
-    _mbActivityLog=Array.isArray(d)?d:(d.entries||[]);
-    if(!Array.isArray(d)){
-      _mbActivityLogging=(d.logging!==false);
-      _mbActivityTotal=d.total||_mbActivityLog.length;
-    }
-    updateMbActToggleBtn();
-    renderMbActivity();
-  }catch(e){}
-}
-function updateMbActToggleBtn(){
-  const b=$('mbActToggleBtn');
-  if(!b)return;
-  b.textContent=_mbActivityLogging?'Stop logning':'Start logning';
-  b.style.color=_mbActivityLogging?'#a6adc8':'#f9e2af';
-  b.style.borderColor=_mbActivityLogging?'#45475a':'#f9e2af';
-}
-async function toggleMbActivity(){
-  try{
-    var auth=authGet();
-    var opts={method:'POST',headers:{}};
-    if(auth)opts.headers['Authorization']=auth;
-    const ep=_mbActivityLogging?'/api/modbus/activity/stop':'/api/modbus/activity/start';
-    const r=await fetch(ep,opts);
-    if(r.ok){
-      const d=await r.json();
-      _mbActivityLogging=(d.logging!==false);
-      updateMbActToggleBtn();
-      renderMbActivity();
-    }
-  }catch(e){}
-}
-async function exportMbActivity(){
-  try{
-    // Hent HELE loggen (uden limit), ikke kun det viste udsnit
-    var auth=authGet();
-    var opts=auth?{headers:{'Authorization':auth}}:{};
-    const r=await fetch('/api/modbus/activity',opts);
-    if(!r.ok){alert('Kunne ikke hente log til eksport');return;}
-    const d=await r.json();
-    const rows=Array.isArray(d)?d:(d.entries||[]);
-    if(!rows.length){alert('Loggen er tom');return;}
-    let csv='tid;uptime_ms;epoch_s;rolle;kilde;slave;fc;fc_navn;adresse;antal;vaerdi;status;fejlkode\n';
-    for(const a of rows){
-      csv+=mbActTimeString(a)+';'+a.timestamp_ms+';'+(a.epoch_s||0)+';'+a.role+';'+a.source+';'
-        +a.slave_id+';'+a.fc+';'+(_mbFcNames[a.fc]||('FC'+a.fc))+';'+a.address+';'+a.count+';'
-        +(a.count>1?'':a.value)+';'+(a.success?'OK':'FEJL')+';'+a.error+'\n';
-    }
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-    const url=URL.createObjectURL(blob);
-    const link=document.createElement('a');
-    link.href=url;
-    // Filnavn med rigtig dato hvis NTP er aktiv, ellers uptime
-    const now=new Date();
-    const pad=n=>String(n).padStart(2,'0');
-    link.download='modbus_log_'+now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())
-      +'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())+'.csv';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }catch(e){alert('Eksport fejlede: '+e);}
-}
-// FEAT-153: vis rigtig vaegur-tid naar NTP er synkroniseret (epoch_s>0),
-// ellers uptime siden boot — det er stadig bedre end ingenting foer sync.
-
-function renderMbActivity(){
-  const badgeEl=$('badgeMbActivity');
-  if(badgeEl)badge(badgeEl,_mbActivityLog.length>0,String(_mbActivityLog.length));
-  const el=$('mbActivityBody');
-  if(!el)return;
-  if(!_mbActivityLog||_mbActivityLog.length===0){
-    el.innerHTML='<span class="empty-msg">Ingen aktivitet endnu</span>';
-    if($('mbActivityInfo'))$('mbActivityInfo').textContent='0 transaktioner';
-    return;
-  }
-  const roleFilter=$('mbActRole')?$('mbActRole').value:'any';
-  const srcFilter=$('mbActSrc')?$('mbActSrc').value:'any';
-  const statusFilter=$('mbActStatus')?$('mbActStatus').value:'any';
-  const slaveFilterStr=$('mbActSlave')?$('mbActSlave').value.trim():'';
-  const slaveFilter=slaveFilterStr===''?null:parseInt(slaveFilterStr);
-  const limit=Math.max(5,parseInt($('mbActLimit')?$('mbActLimit').value:100)||100);
-  const filtered=_mbActivityLog.filter(a=>{
-    if(roleFilter!=='any'&&a.role!==roleFilter)return false;
-    if(srcFilter!=='any'&&a.source!==srcFilter)return false;
-    if(statusFilter==='ok'&&!a.success)return false;
-    if(statusFilter==='failed'&&a.success)return false;
-    if(slaveFilter!==null&&!isNaN(slaveFilter)&&a.slave_id!==slaveFilter)return false;
-    return true;
-  });
-  if($('mbActivityInfo')){
-    // FEAT-153: vis ogsaa hvor mange enheden faktisk har (kan vaere flere end
-    // det hentede udsnit) og om logningen er sat paa pause
-    const tot=_mbActivityTotal||_mbActivityLog.length;
-    $('mbActivityInfo').textContent=tot+' på enheden, '+filtered.length+' vist'
-      +(_mbActivityLogging?'':' — LOGNING STOPPET');
-  }
-  if(filtered.length===0){
-    el.innerHTML='<span class="empty-msg">Ingen transaktioner matcher filter</span>';
-    return;
-  }
-  const recent=filtered.slice(-limit).reverse();
-  let h='<table class="tbl"><tr><th>Tid</th><th>Rolle</th><th>Kilde</th><th>Slave</th><th>FC</th><th>Adresse</th><th>Antal</th><th>Værdi</th><th>Status</th></tr>';
-  for(const a of recent){
-    // FEAT-153: rigtig klokkeslet naar NTP er synkroniseret, ellers uptime
-    const timeStr=mbActTimeString(a);
-    const roleLbl=a.role==='master'?'<span style="color:#89b4fa">Master</span>':'<span style="color:#f9e2af">Slave</span>';
-    const srcLbl=_mbSrcNames[a.source]||a.source;
-    const fcLbl=_mbFcNames[a.fc]||('FC'+a.fc);
-    const statusLbl=a.success?'<span class="val-ok">OK</span>':'<span class="val-err" title="Fejlkode '+a.error+'">FEJL('+a.error+')</span>';
-    h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
-    h+='<td style="font-size:10px">'+roleLbl+'</td>';
-    h+='<td style="font-size:10px">'+srcLbl+'</td>';
-    h+='<td style="font-size:10px">'+a.slave_id+'</td>';
-    h+='<td style="font-size:10px" title="FC'+a.fc+'">'+fcLbl+'</td>';
-    h+='<td style="font-size:10px">'+a.address+'</td>';
-    h+='<td style="font-size:10px">'+a.count+'</td>';
-    h+='<td style="font-size:10px">'+(a.count>1?'-':a.value)+'</td>';
-    h+='<td style="font-size:10px">'+statusLbl+'</td></tr>';
-  }
-  h+='</table>';
-  el.innerHTML=h;
-  applyGridLayout();
-}
-async function clearMbActivity(){
-  try{
-    var auth=authGet();
-    var opts={method:'POST',headers:{}};
-    if(auth)opts.headers['Authorization']=auth;
-    await fetch('/api/modbus/activity/clear',opts);
-    fetchMbActivity();
-  }catch(e){}
-}
-
+// FEAT-452: alarm- og Modbus-log-funktionerne ligger nu i web/logs.html
 // FEAT-099: Trend Recorder — periodisk register-sampling, RAM-only, CSV-eksport
 let _trendPoints=[];       // lokalt spejl af server-config: [{type,addr}]
 let _trendRecording=false;
@@ -2557,127 +2236,6 @@ async function exportTrendCsv(){
   }catch(e){alert('Eksport fejlede: '+e.message);}
 }
 
-// FEAT-086/089: Haendelses- og registerandringslog
-async function fetchSyslog(){
-  if(_dragOrResizeActive)return;  // BUG-359: se fetchMetrics()
-  try{
-    const lim=Math.max(5,parseInt($('syslogLimit')?$('syslogLimit').value:100)||100);
-    const r=await dashFetch('/api/syslog?limit='+lim,{});
-    if(!r.ok)return;
-    const d=await r.json();
-    _syslogEntries=d.entries||[];
-    _syslogLogging=(d.logging!==false);
-    _syslogTotal=d.total||_syslogEntries.length;
-    updateSyslogToggleBtn();
-    renderSyslog();
-  }catch(e){}
-}
-function updateSyslogToggleBtn(){
-  const b=$('syslogToggleBtn');
-  if(!b)return;
-  b.textContent=_syslogLogging?'Stop logning':'Start logning';
-  b.style.color=_syslogLogging?'#a6adc8':'#f9e2af';
-  b.style.borderColor=_syslogLogging?'#45475a':'#f9e2af';
-}
-async function toggleSyslog(){
-  try{
-    var auth=authGet();
-    var opts={method:'POST',headers:{}};
-    if(auth)opts.headers['Authorization']=auth;
-    const ep=_syslogLogging?'/api/syslog/stop':'/api/syslog/start';
-    const r=await fetch(ep,opts);
-    if(r.ok){
-      const d=await r.json();
-      _syslogLogging=(d.logging!==false);
-      updateSyslogToggleBtn();
-      renderSyslog();
-    }
-  }catch(e){}
-}
-
-
-async function exportSyslog(){
-  try{
-    var auth=authGet();
-    var opts=auth?{headers:{'Authorization':auth}}:{};
-    const r=await fetch('/api/syslog',opts);
-    if(!r.ok){alert('Kunne ikke hente log til eksport');return;}
-    const d=await r.json();
-    const rows=d.entries||[];
-    if(!rows.length){alert('Loggen er tom');return;}
-    let csv='tid;uptime_ms;epoch_s;kategori;kilde;bruger;ip;register;coil;gammel_vaerdi;ny_vaerdi;besked\n';
-    for(const e of rows){
-      csv+=syslogTimeString(e)+';'+e.timestamp_ms+';'+(e.epoch_s||0)+';'+e.category+';'+e.source+';'
-        +e.username+';'+e.ip+';'+(e.reg_addr===65535?'':e.reg_addr)+';'+e.is_coil+';'
-        +e.old_value+';'+e.new_value+';'+e.message+'\n';
-    }
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-    const url=URL.createObjectURL(blob);
-    const link=document.createElement('a');
-    link.href=url;
-    const now=new Date();
-    const pad=n=>String(n).padStart(2,'0');
-    link.download='haendelseslog_'+now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())
-      +'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())+'.csv';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }catch(e){alert('Eksport fejlede: '+e);}
-}
-function renderSyslog(){
-  const badgeEl=$('badgeSyslog');
-  if(badgeEl)badge(badgeEl,_syslogEntries.length>0,String(_syslogEntries.length));
-  const el=$('syslogBody');
-  if(!el)return;
-  if(!_syslogEntries||_syslogEntries.length===0){
-    el.innerHTML='<span class="empty-msg">Ingen hændelser endnu</span>';
-    if($('syslogInfo'))$('syslogInfo').textContent='0 hændelser';
-    return;
-  }
-  const catFilter=$('syslogCat')?$('syslogCat').value:'any';
-  const srcFilter=$('syslogSrc')?$('syslogSrc').value:'any';
-  const limit=Math.max(5,parseInt($('syslogLimit')?$('syslogLimit').value:100)||100);
-  const filtered=_syslogEntries.filter(e=>{
-    if(catFilter!=='any'&&e.category!==catFilter)return false;
-    if(srcFilter!=='any'&&e.source!==srcFilter)return false;
-    return true;
-  });
-  if($('syslogInfo')){
-    const tot=_syslogTotal||_syslogEntries.length;
-    $('syslogInfo').textContent=tot+' på enheden, '+filtered.length+' vist'
-      +(_syslogLogging?'':' — LOGNING STOPPET');
-  }
-  if(filtered.length===0){
-    el.innerHTML='<span class="empty-msg">Ingen hændelser matcher filter</span>';
-    return;
-  }
-  const recent=filtered.slice(-limit).reverse();
-  let h='<table class="tbl"><tr><th>Tid</th><th>Kategori</th><th>Kilde</th><th>Bruger</th><th>IP</th><th>Detaljer</th></tr>';
-  for(const e of recent){
-    const timeStr=syslogTimeString(e);
-    const catLbl=e.category==='regchange'?'<span style="color:#f9e2af">Reg.ændring</span>':'<span style="color:#89b4fa">Hændelse</span>';
-    const srcLbl=_syslogSrcNames[e.source]||e.source;
-    h+='<tr><td style="white-space:nowrap;font-size:10px">'+timeStr+'</td>';
-    h+='<td style="font-size:10px">'+catLbl+'</td>';
-    h+='<td style="font-size:10px">'+srcLbl+'</td>';
-    h+='<td style="font-size:10px">'+escHtml(e.username)+'</td>';
-    h+='<td style="font-size:10px">'+escHtml(e.ip)+'</td>';
-    h+='<td style="font-size:10px">'+syslogDetail(e)+'</td></tr>';
-  }
-  h+='</table>';
-  el.innerHTML=h;
-  applyGridLayout();
-}
-async function clearSyslog(){
-  try{
-    var auth=authGet();
-    var opts={method:'POST',headers:{}};
-    if(auth)opts.headers['Authorization']=auth;
-    await fetch('/api/syslog/clear',opts);
-    fetchSyslog();
-  }catch(e){}
-}
 async function toggleDO(pin){
   try{
     var auth=authGet();
@@ -3473,6 +3031,8 @@ const _allCardIds=['system','network','alarms','syslog','modbusslave','modbusmas
 // BUG-365) og i gemte layouts — de peger nu paa de nye kort.
 const _cardAlias={modbusslave:'modbus',modbusmaster:'modbus',rtutrafik:'modbus',bushealth:'rs485'};
 function _aliasId(id){return _cardAlias[id]||id;}
+// FEAT-452: log-kortene er flyttet til /logs (id'erne bliver i _allCardIds — indeks, BUG-365)
+const _movedToLogs={alarms:1,syslog:1,mbactivity:1};
 function _encodeCardIdxList(memberMap){
   const idxs=[];
   Object.keys(memberMap).forEach(id=>{
@@ -3497,6 +3057,7 @@ function buildSettingsTable(){
   let h='';
   for(const id of _allCardIds){
     if(_cardAlias[id])continue;  // FEAT-450: sammenlagt kort
+    if(_movedToLogs[id])continue;  // FEAT-452: flyttet til Logs-siden
     if(id==='trendrec')continue;  // FEAT-444: egen fane, ikke et kort (bliver i _allCardIds — indeks, BUG-365)
     const name=_cardNames[id]||id;
     const tab=getCardTab(id);
@@ -3810,9 +3371,6 @@ function init(){
   // burst helt.
   fetchMetrics();
   setTimeout(fetchBindings, 120);
-  setTimeout(fetchAlarms, 240);
-  setTimeout(fetchMbActivity, 360);
-  setTimeout(fetchSyslog, 480);
   setTimeout(fetchNetworkInfo, 600);
   setTimeout(fetchConnections, 720);
   setTimeout(updateUserBadge, 840);
@@ -3821,10 +3379,7 @@ function init(){
   setTimeout(fetchWatchdog, 1200);  // FEAT-427
   refreshTimer=setInterval(fetchMetrics,3000);
   setInterval(fetchBindings,15000);
-  setInterval(fetchAlarms,5000);
   setInterval(fetchWatchdog,5000);  // FEAT-427
-  setInterval(fetchMbActivity,3000);
-  setInterval(fetchSyslog,5000);
   setInterval(loadTrendConfig,5000);
   // FEAT-446/447: med SSE kommer ændringer straks som "ext"-events — så er
   // polling kun et sikkerhedsnet (10 s); uden SSE hvert 3. s.

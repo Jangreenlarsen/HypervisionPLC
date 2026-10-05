@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.86] - 2026-10-05
+
+### BUG FIXES
+- **BUG-463:** Efter en OTA-upload eller rollback kunne PLC'en svare "rebooting", skifte boot-partition og så aldrig genstarte. Genstarten kørte i en task, der blev oprettet bagefter, og på en fragmenteret heap fejlede oprettelsen stille. Det forklarer også den tidligere observation, at "første genstart efter rollback bootede den gamle". Nu planlægges genstarten som et tidspunkt, og hovedløkken (`loop()`) udfører den, uden nogen allokering.
+
+### CHANGES
+- **FEAT-452b:** Kortene Modbus Aktivitetslog, Alarm Historik og Hændelseslog er fjernet fra Monitor-dashboardet — alle logs findes nu kun på Logs-siden. Dashboardet poller dermed tre endpoints mindre (`/api/alarms`, `/api/modbus/activity`, `/api/syslog`). ALARM-banneret er uændret.
+
 ## [7.9.68.85] - 2026-10-05
 
 ### FEATURES

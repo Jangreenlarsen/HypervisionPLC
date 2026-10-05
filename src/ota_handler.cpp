@@ -249,13 +249,30 @@ static bool ota_signature_ok_inner(const uint8_t hash[32], const uint8_t *traile
  * REBOOT TASK
  * ============================================================================ */
 
-static void ota_reboot_task(void *arg)
+/* BUG-463: genstarten blev tidligere udfoert af en task, der blev oprettet
+ * efter svaret (xTaskCreate, 2 KB stak) — uden at tjekke returvaerdien. Paa en
+ * fragmenteret intern heap fejlede oprettelsen stille: OTA meldte "rebooting"
+ * og boot-partitionen var skiftet, men PLC'en genstartede aldrig (set ved OTA
+ * af v7.9.68.86; sandsynligvis ogsaa aarsagen til, at den foerste genstart
+ * efter en rollback "bootede den gamle"). Nu saettes kun et tidspunkt, og
+ * loop() kalder ota_reboot_poll(), der genstarter — ingen allokering. */
+static volatile uint32_t g_ota_reboot_at_ms = 0;  // 0 = ingen ventende genstart
+
+static void ota_schedule_reboot(const char *why)
 {
-  // FEAT-086: log foer forsinkelsen, saa den naar at blive skrevet
-  system_log_add_event((uint8_t)SYSLOG_SRC_SYSTEM, NULL, NULL, "Reboot udloest af OTA-firmwareopdatering");
-  vTaskDelay(pdMS_TO_TICKS(OTA_REBOOT_DELAY_MS));
-  ESP_LOGI(TAG, "Rebooting into new firmware...");
-  esp_restart();
+  // FEAT-086: log foer genstarten, saa den naar at blive skrevet
+  system_log_add_event((uint8_t)SYSLOG_SRC_SYSTEM, NULL, NULL, why);
+  uint32_t at = millis() + OTA_REBOOT_DELAY_MS;
+  g_ota_reboot_at_ms = at ? at : 1;
+}
+
+void ota_reboot_poll(void)
+{
+  uint32_t at = g_ota_reboot_at_ms;
+  if (at && (int32_t)(millis() - at) >= 0) {
+    ESP_LOGI(TAG, "Rebooting into new firmware...");
+    esp_restart();
+  }
 }
 
 /* ============================================================================
@@ -486,8 +503,8 @@ esp_err_t api_handler_ota_upload(httpd_req_t *req)
   httpd_resp_set_type(req, "application/json");
   httpd_resp_send(req, resp, len);
 
-  // Schedule reboot (let HTTP response complete first)
-  xTaskCreate(ota_reboot_task, "ota_reboot", 2048, NULL, 5, NULL);
+  // Schedule reboot (let HTTP response complete first) — BUG-463
+  ota_schedule_reboot("Reboot udloest af OTA-firmwareopdatering");
 
   // Note: in_progress stays set — device is about to reboot
   return ESP_OK;
@@ -598,8 +615,8 @@ esp_err_t api_handler_ota_rollback(httpd_req_t *req)
   httpd_resp_set_type(req, "application/json");
   httpd_resp_send(req, resp, len);
 
-  // Schedule reboot
-  xTaskCreate(ota_reboot_task, "ota_reboot", 2048, NULL, 5, NULL);
+  // Schedule reboot — BUG-463
+  ota_schedule_reboot("Reboot udloest af OTA-rollback");
   return ESP_OK;
 }
 

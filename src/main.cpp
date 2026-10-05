@@ -44,6 +44,7 @@ extern void alarm_raise(uint8_t severity, const char *msg);
 #include "ip_acl.h"
 #include "wifi_driver.h"       // BUG-371: wifi_driver_set_hostname()
 #include "ethernet_driver.h"   // BUG-371: ethernet_driver_set_hostname()
+#include "ota_handler.h"  // BUG-463: ota_reboot_poll()
 #include "watchdog_monitor.h"
 #include "st_wdt.h"  // FEAT-427 lag B
 #include "register_allocator.h"
@@ -480,6 +481,9 @@ void loop() {
 
   // CRITICAL: Feed watchdog (must be called < 30s interval)
   watchdog_feed();
+
+  // BUG-463: planlagt genstart efter OTA/rollback
+  ota_reboot_poll();
 
   // Small delay to prevent tight loop
   delay(1);
