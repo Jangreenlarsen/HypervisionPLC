@@ -380,6 +380,37 @@ bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, 
   return true;
 }
 
+// FEAT-461: FC03 multi-register read. Resultatet lægges i de ENKELTE
+// registres cache-poster (nøgle MBX_REQ_READ_HOLDING pr. adresse) — samme
+// princip som mb_async_queue_read_multi() — så MBX_READ_HOLDING og
+// MBX_READ_HOLDINGS deler cache, og Register Map/eksterne registre ser dem.
+bool modbus_expansion_async_queue_read_multi_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count) {
+  if (count == 0 || count > 16) return false;
+  uint8_t prio = MBX_PRIO_READ_FRESH;
+  for (uint8_t i = 0; i < count; i++) {
+    mbx_cache_entry_t *e = mbx_cache_find(board, channel, slave_id, address + i, (uint8_t)MBX_REQ_READ_HOLDING);
+    if (e && e->status == MBX_CACHE_VALID) { prio = MBX_PRIO_READ_REFRESH; break; }
+  }
+  mbx_async_request_t req;
+  memset(&req, 0, sizeof(req));
+  req.type = MBX_REQ_READ_HOLDINGS;
+  req.board = board;
+  req.channel = channel;
+  req.slave_id = slave_id;
+  req.address = address;
+  req.count = count;
+  req.priority = prio;
+  for (uint8_t i = 0; i < count; i++) {
+    mbx_cache_entry_t *e = mbx_cache_get_or_create(board, channel, slave_id, address + i, (uint8_t)MBX_REQ_READ_HOLDING);
+    if (e) {
+      portENTER_CRITICAL(&mbx_cache_spinlock);
+      mbx_cache_mark_pending_locked(e);
+      portEXIT_CRITICAL(&mbx_cache_spinlock);
+    }
+  }
+  return mbx_pq_insert(&req);
+}
+
 // v7.9.68.0: FC16 multi-register write — no per-address cache entry (see file
 // header design note), so unlike modbus_expansion_async_queue_write() above,
 // there is no dedup-against-cached-value check and no cache entry created here.
@@ -596,6 +627,30 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
         result.bool_val = (err == MB_OK);
         break;
       }
+      case MBX_REQ_READ_HOLDINGS: {
+        // FEAT-461: FC03 multi — opdater hvert registers egen cache-post
+        uint8_t cnt = req.count;
+        if (cnt == 0 || cnt > 16) { err = MB_INVALID_ADDRESS; break; }
+        uint16_t regs[16];
+        err = modbus_expansion_read_holdings(req.board, req.channel, req.slave_id, req.address, cnt, regs);
+        for (uint8_t i = 0; i < cnt; i++) {
+          mbx_cache_entry_t *e = mbx_cache_get_or_create(req.board, req.channel, req.slave_id, req.address + i,
+                                                         (uint8_t)MBX_REQ_READ_HOLDING);
+          if (!e) continue;
+          portENTER_CRITICAL(&mbx_cache_spinlock);
+          if (err == MB_OK) {
+            e->value.int_val = (int32_t)regs[i];
+            e->status = MBX_CACHE_VALID;
+          } else {
+            e->status = MBX_CACHE_ERROR;
+          }
+          e->last_error = err;
+          e->last_update_ms = millis();
+          portEXIT_CRITICAL(&mbx_cache_spinlock);
+        }
+        result.bool_val = (err == MB_OK);
+        break;
+      }
       case MBX_REQ_WRITE_HOLDINGS: {
         // v7.9.68.0: FC16 multi-register write — read values from pool slot
         uint8_t cnt = req.count;
@@ -619,7 +674,7 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
     // v7.9.68.0: multi writes bypass the single-address cache entirely (see
     // file header design note) — only g_mbx_success (set by the caller from
     // this function's return value) reflects them, no cache entry to update.
-    if (req.type != MBX_REQ_WRITE_HOLDINGS && req.type != MBX_REQ_WRITE_COILS) {
+    if (req.type != MBX_REQ_WRITE_HOLDINGS && req.type != MBX_REQ_WRITE_COILS && req.type != MBX_REQ_READ_HOLDINGS) {  // FEAT-461: multi-read opdaterer selv sine poster
       uint8_t cache_type = (uint8_t)req.type;
       if (req.type == MBX_REQ_WRITE_COIL) cache_type = (uint8_t)MBX_REQ_READ_COIL;
       if (req.type == MBX_REQ_WRITE_HOLDING) cache_type = (uint8_t)MBX_REQ_READ_HOLDING;

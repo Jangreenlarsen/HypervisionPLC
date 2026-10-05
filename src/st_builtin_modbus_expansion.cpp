@@ -238,6 +238,48 @@ st_value_t st_builtin_mbx_write_holdings(st_value_t board, st_value_t channel, s
   return result;
 }
 
+// FEAT-461: arr := MBX_READ_HOLDINGS(board, kanal, slave, addr, count).
+// Fylder g_mbx_multi_reg_buf fra de enkelte registres cache (seneste kendte
+// værdier) og sætter en opfriskning i kø, hvis den ikke allerede er undervejs.
+// MBX_SUCCESS() = alle registre har en gyldig værdi.
+st_value_t st_builtin_mbx_read_holdings(st_value_t board, st_value_t channel, st_value_t slave_id, st_value_t address, st_value_t count) {
+  st_value_t result; result.bool_val = false;
+  if (!mbx_check_request_limit()) return result;
+  if (!mbx_validate(board.int_val, channel.int_val, slave_id.int_val, address.int_val)) return result;
+  int32_t cnt = count.int_val;
+  if (cnt < 1 || cnt > MBX_MULTI_MAX || address.int_val + cnt - 1 > 65535) {
+    g_mbx_last_error = MB_INVALID_ADDRESS;
+    g_mbx_success = false;
+    return result;
+  }
+  uint8_t b = (uint8_t)board.int_val, c = (uint8_t)channel.int_val, s = (uint8_t)slave_id.int_val;
+  uint16_t a = (uint16_t)address.int_val;
+  bool all_valid = true, any_pending = false, any_expired = false;
+  mb_error_code_t last_err = MB_OK;
+  for (int32_t i = 0; i < cnt; i++) {
+    mbx_cache_entry_t *e = mbx_cache_get_or_create(b, c, s, (uint16_t)(a + i), (uint8_t)MBX_REQ_READ_HOLDING);
+    if (!e) { all_valid = false; g_mbx_multi_reg_buf[i] = 0; continue; }
+    portENTER_CRITICAL(&mbx_cache_spinlock);
+    g_mbx_multi_reg_buf[i] = (uint16_t)e->value.int_val;
+    // En post under opfriskning (PENDING) med en tidligere gyldig værdi og
+    // ingen fejl tæller som gyldig — ellers ville MBX_SUCCESS() ved konstant
+    // polling næsten altid være FALSE (hver kø-sætning markerer PENDING).
+    const bool refreshing_ok = e->status == MBX_CACHE_PENDING && e->last_update_ms > 0 && e->last_error == MB_OK;
+    if (e->status != MBX_CACHE_VALID && !refreshing_ok) all_valid = false;
+    if (e->status == MBX_CACHE_PENDING) any_pending = true;
+    if (mbx_cache_entry_expired(e)) any_expired = true;
+    if (e->last_error != MB_OK) last_err = (mb_error_code_t)e->last_error;
+    portEXIT_CRITICAL(&mbx_cache_spinlock);
+  }
+  if (!g_mbx_cache_enabled || any_expired || !any_pending) {
+    modbus_expansion_async_queue_read_multi_holdings(b, c, s, a, (uint8_t)cnt);
+  }
+  g_mbx_success = all_valid && !any_expired;
+  g_mbx_last_error = last_err;
+  result.bool_val = g_mbx_success;
+  return result;
+}
+
 // v7.9.68.0: FC15 multi-coil write — mirrors st_builtin_mbx_write_holdings() above.
 st_value_t st_builtin_mbx_write_coils(st_value_t board, st_value_t channel, st_value_t slave_id, st_value_t address, st_value_t count) {
   st_value_t result; result.bool_val = false;

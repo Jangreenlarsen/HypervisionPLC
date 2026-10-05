@@ -1864,7 +1864,8 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
       result = st_builtin_mbx_write_holding(board_i, ch_i, slave_i, addr_i, value_out);
     }
   } else if (arg_count == 6 &&
-             (func_id == ST_BUILTIN_MBX_WRITE_HOLDINGS || func_id == ST_BUILTIN_MBX_WRITE_COILS)) {
+             (func_id == ST_BUILTIN_MBX_WRITE_HOLDINGS || func_id == ST_BUILTIN_MBX_WRITE_COILS ||
+              func_id == ST_BUILTIN_MBX_READ_HOLDINGS)) {
     // v7.9.68.0: MBX_WRITE_HOLDINGS/MBX_WRITE_COILS(board, kanal, slave, addr, count) := array —
     // arg1=board, arg2=kanal, arg3=slave, arg4=addr, arg5=count, arg6=array_base_index.
     // Same board/kanal/slave/addr clamp discipline as the 5-arg MBX_WRITE_* block above.
@@ -1888,7 +1889,13 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
     uint8_t arr_base = (uint8_t)arg6.int_val;
     uint8_t cnt = (uint8_t)count_i.int_val;
 
-    if (func_id == ST_BUILTIN_MBX_WRITE_HOLDINGS) {
+    if (func_id == ST_BUILTIN_MBX_READ_HOLDINGS) {
+      // FEAT-461: seneste kendte værdier (cache) -> array; opfriskning i kø
+      result = st_builtin_mbx_read_holdings(board_i, ch_i, slave_i, addr_i, count_i);
+      for (uint8_t i = 0; i < cnt && (arr_base + i) < vm->var_count; i++) {
+        vm->variables[arr_base + i].int_val = (int16_t)g_mbx_multi_reg_buf[i];
+      }
+    } else if (func_id == ST_BUILTIN_MBX_WRITE_HOLDINGS) {
       for (uint8_t i = 0; i < cnt && (arr_base + i) < vm->var_count; i++) {
         g_mbx_multi_reg_buf[i] = (uint16_t)vm->variables[arr_base + i].int_val;
       }

@@ -45,6 +45,7 @@ st_value_t st_builtin_mbx_write_coil(st_value_t, st_value_t, st_value_t, st_valu
 st_value_t st_builtin_mbx_write_coils(st_value_t, st_value_t, st_value_t, st_value_t, st_value_t) { return z(); }
 st_value_t st_builtin_mbx_write_holding(st_value_t, st_value_t, st_value_t, st_value_t, st_value_t) { return z(); }
 st_value_t st_builtin_mbx_write_holdings(st_value_t, st_value_t, st_value_t, st_value_t, st_value_t) { return z(); }
+st_value_t st_builtin_mbx_read_holdings(st_value_t, st_value_t, st_value_t, st_value_t, st_value_t) { return z(); }  // FEAT-461
 st_value_t st_builtin_persist_load(st_value_t) { return z(); }
 st_value_t st_builtin_persist_save(st_value_t) { return z(); }
 

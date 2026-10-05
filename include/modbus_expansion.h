@@ -33,6 +33,7 @@ void modbus_expansion_init();
 
 mb_error_code_t modbus_expansion_read_coil(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, bool *result);
 mb_error_code_t modbus_expansion_read_input(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, bool *result);
+mb_error_code_t modbus_expansion_read_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, uint16_t *values);  // FEAT-461 (FC03 multi)
 mb_error_code_t modbus_expansion_read_holding(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint16_t *result);
 mb_error_code_t modbus_expansion_read_input_register(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint16_t *result);
 mb_error_code_t modbus_expansion_write_coil(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, bool value);

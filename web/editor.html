@@ -269,6 +269,8 @@ MBX_READ_COIL(board,ch,id,addr)
 MBX_READ_INPUT(board,ch,id,addr)
 MBX_WRITE_HOLDING(board,ch,id,addr,val)
 MBX_WRITE_COIL(board,ch,id,addr,val)
+arr := MBX_READ_HOLDINGS(board,ch,id,addr,n)
+MBX_WRITE_HOLDINGS(board,ch,id,addr,n) := arr
 MBX_SUCCESS() MBX_BUSY()
 MBX_ERROR()</code>
 <h3>Watchdog</h3>

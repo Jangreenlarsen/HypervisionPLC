@@ -269,6 +269,7 @@ Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ek
 | `MBX_READ_INPUT_REG(board, kanal, slave, addr)` | INT×4 | INT | 04 | Cachet input register |
 | `MBX_WRITE_COIL(board, kanal, slave, addr, val)` | INT×4, BOOL | BOOL (queued) | 05 | Kø'er skrivning |
 | `MBX_WRITE_HOLDING(board, kanal, slave, addr, val)` | INT×4, INT | BOOL (queued) | 06 | Kø'er skrivning |
+| `MBX_READ_HOLDINGS(board, kanal, slave, addr, count)` | INT×5 (count: 1-16) | `ARRAY OF INT` (+ BOOL) | 03 | **FEAT-461.** Læser op til 16 registre i ÉN transaktion. Syntaks: `arr := MBX_READ_HOLDINGS(board, kanal, slave, addr, count);` — arrayet får de senest kendte værdier (cache), og en opfriskning sættes i kø. Bruger samme cache-poster som `MBX_READ_HOLDING`, så værdierne også ses i Register Map. `MBX_SUCCESS()` = alle registre har en gyldig værdi |
 | `MBX_WRITE_HOLDINGS(board, kanal, slave, addr, count)` | INT×5 (count: 1-16) | `ARRAY OF INT` | 16 | **v7.9.68.0.** Kø'er skrivning. Særskilt array-syntaks, se nedenfor. Bypasser cachen (se advarsel nedenfor) |
 | `MBX_WRITE_COILS(board, kanal, slave, addr, count)` | INT×5 (count: 1-16) | `ARRAY OF BOOL` | 15 | **v7.9.68.0.** Kø'er skrivning. Særskilt array-syntaks, se nedenfor. Bypasser cachen (se advarsel nedenfor) |
 | `MBX_SUCCESS()` | — | BOOL | — | TRUE hvis seneste `MBX_*`-kald lykkedes |
@@ -282,6 +283,7 @@ Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ek
 > VAR regs: ARRAY[0..3] OF INT; END_VAR
 > VAR bits: ARRAY[0..3] OF BOOL; END_VAR
 > MBX_WRITE_HOLDINGS(1, 2, 5, 300, 4) := regs;   (* board=1, kanal=2, slave=5, addr=300 *)
+> regs := MBX_READ_HOLDINGS(1, 2, 5, 300, 4);     (* FEAT-461: læs 4 registre i én transaktion *)
 > MBX_WRITE_COILS(1, 2, 5, 400, 4) := bits;
 > ```
 > **Vigtig forskel fra enkelt-værdi-skrivningerne ovenfor**: `MBX_WRITE_HOLDINGS`/`MBX_WRITE_COILS` opdaterer **ikke** nogen cache-post — der findes ingen meningsfuld enkelt-adresse at cache en multi-register-bekræftelse under (samme begrænsning som RTU-sidens `MB_WRITE_HOLDINGS`). Kun `MBX_SUCCESS()`/`MBX_BUSY()`/`MBX_ERROR()` afspejler resultatet, ikke et efterfølgende `MBX_READ_HOLDING`-kald mod samme adresse.

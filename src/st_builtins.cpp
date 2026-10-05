@@ -539,6 +539,7 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
 
     case ST_BUILTIN_MBX_WRITE_HOLDINGS:
     case ST_BUILTIN_MBX_WRITE_COILS:
+    case ST_BUILTIN_MBX_READ_HOLDINGS:  // FEAT-461
       // 6-argument function (board, kanal, slave, addr, count, array) - handled in VM
       result.int_val = 0;
       break;
@@ -672,6 +673,7 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_WRITE_COIL:     return "MBX_WRITE_COIL";
     case ST_BUILTIN_MBX_WRITE_HOLDING:  return "MBX_WRITE_HOLDING";
     case ST_BUILTIN_MBX_WRITE_HOLDINGS: return "MBX_WRITE_HOLDINGS";
+    case ST_BUILTIN_MBX_READ_HOLDINGS:  return "MBX_READ_HOLDINGS";  // FEAT-461
     case ST_BUILTIN_MBX_WRITE_COILS:    return "MBX_WRITE_COILS";
     case ST_BUILTIN_MBX_SUCCESS:        return "MBX_SUCCESS";
     case ST_BUILTIN_WDT_FEED:           return "WDT_FEED";
@@ -824,6 +826,7 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     // (board, kanal, slave, addr, count, array)
     case ST_BUILTIN_MBX_WRITE_HOLDINGS:
     case ST_BUILTIN_MBX_WRITE_COILS:
+    case ST_BUILTIN_MBX_READ_HOLDINGS:  // FEAT-461
       return 6;
 
     // 1-argument Modbus control (v7.9.1)
@@ -910,6 +913,7 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_WRITE_COIL:    // MBX_WRITE_COIL → BOOL — FEAT-410
     case ST_BUILTIN_MBX_WRITE_HOLDING: // MBX_WRITE_HOLDING → BOOL — FEAT-410
     case ST_BUILTIN_MBX_WRITE_HOLDINGS: // MBX_WRITE_HOLDINGS → BOOL (queued flag) — v7.9.68.0
+    case ST_BUILTIN_MBX_READ_HOLDINGS:  // MBX_READ_HOLDINGS → BOOL (alle gyldige) — FEAT-461
     case ST_BUILTIN_MBX_WRITE_COILS:    // MBX_WRITE_COILS → BOOL (queued flag) — v7.9.68.0
     case ST_BUILTIN_MBX_SUCCESS:       // MBX_SUCCESS → BOOL — FEAT-410
     case ST_BUILTIN_MBX_BUSY:          // MBX_BUSY → BOOL — FEAT-410

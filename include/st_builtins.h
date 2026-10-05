@@ -156,6 +156,9 @@ typedef enum {
   // det kaldende program), ikke i st_builtin_call(). Altid SIDST tilfoejet.
   ST_BUILTIN_WDT_FEED,           // WDT_FEED() → BOOL (altid TRUE)
 
+  // FEAT-461: altid tilføjet SIDST (gemt bytecode refererer ID'er numerisk)
+  ST_BUILTIN_MBX_READ_HOLDINGS,  // arr := MBX_READ_HOLDINGS(board, kanal, slave, addr, count) → BOOL (FC03 multi)
+
   ST_BUILTIN_COUNT          // Total number of built-ins
 } st_builtin_func_t;
 

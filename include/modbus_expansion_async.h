@@ -117,7 +117,8 @@ typedef enum {
   MBX_REQ_WRITE_COIL,
   MBX_REQ_WRITE_HOLDING,
   MBX_REQ_WRITE_HOLDINGS,   // FC16 multi-register (v7.9.68.0)
-  MBX_REQ_WRITE_COILS       // FC15 multi-coil (v7.9.68.0)
+  MBX_REQ_WRITE_COILS,      // FC15 multi-coil (v7.9.68.0)
+  MBX_REQ_READ_HOLDINGS     // FC03 multi-register (FEAT-461)
 } mbx_request_type_t;
 
 typedef enum {
@@ -223,6 +224,7 @@ bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, 
 
 // v7.9.68.0: multi-register write (FC16) / multi-coil write (FC15) — bypass the
 // single-address cache entirely (see file header design note above).
+bool modbus_expansion_async_queue_read_multi_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count);  // FEAT-461
 bool modbus_expansion_async_queue_write_multi_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values);
 bool modbus_expansion_async_queue_write_multi_coils(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const bool *values);
 

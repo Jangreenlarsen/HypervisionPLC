@@ -393,6 +393,20 @@ mb_error_code_t modbus_expansion_read_holding(uint8_t board, uint8_t channel, ui
   return MB_CRC_ERROR;
 }
 
+// FEAT-461: FC03 med flere registre (1-16) i én transaktion.
+mb_error_code_t modbus_expansion_read_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, uint16_t *values) {
+  if (count == 0 || count > 16) return MB_INVALID_ADDRESS;
+  uint8_t req[5] = { 0x03, (uint8_t)(address >> 8), (uint8_t)(address & 0xFF), 0x00, count };
+  uint8_t resp[2 + 16 * 2]; uint8_t resp_len;
+  mb_error_code_t err = mbx_transact(board, channel, slave_id, req, sizeof(req), resp, &resp_len, sizeof(resp));
+  if (err != MB_OK) return err;
+  if (resp_len >= (uint8_t)(2 + count * 2) && resp[0] == 0x03 && resp[1] == count * 2) {
+    for (uint8_t i = 0; i < count; i++) values[i] = (uint16_t)((resp[2 + i * 2] << 8) | resp[3 + i * 2]);
+    return MB_OK;
+  }
+  return MB_CRC_ERROR;
+}
+
 mb_error_code_t modbus_expansion_read_input_register(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint16_t *result) {
   *result = 0;
   uint8_t req[5] = { 0x04, (uint8_t)(address >> 8), (uint8_t)(address & 0xFF), 0x00, 0x01 };

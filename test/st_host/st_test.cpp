@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include "st_builtins.h"
 #include "st_parser.h"
 #include "st_compiler.h"
 #include "st_vm.h"
@@ -176,6 +177,21 @@ int main() {
     st_bytecode_program_t *bc = compile("PROGRAM t VAR a:STRING; b:STRING; c:STRING; la:INT; lb:INT; lc:INT; END_VAR a := LEFT('Hypervision', 5); b := RIGHT('Hypervision', 6); c := MID('Hypervision', 3, 2); la := LEN(a); lb := LEN(b); lc := LEN(c); END_PROGRAM");
     cycle(bc);
     ok(bc && !strcmp(bc->string_vars[vidx(bc, "a")], "Hyper") && !strcmp(bc->string_vars[vidx(bc, "b")], "vision") && !strcmp(bc->string_vars[vidx(bc, "c")], "pe"), "LEFT/RIGHT/MID");
+  }
+  {  // FEAT-461: arr := MBX_READ_HOLDINGS(board, kanal, slave, addr, count)
+    st_bytecode_program_t *bc = compile("PROGRAM t VAR r: ARRAY[0..3] OF INT; END_VAR r := MBX_READ_HOLDINGS(1, 1, 9, 0, 4); END_PROGRAM");
+    ok(bc != NULL, "MBX_READ_HOLDINGS: array-tildeling compiler");
+    bool found = false;
+    if (bc) {
+      for (uint32_t i = 0; i < bc->instr_count; i++) {
+        if (bc->instructions[i].opcode == ST_OP_CALL_BUILTIN &&
+            bc->instructions[i].arg.int_arg == (int32_t)ST_BUILTIN_MBX_READ_HOLDINGS) found = true;
+      }
+      ok(cycle(bc), "MBX_READ_HOLDINGS: cyklus kører uden fejl");
+    }
+    ok(found, "MBX_READ_HOLDINGS: CALL_BUILTIN med det nye ID");
+    st_bytecode_program_t *bad = compile("PROGRAM t VAR x: INT; END_VAR x := MBX_READ_HOLDINGS(1, 1, 9, 0, 4); END_PROGRAM");
+    ok(bad == NULL, "MBX_READ_HOLDINGS: afvises uden ARRAY");
   }
   printf(fails ? "%d FEJL\n" : "ALLE TESTS OK\n", fails);
   return fails ? 1 : 0;

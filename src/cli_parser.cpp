@@ -645,7 +645,7 @@ static void print_modbus_expansion_help(void) {
   debug_println("  MBX_ERROR() → INT     - Seneste fejlkode (samme mb_error_code_t-tabel som MB_ERROR())");
   debug_println("");
   debug_println("  board: 1-8 (nr som vist i 'show modbus-expansion'). kanal: A/B eller 1-8.");
-  debug_println("  v7.9.68.0: multi-register/coil WRITE tilføjet. Multi-READ (MBX_READ_HOLDINGS) findes stadig ikke.");
+  debug_println("  v7.9.68.0: multi-register/coil WRITE. v7.9.68.94: arr := MBX_READ_HOLDINGS(board, kanal, slave, addr, count) (FC03 multi).");
   debug_println("");
 }
 

@@ -673,6 +673,10 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "MBX_WRITE_COIL") == 0) func_id = ST_BUILTIN_MBX_WRITE_COIL;
       else if (strcasecmp(node->data.function_call.func_name, "MBX_WRITE_HOLDING") == 0) func_id = ST_BUILTIN_MBX_WRITE_HOLDING;
       // v7.9.68.0: Modbus Expansion Board multi-register/coil writes (FC16/FC15)
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_READ_HOLDINGS") == 0) {
+        st_compiler_error(compiler, "Use: array := MBX_READ_HOLDINGS(board, kanal, slave, addr, count)");
+        return false;
+      }
       else if (strcasecmp(node->data.function_call.func_name, "MBX_WRITE_HOLDINGS") == 0) {
         st_compiler_error(compiler, "Use: MBX_WRITE_HOLDINGS(board, kanal, slave, addr, count) := array");
         return false;
@@ -984,11 +988,17 @@ static bool st_compiler_emit_store_symbol(st_compiler_t *compiler, uint8_t var_i
 
 static bool st_compiler_compile_assignment(st_compiler_t *compiler, st_ast_node_t *node) {
   // v7.9.2: Special case: array := MB_READ_HOLDINGS(slave, addr, count)
+  // FEAT-461: samme for array := MBX_READ_HOLDINGS(board, kanal, slave, addr, count)
   st_ast_node_t *rhs = node->data.assignment.expr;
-  if (rhs && rhs->type == ST_AST_FUNCTION_CALL &&
-      strcasecmp(rhs->data.function_call.func_name, "MB_READ_HOLDINGS") == 0 &&
-      rhs->data.function_call.arg_count == 3 &&
-      !node->data.assignment.index_expr) {
+  const bool is_mbx_rh = rhs && rhs->type == ST_AST_FUNCTION_CALL &&
+      strcasecmp(rhs->data.function_call.func_name, "MBX_READ_HOLDINGS") == 0 &&
+      rhs->data.function_call.arg_count == 5;
+  if (rhs && rhs->type == ST_AST_FUNCTION_CALL && !node->data.assignment.index_expr &&
+      (is_mbx_rh ||
+       (strcasecmp(rhs->data.function_call.func_name, "MB_READ_HOLDINGS") == 0 &&
+        rhs->data.function_call.arg_count == 3))) {
+    const char *fname = is_mbx_rh ? "MBX_READ_HOLDINGS" : "MB_READ_HOLDINGS";
+    const uint8_t nargs = is_mbx_rh ? 5 : 3;
     // LHS must be an array variable
     uint8_t arr_idx = st_compiler_lookup_symbol(compiler, node->data.assignment.var_name);
     if (arr_idx == 0xFF) {
@@ -1000,13 +1010,13 @@ static bool st_compiler_compile_assignment(st_compiler_t *compiler, st_ast_node_
     st_symbol_t *sym = &compiler->symbol_table.symbols[arr_idx];
     if (!sym->is_array) {
       char msg[128];
-      snprintf(msg, sizeof(msg), "'%s' is not an array — MB_READ_HOLDINGS requires ARRAY OF INT", node->data.assignment.var_name);
+      snprintf(msg, sizeof(msg), "'%s' is not an array — %s requires ARRAY OF INT", node->data.assignment.var_name, fname);
       st_compiler_error(compiler, msg);
       return false;
     }
 
-    // Compile 3 function args
-    for (uint8_t i = 0; i < 3; i++) {
+    // Compile 3 (MB) / 5 (MBX) function args
+    for (uint8_t i = 0; i < nargs; i++) {
       if (!st_compiler_compile_expr(compiler, rhs->data.function_call.args[i])) {
         return false;
       }
@@ -1018,7 +1028,8 @@ static bool st_compiler_compile_assignment(st_compiler_t *compiler, st_ast_node_
     push_instr->arg.int_arg = (int32_t)arr_idx;
 
     // Emit CALL_BUILTIN MB_READ_HOLDINGS (4 args — VM fills array + pushes BOOL)
-    if (!st_compiler_emit_int(compiler, ST_OP_CALL_BUILTIN, (int32_t)ST_BUILTIN_MB_READ_HOLDINGS)) {
+    if (!st_compiler_emit_int(compiler, ST_OP_CALL_BUILTIN,
+                              (int32_t)(is_mbx_rh ? ST_BUILTIN_MBX_READ_HOLDINGS : ST_BUILTIN_MB_READ_HOLDINGS))) {
       return false;
     }
 

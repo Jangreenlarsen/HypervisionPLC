@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.94] - 2026-10-05
+
+### FEATURES
+- **FEAT-461:** `arr := MBX_READ_HOLDINGS(board, kanal, slave, addr, count)` læser op til 16 holding registers fra et expansion board i én FC03-transaktion. Funktionen deler cache med `MBX_READ_HOLDING`, så værdierne også ses i Register Map. Det nye builtin-ID er tilføjet sidst, så gemt bytecode er uændret. Editor, Appendiks D og kapitel 6 er opdateret, og der er 4 nye host-tests.
+
 ## [7.9.68.93] - 2026-10-05
 
 ### FEATURES

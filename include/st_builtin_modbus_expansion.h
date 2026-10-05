@@ -51,6 +51,8 @@ st_value_t st_builtin_mbx_write_holding(st_value_t board, st_value_t channel, st
  * Values are gathered from g_mbx_multi_reg_buf (filled by the VM before this call).
  * count: 1-16 registers. Bypasses the single-address cache (see modbus_expansion_async.h).
  */
+/** FEAT-461: arr := MBX_READ_HOLDINGS(board, kanal, slave, addr, count) — FC03 multi; fylder g_mbx_multi_reg_buf */
+st_value_t st_builtin_mbx_read_holdings(st_value_t board, st_value_t channel, st_value_t slave_id, st_value_t address, st_value_t count);
 st_value_t st_builtin_mbx_write_holdings(st_value_t board, st_value_t channel, st_value_t slave_id, st_value_t address, st_value_t count);
 
 /**
