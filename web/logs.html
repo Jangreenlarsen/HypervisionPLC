@@ -19,7 +19,7 @@
 .card{background:#181825;border:1px solid #313244;border-radius:8px;padding:16px 20px}
 .card h2{font-size:14px;color:#89b4fa;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #313244;display:flex;align-items:center;gap:8px}
 .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
-.toolbar select,.toolbar input[type=number]{background:#313244;border:1px solid #45475a;color:#cdd6f4;border-radius:4px;padding:5px 8px;font-size:12px}
+.toolbar select,.toolbar input[type=number],.toolbar input[type=text]{background:#313244;border:1px solid #45475a;color:#cdd6f4;border-radius:4px;padding:5px 8px;font-size:12px}
 .toolbar .spacer{flex:1}
 .badge{font-size:11px;color:#a6adc8}
 .btn{padding:6px 14px;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;transition:opacity .15s}
@@ -57,7 +57,7 @@
 <!-- Header -->
 <div class="hdr">
 <h1>Logs</h1>
-<span class="info">API Audit Log, System Hændelseslog og Modbus Aktivitetslog</span>
+<span class="info">API Audit Log, System Hændelseslog, Modbus Aktivitetslog og Alarm Historik</span>
 </div>
 
 <!-- Login Modal -->
@@ -93,6 +93,7 @@
 <div class="tab-btn active" id="tabBtnAudit" onclick="switchTab('audit')">API Audit Log</div>
 <div class="tab-btn" id="tabBtnSys" onclick="switchTab('sys')">System Hændelseslog</div>
 <div class="tab-btn" id="tabBtnMb" onclick="switchTab('mb')">Modbus Aktivitetslog</div>
+<div class="tab-btn" id="tabBtnAlarm" onclick="switchTab('alarm')">Alarm Historik</div>
 </div>
 
 <!-- Content -->
@@ -178,6 +179,33 @@
 <div class="tbl-wrap" id="mbActBody"><span class="empty-msg">Indlæser...</span></div>
 </div>
 
+
+<!-- FEAT-452: Alarm Historik panel (samme data som dashboardets kort, FEAT-134) -->
+<div id="panelAlarm" class="card" hidden>
+<h2>Alarm Historik <span class="badge" id="alarmBadge">0</span></h2>
+<div class="toolbar">
+<span class="badge" id="alarmInfo">-</span>
+<div class="spacer"></div>
+<select id="alarmSev" onchange="renderAlarms()">
+<option value="-1">Alle severity</option>
+<option value="2">Kritiske</option>
+<option value="1">Advarsler</option>
+<option value="0">Info</option>
+</select>
+<select id="alarmAckSel" onchange="renderAlarms()">
+<option value="any">Alle</option>
+<option value="unack">Kun ukvitterede</option>
+<option value="ack">Kun kvitterede</option>
+</select>
+<input type="text" id="alarmSearch" placeholder="Søg i tekst..." oninput="renderAlarms()" style="width:180px">
+<input type="number" id="alarmLimit" value="100" min="5" max="500" onchange="renderAlarms()" title="Max antal linjer" style="width:70px">
+<button class="btn btn-sm" onclick="clearAlarmFilter()" style="background:#313244;color:#a6adc8">Nulstil filter</button>
+<button class="btn btn-sm" onclick="exportAlarms()" style="background:#313244;color:#a6adc8">Eksporter CSV</button>
+<button class="btn btn-primary btn-sm" onclick="ackAlarms()">Kvittér alle</button>
+</div>
+<div class="tbl-wrap" id="alarmBody"><span class="empty-msg">Indlæser...</span></div>
+</div>
+
 </div><!-- content -->
 
 <div class="foot"><span>HyberFusion PLC Logs</span><span id="footVer"></span></div>
@@ -194,8 +222,8 @@ let pendingConfirmFn=null;
 
 
 // --- Tabs ---
-// FEAT-451: tre faner; den valgte huskes i URL'ens #hash (logs#modbus)
-const _tabs={audit:['panelAudit','tabBtnAudit',()=>fetchLogs()],sys:['panelSys','tabBtnSys',()=>fetchSyslog()],mb:['panelMb','tabBtnMb',()=>fetchMbAct()]};
+// FEAT-451/452: fire faner; den valgte huskes i URL'ens #hash (logs#modbus)
+const _tabs={audit:['panelAudit','tabBtnAudit',()=>fetchLogs()],sys:['panelSys','tabBtnSys',()=>fetchSyslog()],mb:['panelMb','tabBtnMb',()=>fetchMbAct()],alarm:['panelAlarm','tabBtnAlarm',()=>fetchAlarms()]};
 let _activeTab='audit';
 function switchTab(name){
   if(!_tabs[name])name='audit';
@@ -517,11 +545,85 @@ function clearMbAct(){
   });
 }
 
+
+// ============================================================
+// ALARM HISTORIK (FEAT-452) — samme log som dashboardets "Alarm
+// Historik"-kort (FEAT-134): /api/alarms, kvittering via /api/alarms/ack.
+// ============================================================
+let _alarmLog=[];
+function fetchAlarms(){
+  api('/api/alarms').then(r=>r.json()).then(d=>{
+    _alarmLog=Array.isArray(d)?d:(d.entries||[]);
+    renderAlarms();
+  }).catch(()=>{$('alarmBody').innerHTML='<span class="empty-msg">Kunne ikke hente alarmer</span>';});
+}
+function clearAlarmFilter(){
+  $('alarmSev').value='-1';$('alarmAckSel').value='any';$('alarmSearch').value='';$('alarmLimit').value='100';
+  renderAlarms();
+}
+function _alarmFiltered(){
+  const sev=parseInt($('alarmSev').value),ack=$('alarmAckSel').value;
+  const q=($('alarmSearch').value||'').toLowerCase();
+  return _alarmLog.filter(a=>{
+    if(sev>=0&&a.severity!==sev)return false;
+    if(ack==='unack'&&a.acknowledged)return false;
+    if(ack==='ack'&&!a.acknowledged)return false;
+    if(q){const hay=(a.message+' '+(a.source_ip||'')+' '+(a.username||'')+' '+(a.time||'')).toLowerCase();if(hay.indexOf(q)<0)return false;}
+    return true;
+  });
+}
+function renderAlarms(){
+  const el=$('alarmBody');
+  const unack=_alarmLog.filter(a=>!a.acknowledged).length;
+  $('alarmBadge').textContent=String(_alarmLog.length);
+  $('tabBtnAlarm').textContent='Alarm Historik'+(unack?' ('+unack+')':'');
+  if(!_alarmLog.length){el.innerHTML='<span class="empty-msg">Ingen alarmer</span>';$('alarmInfo').textContent='0 alarmer';return;}
+  const filtered=_alarmFiltered();
+  const limit=Math.max(5,parseInt($('alarmLimit').value)||100);
+  $('alarmInfo').textContent=_alarmLog.length+' total, '+unack+' ukvitterede, '+filtered.length+' matcher filter';
+  if(!filtered.length){el.innerHTML='<span class="empty-msg">Ingen alarmer matcher filter</span>';return;}
+  let h='<table class="tbl"><thead><tr><th>Tid</th><th>Sev.</th><th>Alarm</th><th>Kilde / Detaljer</th><th>Status</th></tr></thead><tbody>';
+  for(const a of filtered.slice(-limit).reverse()){
+    const sevCol=a.severity===2?'#f38ba8':a.severity===1?'#fab387':'#a6e3a1';
+    const sevLbl=a.severity===2?'KRIT':a.severity===1?'ADV':'INFO';
+    const st=a.acknowledged?'<span style="color:#6c7086">Kvitteret</span>':'<span style="color:#f38ba8;font-weight:700">Aktiv</span>';
+    let src='';
+    if(a.source_ip)src+='<span title="Klient IP" style="color:#89b4fa">'+escHtml(a.source_ip)+'</span>';
+    if(a.username)src+=(src?' / ':'')+'<span title="Bruger" style="color:#cba6f7">'+escHtml(a.username)+'</span>';
+    const tx=a.message.match(/TX\s*->\s*ID:(\d+)\s*@(\d+)/);
+    const rx=a.message.match(/RX\s*<-\s*ID:(\d+)/);
+    if(tx)src+=(src?' · ':'')+'<span style="color:#fab387">TX → Slave ID:'+tx[1]+' Reg:'+tx[2]+'</span>';
+    else if(rx)src+=(src?' · ':'')+'<span style="color:#fab387">RX ← Slave ID:'+rx[1]+'</span>';
+    h+='<tr><td>'+escHtml(a.time||a.uptime)+'</td><td style="color:'+sevCol+';font-weight:700">'+sevLbl+'</td><td>'+escHtml(a.message)+'</td><td>'+(src||'-')+'</td><td>'+st+'</td></tr>';
+  }
+  el.innerHTML=h+'</tbody></table>';
+}
+function ackAlarms(){
+  api('/api/alarms/ack',{method:'POST'}).then(()=>fetchAlarms()).catch(()=>{});
+}
+function exportAlarms(){
+  const rows=_alarmFiltered();
+  if(!rows.length){alert('Ingen alarmer at eksportere');return;}
+  const nl=String.fromCharCode(10);
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  let csv='tid;severity;alarm;klient_ip;bruger;kvitteret'+nl;
+  for(const a of rows)csv+=q(a.time||a.uptime)+';'+a.severity+';'+q(a.message)+';'+q(a.source_ip)+';'+q(a.username)+';'+(a.acknowledged?1:0)+nl;
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  link.href=url;
+  link.download='alarmer_'+now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())+'.csv';
+  document.body.appendChild(link);link.click();document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 // ============================================================
 // BOOTSTRAP
 // ============================================================
 setInterval(()=>{_tabs[_activeTab][2]();},5000);
-{const h=location.hash.replace('#','');if(h==='modbus')switchTab('mb');else if(h==='sys')switchTab('sys');}
+{const h=location.hash.replace('#','');if(h==='modbus')switchTab('mb');else if(h==='sys')switchTab('sys');else if(h==='alarm')switchTab('alarm');else fetchAlarms();}  // fetchAlarms: antal ukvitterede i fanen
 updateUserBadge();
 api('/api/version').then(r=>r.json()).then(d=>{$('footVer').textContent='v'+(d.firmware_version||'-');}).catch(()=>{});
 </script>

@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.85] - 2026-10-05
+
+### FEATURES
+- **FEAT-452:** Alle logs samlet på Logs-siden: ny fane **Alarm Historik** (filtre for severity, kvittering og fritekst, Kvittér alle, CSV-eksport, antal ukvitterede i fanens titel) ved siden af API Audit Log, System Hændelseslog og Modbus Aktivitetslog. `/logs#alarm` åbner fanen direkte.
+
 ## [7.9.68.84] - 2026-10-05
 
 ### BUG FIXES
