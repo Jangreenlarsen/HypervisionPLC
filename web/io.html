@@ -820,7 +820,8 @@ function loadExpBoards(){
       return;
     }
     testSel.innerHTML=d.boards.map(b=>'<option value="'+b.id+'">#'+b.number+' — '+escHtml(b.name)+'</option>').join('')+EXP_TEST_INTERNAL_OPT;
-    _expBoards={};_expBoardsFull={};d.boards.forEach(b=>{_expBoards[b.id]={name:b.name,number:b.number,channels:b.channels||2};_expBoardsFull[b.id]=b});
+    // BUG-477: channels 0 = ukendt endnu (boardet er ikke spurgt endnu)
+    _expBoards={};_expBoardsFull={};d.boards.forEach(b=>{_expBoards[b.id]={name:b.name,number:b.number,channels:b.channels||0};_expBoardsFull[b.id]=b});
     if(prevSel==='internal'||d.boards.some(b=>String(b.id)===prevSel))testSel.value=prevSel;
     updateExpTestFields();
     tbody.innerHTML=d.boards.map(b=>{
@@ -1031,6 +1032,8 @@ function testExpBoardConnection(id){
       if(d.error||!d.transport_ok){cell.innerHTML='<span style="color:#f38ba8">Ikke tilgængelig</span>';return}
       const r=d.response||{};
       cell.innerHTML='<span style="color:#a6e3a1">OK</span> fw '+(r.fw_version||'?')+', kanaler '+(r.active_channels!==undefined?r.active_channels:'?');
+      // BUG-477: opdater kanaltallet paa siden med det samme (test-panelets kanalliste)
+      if(r.active_channels&&_expBoards[id]){_expBoards[id].channels=r.active_channels;updateExpTestFields();}
     });
   }).catch(e=>{if(cell)cell.innerHTML='<span style="color:#f38ba8">Fejl: '+escHtml(e.message)+'</span>'});
 }
@@ -1509,7 +1512,8 @@ function updateExpTestFields(){
   $('expTestChannelWrap').style.display=internal?'none':'block';
   // FEAT-466: kanalvalg efter boardets faktiske kanaltal (A-B eller A-D)
   {const sel=$('expTestChannel'),bid=parseInt($('expTestBoard').value,10);
-   const n=(!internal&&_expBoards[bid]&&_expBoards[bid].channels)||2;
+   // BUG-477: ukendt kanaltal (board kom online sent) -> vis A-D; boardet afviser selv en kanal det ikke har
+   const n=internal?2:((_expBoards[bid]&&_expBoards[bid].channels)||4);
    if(sel.options.length!==n){const cur=sel.value;sel.innerHTML='';for(let i=1;i<=n;i++){const o=document.createElement('option');o.value=String(i);o.textContent=String.fromCharCode(64+i);sel.appendChild(o)}if(parseInt(cur,10)<=n)sel.value=cur}}
   const fcSel=$('expTestFc');
   for(const o of fcSel.options){const n=parseInt(o.value,10);o.disabled=internal&&(n===15||n===16)}

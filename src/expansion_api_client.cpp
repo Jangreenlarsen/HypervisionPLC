@@ -487,6 +487,21 @@ static void expansion_restore_sequence(uint8_t i, char *summary, size_t cap) {
            fail == 0 ? "true" : "false", ok, fail, own, host);
 }
 
+// FEAT-466/BUG-477: boardets faktiske kanaltal og hardware-type (fx "4xRS485")
+// fra et /api/status-svar
+static void expansion_parse_status_hw(uint8_t i, const char *sb) {
+  if (!sb) return;
+  const char *p = strstr(sb, "\"active_channels\":");
+  if (p) g_exp_active_ch[i] = (uint8_t)atoi(p + 18);
+  p = strstr(sb, "\"board_type\":\"");
+  if (p) {
+    p += 14;
+    size_t n = 0;
+    while (p[n] && p[n] != '"' && n < sizeof(g_exp_hw_type[i]) - 1) { g_exp_hw_type[i][n] = p[n]; n++; }
+    g_exp_hw_type[i][n] = 0;
+  }
+}
+
 static void expansion_health_probe(uint8_t i) {
   char *body = NULL;
   int code = -1;
@@ -495,6 +510,9 @@ static void expansion_health_probe(uint8_t i) {
   if (code == 200) {
     uint32_t now = millis();
     g_exp_health_ok_ms[i] = now ? now : 1;
+    // BUG-477: et board der kom online efter PLC'ens opstart fik foerst sit
+    // kanaltal ved naeste 5-min-hentning — saa viste siderne 2 kanaler
+    expansion_parse_status_hw(i, body);
   }
 }
 
@@ -517,17 +535,7 @@ static void expansion_health_tick(void) {
       // FEAT-466: boardets faktiske kanaltal og hardware-type (fx "4xRS485")
       char *sb = NULL;
       int sc = -1;
-      if (expansion_http_get(i, "/api/status", &sb, &sc)) {
-        const char *p = strstr(sb, "\"active_channels\":");
-        if (p) g_exp_active_ch[i] = (uint8_t)atoi(p + 18);
-        p = strstr(sb, "\"board_type\":\"");
-        if (p) {
-          p += 14;
-          size_t n = 0;
-          while (p[n] && p[n] != '"' && n < sizeof(g_exp_hw_type[i]) - 1) { g_exp_hw_type[i][n] = p[n]; n++; }
-          g_exp_hw_type[i][n] = 0;
-        }
-      }
+      if (expansion_http_get(i, "/api/status", &sb, &sc)) expansion_parse_status_hw(i, sb);
       g_exp_health_http[i] = 200;
       g_exp_health_ok_ms[i] = now ? now : 1;
     } else {
@@ -541,7 +549,7 @@ static void expansion_health_tick(void) {
     const ExpansionBoard *b = &g_persist_config.expansion_boards[i];
     if (!b->configured || b->token[0] == '\0') continue;
     uint32_t rx = modbus_expansion_board_last_rx_ms(i + 1);
-    if (rx && (millis() - rx) < EXP_HEALTH_DATA_FRESH_MS) continue;
+    if (rx && (millis() - rx) < EXP_HEALTH_DATA_FRESH_MS && g_exp_active_ch[i] != 0) continue;  // BUG-477: ukendt kanaltal -> probe alligevel
     g_exp_health_next = (uint8_t)(i + 1);
     expansion_health_probe(i);
     return;

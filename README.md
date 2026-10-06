@@ -2,7 +2,7 @@
 
 **A network-connected PLC on an ESP32.** One firmware image provides a Modbus RTU slave and master, an IEC 61131-3 Structured Text runtime, counters/timers, a REST API and a web dashboard.
 
-[![Version](https://img.shields.io/badge/version-7.9.68.113-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-7.9.68.114-blue)](CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/platform-ESP32--WROOM--32%20%7C%20ES32D26%20(WROVER)-informational)](docs/manual/02_Hardware_og_Moduler.md)
 [![Framework](https://img.shields.io/badge/framework-PlatformIO%20%2F%20Arduino-orange)](platformio.ini)
 [![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)

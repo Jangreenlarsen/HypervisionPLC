@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.114] - 2026-10-06
+
+### BUG FIXES
+- **BUG-477:** Et expansion board, der kom online efter PLC'ens opstart, blev vist med kun 2 kanaler i I/O-sidens test i op til 5 minutter. PLC'en henter nu kanaltallet ved sit sundhedstjek hvert 15. sekund. Er kanaltallet endnu ukendt, viser siden A-D, og "Test forbindelse" opdaterer det straks.
+
 ## [7.9.68.113] - 2026-10-06
 
 ### CHANGES
