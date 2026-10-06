@@ -326,7 +326,7 @@ Se [kapitel 11](11_Backup_Restore_og_Firmware.md) for brugsanvisning og opbevari
 
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
-| GET | `/api/persist/groups` | CHECK_AUTH | `enabled`,`group_count`,`max_groups`(8),`auto_load_enabled`,`groups`[{id,name,reg_count,max_regs(16),last_save_ms}] |
+| GET | `/api/persist/groups` | CHECK_AUTH | `enabled`,`group_count`,`max_groups`(8),`auto_load_enabled`,`uptime_ms`,`groups`[{id,name,reg_count,max_regs(16),last_save_ms,`regs`}]. **FEAT-472:** `regs` = `[[addr, gemt, aktuel], …]`; `last_save_ms` er `millis()` ved seneste SAVE og kun meningsfuld når ≤ `uptime_ms` (ellers fra før genstart) |
 | GET | `/api/persist/groups/{navn}` *(wildcard)* | CHECK_AUTH | Gruppedetaljer inkl. `registers`[{addr,saved_value,current_value}] |
 | POST | `/api/persist/groups/{navn}` | CHECK_AUTH_WRITE | Opretter gruppen hvis den ikke findes. Body: `{"registers":[N,...]}` (tilføj) og/eller `{"remove":[N,...]}` (fjern). Aktiverer persistence hvis slukket. |
 | DELETE | `/api/persist/groups/{navn}` | CHECK_AUTH_WRITE | Sletter gruppen |

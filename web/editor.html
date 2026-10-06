@@ -1375,7 +1375,7 @@ async function loadDerived(mine,gpios){
     [...pg].forEach(call=>{
       const id=+call.replace(/\D/g,'');
       const g=id?groups.filter(x=>x.id===id):groups;
-      rows.push([call,'Persist '+(id?'gruppe '+id:'alle grupper'),g.length?g.map(x=>esc(x.name)+': '+x.reg_count+' register(e)').join('<br>'):'<span style="color:#f38ba8">gruppen findes ikke</span>']);
+      rows.push([call,'Persist '+(id?'gruppe '+id:'alle grupper'),g.length?g.map(x=>esc(x.name)+': '+((x.regs||[]).map(r=>'HR'+r[0]).join(', ')||x.reg_count+' register(e)')).join('<br>'):'<span style="color:#f38ba8">gruppen findes ikke</span>']);
     });
   }
   body.innerHTML=rows.map(r=>'<tr><td>'+r[0]+'</td><td>'+r[1]+'</td><td>'+r[2]+'</td></tr>').join('');

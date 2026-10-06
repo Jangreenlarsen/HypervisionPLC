@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.107] - 2026-10-06
+
+### FEATURES
+- **FEAT-472:** System → Persistente register-grupper viser nu, hvilke registre hver gruppe indeholder, med aktuel og gemt værdi (gemt vises i orange, hvis de afviger). "Sidst gemt" vises som tid siden (fx "2 min siden") i stedet for et rå millisekundtal. `GET /api/persist/groups` medtager registrene.
+
 ## [7.9.68.106] - 2026-10-06
 
 ### BUG FIXES

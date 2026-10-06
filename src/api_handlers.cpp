@@ -11115,27 +11115,38 @@ esp_err_t api_handler_persist_groups_list(httpd_req_t *req)
 
   PersistentRegisterData *pr = &g_persist_config.persist_regs;
 
-  char *buf = (char *)malloc(2048);
+  // FEAT-472: registrene medtages kompakt som [addr,gemt,aktuel] (8 grupper x 16
+  // registre x ~20 B = ~2,6 KB i vaerste fald) + uptime_ms, saa UI'et kan vise
+  // indhold og "senest gemt" uden et ekstra kald pr. gruppe
+  const int BUF_SZ = 4096;
+  char *buf = (char *)malloc(BUF_SZ);
   if (!buf) return api_send_error(req, 500, "Out of memory");
 
   int pos = 0;
-  pos += snprintf(buf + pos, 2048 - pos,
-    "{\"enabled\":%s,\"group_count\":%d,\"max_groups\":%d,\"auto_load_enabled\":%s,\"groups\":[",
+  pos += snprintf(buf + pos, BUF_SZ - pos,
+    "{\"enabled\":%s,\"group_count\":%d,\"max_groups\":%d,\"auto_load_enabled\":%s,\"uptime_ms\":%lu,\"groups\":[",
     pr->enabled ? "true" : "false",
     pr->group_count,
     PERSIST_MAX_GROUPS,
-    pr->auto_load_enabled ? "true" : "false");
+    pr->auto_load_enabled ? "true" : "false",
+    (unsigned long)millis());
 
-  for (int i = 0; i < pr->group_count && i < PERSIST_MAX_GROUPS; i++) {
+  for (int i = 0; i < pr->group_count && i < PERSIST_MAX_GROUPS && pos < BUF_SZ - 256; i++) {
     PersistGroup *grp = &pr->groups[i];
-    if (i > 0) pos += snprintf(buf + pos, 2048 - pos, ",");
-    pos += snprintf(buf + pos, 2048 - pos,
-      "{\"id\":%d,\"name\":\"%s\",\"reg_count\":%d,\"max_regs\":%d,\"last_save_ms\":%lu}",
+    if (i > 0) pos += snprintf(buf + pos, BUF_SZ - pos, ",");
+    pos += snprintf(buf + pos, BUF_SZ - pos,
+      "{\"id\":%d,\"name\":\"%s\",\"reg_count\":%d,\"max_regs\":%d,\"last_save_ms\":%lu,\"regs\":[",
       i + 1, grp->name, grp->reg_count, PERSIST_GROUP_MAX_REGS,
       (unsigned long)grp->last_save_ms);
+    for (int r = 0; r < grp->reg_count && r < PERSIST_GROUP_MAX_REGS && pos < BUF_SZ - 64; r++) {
+      pos += snprintf(buf + pos, BUF_SZ - pos, "%s[%u,%u,%u]", r ? "," : "",
+        (unsigned)grp->reg_addresses[r], (unsigned)grp->reg_values[r],
+        (unsigned)registers_get_holding_register(grp->reg_addresses[r]));
+    }
+    pos += snprintf(buf + pos, BUF_SZ - pos, "]}");
   }
 
-  pos += snprintf(buf + pos, 2048 - pos, "]}");
+  pos += snprintf(buf + pos, BUF_SZ - pos, "]}");
 
   esp_err_t ret = api_send_json(req, buf);
   free(buf);

@@ -393,7 +393,7 @@
 <button class="btn btn-sm btn-warn" onclick="doPersistRestore()">Gendan alle grupper</button>
 </div>
 <table class="tbl" id="persistTable">
-<thead><tr><th>Gruppe</th><th>Antal registre</th><th>Sidst gemt</th><th></th></tr></thead>
+<thead><tr><th>Gruppe</th><th>Registre (aktuel / gemt)</th><th>Antal</th><th>Sidst gemt</th><th></th></tr></thead>
 <tbody id="persistBody"><tr><td colspan="4" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
 </table>
 <h3 style="font-size:13px;color:#89b4fa;margin:16px 0 8px;padding-top:12px;border-top:1px solid #313244">Opret gruppe / tilføj-fjern registre</h3>
@@ -846,18 +846,26 @@ function loadPersistGroups(){
     const tbody=$('persistBody');
     const groups=data.groups||[];
     if(!Array.isArray(groups)||groups.length===0){
-      tbody.innerHTML='<tr><td colspan="4" style="color:#6c7086;text-align:center">Ingen persist grupper konfigureret</td></tr>';
+      tbody.innerHTML='<tr><td colspan="5" style="color:#6c7086;text-align:center">Ingen persist grupper konfigureret</td></tr>';
       return;
     }
     tbody.innerHTML='';
+    const up=data.uptime_ms||0;
     groups.forEach(g=>{
       const tr=document.createElement('tr');
-      tr.innerHTML='<td>'+(g.name||'-')+'</td><td>'+(g.reg_count!=null?g.reg_count:'-')+' / '+(g.max_regs||'-')+'</td><td>'+(g.last_save_ms?g.last_save_ms+' ms uptime':'Aldrig')+'</td>'+
+      // FEAT-472: registrenes indhold; aktuel forskellig fra gemt markeres
+      const regs=(g.regs||[]).map(r=>{const diff=r[1]!==r[2];
+        return '<span title="Aktuel '+r[2]+', gemt '+r[1]+'" style="white-space:nowrap">HR'+r[0]+' = '+r[2]+
+          (diff?' <span style="color:#fab387">(gemt '+r[1]+')</span>':'')+'</span>';}).join('<br>')||'<span style="color:#6c7086">ingen</span>';
+      // last_save_ms er millis() ved seneste SAVE — kun meningsfuldt i denne opstart
+      let saved='Ikke i denne opstart';
+      if(g.last_save_ms&&g.last_save_ms<=up){const s=Math.round((up-g.last_save_ms)/1000);saved=s<90?s+' s siden':s<5400?Math.round(s/60)+' min siden':Math.round(s/3600)+' t siden';}
+      tr.innerHTML='<td>'+escHtml(g.name||'-')+' <span style="color:#6c7086">#'+g.id+'</span></td><td>'+regs+'</td><td>'+(g.reg_count!=null?g.reg_count:'-')+' / '+(g.max_regs||'-')+'</td><td>'+saved+'</td>'+
         '<td><button class="btn btn-sm btn-danger" onclick="deletePersistGroup(\''+(g.name||'')+'\')">Slet</button></td>';
       tbody.appendChild(tr);
     });
   }).catch(()=>{
-    $('persistBody').innerHTML='<tr><td colspan="4" style="color:#6c7086;text-align:center">Kunne ikke indlæse persist grupper</td></tr>';
+    $('persistBody').innerHTML='<tr><td colspan="5" style="color:#6c7086;text-align:center">Kunne ikke indlæse persist grupper</td></tr>';
   });
 }
 function savePersistConfig(){
