@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.111] - 2026-10-06
+
+### FEATURES
+- **FEAT-478:** Rækkerne i ST-editorens Monitor kan flyttes ved at trække i ⠿ foran navnet. Browseren husker rækkefølgen for hvert program, og "Nulstil rækkefølge" giver programmets egen rækkefølge tilbage.
+
 ## [7.9.68.110] - 2026-10-06
 
 ### FEATURES

@@ -35,6 +35,11 @@
 .edit-badge b{color:#89b4fa}
 .edit-badge .run{color:#a6e3a1}.edit-badge .stop{color:#f38ba8}
 .vbtn.vbtn-mon.act{background:#a6e3a1;border-color:#a6e3a1;color:#1e1e2e}
+/* FEAT-478: flyt raekker i Monitor */
+.mon-grip{cursor:grab;color:#6c7086;margin-right:6px;user-select:none;font-size:12px}
+.mon-grip:hover{color:#cdd6f4}
+#monBody tr.mon-drag{opacity:.4}
+#monBody tr.mon-over{box-shadow:inset 0 2px 0 #89b4fa}
 .ref-btn{background:#45475a;color:#cdd6f4}.ref-btn.ref-on{background:#89b4fa;color:#1e1e2e}
 .views{display:flex;flex:1;min-height:0;overflow:hidden}
 .views-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
@@ -408,6 +413,7 @@ di[addr] — Discrete Input</code>
 <option value="120">120</option>
 <option value="240">240</option>
 </select>
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="resetMonOrder()" title="Vis variablerne i programmets egen rækkefølge igen (træk i ⠿ for at flytte en række)">Nulstil rækkefølge</button>
 <label title="Bruges for variabler uden egen valgt farve — se dropdown i selve trend-grafen for individuel farve pr. variabel">Standardfarve:</label>
 <select id="monColor" onchange="changeTrendColor()">
 <option value="#89b4fa" selected>Blå</option>
@@ -1825,6 +1831,30 @@ function removeWatch(raw){
   refreshMonitor();
 }
 
+// FEAT-478: brugerens raekkefoelge i Monitor, pr. program (localStorage)
+let _monDragName=null;
+function monOrderAll(){try{return JSON.parse(localStorage.getItem('hfplc_ed_monorder')||'{}')||{};}catch(e){return {};}}
+function monOrderSave(o){try{localStorage.setItem('hfplc_ed_monorder',JSON.stringify(o));}catch(e){}}
+function sortByMonOrder(vars){
+  const ord=monOrderAll()[SLOT];
+  if(!Array.isArray(ord)||!ord.length)return;
+  const pos={};ord.forEach((n,i)=>pos[n]=i);
+  const base=vars.map((v,i)=>[v,i]);
+  base.sort((a,b)=>{const pa=(a[0].name in pos)?pos[a[0].name]:1e6+a[1],pb=(b[0].name in pos)?pos[b[0].name]:1e6+b[1];return pa-pb;});
+  base.forEach((x,i)=>vars[i]=x[0]);
+}
+function moveMonRow(from,to){
+  if(!from||from===to)return;
+  const names=[...document.querySelectorAll('#monBody tr')].map(t=>t.dataset.name).filter(Boolean);
+  const fi=names.indexOf(from);if(fi<0)return;
+  names.splice(fi,1);
+  const ti=names.indexOf(to);
+  names.splice(ti<0?names.length:(fi<=ti?ti+1:ti),0,from);
+  const o=monOrderAll();o[SLOT]=names;monOrderSave(o);
+  monRows=null;refreshMonitor();
+}
+function resetMonOrder(){const o=monOrderAll();delete o[SLOT];monOrderSave(o);monRows=null;refreshMonitor();}
+
 function ensureMonRows(body,vars){
   const sig=SLOT+'|'+vars.map(v=>v.name+':'+v.type).join(',');
   if(monRows&&monRows.sig===sig&&body.firstChild&&monRows.first===body.firstChild)return;
@@ -1833,6 +1863,17 @@ function ensureMonRows(body,vars){
   vars.forEach(v=>{
     const tr=document.createElement('tr');
     const tdName=document.createElement('td');tdName.textContent=v.name;
+    // FEAT-478: traek-haandtag — raekken kan kun traekkes fra haandtaget
+    const grip=document.createElement('span');grip.className='mon-grip';grip.textContent='\u283F';grip.title='Træk for at flytte rækken';
+    grip.addEventListener('mousedown',()=>{tr.draggable=true;});
+    grip.addEventListener('mouseup',()=>{tr.draggable=false;});
+    tdName.prepend(grip);
+    tr.dataset.name=v.name;
+    tr.addEventListener('dragstart',e=>{_monDragName=v.name;tr.classList.add('mon-drag');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',v.name);}catch(x){}});
+    tr.addEventListener('dragend',()=>{tr.draggable=false;tr.classList.remove('mon-drag');document.querySelectorAll('#monBody tr.mon-over').forEach(x=>x.classList.remove('mon-over'));});
+    tr.addEventListener('dragover',e=>{if(!_monDragName)return;e.preventDefault();tr.classList.add('mon-over');});
+    tr.addEventListener('dragleave',()=>tr.classList.remove('mon-over'));
+    tr.addEventListener('drop',e=>{e.preventDefault();tr.classList.remove('mon-over');moveMonRow(_monDragName,v.name);_monDragName=null;});
     if(v.watch){  // FEAT-432
       const tag=document.createElement('span');tag.textContent='REG ';tag.style.cssText='color:#89b4fa;font-size:9px;font-weight:600';
       tdName.prepend(tag);tdName.title=v.watch.raw;
@@ -1947,6 +1988,7 @@ async function refreshMonitor(){
         value:wv[i]===null?'-':wv[i],watch:w,_bool:w.fmt==='BOOL'}));
     }
     document.getElementById('monEmpty').style.display=vars.length?'none':'block';
+    sortByMonOrder(vars);  // FEAT-478
     ensureMonRows(body,vars);
     vars.forEach(v=>{
       // FEAT-005: STRING har ingen meningsfuld numerisk trend — spring
