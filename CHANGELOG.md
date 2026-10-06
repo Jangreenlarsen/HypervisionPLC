@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.110] - 2026-10-06
+
+### FEATURES
+- **FEAT-476:** ST-editorens Bindings kan nu oprette en binding i begge retninger ("↔ Begge"), som før kun kunne laves i CLI. Den vises som én række, og Slet fjerner begge dele.
+- **FEAT-477:** Adressen vælges nu fra en liste 0-159, der viser, hvem der bruger hver adresse. Til output og begge retninger kan optagede adresser ikke vælges, mens input gerne må læse fx en tællers register. Systemets faste blokke (alle 4 tællere og analog I/O) står altid som optaget, også når de ikke er i brug. Editorens reference-panel har fået en ✕, der lukker det helt.
+
+### BUG FIXES
+- En coil, som en ST-binding læser, blev vist som "DI" i bindingslisten. Den vises nu som "Coil".
+
 ## [7.9.68.109] - 2026-10-06
 
 ### FEATURES

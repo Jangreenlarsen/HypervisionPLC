@@ -250,7 +250,7 @@
 </div>
 </div>
 <div class="sidebar" id="sidebar">
-<div class="sb-tools"><button onclick="sbAll(false)" title="Fold alle sektioner ud">Alle ud</button><button onclick="sbAll(true)" title="Fold alle sektioner sammen">Alle ind</button></div>
+<div class="sb-tools"><button onclick="sbAll(false)" title="Fold alle sektioner ud">Alle ud</button><button onclick="sbAll(true)" title="Fold alle sektioner sammen">Alle ind</button><button onclick="toggleSidebar(false)" title="Luk reference-panelet helt (åbnes igen med Ref)" style="color:#f38ba8">&#x2715;</button></div>
 <h3>Nøgleord</h3>
 <code class="kw">PROGRAM END_PROGRAM
 FUNCTION FUNCTION_BLOCK
@@ -342,17 +342,18 @@ di[addr] — Discrete Input</code>
 <div class="ppad">
 <h3>Variabel-bindinger — Program <span id="bindSlot">1</span></h3>
 <div class="bform" id="bindForm">
-<select id="bindVar"><option>Kompilér først</option></select>
-<select id="bindDir">
+<select id="bindVar" onchange="fillAddrOptions()"><option>Kompilér først</option></select>
+<select id="bindDir" onchange="fillAddrOptions()">
 <option value="output">Output →</option>
 <option value="input">← Input</option>
+<option value="both" title="Læses fra registret før og skrives til det efter hver cyklus — fx en indstilling der både kan ændres via Modbus og af programmet">↔ Begge</option>
 </select>
-<select id="bindType">
+<select id="bindType" onchange="fillAddrOptions()">
 <option value="reg">HR (Holding Reg)</option>
 <option value="coil">Coil</option>
 <option value="input">DI (Discrete In)</option>
 </select>
-<input type="number" id="bindAddr" placeholder="Addr" min="0" max="255" style="width:75px">
+<select id="bindAddr" style="min-width:190px" title="Optagede adresser kan ikke vælges til output (de viser hvem der bruger dem). Input må gerne læse fx en tællers register."></select>
 <input type="number" id="bindGpio" placeholder="GPIO pin" min="0" max="255" style="width:85px">
 <select id="bindSafe" title="Sikker tilstand for udgangen i safe mode / ved ST-watchdog (FEAT-427)">
 <option value="default">Sikker: OFF (std)</option>
@@ -1324,7 +1325,7 @@ function editBinding(b){
   document.getElementById('bindDir').value=b.direction||'output';
   const rtMap={'HR':'reg','Coil':'coil','DI':'input'};
   document.getElementById('bindType').value=rtMap[b.register_type]||'reg';
-  document.getElementById('bindAddr').value=b.register_addr||0;
+  fillAddrOptions(b.register_addr||0);
   document.getElementById('bindGpio').value=b.gpio_pin>=0?b.gpio_pin:'';
   document.getElementById('bindSafe').value=b.safe||'default';  // FEAT-427
   const btn=document.getElementById('btnBind');
@@ -1340,7 +1341,7 @@ function cancelEdit(){
   btn.textContent='Tilføj';
   btn.className='btn btn-primary btn-sm';
   document.getElementById('btnBindCancel').style.display='none';
-  document.getElementById('bindAddr').value='';
+  fillAddrOptions('');
   document.getElementById('bindGpio').value='';
   document.getElementById('bindSafe').value='default';  // FEAT-427
 }
@@ -1381,7 +1382,18 @@ async function loadBindings(){
     const gpios=(gd.gpios||[]);
     const body=document.getElementById('bindBody');
     body.innerHTML='';
-    const all=d.bindings||[];
+    _bindUsage=d.usage||{hr:[],coil:[],di:[]};
+    _bindAll=d.bindings||[];
+    const all0=d.bindings||[];
+    // FEAT-476: en "both"-binding er to mappings (input+output) — vis som een raekke
+    const all=[];
+    all0.forEach(b=>{
+      const pair=(b.direction==='input'||b.direction==='output')&&all.find(x=>x.program===b.program&&x.name===b.name&&
+        x.register_addr===b.register_addr&&x.register_type===b.register_type&&
+        ((x.direction==='input'&&b.direction==='output')||(x.direction==='output'&&b.direction==='input')));
+      if(pair&&b.register_type!=='DI'){pair.direction='both';pair.indices=[pair.index,b.index];return;}
+      all.push(Object.assign({},b));
+    });
     const mine=all.filter(b=>b.program===SLOT);
     document.getElementById('bindEmpty').style.display=mine.length?'none':'block';
     all.forEach(b=>{
@@ -1406,10 +1418,11 @@ async function loadBindings(){
           opt('default','OFF (std)')+opt('off','OFF')+opt('on','ON')+'</select>';
       }
       tr.innerHTML='<td>'+(b.name||'?')+'</td><td>'+(b.type||'?')+'</td><td>'+
-        (b.direction==='input'?'← Input':'Output →')+'</td><td>'+b.register_type+
-        '</td><td>'+b.register_addr+'</td><td>'+gpioTd+'</td><td>'+safeTd+'</td><td><button class="btn btn-sm" style="background:#89b4fa;color:#1e1e2e;margin-right:4px" onclick=\'editBinding('+bj+')\'>Redigér</button><button class="btn btn-danger btn-sm" onclick="delBinding('+b.index+')">Slet</button></td>';
+        (b.direction==='both'?'↔ Begge':b.direction==='input'?'← Input':'Output →')+'</td><td>'+b.register_type+
+        '</td><td>'+b.register_addr+'</td><td>'+gpioTd+'</td><td>'+safeTd+'</td><td><button class="btn btn-sm" style="background:#89b4fa;color:#1e1e2e;margin-right:4px" onclick=\'editBinding('+bj+')\'>Redigér</button><button class="btn btn-danger btn-sm" onclick="delBinding('+JSON.stringify(b.indices||[b.index])+')">Slet</button></td>';
       body.appendChild(tr);
     });
+    fillAddrOptions();
     await loadDerived(mine,gpios);
   }catch(e){log('error','Kunne ikke hente bindinger: '+e.message);}
 }
@@ -1500,6 +1513,42 @@ async function loadDerived(mine,gpios){
   document.getElementById('bindDerivedEmpty').style.display=rows.length?'none':'block';
 }
 
+// FEAT-477: adresseliste der kun tilbyder ledige adresser for skrivende bindinger
+let _bindUsage={hr:[],coil:[],di:[]},_bindAll=[];
+function fillAddrOptions(keep){
+  const sel=document.getElementById('bindAddr');if(!sel)return;
+  const cur=(keep!==undefined)?String(keep):sel.value;
+  const tp=document.getElementById('bindType').value;      // reg | coil | input
+  const dir=document.getElementById('bindDir').value;      // output | input | both
+  const vn=document.getElementById('bindVar').value;
+  const writes=(tp!=='input')&&(dir!=='input');
+  const key=tp==='reg'?'hr':tp==='coil'?'coil':'di';
+  const own={};  // adresser som DENNE variabel selv bruger (maa gerne vaelges ved redigering)
+  _bindAll.forEach(b=>{if(b.program===SLOT&&b.name===vn)own[b.register_addr]=1;});
+  const users={};
+  (_bindUsage[key]||[]).forEach(([a,t])=>{(users[a]=users[a]||[]).push(t);});
+  // HR/coil skrevet af en anden ST-binding: navngiv variablen (mere praecist end allokatoren)
+  _bindAll.forEach(b=>{
+    if(b.direction==='input')return;
+    const k=b.register_type==='HR'?'hr':b.register_type==='Coil'?'coil':null;
+    if(k!==key||(b.program===SLOT&&b.name===vn))return;
+    users[b.register_addr]=(users[b.register_addr]||[]).filter(t=>!/^Logic\d \(skriver\)$/.test(t));
+    users[b.register_addr].push('Logic'+b.program+' '+b.name);
+  });
+  const html=['<option value="">Vælg adresse…</option>'];
+  for(let a=0;a<160;a++){
+    let u=(users[a]||[]).filter(Boolean);
+    if(own[a])u=u.filter(t=>!/^Logic\d \(skriver\)$/.test(t)).concat(['denne variabel']);
+    // et skrivende ejerskab blokerer kun skrivende bindinger; GPIO-info (-> DOx / <- DIx) blokerer aldrig
+    const blocking=u.filter(t=>!/^(->|<-)/.test(t)&&t!=='denne variabel'&&!(tp==='input'));
+    const taken=writes&&blocking.length>0&&!own[a];
+    const label=a+(u.length?' · '+u.join(', '):(writes?' · ledig':''))+(taken?' (optaget)':'');
+    html.push('<option value="'+a+'"'+(taken?' disabled style="color:#585b70"':'')+'>'+escHtml(label)+'</option>');
+  }
+  sel.innerHTML=html.join('');
+  if(cur!==''&&sel.querySelector('option[value="'+cur+'"]:not([disabled])'))sel.value=cur;
+}
+
 async function addBinding(){
   const vn=document.getElementById('bindVar').value;
   const dir=document.getElementById('bindDir').value;
@@ -1507,7 +1556,10 @@ async function addBinding(){
   const addr=document.getElementById('bindAddr').value;
   const gpioVal=document.getElementById('bindGpio').value;
   if(!vn||!addr){log('error','Udfyld alle felter');return;}
+  if(dir==='both'&&tp==='input'){log('error','"Begge" kan ikke bruges med DI — en discrete input kan kun læses');return;}
   try{
+    // (bind-kaldet erstatter selv alle eksisterende bindinger for variablen,
+    //  ogsaa begge halvdele af en "both"-binding)
     if(editIdx>=0){await api('DELETE','bindings/'+editIdx);}
     const d=await api('POST','logic/'+SLOT+'/bind',{variable:vn,binding:tp+':'+addr,direction:dir});
     if(d.error){log('error','Binding fejl: '+d.error);}
@@ -1540,7 +1592,9 @@ async function addBinding(){
 async function delBinding(idx){
   if(!confirm('Slet denne binding?'))return;
   try{
-    await api('DELETE','bindings/'+idx);
+    // FEAT-476: en "both"-binding er to mappings — slet hoejeste indeks foerst
+    const list=(Array.isArray(idx)?idx:[idx]).slice().sort((a,b)=>b-a);
+    for(const i of list)await api('DELETE','bindings/'+i);
     log('info','Binding slettet');
     loadBindings();
   }catch(e){log('error','Slet fejlede: '+e.message);}

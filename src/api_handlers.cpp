@@ -5520,11 +5520,78 @@ esp_err_t api_handler_bindings_list(httpd_req_t *req)
     b["word_count"] = m->word_count;
 
     if (m->is_input) {
-      b["register_type"] = (m->input_type == 0) ? "HR" : "DI";
+      // FEAT-476: input_type 2 = coil (laest) — var fejlagtigt vist som "DI"
+      b["register_type"] = (m->input_type == 0) ? "HR" : (m->input_type == 2) ? "Coil" : "DI";
       b["register_addr"] = m->input_reg;
     } else {
       b["register_type"] = (m->output_type == 0) ? "HR" : "Coil";
       b["register_addr"] = m->output_reg;
+    }
+  }
+
+  // FEAT-477: hvem bruger hvilke adresser (bindbart omraade 0-159), saa
+  // editoren kun tilbyder ledige adresser. HR fra register-allokatoren (samme
+  // kilde som afviser en binding); coils skrevet af ST-output-bindinger eller
+  // styrende en GPIO-udgang; DI fodret af en GPIO-indgang eller laest af en
+  // taeller. Kun brugte adresser medtages: [[addr, "ejer"], ...].
+  {
+    JsonObject usage = doc["usage"].to<JsonObject>();
+    JsonArray uhr = usage["hr"].to<JsonArray>();
+    char txt[24];
+    for (uint16_t a = 0; a < 160 && a < ALLOCATOR_SIZE; a++) {
+      const RegisterOwner *o = register_allocator_get(a);
+      if (!o || o->type == REG_OWNER_NONE) {
+        // FEAT-477b: systemdefinerede blokke er reserveret ogsaa naar enheden
+        // ikke er i brug — taellerblokke (auto-tildelt, Counter n -> HR100+20(n-1)
+        // .. +14) og analog I/O (HR0-17). Timernes ctrl-reg ligger fra HR180.
+        if (a >= 100 && (a - 100) % 20 <= 14 && (a - 100) / 20 < COUNTER_COUNT) {
+          snprintf(txt, sizeof(txt), "Counter %u (reserveret)", (unsigned)((a - 100) / 20 + 1));
+        } else if (a <= 17) {
+          snprintf(txt, sizeof(txt), "Analog I/O (reserveret)");
+        } else {
+          continue;
+        }
+        JsonArray e = uhr.add<JsonArray>(); e.add(a); e.add(txt);
+        continue;
+      }
+      switch (o->type) {
+        case REG_OWNER_COUNTER: snprintf(txt, sizeof(txt), "Counter %u", o->subsystem_id); break;
+        case REG_OWNER_TIMER:   snprintf(txt, sizeof(txt), "Timer %u", o->subsystem_id); break;
+        case REG_OWNER_ANALOG:  snprintf(txt, sizeof(txt), "Analog I/O"); break;
+        case REG_OWNER_ST_VAR:  snprintf(txt, sizeof(txt), "Logic%u (skriver)", o->subsystem_id); break;
+        case REG_OWNER_ST_FIXED: snprintf(txt, sizeof(txt), "ST Logic (fast)"); break;
+        default:                snprintf(txt, sizeof(txt), "Optaget"); break;
+      }
+      JsonArray e = uhr.add<JsonArray>(); e.add(a); e.add(txt);
+    }
+    JsonArray ucoil = usage["coil"].to<JsonArray>();
+    JsonArray udi = usage["di"].to<JsonArray>();
+    for (int i = 0; i < g_persist_config.var_map_count; i++) {
+      const VariableMapping *m = &g_persist_config.var_maps[i];
+      if (m->source_type == MAPPING_SOURCE_ST_VAR && !m->is_input && m->output_type == 1 && m->output_reg < 256) {
+        snprintf(txt, sizeof(txt), "Logic%u (skriver)", m->st_program_id + 1);
+        JsonArray e = ucoil.add<JsonArray>(); e.add(m->output_reg); e.add(txt);
+      } else if (m->source_type == MAPPING_SOURCE_GPIO && !m->is_input && m->output_reg < 256) {
+        if (m->gpio_pin >= 201 && m->gpio_pin <= 208) snprintf(txt, sizeof(txt), "-> DO%u (GPIO %u)", m->gpio_pin - 200, m->gpio_pin);
+        else snprintf(txt, sizeof(txt), "-> GPIO %u", m->gpio_pin);
+        JsonArray e = ucoil.add<JsonArray>(); e.add(m->output_reg); e.add(txt);
+      } else if (m->source_type == MAPPING_SOURCE_GPIO && m->is_input && m->input_reg < 256) {
+        if (m->gpio_pin >= 101 && m->gpio_pin <= 108) snprintf(txt, sizeof(txt), "<- DI%u (GPIO %u)", m->gpio_pin - 100, m->gpio_pin);
+        else snprintf(txt, sizeof(txt), "<- GPIO %u", m->gpio_pin);
+        JsonArray e = udi.add<JsonArray>(); e.add(m->input_reg); e.add(txt);
+      }
+    }
+    for (uint8_t c = 1; c <= COUNTER_COUNT; c++) {
+      CounterConfig cc;
+      if (!counter_config_get(c, &cc) || !cc.enabled) continue;
+      if (cc.hw_mode == COUNTER_HW_SW || cc.hw_mode == COUNTER_HW_ENCODER) {
+        snprintf(txt, sizeof(txt), cc.hw_mode == COUNTER_HW_ENCODER ? "Counter %u CLK" : "Counter %u", c);
+        JsonArray e = udi.add<JsonArray>(); e.add(cc.input_dis); e.add(txt);
+      }
+      if (cc.hw_mode == COUNTER_HW_ENCODER) {
+        snprintf(txt, sizeof(txt), "Counter %u DT", c);
+        JsonArray e = udi.add<JsonArray>(); e.add(COUNTER_ENC_DT(&cc)); e.add(txt);
+      }
     }
   }
 
