@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.118] - 2026-10-06
+
+### BUG FIXES
+- **BUG-481:** Efter en enkelt timeout fra en slave bag et expansion board kunne skrivninger i de næste øjeblikke blive droppet uden at blive sendt, fx relæskift ved hurtige pulser. Backoff springer nu kun læsninger over. Skrivninger sendes altid.
+
 ## [7.9.68.117] - 2026-10-06
 
 ### BUG FIXES

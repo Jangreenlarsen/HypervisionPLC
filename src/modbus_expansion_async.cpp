@@ -576,7 +576,14 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
           break;
         }
       }
-      if (bo_idx < MBX_SLAVE_BACKOFF_MAX && g_mbx_async.slave_backoff[bo_idx].backoff_ms > 0) {
+      // BUG-481: backoff springer KUN laesninger over. En skrivning er en bevidst
+      // tilstandsaendring — den blev foer droppet (markeret fejl, aldrig sendt),
+      // fx et relae der ikke skiftede ved hurtige pulser lige efter en enkelt
+      // timeout. Skrivninger sendes altid; backoff beskytter mod at hamre en
+      // doed slave med gentagne laesninger.
+      const bool is_write_req = (req.type == MBX_REQ_WRITE_COIL || req.type == MBX_REQ_WRITE_HOLDING ||
+                                 req.type == MBX_REQ_WRITE_COILS || req.type == MBX_REQ_WRITE_HOLDINGS);
+      if (!is_write_req && bo_idx < MBX_SLAVE_BACKOFF_MAX && g_mbx_async.slave_backoff[bo_idx].backoff_ms > 0) {
         uint32_t elapsed = millis() - g_mbx_async.slave_backoff[bo_idx].last_attempt_ms;
         if (elapsed < g_mbx_async.slave_backoff[bo_idx].backoff_ms) {
           uint8_t cache_type = (uint8_t)req.type;
