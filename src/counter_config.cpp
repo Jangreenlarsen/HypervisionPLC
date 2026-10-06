@@ -95,7 +95,8 @@ void counter_config_sanitize(CounterConfig* cfg) {
   cfg->auto_start = cfg->auto_start ? 1 : 0;  // BUG-445
 #if !COUNTER_PIN_MODES_AVAILABLE
   // FEAT-430: en aeldre/gendannet config med sw-isr/hw tvinges til sw paa dette board
-  if (cfg->hw_mode != COUNTER_HW_SW) cfg->hw_mode = COUNTER_HW_SW;
+  // FEAT-470: encoder er ogsaa en skifteregister-/poll-tilstand og er tilladt
+  if (cfg->hw_mode != COUNTER_HW_SW && cfg->hw_mode != COUNTER_HW_ENCODER) cfg->hw_mode = COUNTER_HW_SW;
 #endif
 
   // Clamp values

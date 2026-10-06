@@ -122,6 +122,7 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
     // Parse known keys
     if (!strcmp(key, "hw-mode")) {
       if (!strcmp(value, "sw")) cfg.hw_mode = COUNTER_HW_SW;
+      else if (!strcmp(value, "encoder")) cfg.hw_mode = COUNTER_HW_ENCODER;  // FEAT-470
 #if COUNTER_PIN_MODES_AVAILABLE
       else if (!strcmp(value, "sw-isr")) cfg.hw_mode = COUNTER_HW_SW_ISR;
       else if (!strcmp(value, "hw")) cfg.hw_mode = COUNTER_HW_PCNT;
@@ -184,8 +185,10 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
       cfg.debounce_enabled = (!strcmp(value, "on")) ? 1 : 0;
     } else if (!strcmp(key, "debounce-ms")) {
       cfg.debounce_ms = atoi(value);
-    } else if (!strcmp(key, "input-dis")) {
+    } else if (!strcmp(key, "input-dis") || !strcmp(key, "clk-dis")) {
       cfg.input_dis = atoi(value);
+    } else if (!strcmp(key, "dt-dis")) {
+      cfg.hw_gpio = (uint8_t)atoi(value);  // FEAT-470: encoderens DT (COUNTER_ENC_DT)
     } else if (!strcmp(key, "interrupt-pin")) {
       cfg.interrupt_pin = atoi(value);
       debug_print("  DEBUG: interrupt_pin = ");
@@ -371,6 +374,9 @@ void cli_cmd_set_counter(uint8_t argc, char* argv[]) {
     if (cfg.hw_mode == COUNTER_HW_SW && cfg.input_dis == 0) {
       debug_println("  HINT: SW mode requires input-dis:<pin>");
       debug_println("        Example: input-dis:45");
+    }
+    if (cfg.hw_mode == COUNTER_HW_ENCODER && cfg.input_dis == COUNTER_ENC_DT(&cfg)) {
+      debug_println("  HINT: encoder kraever to forskellige indgange: input-dis:<CLK> dt-dis:<DT>");
     }
     if (cfg.hw_mode == COUNTER_HW_SW_ISR && cfg.interrupt_pin == 0) {
       debug_println("  HINT: SW-ISR mode requires interrupt-pin:<gpio>");

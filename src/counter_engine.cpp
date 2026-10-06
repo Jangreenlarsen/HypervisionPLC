@@ -107,6 +107,7 @@ void counter_engine_loop(void) {
     // Dispatch to mode-specific handler
     switch (cfg.hw_mode) {
       case COUNTER_HW_SW:
+      case COUNTER_HW_ENCODER:  // FEAT-470: samme SW-sti
         // Software polling mode
         counter_sw_loop(id);
         break;
@@ -151,6 +152,7 @@ bool counter_engine_configure(uint8_t id, const CounterConfig* cfg) {
       // Stop old mode before switching
       switch (old_cfg.hw_mode) {
         case COUNTER_HW_SW:
+        case COUNTER_HW_ENCODER:  // FEAT-470: samme SW-sti
           counter_sw_stop(id);
           break;
         case COUNTER_HW_SW_ISR:
@@ -174,6 +176,7 @@ bool counter_engine_configure(uint8_t id, const CounterConfig* cfg) {
   // Initialize the chosen mode
   switch (cfg->hw_mode) {
     case COUNTER_HW_SW:
+    case COUNTER_HW_ENCODER:  // FEAT-470: samme SW-sti
       counter_sw_init(id);
       break;
 
@@ -226,6 +229,7 @@ void counter_engine_reset(uint8_t id) {
   // Reset based on mode
   switch (cfg.hw_mode) {
     case COUNTER_HW_SW:
+    case COUNTER_HW_ENCODER:  // FEAT-470: samme SW-sti
       counter_sw_reset(id);
       // BUG-035 FIX: Clear internal overflow flag
       counter_sw_clear_overflow(id);
@@ -292,6 +296,7 @@ void counter_engine_handle_control(uint8_t id) {
     // Start the counter based on mode
     switch (cfg.hw_mode) {
       case COUNTER_HW_SW:
+      case COUNTER_HW_ENCODER:  // FEAT-470: samme SW-sti
         counter_sw_start(id);
         break;
       case COUNTER_HW_SW_ISR:
@@ -313,6 +318,7 @@ void counter_engine_handle_control(uint8_t id) {
     // Stop the counter based on mode
     switch (cfg.hw_mode) {
       case COUNTER_HW_SW:
+      case COUNTER_HW_ENCODER:  // FEAT-470: samme SW-sti
         counter_sw_stop(id);
         break;
       case COUNTER_HW_SW_ISR:
@@ -335,6 +341,7 @@ void counter_engine_handle_control(uint8_t id) {
     // Running bit is SET - ensure counter is started
     switch (cfg.hw_mode) {
       case COUNTER_HW_SW:
+      case COUNTER_HW_ENCODER:  // FEAT-470: samme SW-sti
         counter_sw_start(id);
         break;
       case COUNTER_HW_SW_ISR:
@@ -355,6 +362,7 @@ void counter_engine_handle_control(uint8_t id) {
     // Running bit is CLEARED - ensure counter is stopped
     switch (cfg.hw_mode) {
       case COUNTER_HW_SW:
+      case COUNTER_HW_ENCODER:  // FEAT-470: samme SW-sti
         counter_sw_stop(id);
         break;
       case COUNTER_HW_SW_ISR:
@@ -605,7 +613,8 @@ uint8_t counter_engine_get_overflow(uint8_t id) {
   CounterConfig cfg;
   if (!counter_config_get(id, &cfg)) return 0;
   switch (cfg.hw_mode) {
-    case COUNTER_HW_SW:     return counter_sw_get_overflow(id) ? 1 : 0;
+    case COUNTER_HW_SW:
+    case COUNTER_HW_ENCODER: return counter_sw_get_overflow(id) ? 1 : 0;
     case COUNTER_HW_SW_ISR: return counter_sw_isr_get_overflow(id) ? 1 : 0;
     case COUNTER_HW_PCNT:   return counter_hw_get_overflow(id) ? 1 : 0;  // BUG FIX P0.3
     default:                return 0;
@@ -625,6 +634,7 @@ uint64_t counter_engine_get_value(uint8_t id) {
   // Get value from appropriate mode
   switch (cfg.hw_mode) {
     case COUNTER_HW_SW:
+    case COUNTER_HW_ENCODER:  // FEAT-470: samme SW-sti
       return counter_sw_get_value(id);
 
     case COUNTER_HW_SW_ISR:
@@ -647,6 +657,7 @@ void counter_engine_set_value(uint8_t id, uint64_t value) {
   // Set value in appropriate mode
   switch (cfg.hw_mode) {
     case COUNTER_HW_SW:
+    case COUNTER_HW_ENCODER:  // FEAT-470: samme SW-sti
       counter_sw_set_value(id, value);
       break;
 

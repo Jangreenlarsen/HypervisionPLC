@@ -20,7 +20,6 @@
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 #include "counter_sw.h"   // FEAT-438: hurtig flanke-taelling i scan-tasken
-#include "encoder_sw.h"   // FEAT-470: drejeenkoder-dekodning i scan-tasken
 
 /* ============================================================================
  * INTERRUPT HANDLERS
@@ -142,7 +141,6 @@ static void sr_scan_task(void *arg) {
   for (;;) {
     shift_register_read_inputs();
     counter_sw_fast_scan(sr_input_cache[0], (uint32_t)esp_timer_get_time());
-    encoder_sw_fast_scan(sr_input_cache[0]);  // FEAT-470
     vTaskDelayUntil(&last, pdMS_TO_TICKS(SR_SCAN_PERIOD_MS) ? pdMS_TO_TICKS(SR_SCAN_PERIOD_MS) : 1);
   }
 }

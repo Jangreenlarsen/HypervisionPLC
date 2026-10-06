@@ -211,7 +211,8 @@ typedef enum {
 typedef enum {
   COUNTER_HW_SW = 0,           // Software polling
   COUNTER_HW_SW_ISR = 1,       // Software ISR (GPIO interrupt)
-  COUNTER_HW_PCNT = 2          // Hardware PCNT (ESP32 Timer5-equivalent)
+  COUNTER_HW_PCNT = 2,         // Hardware PCNT (ESP32 Timer5-equivalent)
+  COUNTER_HW_ENCODER = 3       // FEAT-470: drejeenkoder (quadrature) - CLK = input_dis, DT = hw_gpio
 } CounterHWMode;
 
 typedef enum {
@@ -711,7 +712,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.68.104"
+#define PROJECT_VERSION     "7.9.68.105"
 #define PROJECT_LICENSE     "AGPL-3.0-or-later"
 #define PROJECT_SOURCE_URL  "https://github.com/Jangreenlarsen/HypervisionPLC"   // FEAT-433: AGPL §13 kildekode-tilbud
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)

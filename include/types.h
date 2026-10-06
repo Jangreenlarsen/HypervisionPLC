@@ -97,6 +97,8 @@ typedef struct __attribute__((packed)) {
 
   // HW (PCNT) mode
   uint8_t hw_gpio;        // GPIO pin for PCNT input (BUG FIX 1.9)
+                          // FEAT-470: i ENCODER-tilstand = DT's discrete input-index
+                          // (feltet er ubrugt uden for PCNT) - laes via COUNTER_ENC_DT()
 
   // COMPARE FEATURE (v2.3+)
   uint8_t compare_enabled;      // Enable compare check
@@ -112,6 +114,9 @@ typedef struct __attribute__((packed)) {
   // Reserved for alignment
   uint8_t auto_start;  // BUG-445: 1 = start (running) ved opstart — tidl. reserved[1], aeldre configs = 0
 } CounterConfig;
+
+// FEAT-470: encoderens DT-indgang (discrete input-index), se hw_gpio
+#define COUNTER_ENC_DT(cfg) ((uint16_t)(cfg)->hw_gpio)
 
 typedef struct {
   uint64_t counter_value;      // Changed from uint32_t to match usage

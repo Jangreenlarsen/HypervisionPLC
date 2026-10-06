@@ -672,7 +672,8 @@ static void print_counter_help(void) {
   debug_println("  set counter <id> mode 1 <key:value> ...");
   debug_println("");
   debug_println("Parameters (key:value format):");
-  debug_println("  hw-mode:<sw|sw-isr|hw>     - Hardware mode");
+  debug_println("  hw-mode:<sw|sw-isr|hw|encoder> - Hardware mode");
+  debug_println("  dt-dis:<n>                 - Encoder: DT discrete input (CLK = input-dis)");
   debug_println("  edge:<rising|falling|both> - Edge detection type");
   debug_println("  prescaler:<value>          - Prescaler divisor (1-65535)");
   debug_println("  scale:<float>              - Scale factor (default 1.0)");
@@ -3516,7 +3517,8 @@ void cli_parser_print_help(void) {
   debug_println("  set counter <id> mode 1 parameter ...");
   debug_println("");
   debug_println("    Common parameters:");
-  debug_println("      hw-mode:<sw|sw-isr|hw>    - Hardware mode");
+  debug_println("      hw-mode:<sw|sw-isr|hw|encoder> - Hardware mode");
+  debug_println("      dt-dis:<n>               - Encoder: DT discrete input (CLK = input-dis)");
   debug_println("        sw     = Software polling (needs input-dis:<pin>)");
   debug_println("        sw-isr = Software interrupt (needs interrupt-pin:<gpio>)");
   debug_println("        hw     = Hardware PCNT (GPIO 19/25/27/33)");

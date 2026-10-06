@@ -1214,6 +1214,7 @@ esp_err_t api_handler_counters(httpd_req_t *req)
         case COUNTER_HW_SW:     mode_str = "SW"; break;
         case COUNTER_HW_SW_ISR: mode_str = "SW_ISR"; break;
         case COUNTER_HW_PCNT:   mode_str = "HW_PCNT"; break;
+        case COUNTER_HW_ENCODER: mode_str = "ENCODER"; break;  // FEAT-470
       }
       counter["mode"] = mode_str;
       counter["value"] = counter_engine_get_value(i + 1);
@@ -1282,6 +1283,7 @@ esp_err_t api_handler_counter_single(httpd_req_t *req)
     case COUNTER_HW_SW:     mode_str = "SW"; break;
     case COUNTER_HW_SW_ISR: mode_str = "SW_ISR"; break;
     case COUNTER_HW_PCNT:   mode_str = "HW_PCNT"; break;
+    case COUNTER_HW_ENCODER: mode_str = "ENCODER"; break;  // FEAT-470
   }
   doc["mode"] = mode_str;
 
@@ -1299,6 +1301,7 @@ esp_err_t api_handler_counter_single(httpd_req_t *req)
   doc["input_dis"] = cfg.input_dis;
   doc["interrupt_pin"] = cfg.interrupt_pin;
   doc["hw_gpio"] = cfg.hw_gpio;
+  if (cfg.hw_mode == COUNTER_HW_ENCODER) doc["dt_dis"] = COUNTER_ENC_DT(&cfg);  // FEAT-470
   doc["compare_enabled"] = cfg.compare_enabled ? true : false;
   doc["compare_mode"] = cfg.compare_mode;
   doc["compare_value"] = cfg.compare_value;
@@ -3249,7 +3252,9 @@ esp_err_t api_handler_config_get(httpd_req_t *req)
     const char *hw = "SW";
     if (c->hw_mode == COUNTER_HW_SW_ISR) hw = "SW_ISR";
     else if (c->hw_mode == COUNTER_HW_PCNT) hw = "HW_PCNT";
+    else if (c->hw_mode == COUNTER_HW_ENCODER) hw = "ENCODER";  // FEAT-470
     co["hw_mode"] = hw;
+    if (c->hw_mode == COUNTER_HW_ENCODER) co["dt_dis"] = COUNTER_ENC_DT(c);
     const char *edge = "rising";
     if (c->edge_type == COUNTER_EDGE_FALLING) edge = "falling";
     else if (c->edge_type == COUNTER_EDGE_BOTH) edge = "both";
@@ -4267,6 +4272,7 @@ static esp_err_t api_handler_counter_config_post(httpd_req_t *req)
     const char *m = doc["hw_mode"].as<const char*>();
     if (m) {
       if (strcmp(m, "sw") == 0 || strcmp(m, "SW") == 0) cfg.hw_mode = COUNTER_HW_SW;
+      else if (strcmp(m, "encoder") == 0 || strcmp(m, "ENCODER") == 0) cfg.hw_mode = COUNTER_HW_ENCODER;  // FEAT-470
       else if (strcmp(m, "sw_isr") == 0 || strcmp(m, "SW_ISR") == 0 ||
                strcmp(m, "hw") == 0 || strcmp(m, "HW_PCNT") == 0 || strcmp(m, "hw_pcnt") == 0) {
 #if COUNTER_PIN_MODES_AVAILABLE
@@ -4302,6 +4308,10 @@ static esp_err_t api_handler_counter_config_post(httpd_req_t *req)
   if (doc.containsKey("hw_gpio")) cfg.hw_gpio = doc["hw_gpio"].as<uint8_t>();
   if (doc.containsKey("interrupt_pin")) cfg.interrupt_pin = doc["interrupt_pin"].as<uint8_t>();
   if (doc.containsKey("input_dis")) cfg.input_dis = doc["input_dis"].as<uint8_t>();
+  if (doc.containsKey("dt_dis")) cfg.hw_gpio = doc["dt_dis"].as<uint8_t>();  // FEAT-470: COUNTER_ENC_DT
+  if (cfg.hw_mode == COUNTER_HW_ENCODER && cfg.input_dis == COUNTER_ENC_DT(&cfg)) {
+    return api_send_error(req, 400, "Encoder kraever to forskellige indgange (input_dis = CLK, dt_dis = DT)");
+  }
   if (doc.containsKey("debounce_ms")) {
     cfg.debounce_ms = doc["debounce_ms"].as<uint16_t>();
     cfg.debounce_enabled = (cfg.debounce_ms > 0) ? 1 : 0;

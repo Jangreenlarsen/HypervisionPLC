@@ -6,13 +6,14 @@
 
 Ud over ST Logic's egne `TON`/`TOF`/`TP`/`CTU`/`CTD`/`CTUD`-funktionsblokke ([§8.5](08_ST_Logic_Programmering.md#85-indbyggede-funktioner-overblik)) har systemet **4 dedikerede hardware-nære tællere** og **4 dedikerede timere**, hver med egen konfiguration, egne Modbus-registre og egen statistik — uafhængige af om ST Logic overhovedet er aktiveret. De er tænkt til situationer hvor man vil have en tæller/timer der kører selvstændigt og er direkte tilgængelig for et SCADA-system, uden at skulle skrive ST-kode først.
 
-## 9.1 Tællere — tre driftstilstande
+## 9.1 Tællere — fire driftstilstande
 
 | Tilstand | CLI-værdi | Beskrivelse | Præcision |
 |----------|-----------|--------------|-----------|
 | **Software (polling)** | `sw` | Læser en digital indgang i hovedløkken | God til lave frekvenser, kan tabe hurtige pulser |
 | **Software + interrupt** | `sw-isr` | Tæller via GPIO-interrupt | Fanger hurtigere pulser end ren polling |
 | **Hardware (PCNT)** | `hw` | Bruger ESP32'ens indbyggede pulse-counter-hardware | Højeste præcision, ingen software-overhead |
+| **Drejeenkoder** | `encoder` | Quadrature fra to discrete inputs (CLK + DT), tæller op/ned (FEAT-470, v7.9.68.105) | DI1–8 på ES32D26 samples hvert 2 ms — taber ikke hak ved normal drejning |
 
 > **ES32D26:** kun `sw` (polling af en discrete input) kan bruges. DI1–8 sidder bag et skifteregister (74HC165), så hverken GPIO-interrupt (`sw-isr`) eller hardware-tælleren (`hw`/PCNT) kan se dem, og de frie ESP32-pins bruges af W5500/PSRAM. Fra v7.9.68.46 (FEAT-430) er `sw-isr` og `hw` derfor spærret på dette board: CLI og REST afviser dem med en forklaring, I/O-siden viser dem gråt med en bemærkning, `CNT_SETUP` returnerer FALSE, og en ældre/gendannet konfiguration med dem sættes til `sw`. Timerne er ren software og virker uændret.
 
@@ -23,6 +24,15 @@ set counter 1 control auto-start:on running:on   (start nu OG efter hver genstar
 save
 show counter 1
 ```
+
+> **Drejeenkoder (FEAT-470):** en encoder som fx Geekcreit/KY-040 er en tæller i tilstanden `encoder`. CLK er `input-dis`, DT er `dt-dis` — begge discrete input-indekser, som skal være mappet fra DI1–8 (`set gpio 10x input <n>`), så de samples hvert 2 ms. Tælleren tæller **rå overgange** (4 pr. hak på en KY-040) op med uret og ned mod uret og wrapper på bit-bredden; brug `bit-width:16` og `scale:1`, så værdiregistret er en 16-bit position. Flanke og debounce bruges ikke (tilstandstabellen ignorerer prel). `direction:down` vender retningen.
+> ```
+> set gpio 101 input 0        (DI1 = DT)
+> set gpio 102 input 1        (DI2 = CLK)
+> set counter 2 mode 1 hw-mode:encoder input-dis:1 dt-dis:0 bit-width:16 scale:1 enable:on
+> set counter 2 control auto-start:on running:on
+> ```
+> ST læser positionen ved at binde en variabel til tællerens værdiregister (Counter 2 → `HR120`, `input`) og regner selv hak ud — se §D.5.9d. Samme kontrakt kan et fremtidigt encoder-expansion board levere i et register. På I/O-siden vælges "Drejeenkoder" med CLK- og DT-felter.
 
 > **Hastighed (FEAT-438):** på ES32D26 samples DI1–8 hvert 2 ms af en separat task, så `sw`-tællere på disse indgange klarer ca. 250 Hz uden debounce (ca. 75–100 Hz med `debounce-ms:10`). Andre indgange læses én gang pr. hovedløkke (ca. 50–150 Hz). Se `show counter <id>` → "Sampling".
 

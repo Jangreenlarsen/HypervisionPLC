@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.105] - 2026-10-06
+
+### FEATURES
+- **FEAT-470b:** Drejeenkodere konfigureres nu som en tæller i tilstanden `encoder`: CLK og DT er to discrete inputs, og de vælges på I/O-siden ("Drejeenkoder"), via CLI `hw-mode:encoder input-dis:<CLK> dt-dis:<DT>` eller via REST. Tælleren holder en 16-bit position, som ST-programmet binder en variabel til, så der ikke står pin-numre i koden. DI1–8 samples hvert 2 ms. `ENC_POS()` fra v7.9.68.103 er fjernet.
+- **FEAT-471:** Editorens Bindings-fane viser nu også "Afledte afhængigheder": de pins og registre, programmet ellers bruger. Det dækker tællere (fra bundne tæller-registre eller `CNT_*`) med deres indgangspins, Modbus RTU-slaver og -adresser, expansion boards og persist-grupper.
+
 ## [7.9.68.104] - 2026-10-06
 
 ### BUG FIXES

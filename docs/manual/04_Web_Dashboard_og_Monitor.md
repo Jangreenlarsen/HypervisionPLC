@@ -157,7 +157,7 @@ Editoren har 4 uafhængige program-faner (Logic1-4), vist øverst i deres egen r
 | **Slet** | Fjerner programmet helt. |
 | **Download / Upload** | Hent/gem kildekode som `.st`-fil. |
 | **Find** | Søg/erstat i kildekoden (Ctrl+F/Ctrl+H). |
-| **Bindings / Monitor / Settings** | Skift mellem variabel-bindings-konfiguration, runtime-monitor og globale motor-indstillinger. I **Bindings** har hver udgang (output-binding til en coil med en lokal GPIO) kolonnen **Sikker tilstand** (OFF (std) / OFF / ON) — tilstanden udgangen tvinges til i safe mode (FEAT-427); ændres direkte i tabellen eller i formularen når bindingen oprettes/redigeres. Samme indstilling som `set gpio <pin> safe …` og I/O-sidens GPIO-tabel. |
+| **Bindings / Monitor / Settings** | Skift mellem variabel-bindings-konfiguration, runtime-monitor og globale motor-indstillinger. I **Bindings** har hver udgang (output-binding til en coil med en lokal GPIO) kolonnen **Sikker tilstand** (OFF (std) / OFF / ON) — tilstanden udgangen tvinges til i safe mode (FEAT-427); ændres direkte i tabellen eller i formularen når bindingen oprettes/redigeres. Samme indstilling som `set gpio <pin> safe …` og I/O-sidens GPIO-tabel. Under tabellen viser **Afledte afhængigheder** (FEAT-471) alle pins og registre programmet ellers bruger: tællere (via et bundet tæller-register eller `CNT_*(n)`) med tilstand og indgangspins — for en encoder både CLK og DT — Modbus RTU-slaver/adresser (`MB_*`), expansion boards (`MBX_*`) og persist-grupper (`SAVE`/`LOAD`). |
 
 ### Runtime Monitor
 

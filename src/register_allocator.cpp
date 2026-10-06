@@ -80,12 +80,8 @@ void register_allocator_init(void) {
 
     // Only allocate holding register bindings (input_type=0 or output_type=0)
     if (map->source_type == MAPPING_SOURCE_ST_VAR) {
-      // Check INPUT bindings
-      if (map->is_input && map->input_type == 0 && map->input_reg < ALLOCATOR_SIZE) {
-        register_allocator_allocate(map->input_reg, REG_OWNER_ST_VAR,
-                                   map->st_program_id + 1, "in");
-      }
-
+      // FEAT-470b: INPUT-bindinger laeser kun registret og ejer det ikke
+      // (fx en taellers vaerdiregister) — kun skrivende bindinger allokeres
       // Check OUTPUT bindings (only allocate if different from input)
       if (!map->is_input && map->output_type == 0 && map->output_reg < ALLOCATOR_SIZE) {
         register_allocator_allocate(map->output_reg, REG_OWNER_ST_VAR,

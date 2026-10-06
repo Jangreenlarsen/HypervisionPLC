@@ -485,6 +485,11 @@ void cli_cmd_show_config(const char *section) {
         debug_print("sw-isr");
       } else if (cfg.hw_mode == COUNTER_HW_PCNT) {
         debug_print("hw");
+      } else if (cfg.hw_mode == COUNTER_HW_ENCODER) {  // FEAT-470
+        debug_print("encoder input-dis:");
+        debug_print_uint(cfg.input_dis);
+        debug_print(" dt-dis:");
+        debug_print_uint(COUNTER_ENC_DT(&cfg));
       } else {
         debug_print("unknown");
       }
@@ -1733,6 +1738,7 @@ void cli_cmd_show_config(const char *section) {
       if (cfg.hw_mode == COUNTER_HW_SW) debug_print("sw");
       else if (cfg.hw_mode == COUNTER_HW_SW_ISR) debug_print("sw-isr");
       else if (cfg.hw_mode == COUNTER_HW_PCNT) debug_print("hw");
+      else if (cfg.hw_mode == COUNTER_HW_ENCODER) debug_print("encoder");  // FEAT-470
 
       // Edge type
       debug_print(" edge:");
@@ -1776,6 +1782,11 @@ void cli_cmd_show_config(const char *section) {
       } else if (cfg.hw_mode == COUNTER_HW_SW) {  // BUG-446: ogsaa input-dis:0
         debug_print(" input-dis:");
         debug_print_uint(cfg.input_dis);
+      } else if (cfg.hw_mode == COUNTER_HW_ENCODER) {  // FEAT-470
+        debug_print(" input-dis:");
+        debug_print_uint(cfg.input_dis);
+        debug_print(" dt-dis:");
+        debug_print_uint(COUNTER_ENC_DT(&cfg));
       }
 
       // Compare feature
@@ -1960,6 +1971,7 @@ void cli_cmd_show_counters(void) {
     if (cfg.hw_mode == COUNTER_HW_SW) hw_str = "SW";
     else if (cfg.hw_mode == COUNTER_HW_SW_ISR) hw_str = "ISR";
     else if (cfg.hw_mode == COUNTER_HW_PCNT) hw_str = "HW";
+    else if (cfg.hw_mode == COUNTER_HW_ENCODER) hw_str = "ENC";  // FEAT-470
     p += snprintf(p, sizeof(line) - (p - line), "%-3s ", hw_str);
     p += snprintf(p, sizeof(line) - (p - line), "| ");
 
@@ -2230,6 +2242,7 @@ void cli_cmd_show_counter(uint8_t id, bool verbose) {
   if (cfg.hw_mode == COUNTER_HW_SW) hw_str = "SW (polling)";
   else if (cfg.hw_mode == COUNTER_HW_SW_ISR) hw_str = "SW-ISR (interrupt)";
   else if (cfg.hw_mode == COUNTER_HW_PCNT) hw_str = "HW (PCNT)";
+  else if (cfg.hw_mode == COUNTER_HW_ENCODER) hw_str = "Encoder (quadrature)";  // FEAT-470
   debug_print("Hardware Mode: ");
   debug_println(hw_str);
 
@@ -2309,6 +2322,16 @@ void cli_cmd_show_counter(uint8_t id, bool verbose) {
     debug_println(counter_sw_fast_active(id)
       ? "  Sampling: scan-task hvert 2 ms (skifteregister-indgang, op til ca. 250 Hz)"
       : "  Sampling: hovedloekken (ca. 50-150 Hz)");
+  } else if (cfg.hw_mode == COUNTER_HW_ENCODER) {  // FEAT-470
+    extern uint8_t counter_sw_fast_active(uint8_t id);
+    debug_print("  Encoder CLK: discrete input ");
+    debug_print_uint(cfg.input_dis);
+    debug_print(", DT: discrete input ");
+    debug_print_uint(COUNTER_ENC_DT(&cfg));
+    debug_println("");
+    debug_println(counter_sw_fast_active(id)
+      ? "  Sampling: scan-task hvert 2 ms (begge er skifteregister-indgange)"
+      : "  Sampling: hovedloekken (en eller begge indgange er ikke mappet fra DI1-8) - kan tabe hak");
   } else if (cfg.hw_mode == COUNTER_HW_SW_ISR && cfg.interrupt_pin > 0) {
     debug_print("  Interrupt GPIO: ");
     debug_print_uint(cfg.interrupt_pin);

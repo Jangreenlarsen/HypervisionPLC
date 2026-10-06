@@ -21,7 +21,6 @@
 #include "st_builtin_latch.h"  // v4.7.3: SR/RS latches
 #include "st_builtin_signal.h"  // v4.8: Signal processing
 #include "counter_engine.h"     // v7.7.2: HW counter access
-#include "encoder_sw.h"         // FEAT-470: ENC_POS
 #include "counter_config.h"     // v7.7.2: Counter config get/set
 #include "counter_frequency.h"  // v7.7.2: Frequency read
 #include "registers.h"          // v7.7.2: Register read/write for CNT_CTRL/STATUS
@@ -2394,12 +2393,6 @@ static bool st_vm_exec_call_builtin(st_vm_t *vm, st_bytecode_instr_t *instr) {
         }
       }
     }
-  }
-  else if (func_id == ST_BUILTIN_ENC_POS) {
-    // FEAT-470: ENC_POS(clk_di, dt_di) → INT fritløbende position (rå overgange)
-    int16_t a = (arg1_type == ST_TYPE_DINT) ? (int16_t)arg1.dint_val : arg1.int_val;
-    int16_t b = (arg2_type == ST_TYPE_DINT) ? (int16_t)arg2.dint_val : arg2.int_val;
-    result.int_val = encoder_sw_pos(a, b);
   }
   else if (func_id == ST_BUILTIN_CNT_VALUE) {
     // CNT_VALUE(id) → DINT (scaled value from holding register)

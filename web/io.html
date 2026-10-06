@@ -383,7 +383,7 @@ function api(url,opts={}){
 // footer ELLER click-outside-lukker-menu-listeneren (linje 281, staar efter
 // dette kald) blev nogensinde koert ved sideindlaesning. Flyttet hertil,
 // foer bootstrap-kaldet.
-const HW_MODES=[['sw','Software (poll discrete input)'],['sw_isr','Software-interrupt (GPIO)'],['hw','Hardware PCNT (GPIO)']];
+const HW_MODES=[['sw','Software (poll discrete input)'],['encoder','Drejeenkoder (2 discrete inputs)'],['sw_isr','Software-interrupt (GPIO)'],['hw','Hardware PCNT (GPIO)']];
 const EDGE_TYPES=[['rising','Stigende flanke'],['falling','Faldende flanke'],['both','Begge flanker']];
 const TIMER_MODES=[['ONESHOT','Oneshot (3 faser)'],['MONOSTABLE','Monostable (enkelt-puls)'],['ASTABLE','Astable (blink)'],['INPUT_TRIGGERED','Input-triggered']];
 updateUserBadge();
@@ -432,6 +432,11 @@ function counterCardHtml(id){
   '<div class="fld"><label>Flanke</label><select id="c'+id+'_edge">'+EDGE_TYPES.map(m=>'<option value="'+m[0]+'">'+m[1]+'</option>').join('')+'</select></div>'+
   '</div>'+
   '<div class="fld cmode" data-counter="'+id+'" data-mode="sw"><label>Discrete Input-indeks (poll)</label><input type="number" id="c'+id+'_pin_sw" min="0" max="255"></div>'+
+  '<div class="fld-row cmode" data-counter="'+id+'" data-mode="encoder">'+
+  '<div class="fld"><label>CLK - Discrete Input-indeks</label><input type="number" id="c'+id+'_enc_clk" min="0" max="255"></div>'+
+  '<div class="fld"><label>DT - Discrete Input-indeks</label><input type="number" id="c'+id+'_enc_dt" min="0" max="255"></div>'+
+  '<div style="grid-column:1/-1;font-size:10px;color:#a6adc8">Tæller rå overgange (4 pr. hak på en KY-040) op/ned. Brug bit-bredde 16 og skalafaktor 1; ST læser værdi-registret som en position. Flanke og debounce bruges ikke.</div>'+
+  '</div>'+
   '<div class="fld cmode" data-counter="'+id+'" data-mode="sw_isr"><label>GPIO-pin (interrupt)</label><input type="number" id="c'+id+'_pin_isr" min="0" max="39"></div>'+
   '<div class="fld cmode" data-counter="'+id+'" data-mode="hw"><label>GPIO-pin (PCNT hardware)</label><input type="number" id="c'+id+'_pin_hw" min="0" max="39"></div>'+
   '<div class="fld-row">'+
@@ -486,7 +491,7 @@ function updateCounterModeUI(id){
 function applyCounterPinModes(id,d){
   if(d.pin_modes_available!==false)return;
   const sel=$('c'+id+'_hwmode');
-  [...sel.options].forEach(o=>{if(o.value!=='sw'){o.disabled=true;if(!o.textContent.includes('ikke på dette board'))o.textContent+=' — ikke på dette board';}});
+  [...sel.options].forEach(o=>{if(o.value!=='sw'&&o.value!=='encoder'){o.disabled=true;if(!o.textContent.includes('ikke på dette board'))o.textContent+=' — ikke på dette board';}});
   if(!$('c'+id+'_pinnote')){
     const n=document.createElement('div');n.id='c'+id+'_pinnote';
     n.style.cssText='font-size:10px;color:#fab387;margin-top:3px';
@@ -499,7 +504,7 @@ function loadCounter(id){
     applyCounterPinModes(id,d);
     $('c'+id+'_enabled').checked=!!d.enabled;
     $('c'+id+'_autostart').checked=!!d.auto_start;  // BUG-445
-    const modeMap={SW:'sw',SW_ISR:'sw_isr',HW_PCNT:'hw',DISABLED:'sw'};
+    const modeMap={SW:'sw',ENCODER:'encoder',SW_ISR:'sw_isr',HW_PCNT:'hw',DISABLED:'sw'};
     $('c'+id+'_hwmode').value=modeMap[d.mode]||'sw';
     updateCounterModeUI(id);
     if(d.edge_type!=null)$('c'+id+'_edge').value=['rising','falling','both'][d.edge_type]||'rising';
@@ -510,7 +515,8 @@ function loadCounter(id){
     $('c'+id+'_debounce_en').checked=!!d.debounce_enabled;
     $('c'+id+'_debounce_ms').disabled=!d.debounce_enabled;
     if(d.debounce_ms!=null)$('c'+id+'_debounce_ms').value=d.debounce_ms;
-    if(d.input_dis!=null)$('c'+id+'_pin_sw').value=d.input_dis;
+    if(d.input_dis!=null){$('c'+id+'_pin_sw').value=d.input_dis;$('c'+id+'_enc_clk').value=d.input_dis;}
+    if(d.dt_dis!=null)$('c'+id+'_enc_dt').value=d.dt_dis;
     if(d.interrupt_pin!=null)$('c'+id+'_pin_isr').value=d.interrupt_pin;
     if(d.hw_gpio!=null)$('c'+id+'_pin_hw').value=d.hw_gpio;
     $('c'+id+'_cmp_en').checked=!!d.compare_enabled;
@@ -553,6 +559,7 @@ function saveCounter(id){
     reset_on_read:$('c'+id+'_reset_on_read').checked
   };
   if(hwmode==='sw')body.input_dis=parseInt($('c'+id+'_pin_sw').value)||0;
+  if(hwmode==='encoder'){body.input_dis=parseInt($('c'+id+'_enc_clk').value)||0;body.dt_dis=parseInt($('c'+id+'_enc_dt').value)||0;}
   if(hwmode==='sw_isr')body.interrupt_pin=parseInt($('c'+id+'_pin_isr').value)||0;
   if(hwmode==='hw')body.hw_gpio=parseInt($('c'+id+'_pin_hw').value)||0;
   api('/api/counters/'+id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{

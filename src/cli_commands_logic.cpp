@@ -591,15 +591,8 @@ int cli_cmd_set_logic_bind(st_logic_engine_state_t *logic_state, uint8_t program
       // BUG-EXTENSION & BUG-105: Free old registers from allocation map (multi-register aware)
       uint8_t old_word_count = (map->word_count > 0) ? map->word_count : 1;
 
-      if (map->is_input && map->input_type == 0 && map->input_reg < ALLOCATOR_SIZE) {
-        for (uint8_t w = 0; w < old_word_count; w++) {
-          if (map->input_reg + w < ALLOCATOR_SIZE) {
-            register_allocator_free(map->input_reg + w);
-            // BUG-026 FIX: Also cleanup any counters using same register (persistent config)
-            cleanup_counters_using_register(map->input_reg + w);
-          }
-        }
-      }
+      // FEAT-470b: INPUT-bindinger ejer ikke registret (laeser kun, fx en
+      // taellers vaerdi) — intet at frigive, og taelleren maa IKKE nulstilles
       if (!map->is_input && map->output_type == 0 && map->output_reg < ALLOCATOR_SIZE) {
         for (uint8_t w = 0; w < old_word_count; w++) {
           if (map->output_reg + w < ALLOCATOR_SIZE) {
@@ -638,7 +631,9 @@ int cli_cmd_set_logic_bind(st_logic_engine_state_t *logic_state, uint8_t program
     }
 
     // Check if register is allocated by other subsystems
-    if (modbus_reg < ALLOCATOR_SIZE) {
+    // FEAT-470b: en ren INPUT-binding laeser kun registret (fx en taellers
+    // vaerdi) og konflikter ikke med ejeren — kun skrivende bindinger tjekkes
+    if (is_output && output_type == 0 && modbus_reg < ALLOCATOR_SIZE) {
       RegisterOwner owner;
       if (!register_allocator_check(modbus_reg, &owner)) {
         // Register is already allocated
@@ -735,7 +730,8 @@ int cli_cmd_set_logic_bind(st_logic_engine_state_t *logic_state, uint8_t program
     }
 
     // BUG-EXTENSION & BUG-105: Allocate register(s) in global allocator (multi-register aware)
-    if (((is_input && input_type == 0) || (!is_input && output_type == 0)) && modbus_reg < ALLOCATOR_SIZE) {
+    // FEAT-470b: kun skrivende bindinger ejer registret (input-bindinger laeser bare)
+    if (!is_input && output_type == 0 && modbus_reg < ALLOCATOR_SIZE) {
       for (uint8_t w = 0; w < word_count; w++) {
         if (modbus_reg + w < ALLOCATOR_SIZE) {
           register_allocator_allocate(modbus_reg + w, REG_OWNER_ST_VAR, program_id + 1, is_input ? "in" : "out");

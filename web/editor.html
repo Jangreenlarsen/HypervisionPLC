@@ -278,9 +278,7 @@ MBX_READ_HOLDING(1,C,9,2)</code>
 <h3>Tid (NTP)</h3>
 <code class="fn">TIME_VALID()  TIME_HOUR()
 TIME_MINUTE()  TIME_DAY()</code>
-<h3>Drejeenkoder</h3>
-<code class="fn">ENC_POS(clk_di, dt_di)
-  position i rå overgange (4 pr. hak)</code>
+
 <h3>Watchdog</h3>
 <code class="fn">WDT_FEED()  (heartbeat, se Indstillinger)</code>
 <h3>HW Counter</h3>
@@ -330,6 +328,13 @@ di[addr] — Discrete Input</code>
 <tbody id="bindBody"></tbody>
 </table>
 <div class="empty-msg" id="bindEmpty">Ingen bindinger konfigureret</div>
+<h3 style="margin-top:16px">Afledte afhængigheder — pins og registre programmet bruger</h3>
+<p style="font-size:11px;color:#6c7086;margin:0 0 8px">Udledt af bindingerne og kildekoden: tællere (bundne tæller-registre og <code>CNT_*</code>) med deres indgangspins, Modbus RTU (<code>MB_*</code>), expansion boards (<code>MBX_*</code>) og persist-grupper (<code>SAVE</code>/<code>LOAD</code>). Kun visning — rettes under I/O hhv. i koden.</p>
+<table class="btbl">
+<thead><tr><th>Kilde i programmet</th><th>Ressource</th><th>Pins / registre</th></tr></thead>
+<tbody id="bindDerived"></tbody>
+</table>
+<div class="empty-msg" id="bindDerivedEmpty">Ingen afledte afhængigheder</div>
 </div>
 </div>
 
@@ -1287,7 +1292,90 @@ async function loadBindings(){
         '</td><td>'+b.register_addr+'</td><td>'+gpioTd+'</td><td>'+safeTd+'</td><td><button class="btn btn-sm" style="background:#89b4fa;color:#1e1e2e;margin-right:4px" onclick=\'editBinding('+bj+')\'>Redigér</button><button class="btn btn-danger btn-sm" onclick="delBinding('+b.index+')">Slet</button></td>';
       body.appendChild(tr);
     });
+    await loadDerived(mine,gpios);
   }catch(e){log('error','Kunne ikke hente bindinger: '+e.message);}
+}
+
+// FEAT-471: afledte afhængigheder — pins/registre programmet reelt bruger,
+// ud over de direkte bindinger (tællernes indgangspins, MB_*/MBX_*, persist)
+function pinName(p){
+  if(p>=101&&p<=108)return 'DI'+(p-100)+' (GPIO '+p+')';
+  if(p>=201&&p<=208)return 'DO'+(p-200)+' (GPIO '+p+')';
+  return 'GPIO '+p;
+}
+function diPin(gpios,idx){
+  const g=gpios.find(g=>g.direction==='input'&&g.register===idx);
+  return 'discrete input '+idx+(g?' ← '+pinName(g.pin):' (<span style="color:#f38ba8">ingen pin mappet</span>)');
+}
+async function loadDerived(mine,gpios){
+  const body=document.getElementById('bindDerived');
+  const rows=[];
+  const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const src=(document.getElementById('editor').value||'')
+    .replace(/\(\*[\s\S]*?\*\)/g,' ').replace(/\/\/.*$/gm,' ');
+  // Tællere: fra bundne HR-registre og CNT_*(n)-kald
+  const cnt={};
+  let cfgs=[];
+  try{cfgs=await Promise.all([1,2,3,4].map(i=>api('GET','counters/'+i).catch(()=>null)));}catch(e){}
+  const words=c=>(c.bit_width<=16?1:c.bit_width===32?2:4);
+  mine.forEach(b=>{
+    if(b.register_type!=='HR')return;
+    cfgs.forEach(c=>{
+      if(!c)return;
+      const regs=[['værdi',c.value_reg,words(c)],['raw',c.raw_reg,words(c)],['frekvens',c.freq_reg,1],['kontrol',c.ctrl_reg,1]];
+      regs.forEach(([n,r,w])=>{
+        if(r!=null&&b.register_addr>=r&&b.register_addr<r+w)
+          (cnt[c.id]=cnt[c.id]||[]).push('binding '+esc(b.name||'?')+' ↔ HR'+b.register_addr+' ('+n+')');
+      });
+    });
+  });
+  let m;const reC=/\bCNT_([A-Z_]+)\s*\(\s*(\d+)/gi;
+  while((m=reC.exec(src))){const id=+m[2];(cnt[id]=cnt[id]||[]).push('CNT_'+m[1].toUpperCase()+'('+id+')');}
+  Object.keys(cnt).sort().forEach(id=>{
+    const c=cfgs[id-1];
+    let det='-';
+    if(c){
+      const mode={SW:'software',ENCODER:'drejeenkoder',SW_ISR:'interrupt',HW_PCNT:'PCNT'}[c.mode]||c.mode;
+      if(c.mode==='ENCODER')det='CLK: '+diPin(gpios,c.input_dis)+'<br>DT: '+diPin(gpios,c.dt_dis);
+      else if(c.mode==='SW')det='Indgang: '+diPin(gpios,c.input_dis);
+      else if(c.mode==='SW_ISR')det='Indgang: GPIO '+c.interrupt_pin;
+      else if(c.mode==='HW_PCNT')det='Indgang: GPIO '+c.hw_gpio;
+      det+='<br>HR'+c.value_reg+' værdi, HR'+c.raw_reg+' raw, HR'+c.freq_reg+' frekvens, HR'+c.ctrl_reg+' kontrol';
+      if(!c.enabled)det+='<br><span style="color:#f38ba8">tælleren er ikke aktiveret</span>';
+      rows.push([[...new Set(cnt[id])].join('<br>'),'Counter '+id+' ('+mode+')',det]);
+    }else rows.push([[...new Set(cnt[id])].join('<br>'),'Counter '+id,'-']);
+  });
+  // Modbus RTU / expansion: kald grupperet pr. slave
+  const mb={},mbx={};
+  const reMB=/\bMB_(READ|WRITE)_([A-Z_]+)\s*\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*(?:,\s*([^,()]+?)\s*)?\)/gi;
+  while((m=reMB.exec(src))){
+    const op=m[1].toUpperCase(),t=m[2].toUpperCase(),multi=/S$/.test(t)&&t!=='INPUT_REG';
+    const k='slave '+m[3];
+    const a=(multi&&m[5]?m[4]+' ('+m[5]+' stk)':m[4]);
+    (mb[k]=mb[k]||new Set()).add((op==='READ'?'læs ':'skriv ')+t.toLowerCase().replace('_reg','-reg')+' '+a);
+  }
+  const reMBX=/\bMBX_(READ|WRITE)_([A-Z_]+)\s*\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*,\s*([^,()]+?)\s*,\s*([^,()]+?)\s*(?:,\s*([^,()]+?)\s*)?\)/gi;
+  while((m=reMBX.exec(src))){
+    const op=m[1].toUpperCase(),t=m[2].toUpperCase();
+    const ch=String(m[4]).replace(/'/g,'').toUpperCase();
+    const k='board '+m[3]+', kanal '+ch+', slave '+m[5];
+    (mbx[k]=mbx[k]||new Set()).add((op==='READ'?'læs ':'skriv ')+t.toLowerCase()+' '+m[6]+(m[7]&&/S$/.test(t)?' ('+m[7]+' stk)':''));
+  }
+  Object.keys(mb).forEach(k=>rows.push(['MB_*','Modbus RTU '+esc(k),[...mb[k]].map(esc).join('<br>')]));
+  Object.keys(mbx).forEach(k=>rows.push(['MBX_*','Expansion '+esc(k),[...mbx[k]].map(esc).join('<br>')]));
+  // Persist-grupper: SAVE(n)/LOAD(n)
+  const pg=new Set();const reP=/\b(SAVE|LOAD)\s*\(\s*(\d+)\s*\)/gi;
+  while((m=reP.exec(src)))pg.add(m[1].toUpperCase()+'('+m[2]+')');
+  if(pg.size){
+    let groups=[];try{groups=(await api('GET','persist/groups')).groups||[];}catch(e){}
+    [...pg].forEach(call=>{
+      const id=+call.replace(/\D/g,'');
+      const g=id?groups.filter(x=>x.id===id):groups;
+      rows.push([call,'Persist '+(id?'gruppe '+id:'alle grupper'),g.length?g.map(x=>esc(x.name)+': '+x.reg_count+' register(e)').join('<br>'):'<span style="color:#f38ba8">gruppen findes ikke</span>']);
+    });
+  }
+  body.innerHTML=rows.map(r=>'<tr><td>'+r[0]+'</td><td>'+r[1]+'</td><td>'+r[2]+'</td></tr>').join('');
+  document.getElementById('bindDerivedEmpty').style.display=rows.length?'none':'block';
 }
 
 async function addBinding(){

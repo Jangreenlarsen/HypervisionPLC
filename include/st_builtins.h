@@ -165,9 +165,6 @@ typedef enum {
   ST_BUILTIN_TIME_MINUTE,        // TIME_MINUTE() → INT 0-59
   ST_BUILTIN_TIME_DAY,           // TIME_DAY() → INT 1-31 (dag i måneden)
 
-  // FEAT-470: drejeenkoder — altid tilføjet SIDST
-  ST_BUILTIN_ENC_POS,            // ENC_POS(clk_di, dt_di) → INT fritløbende position (rå overgange, wrapper)
-
   ST_BUILTIN_COUNT          // Total number of built-ins
 } st_builtin_func_t;
 

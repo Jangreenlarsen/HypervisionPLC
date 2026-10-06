@@ -209,7 +209,8 @@ Hardware (standard ESP32-varianter): UART1, TX=GPIO25, RX=GPIO26, DE/RE=GPIO27. 
 
 | Parameter | Værdier |
 |---|---|
-| `hw-mode` | `sw`, `sw-isr`, `hw` (PCNT). **ES32D26:** kun `sw` — `sw-isr`/`hw` afvises med en forklaring (FEAT-430, se §9.1) |
+| `hw-mode` | `sw`, `sw-isr`, `hw` (PCNT), `encoder` (drejeenkoder, FEAT-470). **ES32D26:** `sw` og `encoder` — `sw-isr`/`hw` afvises med en forklaring (FEAT-430, se §9.1) |
+| `dt-dis` | Kun `encoder`: DT's discrete input-indeks (CLK = `input-dis`, alias `clk-dis`). Skal være forskellig fra CLK |
 | `edge` | `rising`, `falling`, `both` |
 | `prescaler` | 1–65535 |
 | `scale` | float (default 1.0) |
