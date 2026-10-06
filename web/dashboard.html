@@ -1578,7 +1578,9 @@ function _extParseSource(src,prog){
     const fam=m[1].toUpperCase(), op=m[2].toUpperCase(), kind=m[3].toUpperCase();
     const args=m[4].split(',').map(s=>s.trim());
     const off=fam==='MBX'?2:0;
-    const board=fam==='MBX'?num(args[0]):null, ch=fam==='MBX'?num(args[1]):null;
+    // FEAT-467: kanal kan skrives 'A'..'H' i ST
+    const chArg=(args[1]||'').trim(), chLet=/^'([A-Ha-h])'$/.exec(chArg);
+    const board=fam==='MBX'?num(args[0]):null, ch=fam==='MBX'?(chLet?chLet[1].toUpperCase().charCodeAt(0)-64:num(chArg)):null;
     const slave=num(args[off]), addr=num(args[off+1]);
     const multi=kind==='HOLDINGS'||kind==='COILS';
     const count=multi?(num(args[off+2])||1):1;
@@ -1632,7 +1634,7 @@ function sseApplyExtEvent(d){
   _extPrev[k]=val;
 }
 function _extKey(o){return o.src==='mbx'?'mbx:'+o.board+':'+o.ch+':'+o.slave+':'+o.type+':'+o.addr:'rtu:'+o.slave+':'+o.type+':'+o.addr;}
-function _extSrcText(o){return o.src==='mbx'?'Board '+(o.board??'?')+' kanal '+(o.ch??'?')+' · slave '+(o.slave??'?'):'RS485 slave '+(o.slave??'?');}
+function _extSrcText(o){return o.src==='mbx'?'Board '+(o.board??'?')+' kanal '+(o.ch>=1&&o.ch<=8?String.fromCharCode(64+o.ch):'?')+' · slave '+(o.slave??'?'):'RS485 slave '+(o.slave??'?');}  // FEAT-467: kanal som bogstav
 let _extBusy=false;
 async function refreshExternalRegs(force){
   if(!$('pageRegmap').classList.contains('active')||_extBusy)return;
@@ -1920,7 +1922,7 @@ async function fetchConnections(){
         if(d.connections){for(const c of d.connections){
           const b=(_expBoardList||[]).find(x=>x.number===c.board);
           const name=b?('#'+c.board+' '+b.name):('#'+c.board);
-          const chLabel=c.channel===1?'A':(c.channel===2?'B':String(c.channel));
+          const chLabel=(c.channel>=1&&c.channel<=8)?String.fromCharCode(64+c.channel):String(c.channel);  // FEAT-467
           rows.push({proto:'Modbus TCP',dir:'&#8594;ud',ip:name+' kanal '+chLabel,user:'-',
             up:fmtUp(Math.floor(c.idle_ms/1000))+' siden aktiv',
             info:c.connected?'forbundet':'afbrudt',dot:c.connected?'dot-g':'dot-r'});

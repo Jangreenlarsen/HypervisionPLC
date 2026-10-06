@@ -193,6 +193,27 @@ int main() {
     st_bytecode_program_t *bad = compile("PROGRAM t VAR x: INT; END_VAR x := MBX_READ_HOLDINGS(1, 1, 9, 0, 4); END_PROGRAM");
     ok(bad == NULL, "MBX_READ_HOLDINGS: afvises uden ARRAY");
   }
+  {  // FEAT-467: kanal som bogstav i MBX_*
+    st_bytecode_program_t *bc = compile("PROGRAM t VAR v: INT; r: ARRAY[0..1] OF INT; END_VAR v := MBX_READ_HOLDING(1, 'C', 9, 2); r := MBX_READ_HOLDINGS(1, 'd', 9, 0, 2); MBX_WRITE_HOLDINGS(1, 'B', 9, 0, 2) := r; END_PROGRAM");
+    ok(bc != NULL, "MBX kanal-bogstav: 'C', 'd' og 'B' compiler");
+    int pushes3 = 0, pushes4 = 0, pushes2 = 0;
+    if (bc) {
+      for (uint32_t i = 0; i + 1 < bc->instr_count; i++) {
+        if (bc->instructions[i].opcode == ST_OP_PUSH_INT && bc->instructions[i].arg.int_arg == 1 &&
+            bc->instructions[i + 1].opcode == ST_OP_PUSH_INT) {
+          int ch = bc->instructions[i + 1].arg.int_arg;
+          if (ch == 3) pushes3++;
+          if (ch == 4) pushes4++;
+          if (ch == 2) pushes2++;
+        }
+      }
+    }
+    ok(pushes3 >= 1 && pushes4 >= 1 && pushes2 >= 1, "MBX kanal-bogstav: 'C'->3, 'd'->4, 'B'->2");
+    st_bytecode_program_t *bad = compile("PROGRAM t VAR v: INT; END_VAR v := MBX_READ_HOLDING(1, 'Z', 9, 2); END_PROGRAM");
+    ok(bad == NULL, "MBX kanal-bogstav: 'Z' afvises");
+    st_bytecode_program_t *num = compile("PROGRAM t VAR v: INT; END_VAR v := MBX_READ_HOLDING(1, 2, 9, 2); END_PROGRAM");
+    ok(num != NULL, "MBX kanal som tal virker stadig");
+  }
   printf(fails ? "%d FEJL\n" : "ALLE TESTS OK\n", fails);
   return fails ? 1 : 0;
 }

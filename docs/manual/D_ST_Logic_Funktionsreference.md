@@ -261,6 +261,8 @@ Alle kald er **asynkrone/non-blocking**: en læsning returnerer en cachet værdi
 
 Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ekstern "HypervisionPLC Extension Board" over Modbus TCP i stedet for den lokale RS485-bus — de to første argumenter (`board`, `kanal`) vælger hvilket board (1-8, se [kapitel 6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)) og hvilken kanal (1-8, A=1/B=2) forespørgslen gælder. **v7.9.68.0: multi-register/coil WRITE tilføjet** (`MBX_WRITE_HOLDINGS`/`MBX_WRITE_COILS`) — multi-**read** findes stadig ikke (ingen `MBX_READ_HOLDINGS`).
 
+> **Kanal som bogstav (FEAT-467, v7.9.68.98):** `kanal` kan skrives som `'A'`, `'B'`, `'C'` eller `'D'` (op til `'H'`, store eller små bogstaver) i stedet for 1–4, fx `x := MBX_READ_HOLDING(1, 'C', 9, 2);`. Bogstavet oversættes til tal ved kompilering, og tal og variabler virker som hidtil. Kanal C og D kræver et CJMCU-752-modul på boardet.
+
 | Funktion | Parametre | Retur | FC | Semantik |
 |---|---|---|---|---|
 | `MBX_READ_COIL(board, kanal, slave, addr)` | INT×4 | BOOL | 01 | Cachet coil på det eksterne board |

@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.98] - 2026-10-06
+
+### FEATURES
+- **FEAT-467:** Expansion-kanaler hedder A, B, C, D overalt:
+  - **ST:** `MBX_*` accepterer kanalen som bogstav, fx `MBX_READ_HOLDING(1, 'C', 9, 2)`, også i `MBX_READ_HOLDINGS`/`MBX_WRITE_HOLDINGS`. Tal virker stadig.
+  - **CLI:** `mbx <board> <kanal>` tager A–H.
+  - **Web:** Visning med bogstaver (TCP-forbindelser, kanal-dialog, eksterne registre), og registerkortets navne-tolkning forstår `'C'`.
+
 ## [7.9.68.97] - 2026-10-05
 
 ### FEATURES

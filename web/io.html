@@ -1061,7 +1061,7 @@ function renderExpCapabilities(caps){
 
 function renderExpChannels(boardId,channels){
   if(!Array.isArray(channels)||channels.length===0){$('expChannelsBody').innerHTML='<p style="color:#6c7086">Ingen kanaler rapporteret</p>';return}
-  const chLabel=n=>n===1?'A':(n===2?'B':String(n));
+  const chLabel=n=>(n>=1&&n<=8)?String.fromCharCode(64+n):String(n);  // FEAT-467
   $('expChannelsBody').innerHTML=channels.map(c=>{
     const pre='exp_'+boardId+'_'+c.channel+'_';
     return '<div style="background:#181825;border:1px solid #313244;border-radius:6px;padding:10px">'+
@@ -1402,7 +1402,7 @@ async function expFwRestoreChannels(id,snap){
     try{
       const d=await expCallRaw(id,'/api/expansion/boards/'+id+'/channels/'+old.channel,
         {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)},'config');
-      expFwNote('Kanal '+(old.channel===1?'A':old.channel===2?'B':old.channel)+': config genskrevet'+(d.transport_ok&&d.http_status<300?' ✓':' — FEJL (HTTP '+d.http_status+')'));
+      expFwNote('Kanal '+((old.channel>=1&&old.channel<=8)?String.fromCharCode(64+old.channel):old.channel)+': config genskrevet'+(d.transport_ok&&d.http_status<300?' ✓':' — FEJL (HTTP '+d.http_status+')'));
     }catch(e){expFwNote('Kanal '+old.channel+': kunne ikke genskrive config ('+e.message+')')}
   }
 }

@@ -16,6 +16,9 @@
 #include "debug.h"
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>  // FEAT-467: toupper
+
+static bool st_compiler_compile_mbx_channel(st_compiler_t *compiler, st_ast_node_t *arg);  // FEAT-467
 #include <stdio.h>
 
 /* ============================================================================
@@ -765,10 +768,13 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       }
 
       // Compile arguments (push onto stack)
+      const bool mbx_ch = (func_id == ST_BUILTIN_MBX_READ_COIL || func_id == ST_BUILTIN_MBX_READ_INPUT ||
+                           func_id == ST_BUILTIN_MBX_READ_HOLDING || func_id == ST_BUILTIN_MBX_READ_INPUT_REG ||
+                           func_id == ST_BUILTIN_MBX_WRITE_COIL || func_id == ST_BUILTIN_MBX_WRITE_HOLDING);  // FEAT-467
       for (uint8_t i = 0; i < node->data.function_call.arg_count; i++) {
-        if (!st_compiler_compile_expr(compiler, node->data.function_call.args[i])) {
-          return false;
-        }
+        bool ok = (mbx_ch && i == 1) ? st_compiler_compile_mbx_channel(compiler, node->data.function_call.args[i])
+                                     : st_compiler_compile_expr(compiler, node->data.function_call.args[i]);
+        if (!ok) return false;
       }
 
       // v4.7+: Allocate instance ID for stateful functions
@@ -986,6 +992,20 @@ static bool st_compiler_emit_store_symbol(st_compiler_t *compiler, uint8_t var_i
  * STATEMENT COMPILATION
  * ============================================================================ */
 
+/* FEAT-467: kanal-argumentet i MBX_* må skrives som bogstav — 'A'..'H'
+ * (STRING-literal på ét tegn, store/små bogstaver) bliver til 1..8 på
+ * compile-tidspunktet. Tal og variabler virker som hidtil. */
+static bool st_compiler_compile_mbx_channel(st_compiler_t *compiler, st_ast_node_t *arg) {
+  if (arg && arg->type == ST_AST_LITERAL && arg->data.literal.type == ST_TYPE_STRING) {
+    const char *t = arg->data.literal.string_text;
+    char c = (t && t[0] && !t[1]) ? (char)toupper((unsigned char)t[0]) : 0;
+    if (c >= 'A' && c <= 'H') return st_compiler_emit_int(compiler, ST_OP_PUSH_INT, c - 'A' + 1);
+    st_compiler_error(compiler, "MBX kanal skal være 'A'-'H' eller et tal 1-8");
+    return false;
+  }
+  return st_compiler_compile_expr(compiler, arg);
+}
+
 static bool st_compiler_compile_assignment(st_compiler_t *compiler, st_ast_node_t *node) {
   // v7.9.2: Special case: array := MB_READ_HOLDINGS(slave, addr, count)
   // FEAT-461: samme for array := MBX_READ_HOLDINGS(board, kanal, slave, addr, count)
@@ -1017,7 +1037,9 @@ static bool st_compiler_compile_assignment(st_compiler_t *compiler, st_ast_node_
 
     // Compile 3 (MB) / 5 (MBX) function args
     for (uint8_t i = 0; i < nargs; i++) {
-      if (!st_compiler_compile_expr(compiler, rhs->data.function_call.args[i])) {
+      bool okc = (is_mbx_rh && i == 1) ? st_compiler_compile_mbx_channel(compiler, rhs->data.function_call.args[i])  // FEAT-467
+                                       : st_compiler_compile_expr(compiler, rhs->data.function_call.args[i]);
+      if (!okc) {
         return false;
       }
     }
@@ -1128,7 +1150,7 @@ static bool st_compiler_compile_remote_write(st_compiler_t *compiler, st_ast_nod
     if (!st_compiler_compile_expr(compiler, node->data.remote_write.board)) {
       return false;
     }
-    if (!st_compiler_compile_expr(compiler, node->data.remote_write.channel)) {
+    if (!st_compiler_compile_mbx_channel(compiler, node->data.remote_write.channel)) {  // FEAT-467
       return false;
     }
   }

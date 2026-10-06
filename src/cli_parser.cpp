@@ -3377,7 +3377,7 @@ bool cli_parser_execute(char* line) {
       debug_println("      mbx <board> <kanal> read <fc> <slave_id> <address> [quantity]");
       debug_println("      mbx <board> <kanal> write <fc> <slave_id> <address> <value...>");
       debug_println("  <board>: index eller navn (se 'show modbus-expansion')");
-      debug_println("  <kanal>: A/B (eller 1-8)");
+      debug_println("  <kanal>: A-D (eller 1-8; C/D kraever CJMCU-752)");
       return false;
     }
 

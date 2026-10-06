@@ -56,8 +56,7 @@ static int mbx_resolve_channel(const char *arg) {
     return (v >= 1 && v <= 8) ? v : -1;
   }
   char c = toupper((unsigned char)arg[0]);
-  if (c == 'A') return 1;
-  if (c == 'B') return 2;
+  if (c >= 'A' && c <= 'H') return c - 'A' + 1;  // FEAT-467: A-H (C/D med CJMCU-752)
   if (c >= '1' && c <= '8') return c - '0';
   return -1;
 }
