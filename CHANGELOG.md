@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.102] - 2026-10-06
+
+### BUG FIXES
+- **BUG-473:** `MB_READ_OK()`/`MB_SUCCESS()` efter en lokal enkelt-læsning (`MB_READ_HOLDING`/`_INPUT_REG`/`_COIL`/`_INPUT`) var FALSE, hvis ST læste igen før den forrige opfriskning var færdig på bussen. Det gav fx "----" på et display fra tid til anden, selvom kommunikationen var fejlfri. En post under opfriskning med en gyldig tidligere værdi og uden fejl tæller nu som succes, samme regel som `MBX_*` (BUG-472).
+
 ## [7.9.68.101] - 2026-10-06
 
 ### FEATURES

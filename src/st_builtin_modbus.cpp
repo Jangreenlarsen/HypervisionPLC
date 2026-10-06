@@ -147,6 +147,8 @@ st_value_t st_builtin_mb_read_coil(st_value_t slave_id, st_value_t address) {
   mb_cache_status_t status = entry->status;
   g_mb_last_error = entry->last_error;
   bool expired = cache_entry_expired(entry);
+  // BUG-473: en post under opfriskning med gyldig tidligere værdi og ingen fejl
+  const bool refreshing_ok = status == MB_CACHE_PENDING && entry->last_update_ms > 0 && entry->last_error == MB_OK;
   portEXIT_CRITICAL(&mb_cache_spinlock);
 
   // Queue background refresh: always if cache disabled/expired, otherwise only if not pending
@@ -156,7 +158,7 @@ st_value_t st_builtin_mb_read_coil(st_value_t slave_id, st_value_t address) {
                         (uint16_t)address.int_val);
   }
 
-  g_mb_success = (status == MB_CACHE_VALID && !expired);
+  g_mb_success = ((status == MB_CACHE_VALID || refreshing_ok) && !expired);  // BUG-473
   g_mb_read_success = g_mb_success;  // BUG-397e
   return result;  // Non-blocking!
 }
@@ -183,6 +185,8 @@ st_value_t st_builtin_mb_read_input(st_value_t slave_id, st_value_t address) {
   mb_cache_status_t status = entry->status;
   g_mb_last_error = entry->last_error;
   bool expired = cache_entry_expired(entry);
+  // BUG-473: en post under opfriskning med gyldig tidligere værdi og ingen fejl
+  const bool refreshing_ok = status == MB_CACHE_PENDING && entry->last_update_ms > 0 && entry->last_error == MB_OK;
   portEXIT_CRITICAL(&mb_cache_spinlock);
 
   if (!g_mb_cache_enabled || expired || status != MB_CACHE_PENDING) {
@@ -191,7 +195,7 @@ st_value_t st_builtin_mb_read_input(st_value_t slave_id, st_value_t address) {
                         (uint16_t)address.int_val);
   }
 
-  g_mb_success = (status == MB_CACHE_VALID && !expired);
+  g_mb_success = ((status == MB_CACHE_VALID || refreshing_ok) && !expired);  // BUG-473
   g_mb_read_success = g_mb_success;  // BUG-397e
   return result;
 }
@@ -218,6 +222,8 @@ st_value_t st_builtin_mb_read_holding(st_value_t slave_id, st_value_t address) {
   mb_cache_status_t status = entry->status;
   g_mb_last_error = entry->last_error;
   bool expired = cache_entry_expired(entry);
+  // BUG-473: en post under opfriskning med gyldig tidligere værdi og ingen fejl
+  const bool refreshing_ok = status == MB_CACHE_PENDING && entry->last_update_ms > 0 && entry->last_error == MB_OK;
   portEXIT_CRITICAL(&mb_cache_spinlock);
 
   if (!g_mb_cache_enabled || expired || status != MB_CACHE_PENDING) {
@@ -226,7 +232,7 @@ st_value_t st_builtin_mb_read_holding(st_value_t slave_id, st_value_t address) {
                         (uint16_t)address.int_val);
   }
 
-  g_mb_success = (status == MB_CACHE_VALID && !expired);
+  g_mb_success = ((status == MB_CACHE_VALID || refreshing_ok) && !expired);  // BUG-473
   g_mb_read_success = g_mb_success;  // BUG-397e
   return result;
 }
@@ -253,6 +259,8 @@ st_value_t st_builtin_mb_read_input_reg(st_value_t slave_id, st_value_t address)
   mb_cache_status_t status = entry->status;
   g_mb_last_error = entry->last_error;
   bool expired = cache_entry_expired(entry);
+  // BUG-473: en post under opfriskning med gyldig tidligere værdi og ingen fejl
+  const bool refreshing_ok = status == MB_CACHE_PENDING && entry->last_update_ms > 0 && entry->last_error == MB_OK;
   portEXIT_CRITICAL(&mb_cache_spinlock);
 
   if (!g_mb_cache_enabled || expired || status != MB_CACHE_PENDING) {
@@ -261,7 +269,7 @@ st_value_t st_builtin_mb_read_input_reg(st_value_t slave_id, st_value_t address)
                         (uint16_t)address.int_val);
   }
 
-  g_mb_success = (status == MB_CACHE_VALID && !expired);
+  g_mb_success = ((status == MB_CACHE_VALID || refreshing_ok) && !expired);  // BUG-473
   g_mb_read_success = g_mb_success;  // BUG-397e
   return result;
 }

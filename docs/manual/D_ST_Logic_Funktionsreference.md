@@ -227,7 +227,7 @@ Alle kald er **asynkrone/non-blocking**: en læsning returnerer en cachet værdi
 | `MB_WRITE_HOLDINGS(slave, addr, count)` | INT, INT, INT (1-16) | `ARRAY OF INT` | 16 | Se særskilt syntaks nedenfor |
 | `MB_WRITE_COILS(slave, addr, count)` | INT, INT, INT (1-16) | `ARRAY OF BOOL` | 15 | **v7.9.68.0.** Kø'er skrivning. Samme særskilte array-syntaks som `MB_WRITE_HOLDINGS`, se nedenfor |
 | `MB_SUCCESS()` | — | BOOL | — | Se semantik-advarsel i [§8.9](08_ST_Logic_Programmering.md#89-fejlhåndtering-og-grænser) |
-| `MB_READ_OK()` | — | BOOL | — | **BUG-397e (v7.9.39.0).** Uafhængig af `MB_SUCCESS()` — afspejler altid seneste `MB_READ_*`-kald, uanset hvor mange `MB_WRITE_*`-kald der er sket siden. For `MB_READ_HOLDINGS` (multi-register) betyder den "blev sat i kø", ikke "arrayet har gyldige data" — samme asymmetri som `MB_SUCCESS()` altid har haft der |
+| `MB_READ_OK()` | — | BOOL | — | **BUG-397e (v7.9.39.0).** Uafhængig af `MB_SUCCESS()` — afspejler altid seneste `MB_READ_*`-kald, uanset hvor mange `MB_WRITE_*`-kald der er sket siden. For `MB_READ_HOLDINGS` (multi-register) betyder den "blev sat i kø", ikke "arrayet har gyldige data" — samme asymmetri som `MB_SUCCESS()` altid har haft der. Fra v7.9.68.102 (BUG-473) er den TRUE mens en gyldig værdi blot genopfriskes — FALSE kun ved reel fejl (timeout/CRC/exception) eller før første svar |
 | `MB_WRITE_QUEUED()` | — | BOOL | — | **BUG-397e (v7.9.39.0).** Uafhængig af `MB_SUCCESS()` — afspejler altid seneste `MB_WRITE_*`-kald, uanset hvor mange `MB_READ_*`-kald der er sket siden |
 | `MB_BUSY()` | — | BOOL | — | TRUE hvis async-køen har ventende requests |
 | `MB_ERROR()` | — | INT | — | Sidste fejlkode, se tabel nedenfor |
