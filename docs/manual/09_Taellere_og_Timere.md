@@ -25,7 +25,7 @@ save
 show counter 1
 ```
 
-> **Drejeenkoder (FEAT-470):** en encoder som fx Geekcreit/KY-040 er en tæller i tilstanden `encoder`. CLK er `input-dis`, DT er `dt-dis` — begge discrete input-indekser, som skal være mappet fra DI1–8 (`set gpio 10x input <n>`), så de samples hvert 2 ms. Tælleren tæller **rå overgange** (4 pr. hak på en KY-040) op med uret og ned mod uret og wrapper på bit-bredden; brug `bit-width:16` og `scale:1`, så værdiregistret er en 16-bit position. Flanke og debounce bruges ikke (tilstandstabellen ignorerer prel). `direction:down` vender retningen.
+> **Drejeenkoder (FEAT-470):** en encoder som fx Geekcreit/KY-040 er en tæller i tilstanden `encoder`. CLK er `input-dis`, DT er `dt-dis` — begge discrete input-indekser, som skal være mappet fra DI1–8 (`set gpio 10x input <n>`), så de samples hvert 2 ms. Tælleren tæller **rå overgange** (2 eller 4 pr. klik afhængigt af modellen — se `show counter`/Rå tælling efter ét klik) op med uret og ned mod uret og wrapper på bit-bredden; brug `bit-width:16` og `scale:1`, så værdiregistret er en 16-bit position. Flanke og debounce bruges ikke (tilstandstabellen ignorerer prel). `direction:down` vender retningen.
 > ```
 > set gpio 101 input 0        (DI1 = DT)
 > set gpio 102 input 1        (DI2 = CLK)

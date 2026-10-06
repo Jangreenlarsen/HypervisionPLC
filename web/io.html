@@ -435,7 +435,7 @@ function counterCardHtml(id){
   '<div class="fld-row cmode" data-counter="'+id+'" data-mode="encoder">'+
   '<div class="fld"><label>CLK - Discrete Input-indeks</label><input type="number" id="c'+id+'_enc_clk" min="0" max="255"></div>'+
   '<div class="fld"><label>DT - Discrete Input-indeks</label><input type="number" id="c'+id+'_enc_dt" min="0" max="255"></div>'+
-  '<div style="grid-column:1/-1;font-size:10px;color:#a6adc8">Tæller rå overgange (4 pr. hak på en KY-040) op/ned. Brug bit-bredde 16 og skalafaktor 1; ST læser værdi-registret som en position. Flanke og debounce bruges ikke.</div>'+
+  '<div style="grid-column:1/-1;font-size:10px;color:#a6adc8">Tæller rå overgange (2 eller 4 pr. klik afhængigt af encoderen) op/ned. Modulets + skal have forsyning (fx 5 V). Brug bit-bredde 16 og skalafaktor 1; ST læser værdi-registret som en position. Flanke og debounce bruges ikke.</div>'+
   '</div>'+
   '<div class="fld cmode" data-counter="'+id+'" data-mode="sw_isr"><label>GPIO-pin (interrupt)</label><input type="number" id="c'+id+'_pin_isr" min="0" max="39"></div>'+
   '<div class="fld cmode" data-counter="'+id+'" data-mode="hw"><label>GPIO-pin (PCNT hardware)</label><input type="number" id="c'+id+'_pin_hw" min="0" max="39"></div>'+

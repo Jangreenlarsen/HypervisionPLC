@@ -279,7 +279,7 @@ i_dag := CNT_VALUE(1) - base;
 
 ### D.5.9d Drejeenkoder (FEAT-470)
 
-En drejeenkoder konfigureres som en **tæller i tilstanden `encoder`** (§9.1), ikke i ST-koden — så pins og registre står samme sted som resten af I/O-opsætningen, og programmets Bindings-fane viser dem (FEAT-471). Tælleren fører en 16-bit position i rå overgange i sit værdiregister. ST'en binder en variabel til registret og regner hak ud, inkl. 16-bit wrap. En KY-040/Geekcreit giver 4 overgange pr. hak:
+En drejeenkoder konfigureres som en **tæller i tilstanden `encoder`** (§9.1), ikke i ST-koden — så pins og registre står samme sted som resten af I/O-opsætningen, og programmets Bindings-fane viser dem (FEAT-471). Tælleren fører en 16-bit position i rå overgange i sit værdiregister. ST'en binder en variabel til registret og regner hak ud, inkl. 16-bit wrap. Antal overgange pr. klik afhænger af encoderen: 4 (fuld cyklus pr. klik) eller 2 (halv cyklus — hviler skiftevis i 00 og 11, som den testede Geekcreit). Drej ét klik og se tællerens Rå tælling; eksemplet bruger 4:
 ```
 (* pos: INT bundet til Counter 2's vaerdiregister: set logic 2 bind pos reg:120 input *)
 IF NOT pos_ok THEN pos_last := pos; pos_ok := TRUE; END_IF;
@@ -289,7 +289,7 @@ pos_last := pos;
 acc := acc + raw;
 hak := acc / 4;  acc := acc - hak * 4; (* resten gemmes til næste gang *)
 ```
-`CNT_VALUE(2)` kan også bruges, men giver værdien uden fortegn — bindingen til et INT giver direkte den wrap-venlige 16-bit position. Kører encoderen den forkerte vej: `direction:down` på tælleren. På et fremtidigt encoder-expansion board læses positionen i stedet med `MBX_READ_HOLDING`, og resten er det samme.
+`CNT_VALUE(2)` kan også bruges, men giver værdien uden fortegn — bindingen til et INT giver direkte den wrap-venlige 16-bit position. Kører encoderen den forkerte vej: `direction:down` på tælleren. Modulets **+** skal have forsyning (fx 5 V), ellers flyder CLK/DT og kobles sammen via pull-up-modstandene — indgangene skifter så samtidig eller slet ikke. På et fremtidigt encoder-expansion board læses positionen i stedet med `MBX_READ_HOLDING`, og resten er det samme.
 
 > `ENC_POS()` fra v7.9.68.103-104 er fjernet i v7.9.68.105 til fordel for tællertilstanden.
 
