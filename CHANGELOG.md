@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.109] - 2026-10-06
+
+### FEATURES
+- **FEAT-475:** I ST-editoren kan reference-panelets sektioner (Nøgleord, Typer, Modbus …) foldes ind og ud enkeltvis ved klik på overskriften, og panelet kan slås til og fra med Ref. Browseren husker valgene. Ny sektion "Persist (SAVE/LOAD)" forklarer `SAVE(n)`/`LOAD(n)` og viser de aktuelle persist-grupper med id og registre.
+
+### BUG FIXES
+- **BUG-476:** ST-editoren indlæste ingenting, hvis Monitor-sidevinduet fra v7.9.68.108 var åbent ved sidste besøg (en JavaScript-fejl under opstart). Rettet.
+
 ## [7.9.68.108] - 2026-10-06
 
 ### FEATURES

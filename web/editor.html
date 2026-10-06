@@ -35,6 +35,7 @@
 .edit-badge b{color:#89b4fa}
 .edit-badge .run{color:#a6e3a1}.edit-badge .stop{color:#f38ba8}
 .vbtn.vbtn-mon.act{background:#a6e3a1;border-color:#a6e3a1;color:#1e1e2e}
+.ref-btn{background:#45475a;color:#cdd6f4}.ref-btn.ref-on{background:#89b4fa;color:#1e1e2e}
 .views{display:flex;flex:1;min-height:0;overflow:hidden}
 .views-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
 .mon-dock{display:flex;min-height:0;border-left:1px solid #313244;background:#1e1e2e;width:520px;max-width:80vw;flex-shrink:0}
@@ -75,6 +76,13 @@
 .output .error{color:#f38ba8}.output .success{color:#a6e3a1}.output .info{color:#89b4fa}
 .sidebar{width:220px;background:#181825;border-left:1px solid #313244;padding:8px;overflow-y:auto;font-size:11px}
 .sidebar h3{font-size:12px;color:#89b4fa;margin:8px 0 4px;padding-bottom:2px;border-bottom:1px solid #313244}
+/* FEAT-475: sektioner kan klappes sammen */
+.sidebar h3.sb-h{cursor:pointer;user-select:none}
+.sidebar h3.sb-h::before{content:'\25BE  ';font-size:9px;color:#6c7086}
+.sidebar h3.sb-h.closed::before{content:'\25B8  '}
+.sidebar .sb-sec.closed{display:none}
+.sidebar .sb-tools{display:flex;gap:4px;justify-content:flex-end}
+.sidebar .sb-tools button{font-size:9px;padding:1px 6px;background:#313244;color:#a6adc8;border:1px solid #45475a;border-radius:3px;cursor:pointer}
 .sidebar .kw{color:#cba6f7}.sidebar .fn{color:#f9e2af}.sidebar .ty{color:#89b4fa}.sidebar .op{color:#fab387}
 .sidebar code{font-size:10px;line-height:1.4;display:block;padding:1px 0;color:#a6adc8}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
@@ -218,7 +226,7 @@
 <div class="pool-fill" id="heapFill"></div>
 <div class="pool-text" id="heapText">-</div>
 </div>
-<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="toggleSidebar()">Ref</button>
+<button class="btn btn-sm ref-btn" id="btnRef" onclick="toggleSidebar()" title="Vis/skjul reference-panelet (nøgleord, funktioner, persist-grupper)">Ref</button>
 </div>
 
 <!-- FEAT-473: visninger til venstre, Monitor som sidevindue til hoejre -->
@@ -242,6 +250,7 @@
 </div>
 </div>
 <div class="sidebar" id="sidebar">
+<div class="sb-tools"><button onclick="sbAll(false)" title="Fold alle sektioner ud">Alle ud</button><button onclick="sbAll(true)" title="Fold alle sektioner sammen">Alle ind</button></div>
 <h3>Nøgleord</h3>
 <code class="kw">PROGRAM END_PROGRAM
 FUNCTION FUNCTION_BLOCK
@@ -298,6 +307,16 @@ MBX_READ_HOLDING(1,C,9,2)</code>
 <h3>Tid (NTP)</h3>
 <code class="fn">TIME_VALID()  TIME_HOUR()
 TIME_MINUTE()  TIME_DAY()</code>
+<h3>Persist (SAVE/LOAD)</h3>
+<code class="fn">rs := SAVE(n)   LOAD(n)
+n = gruppe-id (System-siden)
+n = 0: alle grupper
+rs: 0 ok, -1 fejl,
+    -2 vent (max 1 pr. 5 s)
+Gemmer REGISTRENES vaerdi -
+kald i en senere cyklus end
+den der aendrer den bundne var.</code>
+<code class="fn" id="refPersist">(indlæser grupper…)</code>
 
 <h3>Watchdog</h3>
 <code class="fn">WDT_FEED()  (heartbeat, se Indstillinger)</code>
@@ -497,6 +516,7 @@ let SLOT=1;
 let programs=[null,null,null,null];
 let dirty=false;
 let VIEW='editor';
+let MON_OPEN=false;  // FEAT-473/BUG-476: skal vaere erklaeret foer init() kaldes (TDZ)
 let monTimer=null;
 let varHistory={};  // sparkline data: {varName: [{v:number, t:number, exec:number}]}
 let HIST_LEN=60;
@@ -742,7 +762,9 @@ async function api(method,path,body){
 
 let resourceTimer=null;
 async function init(){
-  initMonitorDock();  // FEAT-473
+  // BUG-476: UI-opsaetning maa aldrig vaelte init() (saa indlaeses intet)
+  try{initMonitorDock();}catch(e){console.error('initMonitorDock',e);}  // FEAT-473
+  try{initSidebar();}catch(e){console.error('initSidebar',e);}          // FEAT-475
   try{
     const st=await api('GET','status');
     document.getElementById('deviceInfo').textContent=
@@ -1131,9 +1153,46 @@ function parseErrorLine(msg){
   return m?parseInt(m[1]):0;
 }
 
-function toggleSidebar(){
+function toggleSidebar(force){
   const s=document.getElementById('sidebar');
-  s.style.display=s.style.display==='none'?'':'none';
+  const show=(force===undefined)?(s.style.display==='none'):!!force;
+  s.style.display=show?'':'none';
+  const b=document.getElementById('btnRef');if(b)b.classList.toggle('ref-on',show);
+  try{localStorage.setItem('hfplc_ed_ref',show?'1':'0');}catch(e){}
+}
+// FEAT-475: reference-panelets sektioner kan klappes sammen; tilstanden huskes
+function sbSave(){
+  const closed=[...document.querySelectorAll('#sidebar h3.sb-h.closed')].map(h=>h.dataset.k);
+  try{localStorage.setItem('hfplc_ed_sbclosed',JSON.stringify(closed));}catch(e){}
+}
+function sbToggle(h,close){
+  const c=(close===undefined)?!h.classList.contains('closed'):close;
+  h.classList.toggle('closed',c);h._sec.classList.toggle('closed',c);
+  if(!c&&h.dataset.k==='Persist (SAVE/LOAD)')loadRefPersist();
+}
+function sbAll(close){document.querySelectorAll('#sidebar h3.sb-h').forEach(h=>sbToggle(h,close));sbSave();}
+function initSidebar(){
+  const sb=document.getElementById('sidebar');
+  let closed=[];try{closed=JSON.parse(localStorage.getItem('hfplc_ed_sbclosed')||'[]');}catch(e){}
+  [...sb.querySelectorAll('h3')].forEach(h=>{
+    const sec=document.createElement('div');sec.className='sb-sec';
+    while(h.nextSibling&&!(h.nextSibling.nodeType===1&&h.nextSibling.tagName==='H3'))sec.appendChild(h.nextSibling);
+    h.after(sec);
+    h.classList.add('sb-h');h.dataset.k=h.textContent.trim();h._sec=sec;
+    h.addEventListener('click',()=>{sbToggle(h);sbSave();});
+    if(closed.includes(h.dataset.k))sbToggle(h,true);
+  });
+  let ref='1';try{ref=localStorage.getItem('hfplc_ed_ref')||'1';}catch(e){}
+  toggleSidebar(ref!=='0');
+  loadRefPersist();
+}
+async function loadRefPersist(){
+  const el=document.getElementById('refPersist');if(!el)return;
+  try{
+    const d=await api('GET','persist/groups');
+    const g=d.groups||[];
+    el.textContent=g.length?g.map(x=>'#'+x.id+' '+x.name+': '+((x.regs||[]).map(r=>'HR'+r[0]).join(', ')||'(tom)')).join('\n'):'Ingen grupper - opret under System';
+  }catch(e){el.textContent='(kunne ikke hente grupper)';}
 }
 
 // === Editor Events ===
@@ -1218,7 +1277,7 @@ function setView(v,btn){
 }
 
 // FEAT-473: Monitor som sidevindue (kan staa aabent ved siden af de andre visninger)
-let MON_OPEN=false;
+// (MON_OPEN erklaeres oeverst sammen med VIEW - init() koeres foer denne linje, BUG-476)
 function toggleMonitorDock(open){
   MON_OPEN=(open===undefined)?!MON_OPEN:!!open;
   document.getElementById('monDock').classList.toggle('hid',!MON_OPEN);
@@ -1240,7 +1299,8 @@ function initMonitorDock(){
     document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
   });
   let open=false;try{open=localStorage.getItem('hfplc_ed_mon')==='1';}catch(e){}
-  if(open)toggleMonitorDock(true);
+  // BUG-476: aabn foerst naar hele scriptet er koert (monitoren bruger senere erklaerede konstanter, fx WATCH_RE)
+  if(open)setTimeout(()=>toggleMonitorDock(true),0);
 }
 function updateEditBadge(){
   const p=programs[SLOT-1];
