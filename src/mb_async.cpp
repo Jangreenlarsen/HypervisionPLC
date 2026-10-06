@@ -356,8 +356,10 @@ bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t add
   if (g_mb_cache_enabled && !force) {
     uint8_t read_type = (type == MB_REQ_WRITE_COIL) ? (uint8_t)MB_REQ_READ_COIL : (uint8_t)MB_REQ_READ_HOLDING;
     mb_cache_entry_t *cached = mb_cache_find(slave_id, address, read_type);
+    // BUG-479: coils sammenlignes som BOOL (resten af unionen kan indeholde tilfaeldige bits)
     if (cached && cached->status == MB_CACHE_VALID &&
-        cached->value.int_val == value.int_val) {
+        (type == MB_REQ_WRITE_COIL ? (cached->value.bool_val == value.bool_val)
+                                   : (cached->value.int_val == value.int_val))) {
       return true;  // Same value already confirmed written — skip
     }
   }

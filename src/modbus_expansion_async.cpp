@@ -349,7 +349,9 @@ bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, 
   bool same_value_already_written = false;
   if (cached) {
     portENTER_CRITICAL(&mbx_cache_spinlock);
-    same_value_already_written = (cached->status == MBX_CACHE_VALID && cached->value.int_val == value.int_val);
+    // BUG-479: coils sammenlignes som BOOL (resten af unionen kan indeholde tilfaeldige bits)
+    same_value_already_written = (cached->status == MBX_CACHE_VALID &&
+      (type == MBX_REQ_WRITE_COIL ? (cached->value.bool_val == value.bool_val) : (cached->value.int_val == value.int_val)));
     portEXIT_CRITICAL(&mbx_cache_spinlock);
   }
   if (same_value_already_written) {
@@ -690,7 +692,11 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
       if (entry) {
         portENTER_CRITICAL(&mbx_cache_spinlock);
         if (err == MB_OK) {
-          entry->value = result;
+          // BUG-479 (= BUG-426 for expansion): for skrivninger er `result` kun et
+          // OK-flag — cachen skal have den SKREVNE vaerdi, ellers laeser ST/UI
+          // "1" tilbage, og write-dedup sammenligner mod forkert vaerdi
+          const bool is_write = (req.type == MBX_REQ_WRITE_COIL || req.type == MBX_REQ_WRITE_HOLDING);
+          entry->value = is_write ? req.write_value : result;
           entry->status = MBX_CACHE_VALID;
         } else {
           entry->status = MBX_CACHE_ERROR;

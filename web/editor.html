@@ -441,8 +441,12 @@ di[addr] — Discrete Input</code>
 </table>
 <!-- FEAT-432: ekstra registre (ikke ST-variabler), defineret som (* @watch ... *) i kildekoden -->
 <div style="margin-top:10px;padding:8px 10px;background:#181825;border:1px solid #313244;border-radius:6px">
-<div style="font-size:11px;color:#a6adc8;margin-bottom:6px"><b>Ekstra registre</b> — overvåg registre uden for programmet (fx en tællers HR100). Vises i tabellen ovenfor, markeret <span style="color:#89b4fa">REG</span>. Gemmes som <code>(* @watch HR100 DINT "Counter 1" *)</code> i kildekoden — kompilér for at gemme.</div>
+<div style="font-size:11px;color:#a6adc8;margin-bottom:6px"><b>Ekstra registre</b> — overvåg registre uden for programmet (fx en tællers HR100). Vises i tabellen ovenfor, markeret <span style="color:#89b4fa">REG</span>. Gemmes som <code>(* @watch HR100 DINT "Counter 1" *)</code> i kildekoden — kompilér for at gemme. Eksterne registre (FEAT-481): <code>(* @watch RTU 90 HR0 INT "CH0" *)</code> (slave på PLC'ens RS485) og <code>(* @watch MBX 1 D 1 COIL1 "Relæ 1" *)</code> (board 1, kanal D, slave 1) — læses via samme kø/cache som ST Logic og holdes friske (ca. 1 s).</div>
 <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+<select id="wSrc" onchange="updateWatchSrc()" style="padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:11px" title="Hvor registret sidder"><option value="local">Intern (PLC)</option><option value="rtu">RS485-slave</option><option value="mbx">Expansion board</option></select>
+<input id="wBoard" type="number" min="1" max="8" value="1" placeholder="Board" title="Expansion board nr." style="width:62px;display:none;padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:11px">
+<select id="wCh" title="Kanal" style="display:none;padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:11px"><option>A</option><option>B</option><option>C</option><option>D</option></select>
+<input id="wSlave" type="number" min="1" max="247" placeholder="Slave" title="Modbus slave-adresse" style="width:62px;display:none;padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:11px">
 <select id="wType" style="padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:11px"><option>HR</option><option>IR</option><option>COIL</option><option>DI</option></select>
 <input id="wAddr" type="number" min="0" max="255" placeholder="Adresse" style="width:80px;padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:11px">
 <select id="wFmt" style="padding:4px 6px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:11px" title="16 bit: UINT/INT. 32 bit (2 registre): lavt ord på adressen som PLC'ens tællere; _HL = højt ord først"><option>UINT</option><option>INT</option><option>UDINT</option><option>DINT</option><option>REAL</option><option>UDINT_HL</option><option>DINT_HL</option><option>REAL_HL</option></select>
@@ -1762,23 +1766,55 @@ function sparkSVG(entries,w,h,color,scale){
 // === FEAT-432: ekstra registre i Monitor ===
 // Defineres i programmets kildekode som (* @watch <HR|IR|COIL|DI><adr> [format] ["navn"] *)
 // — foelger programmet (backup, alle browsere) og dokumenterer afhaengigheden.
-const WATCH_RE=/\(\*\s*@watch\s+(HR|IR|COIL|DI)\s*(\d{1,3})(?:\s+(UINT|INT|UDINT|DINT|REAL)(_HL)?)?(?:\s+"([^"]{0,24})")?\s*\*\)/gi;
+// FEAT-481: valgfri kilde foran registret: "RTU <slave>" eller "MBX <board> <kanal> <slave>"
+const WATCH_RE=/\(\*\s*@watch\s+(?:(RTU)\s+(\d{1,3})\s+|(MBX)\s+(\d)\s+([A-Ha-h1-8])\s+(\d{1,3})\s+)?(HR|IR|COIL|DI)\s*(\d{1,5})(?:\s+(UINT|INT|UDINT|DINT|REAL)(_HL)?)?(?:\s+"([^"]{0,24})")?\s*\*\)/gi;
 function parseWatches(src){
   const out=[];let m;WATCH_RE.lastIndex=0;
   while((m=WATCH_RE.exec(src||''))!==null){
-    const type=m[1].toUpperCase(),addr=parseInt(m[2],10);
-    if(addr>255)continue;
+    const type=m[7].toUpperCase(),addr=parseInt(m[8],10);
+    const w={type,addr,src:'local'};
+    if(m[1]){w.src='rtu';w.slave=parseInt(m[2],10);}
+    else if(m[3]){w.src='mbx';w.board=parseInt(m[4],10);const c=m[5].toUpperCase();w.ch=/[A-H]/.test(c)?c.charCodeAt(0)-64:parseInt(c,10);w.slave=parseInt(m[6],10);}
+    if(w.src==='local'?addr>255:addr>65535)continue;
+    if(w.slave!==undefined&&(w.slave<1||w.slave>247))continue;
     const bit=(type==='COIL'||type==='DI');
-    const fmt=bit?'BOOL':((m[3]||'UINT').toUpperCase()+(m[4]?'_HL':''));
-    out.push({type,addr,fmt,label:m[5]||'',key:'@'+type+addr+':'+fmt,raw:m[0]});
+    w.fmt=bit?'BOOL':((m[9]||'UINT').toUpperCase()+(m[10]?'_HL':''));
+    w.label=m[11]||'';
+    const pre=w.src==='rtu'?'RTU'+w.slave+':':w.src==='mbx'?'B'+w.board+String.fromCharCode(64+w.ch)+w.slave+':':'';
+    if(!w.label&&pre)w.label=pre+type+addr;
+    w.key='@'+pre+type+addr+':'+w.fmt;w.raw=m[0];
+    out.push(w);
   }
   return out;
+}
+// FEAT-481: noegle for en adresse i en watch (lokal/ekstern) — bruges af readWatches
+function watchKey(w,addr){
+  const pre=w.src==='rtu'?'r'+w.slave+':':w.src==='mbx'?'x'+w.board+':'+w.ch+':'+w.slave+':':'';
+  return pre+w.type+addr;
 }
 function watchWords(fmt){return /^(UDINT|DINT|REAL)/.test(fmt)?2:1;}
 // Laeser alle watches med ét bulk-kald pr. registertype (min..max-omraadet)
 async function readWatches(ws){
   const vals={};const byType={};
-  ws.forEach(w=>{(byType[w.type]=byType[w.type]||[]).push(w);});
+  ws.filter(w=>w.src==='local').forEach(w=>{(byType[w.type]=byType[w.type]||[]).push(w);});
+  // FEAT-481: eksterne registre via /api/modbus/external?watch=... (samme koe/cache som ST)
+  const ext=ws.filter(w=>w.src!=='local');
+  if(ext.length){
+    const fc={COIL:1,DI:2,HR:3,IR:4},tname={COIL:'coil',DI:'di',HR:'hr',IR:'ir'};
+    const specs=[];
+    ext.forEach(w=>{for(let i=0;i<watchWords(w.fmt);i++){
+      specs.push(w.src==='rtu'?'r:'+w.slave+':'+fc[w.type]+':'+(w.addr+i):'x:'+w.board+':'+w.ch+':'+w.slave+':'+fc[w.type]+':'+(w.addr+i));}});
+    try{
+      const r=await queuedFetch('/api/modbus/external?watch='+encodeURIComponent(specs.slice(0,16).join(',')),{});
+      const d=await r.json();
+      ext.forEach(w=>{for(let i=0;i<watchWords(w.fmt);i++){
+        const a=w.addr+i;
+        const e=w.src==='rtu'?(d.rtu||[]).find(x=>x.slave===w.slave&&x.addr===a&&x.type===tname[w.type]&&x.status==='ok')
+                             :(d.mbx||[]).find(x=>x.board===w.board&&x.ch===w.ch&&x.slave===w.slave&&x.addr===a&&x.type===tname[w.type]&&x.status==='ok');
+        if(e)vals[watchKey(w,a)]=e.value;
+      }});
+    }catch(e){}
+  }
   for(const type of Object.keys(byType)){
     const list=byType[type];
     const lo=Math.min(...list.map(w=>w.addr)),hi=Math.max(...list.map(w=>w.addr+watchWords(w.fmt)-1));
@@ -1790,8 +1826,8 @@ async function readWatches(ws){
     }catch(e){}
   }
   return ws.map(w=>{
-    if(w.fmt==='BOOL'){const v=vals[w.type+w.addr];return v===undefined?null:!!v;}
-    const a=vals[w.type+w.addr],b=vals[w.type+(w.addr+1)];
+    if(w.fmt==='BOOL'){const v=vals[watchKey(w,w.addr)];return v===undefined?null:!!v;}
+    const a=vals[watchKey(w,w.addr)],b=vals[watchKey(w,w.addr+1)];
     if(a===undefined)return null;
     if(watchWords(w.fmt)===1)return w.fmt==='INT'?((a<<16)>>16):a;
     if(b===undefined)return null;
@@ -1802,14 +1838,34 @@ async function readWatches(ws){
     const dv=new DataView(new ArrayBuffer(4));dv.setUint32(0,u32);return Math.round(dv.getFloat32(0)*1000)/1000;
   });
 }
+function updateWatchSrc(){
+  const s=document.getElementById('wSrc').value;
+  document.getElementById('wBoard').style.display=s==='mbx'?'':'none';
+  document.getElementById('wCh').style.display=s==='mbx'?'':'none';
+  document.getElementById('wSlave').style.display=s==='local'?'none':'';
+  document.getElementById('wAddr').max=s==='local'?'255':'65535';
+}
 function addWatch(){
   const type=document.getElementById('wType').value;
   const addr=parseInt(document.getElementById('wAddr').value,10);
   const bit=(type==='COIL'||type==='DI');
   const fmt=bit?'':' '+document.getElementById('wFmt').value;
   const label=document.getElementById('wLabel').value.replace(/["*()]/g,'').trim();
-  if(isNaN(addr)||addr<0||addr>255){log('error','Adresse skal være 0-255');return;}
-  const line='(* @watch '+type+addr+fmt+(label?' "'+label+'"':'')+' *)';
+  const src=document.getElementById('wSrc').value;
+  const max=src==='local'?255:65535;
+  if(isNaN(addr)||addr<0||addr>max){log('error','Adresse skal være 0-'+max);return;}
+  let pre='';
+  if(src!=='local'){
+    const slave=parseInt(document.getElementById('wSlave').value,10);
+    if(!(slave>=1&&slave<=247)){log('error','Slave skal være 1-247');return;}
+    if(src==='rtu')pre='RTU '+slave+' ';
+    else{
+      const board=parseInt(document.getElementById('wBoard').value,10);
+      if(!(board>=1&&board<=8)){log('error','Board skal være 1-8');return;}
+      pre='MBX '+board+' '+document.getElementById('wCh').value+' '+slave+' ';
+    }
+  }
+  const line='(* @watch '+pre+type+addr+fmt+(label?' "'+label+'"':'')+' *)';
   const ed=document.getElementById('editor');
   const lines=ed.value.split('\n');
   let i=lines.findIndex(l=>/^\s*PROGRAM\b/i.test(l));

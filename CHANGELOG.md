@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.116] - 2026-10-06
+
+### FEATURES
+- **FEAT-481:** ST-editorens Monitor kan nu overvåge eksterne registre: slaver på PLC'ens RS485 (`(* @watch RTU 90 HR0 *)`) og registre bag expansion boards (`(* @watch MBX 1 D 1 COIL1 *)`). De vælges i Tilføj-formularen, læses gennem samme kø som ST Logic og vises med værdi og trend som de interne.
+
+### BUG FIXES
+- **BUG-479:** En coil, der var skrevet på et expansion board, blev vist og læst som 1 uanset den skrevne værdi, og "fra" blev sendt igen hver gang. Den skrevne værdi gemmes nu korrekt (samme rettelse som BUG-426 for den lokale RS485).
+
 ## [7.9.68.115] - 2026-10-06
 
 ### BUG FIXES

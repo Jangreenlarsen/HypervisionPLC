@@ -8882,6 +8882,62 @@ esp_err_t api_handler_modbus_external_get(httpd_req_t *req)
   if (!rtu) rtu = (mb_cache_entry_t *)heap_caps_malloc(sizeof(mb_cache_entry_t) * MB_CACHE_MAX_ENTRIES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!mbx) mbx = (mbx_cache_entry_t *)heap_caps_malloc(sizeof(mbx_cache_entry_t) * MBX_ASYNC_CACHE_MAX_ENTRIES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!rtu || !mbx) return api_send_error(req, 500, "Out of memory");
+
+  // FEAT-481: ?watch=r:<slave>:<fc>:<addr>,x:<board>:<kanal>:<slave>:<fc>:<addr>,...
+  // (fc 1-4 = coil/di/hr/ir) — editorens Monitor overvaager eksterne registre.
+  // Hver post saettes i koe til opfriskning via SAMME koe/cache som ST Logic,
+  // hvis den mangler eller er aeldre end 1 s (og ikke allerede venter); svaret
+  // er det almindelige snapshot nedenfor. Max 16 poster.
+  {
+    char q[600];
+    char w[512];
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK &&
+        httpd_query_key_value(q, "watch", w, sizeof(w)) == ESP_OK) {
+      const uint32_t tnow = millis();
+      char *save = NULL;
+      int n = 0;
+      for (char *tok = strtok_r(w, ",", &save); tok && n < 16; tok = strtok_r(NULL, ",", &save), n++) {
+        // strtoul i stedet for sscanf (FEAT-419: sscanf koster ~15 KB flash)
+        unsigned long f[5] = {0, 0, 0, 0, 0};
+        int nf = 0;
+        const char *p = tok + 1;
+        while (*p == ':' && nf < 5) {
+          char *end = NULL;
+          f[nf] = strtoul(p + 1, &end, 10);
+          if (end == p + 1) break;
+          nf++;
+          p = end;
+        }
+        if (*p != '\0') continue;
+        unsigned a1 = (unsigned)f[0], a2 = (unsigned)f[1], a3 = (unsigned)f[2], a4 = (unsigned)f[3], a5 = (unsigned)f[4];
+        if (tok[0] == 'r' && nf == 3) {
+          if (a1 < 1 || a1 > 247 || a2 < 1 || a2 > 4 || a3 > 65535) continue;
+          mb_cache_entry_t *e = mb_cache_find((uint8_t)a1, (uint16_t)a3, (uint8_t)a2);
+          bool stale = true;
+          if (e) {
+            portENTER_CRITICAL(&mb_cache_spinlock);
+            stale = (e->status != MB_CACHE_PENDING) && (e->last_update_ms == 0 || (tnow - e->last_update_ms) >= 1000);
+            portEXIT_CRITICAL(&mb_cache_spinlock);
+          }
+          if (stale) mb_async_queue_read((mb_request_type_t)a2, (uint8_t)a1, (uint16_t)a3);
+        } else if (tok[0] == 'x' && nf == 5) {
+          if (a1 < 1 || a1 > EXPANSION_BOARD_MAX || a2 < 1 || a2 > 8 || a3 < 1 || a3 > 247 || a4 < 1 || a4 > 4 || a5 > 65535) continue;
+          if (!g_persist_config.expansion_boards[a1 - 1].configured) continue;
+          uint8_t nch = expansion_board_active_channels((uint8_t)(a1 - 1));
+          if (nch > 0 && a2 > nch) continue;  // BUG-478: aldrig en kanal boardet ikke har
+          mbx_cache_entry_t *e = mbx_cache_find((uint8_t)a1, (uint8_t)a2, (uint8_t)a3, (uint16_t)a5, (uint8_t)a4);
+          bool stale = true;
+          if (e) {
+            portENTER_CRITICAL(&mbx_cache_spinlock);
+            stale = (e->status != MBX_CACHE_PENDING) && (e->last_update_ms == 0 || (tnow - e->last_update_ms) >= 1000);
+            portEXIT_CRITICAL(&mbx_cache_spinlock);
+          }
+          if (stale) modbus_expansion_async_queue_read((mbx_request_type_t)a4, (uint8_t)a1, (uint8_t)a2, (uint8_t)a3, (uint16_t)a5);
+        }
+      }
+    }
+  }
+
   uint8_t nr; uint16_t nx;
   portENTER_CRITICAL(&mb_cache_spinlock);
   nr = g_mb_async.entry_count > MB_CACHE_MAX_ENTRIES ? MB_CACHE_MAX_ENTRIES : g_mb_async.entry_count;

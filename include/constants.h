@@ -712,7 +712,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.68.115"
+#define PROJECT_VERSION     "7.9.68.116"
 #define PROJECT_LICENSE     "AGPL-3.0-or-later"
 #define PROJECT_SOURCE_URL  "https://github.com/Jangreenlarsen/HypervisionPLC"   // FEAT-433: AGPL §13 kildekode-tilbud
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)
