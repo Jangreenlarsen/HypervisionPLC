@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.115] - 2026-10-06
+
+### BUG FIXES
+- **BUG-478:** Køen til expansion boards (`MBX_*` fra ST) kunne gå permanent i stå, så intet blev sendt til boardet. Det skete typisk efter flere skrivninger i træk til samme kanal. Køen kan ikke længere låse sig fast. En kanal, som boardet ikke har, afvises nu med en fejlkode i stedet for at blive lagt i køen.
+
 ## [7.9.68.114] - 2026-10-06
 
 ### BUG FIXES

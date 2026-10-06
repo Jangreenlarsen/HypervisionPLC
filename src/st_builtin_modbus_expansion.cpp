@@ -56,6 +56,16 @@ static bool mbx_validate(int32_t board, int32_t channel, int32_t slave_id, int32
     g_mbx_success = false;
     return false;
   }
+  // BUG-478: kender PLC'en boardets kanaltal (FEAT-466), afvises en kanal det
+  // ikke har — ellers laa forespoergslen i koeen og fejlede for hver cyklus
+  {
+    uint8_t n = expansion_board_active_channels((uint8_t)(board - 1));
+    if (n > 0 && channel > n) {
+      g_mbx_last_error = MB_INVALID_ADDRESS;
+      g_mbx_success = false;
+      return false;
+    }
+  }
   if (slave_id < 1 || slave_id > 247) {
     g_mbx_last_error = MB_INVALID_SLAVE;
     g_mbx_success = false;

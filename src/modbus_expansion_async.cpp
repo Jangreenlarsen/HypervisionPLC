@@ -547,9 +547,13 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
       mbx_cache_sweep_stale_pending();
     }
 
-    if (xSemaphoreTake(g_mbx_async.pq_semaphore, pdMS_TO_TICKS(100)) != pdTRUE) {
-      continue;
-    }
+    // BUG-478: semaforen er kun et "vaagn op"-hint. Et token gik tabt hver
+    // gang en worker vaagnede, men alt i koeen gjaldt en (board,kanal) som en
+    // anden worker allerede betjente (fx 4 skrivninger i traek til samme
+    // kanal) — elementet blev liggende uden token. Var koeen fuld, kom der
+    // aldrig nye tokens, og MBX-koeen stod fast for altid (32/32, intet
+    // in-flight). Nu kigges der i koeen mindst hvert 100 ms uanset token.
+    (void)xSemaphoreTake(g_mbx_async.pq_semaphore, pdMS_TO_TICKS(100));
     if (!mbx_pq_dequeue(&req)) {
       continue;
     }
@@ -709,6 +713,8 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
     }
 
     mbx_inflight_clear(req.board, req.channel);  // BUG-417
+    // BUG-478: elementer der ventede paa netop denne kanal kan nu tages — vaek en worker straks
+    if (g_mbx_async.pq_count > 0) xSemaphoreGive(g_mbx_async.pq_semaphore);
   }
 
   watchdog_task_unsubscribe();  // FEAT-427: SKAL ske foer sletning
