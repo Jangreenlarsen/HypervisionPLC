@@ -27,6 +27,23 @@
 .tab.tab-running{background:rgba(166,227,161,.28)}
 .tab.tab-stopped{background:rgba(243,139,168,.22)}
 .tab.active.tab-running,.tab.active.tab-stopped{background:#1e1e2e}
+/* FEAT-473: tydelig markering af det program der redigeres */
+.tab.active{background:#1e1e2e!important;color:#89b4fa;font-weight:700;box-shadow:inset 0 3px 0 #89b4fa,0 0 0 1px #89b4fa}
+.tab.active::before{content:'\25B6  ';font-size:10px}
+.tab-sep{width:1px;background:#45475a;margin:4px 14px 0 18px;align-self:stretch}
+.edit-badge{font-size:12px;padding:3px 10px;border-radius:12px;background:#313244;color:#cdd6f4;border:1px solid #89b4fa;white-space:nowrap}
+.edit-badge b{color:#89b4fa}
+.edit-badge .run{color:#a6e3a1}.edit-badge .stop{color:#f38ba8}
+.vbtn.vbtn-mon.act{background:#a6e3a1;border-color:#a6e3a1;color:#1e1e2e}
+.views{display:flex;flex:1;min-height:0;overflow:hidden}
+.views-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+.mon-dock{display:flex;min-height:0;border-left:1px solid #313244;background:#1e1e2e;width:520px;max-width:80vw;flex-shrink:0}
+.mon-dock.hid{display:none}
+.mon-dock .dock-grip{width:6px;cursor:col-resize;background:#181825;border-right:1px solid #313244;flex-shrink:0}
+.mon-dock .dock-grip:hover{background:#45475a}
+.mon-dock #viewMonitor{display:flex;flex:1;min-width:0;overflow:auto}
+.mon-dock .dock-close{position:absolute;right:10px;top:8px}
+@media (max-width:900px){.mon-dock{position:fixed;right:0;top:0;bottom:0;z-index:80;width:100vw!important;max-width:100vw;box-shadow:-4px 0 16px rgba(0,0,0,.5)}.mon-dock .dock-grip{display:none}}
 .toolbar{display:flex;gap:8px;padding:8px 16px;background:#181825;border-bottom:1px solid #313244;flex-wrap:wrap;align-items:center;flex-shrink:0}
 .btn{padding:5px 14px;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s}
 .btn-primary{background:#89b4fa;color:#1e1e2e}
@@ -172,12 +189,16 @@
 <!-- Program Tabs -->
 <div class="tabs">
 <div id="tabs" style="display:contents"></div>
+<div class="tab-sep"></div>
 <button class="vbtn act vbtn-editor" onclick="setView('editor',this)" id="btnViewEditor">Editor</button>
+<button class="vbtn vbtn-editor" onclick="setView('bindings',this)" id="btnViewBindings">Bindings</button>
 <button class="vbtn vbtn-editor" onclick="setView('settings',this)" id="btnViewSettings" title="Globale indstillinger — gælder alle 4 programmer, ikke kun det valgte">Settings</button>
+<button class="vbtn vbtn-editor vbtn-mon" onclick="toggleMonitorDock()" id="btnMonDock" title="Åbn/luk Monitor som sidevindue — kan stå åbent ved siden af Editor, Bindings og Settings">Monitor &#x29C9;</button>
 </div>
 
 <!-- Toolbar -->
 <div class="toolbar">
+<span class="edit-badge" id="editBadge" title="Det program knapperne og editoren arbejder på">Redigerer: <b>-</b></span>
 <button class="btn btn-primary" onclick="uploadCode()" id="btnUpload" title="Kompilér og gem programmet (Ctrl+S). Bindings og øvrig konfiguration gemmes med Save øverst.">Kompilér</button>
 <button class="btn btn-sm" id="btnStartStop" style="background:#a6e3a1;color:#1e1e2e" onclick="toggleStartStop()" title="Start/stop program">Start</button>
 <button class="btn btn-sm" style="background:#fab387;color:#1e1e2e" onclick="reinitProgram()" title="Cold restart: nulstil variabler til startværdier">Reinit</button>
@@ -186,10 +207,6 @@
 <button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="document.getElementById('uploadFile').click()" title="Upload .st fil">Upload</button>
 <input type="file" id="uploadFile" accept=".st,.txt" style="display:none" onchange="handleFileUpload(event)">
 <button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="toggleFind()" title="Find/Replace (Ctrl+F)">Find</button>
-<div class="view-btns">
-<button class="vbtn" onclick="setView('bindings',this)">Bindings</button>
-<button class="vbtn" onclick="setView('monitor',this)">Monitor</button>
-</div>
 <div style="flex:1"></div>
 <span style="font-size:11px;color:#6c7086" title="Kildekode pool">Pool:</span>
 <div class="pool-bar">
@@ -204,6 +221,9 @@
 <button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="toggleSidebar()">Ref</button>
 </div>
 
+<!-- FEAT-473: visninger til venstre, Monitor som sidevindue til hoejre -->
+<div class="views">
+<div class="views-main">
 <!-- Editor View -->
 <div class="panel" id="viewEditor">
 <div class="main">
@@ -338,9 +358,10 @@ di[addr] — Discrete Input</code>
 </div>
 </div>
 
-<!-- Monitor View -->
-<div class="panel hid" id="viewMonitor">
-<div class="ppad">
+<!-- Monitor (FEAT-473: flyttes ind i sidevinduet ved opstart) -->
+<div class="panel" id="viewMonitor">
+<div class="ppad" style="position:relative">
+<button class="btn btn-sm dock-close" style="background:#45475a;color:#cdd6f4" onclick="toggleMonitorDock(false)" title="Luk Monitor">&#x2715;</button>
 <h3>Runtime Monitor — Program <span id="monSlot">1</span></h3>
 <div class="dbg-bar">
 <button class="btn btn-sm btn-warn" onclick="dbgAction('pause')" title="Pause programudførelse">Pause Execute</button>
@@ -446,6 +467,9 @@ di[addr] — Discrete Input</code>
 </table>
 </div>
 </div>
+</div><!-- /views-main -->
+<div class="mon-dock hid" id="monDock"><div class="dock-grip" id="monGrip" title="Træk for at ændre bredden"></div></div>
+</div><!-- /views -->
 
 <!-- Global Output Log -->
 <div class="output hidden" id="output"></div>
@@ -718,6 +742,7 @@ async function api(method,path,body){
 
 let resourceTimer=null;
 async function init(){
+  initMonitorDock();  // FEAT-473
   try{
     const st=await api('GET','status');
     document.getElementById('deviceInfo').textContent=
@@ -765,6 +790,7 @@ function updateTabs(){
     b.onclick=()=>selectSlot(i+1);
     t.appendChild(b);
   }
+  updateEditBadge();
 }
 
 async function selectSlot(s){
@@ -776,7 +802,7 @@ async function selectSlot(s){
   updateTabs();
   await loadSource(s);
   if(VIEW==='bindings') loadBindings();
-  if(VIEW==='monitor') refreshMonitor();
+  if(MON_OPEN) refreshMonitor();
 }
 
 async function loadSource(s){
@@ -1181,15 +1207,47 @@ function setView(v,btn){
   VIEW=v;
   document.querySelectorAll('.vbtn').forEach(b=>b.classList.remove('act'));
   if(btn)btn.classList.add('act');
-  ['viewEditor','viewBindings','viewMonitor','viewSettings'].forEach(id=>{
+  ['viewEditor','viewBindings','viewSettings'].forEach(id=>{
     const el=document.getElementById(id);
     const match=id==='view'+v.charAt(0).toUpperCase()+v.slice(1);
     el.classList.toggle('hid',!match);
   });
-  stopMonitor();
+  if(MON_OPEN)document.getElementById('btnMonDock').classList.add('act');
   if(v==='bindings') loadBindings();
-  if(v==='monitor') startMonitor();
   if(v==='settings') loadLogicSettings();
+}
+
+// FEAT-473: Monitor som sidevindue (kan staa aabent ved siden af de andre visninger)
+let MON_OPEN=false;
+function toggleMonitorDock(open){
+  MON_OPEN=(open===undefined)?!MON_OPEN:!!open;
+  document.getElementById('monDock').classList.toggle('hid',!MON_OPEN);
+  document.getElementById('btnMonDock').classList.toggle('act',MON_OPEN);
+  try{localStorage.setItem('hfplc_ed_mon',MON_OPEN?'1':'0');}catch(e){}
+  if(MON_OPEN)startMonitor();else stopMonitor();
+}
+function initMonitorDock(){
+  const dock=document.getElementById('monDock');
+  dock.appendChild(document.getElementById('viewMonitor'));
+  try{const w=parseInt(localStorage.getItem('hfplc_ed_monw'));if(w>=280)dock.style.width=w+'px';}catch(e){}
+  const grip=document.getElementById('monGrip');
+  grip.addEventListener('mousedown',ev=>{
+    ev.preventDefault();
+    const x0=ev.clientX,w0=dock.offsetWidth;
+    const mv=e=>{dock.style.width=Math.max(280,Math.min(window.innerWidth*0.8,w0+(x0-e.clientX)))+'px';};
+    const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);
+      try{localStorage.setItem('hfplc_ed_monw',String(dock.offsetWidth));}catch(e){}};
+    document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
+  });
+  let open=false;try{open=localStorage.getItem('hfplc_ed_mon')==='1';}catch(e){}
+  if(open)toggleMonitorDock(true);
+}
+function updateEditBadge(){
+  const p=programs[SLOT-1];
+  const run=p&&p.enabled&&p.compiled;
+  const name=p?(p.name||'Program'+SLOT):'(tom)';
+  document.getElementById('editBadge').innerHTML='Redigerer: <b>'+SLOT+': '+escHtml(name)+'</b> '+
+    (p&&p.source_size?(run?'<span class="run">● kører</span>':'<span class="stop">● stoppet</span>'):'');
 }
 
 // === Bindings Panel ===
@@ -1982,7 +2040,7 @@ editorSseConnect();
 // Pause monitor polling when tab is hidden
 document.addEventListener('visibilitychange',function(){
   if(document.hidden&&monTimer){clearInterval(monTimer);monTimer=null;}
-  else if(!document.hidden&&VIEW==='monitor'&&!monTimer){startMonitor();}
+  else if(!document.hidden&&MON_OPEN&&!monTimer){startMonitor();}
 });
 updateUserBadge();
 

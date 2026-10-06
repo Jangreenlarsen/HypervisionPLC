@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.108] - 2026-10-06
+
+### FEATURES
+- **FEAT-473:** I ST-editoren er det program, man redigerer, nu tydeligt markeret med ▶, blå ramme og en "Redigerer: …"-badge, der også viser om programmet kører. Editor, Bindings og Settings sidder i fanerækken efter en skillelinje. Monitor åbnes som et sidevindue til højre, der kan stå åbent ved siden af de andre visninger, og bredden kan justeres.
+- **FEAT-474:** Persistente register-grupper kan nu redigeres på System-siden. "Redigér" henter gruppens registre ind i ét felt, hvor du retter listen (fx `60, 61, 100-103`), og tilføjelser og fjernelser beregnes automatisk.
+
 ## [7.9.68.107] - 2026-10-06
 
 ### FEATURES

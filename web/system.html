@@ -394,20 +394,18 @@
 </div>
 <table class="tbl" id="persistTable">
 <thead><tr><th>Gruppe</th><th>Registre (aktuel / gemt)</th><th>Antal</th><th>Sidst gemt</th><th></th></tr></thead>
-<tbody id="persistBody"><tr><td colspan="4" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
+<tbody id="persistBody"><tr><td colspan="5" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
 </table>
-<h3 style="font-size:13px;color:#89b4fa;margin:16px 0 8px;padding-top:12px;border-top:1px solid #313244">Opret gruppe / tilføj-fjern registre</h3>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:10px">
+<h3 style="font-size:13px;color:#89b4fa;margin:16px 0 8px;padding-top:12px;border-top:1px solid #313244" id="pgTitle">Opret gruppe</h3>
+<div style="display:grid;grid-template-columns:minmax(160px,1fr) 2fr;gap:10px;margin-bottom:10px">
 <div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Gruppenavn (max 15 tegn)</label>
 <input type="text" id="pgName" maxlength="15" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
-<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Register-adresse(r) tilføj (kommasepareret)</label>
-<input type="text" id="pgAddRegs" placeholder="f.eks. 0,1,5,10" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
-<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Register-adresse(r) fjern (kommasepareret)</label>
-<input type="text" id="pgRemoveRegs" placeholder="f.eks. 5" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
+<div><label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Registre (HR-adresser, kommasepareret, intervaller tilladt — max 16)</label>
+<input type="text" id="pgRegs" placeholder="f.eks. 60, 61, 100-103" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px"></div>
 </div>
 <div class="btn-row">
-<button class="btn btn-success btn-sm" onclick="savePersistGroupEdit()">Opret / opdatér gruppe</button>
-<button class="btn btn-danger btn-sm" onclick="deletePersistGroupPrompt()">Slet gruppe</button>
+<button class="btn btn-success btn-sm" onclick="savePersistGroupEdit()" id="pgSaveBtn">Opret gruppe</button>
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4;display:none" onclick="cancelPersistEdit()" id="pgCancelBtn">Annullér</button>
 </div>
 <div class="alert" id="persistAlert"></div>
 </div>
@@ -851,6 +849,7 @@ function loadPersistGroups(){
     }
     tbody.innerHTML='';
     const up=data.uptime_ms||0;
+    _persistGroups=groups;
     groups.forEach(g=>{
       const tr=document.createElement('tr');
       // FEAT-472: registrenes indhold; aktuel forskellig fra gemt markeres
@@ -861,7 +860,8 @@ function loadPersistGroups(){
       let saved='Ikke i denne opstart';
       if(g.last_save_ms&&g.last_save_ms<=up){const s=Math.round((up-g.last_save_ms)/1000);saved=s<90?s+' s siden':s<5400?Math.round(s/60)+' min siden':Math.round(s/3600)+' t siden';}
       tr.innerHTML='<td>'+escHtml(g.name||'-')+' <span style="color:#6c7086">#'+g.id+'</span></td><td>'+regs+'</td><td>'+(g.reg_count!=null?g.reg_count:'-')+' / '+(g.max_regs||'-')+'</td><td>'+saved+'</td>'+
-        '<td><button class="btn btn-sm btn-danger" onclick="deletePersistGroup(\''+(g.name||'')+'\')">Slet</button></td>';
+        '<td style="white-space:nowrap"><button class="btn btn-sm btn-primary" onclick="editPersistGroup('+g.id+')">Redigér</button> '+
+        '<button class="btn btn-sm btn-danger" onclick="deletePersistGroup(\''+(g.name||'')+'\')">Slet</button></td>';
       tbody.appendChild(tr);
     });
   }).catch(()=>{
@@ -877,25 +877,55 @@ function savePersistConfig(){
   }).then(()=>showAlert('persistAlert','ok','Persistens-indstillinger opdateret.'))
   .catch(e=>{loadPersistGroups();showAlert('persistAlert','err','Fejl: '+e.message)});
 }
+// FEAT-474: redigér en eksisterende gruppe — feltet er den ØNSKEDE registerliste;
+// tilføj/fjern beregnes ud fra gruppens nuværende registre
+let _persistGroups=[],_pgEditing=null;
+function parseRegList(txt){
+  const out=[];
+  for(const part of txt.split(',').map(s=>s.trim()).filter(Boolean)){
+    const m=part.match(/^(\d+)\s*-\s*(\d+)$/);
+    if(m){const a=+m[1],b=+m[2];if(b<a||b-a>15)throw new Error('Ugyldigt interval: '+part);for(let i=a;i<=b;i++)out.push(i);}
+    else if(/^\d+$/.test(part))out.push(+part);
+    else throw new Error('Ugyldig adresse: '+part);
+  }
+  if(out.some(n=>n>255))throw new Error('Holding-registre går fra 0 til 255');
+  return [...new Set(out)];
+}
+function editPersistGroup(id){
+  const g=_persistGroups.find(x=>x.id===id);if(!g)return;
+  _pgEditing=g.name;
+  $('pgName').value=g.name;$('pgName').disabled=true;
+  $('pgRegs').value=(g.regs||[]).map(r=>r[0]).join(', ');
+  $('pgTitle').textContent='Redigér gruppe \''+g.name+'\'';
+  $('pgSaveBtn').textContent='Gem ændringer';
+  $('pgCancelBtn').style.display='';
+  $('pgRegs').focus();
+}
+function cancelPersistEdit(){
+  _pgEditing=null;
+  $('pgName').value='';$('pgName').disabled=false;$('pgRegs').value='';
+  $('pgTitle').textContent='Opret gruppe';$('pgSaveBtn').textContent='Opret gruppe';$('pgCancelBtn').style.display='none';
+}
 function savePersistGroupEdit(){
-  const name=$('pgName').value.trim();
+  const name=_pgEditing||$('pgName').value.trim();
   if(!name){showAlert('persistAlert','err','Angiv et gruppenavn');return}
+  let want;
+  try{want=parseRegList($('pgRegs').value);}catch(e){showAlert('persistAlert','err',e.message);return}
+  if(want.length>16){showAlert('persistAlert','err','Højst 16 registre pr. gruppe');return}
+  const g=_persistGroups.find(x=>x.name===name);
+  if(!_pgEditing&&g){showAlert('persistAlert','err','Gruppen \''+name+'\' findes allerede — brug Redigér');return}
+  const have=g?(g.regs||[]).map(r=>r[0]):[];
   const body={};
-  const addVal=$('pgAddRegs').value.trim();
-  if(addVal)body.registers=addVal.split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
-  const remVal=$('pgRemoveRegs').value.trim();
-  if(remVal)body.remove=remVal.split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
+  const add=want.filter(a=>!have.includes(a)),rem=have.filter(a=>!want.includes(a));
+  if(add.length)body.registers=add;
+  if(rem.length)body.remove=rem;
+  if(_pgEditing&&!add.length&&!rem.length){showAlert('persistAlert','ok','Ingen ændringer');cancelPersistEdit();return}
   api('/api/persist/groups/'+encodeURIComponent(name),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{
     if(r.status===403)throw new Error('Ingen skriveadgang (privilege read)');
-    if(!r.ok)throw new Error('HTTP '+r.status);
+    if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});
     return r.json();
-  }).then(()=>{$('pgName').value='';$('pgAddRegs').value='';$('pgRemoveRegs').value='';showAlert('persistAlert','ok','Gruppe \''+name+'\' oprettet/opdateret.');loadPersistGroups()})
+  }).then(()=>{const was=_pgEditing;cancelPersistEdit();showAlert('persistAlert','ok','Gruppe \''+name+'\' '+(was?'opdateret':'oprettet')+' — husk Save for at gemme konfigurationen.');loadPersistGroups()})
   .catch(e=>showAlert('persistAlert','err','Fejl: '+e.message));
-}
-function deletePersistGroupPrompt(){
-  const name=$('pgName').value.trim();
-  if(!name){showAlert('persistAlert','err','Angiv gruppenavnet der skal slettes i feltet ovenfor');return}
-  deletePersistGroup(name);
 }
 function deletePersistGroup(name){
   askConfirm('Slet persist-gruppe','Slet gruppen \''+name+'\'? Registrene i gruppen bevares, men stopper med at blive gemt/gendannet automatisk.',()=>{
