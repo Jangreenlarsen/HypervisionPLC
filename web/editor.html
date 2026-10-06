@@ -1315,8 +1315,12 @@ async function loadDerived(mine,gpios){
     .replace(/\(\*[\s\S]*?\*\)/g,' ').replace(/\/\/.*$/gm,' ');
   // Tællere: fra bundne HR-registre og CNT_*(n)-kald
   const cnt={};
-  let cfgs=[];
-  try{cfgs=await Promise.all([1,2,3,4].map(i=>api('GET','counters/'+i).catch(()=>null)));}catch(e){}
+  // Hent kun de tællere programmet kan bruge (HR100-179 = tæller-blokke à 20, eller CNT_*(n))
+  const want=new Set();
+  mine.forEach(b=>{if(b.register_type==='HR'&&b.register_addr>=100&&b.register_addr<180)want.add(Math.floor((b.register_addr-100)/20)+1);});
+  let m0;const reW=/\bCNT_[A-Z_]+\s*\(\s*([1-4])\b/gi;while((m0=reW.exec(src)))want.add(+m0[1]);
+  const cfgs=[null,null,null,null];
+  for(const i of want){try{cfgs[i-1]=await api('GET','counters/'+i);}catch(e){}}
   const words=c=>(c.bit_width<=16?1:c.bit_width===32?2:4);
   mine.forEach(b=>{
     if(b.register_type!=='HR')return;

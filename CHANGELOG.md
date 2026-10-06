@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.106] - 2026-10-06
+
+### BUG FIXES
+- **BUG-475:** Websiderne prøver nu et GET-kald igen (op til 2 gange), hvis forbindelsen lukkes undervejs. Webserveren lukker den ældste forbindelse, når den har mange åbne, og så viste fx ST-editoren "NetworkError when attempting to fetch resource" og blev ikke opdateret. "Afledte afhængigheder" i editoren henter desuden kun de tællere, programmet bruger. I/O-sidens hjælpetekst for drejeenkoder nævner nu 2 eller 4 overgange pr. klik og forsyning på modulets +.
+
 ## [7.9.68.105] - 2026-10-06
 
 ### FEATURES

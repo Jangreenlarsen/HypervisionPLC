@@ -336,7 +336,7 @@ Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ek
 
 | Funktion | Parameter | Retur | Semantik |
 |---|---|---|---|
-| `SAVE(group_id)` | INT (0=alle, 1-8=specifik gruppe) | INT (0=success, -1=fejl, -2=rate-limited) | Snapshotter register-gruppe(r) til NVS. **Rate-limit: maks 1 kald pr. 5 sekunder**, delt på tværs af alle kald i programmet |
+| `SAVE(group_id)` | INT (0=alle, 1-8=specifik gruppe) | INT (0=success, -1=fejl, -2=rate-limited) | Snapshotter register-gruppe(r) til NVS. **Rate-limit: maks 1 kald pr. 5 sekunder**, delt på tværs af alle kald i programmet. **Gemmer registrenes værdi, ikke variablens:** en output-binding skriver først variablen til registret *efter* cyklussen — kald derfor `SAVE` i en senere cyklus end den, der ændrer variablen (fx via et flag + kort `TON`), ellers gemmes den forrige værdi. Ved -2 (rate-limited) skal kaldet gentages |
 | `LOAD(group_id)` | INT (0=alle, 1-8) | INT (0=success, -1=fejl) | Genindlæser fra NVS |
 
 ### D.5.11 Bistabile latches (SR/RS)

@@ -6,7 +6,14 @@ function _dashFetchPump(){
     const job=_dashFetchQueue.shift();
     _dashFetchActive++;
     fetch(job.url,job.opts).then(r=>{_dashFetchActive--;_dashFetchPump();job.resolve(r);})
-      .catch(e=>{_dashFetchActive--;_dashFetchPump();job.reject(e);});
+      .catch(e=>{
+        _dashFetchActive--;
+        // BUG-475: samme GET-retry som _apiFetchPump (lukket keep-alive-socket)
+        const m=((job.opts&&job.opts.method)||'GET').toUpperCase();
+        if(m==='GET'&&(job.retries||0)<2){job.retries=(job.retries||0)+1;setTimeout(()=>{_dashFetchQueue.unshift(job);_dashFetchPump();},150*job.retries);}
+        else job.reject(e);
+        _dashFetchPump();
+      });
   }
 }
 
@@ -215,7 +222,16 @@ function _apiFetchPump(){
     const job=_apiFetchQueue.shift();
     _apiFetchActive++;
     fetch(job.url,job.opts).then(r=>{_apiFetchActive--;_apiFetchPump();job.resolve(r);})
-      .catch(e=>{_apiFetchActive--;_apiFetchPump();job.reject(e);});
+      .catch(e=>{
+        _apiFetchActive--;
+        // BUG-475: serveren lukker den ældste keep-alive-socket ved fuldt loft
+        // (lru_purge) — et GET sendt på netop den giver "NetworkError/Failed to
+        // fetch". GET er idempotent: prøv igen (op til 2 gange), POST aldrig.
+        const m=((job.opts&&job.opts.method)||'GET').toUpperCase();
+        if(m==='GET'&&(job.retries||0)<2){job.retries=(job.retries||0)+1;setTimeout(()=>{_apiFetchQueue.unshift(job);_apiFetchPump();},150*job.retries);}
+        else job.reject(e);
+        _apiFetchPump();
+      });
   }
 }
 
