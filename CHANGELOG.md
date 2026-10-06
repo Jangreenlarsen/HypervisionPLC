@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.104] - 2026-10-06
+
+### BUG FIXES
+- **BUG-474:** Når et ST-program blev uploadet igen, kunne kildekoden for et andet program blive blandet sammen med det, fordi kildepuljen blev komprimeret i slot-rækkefølge i stedet for placering. Fejlen sås først efter næste genstart, hvor det berørte program så kørte forkert kode med de gamle bindinger. Puljen komprimeres nu i rækkefølge efter placering.
+
 ## [7.9.68.103] - 2026-10-06
 
 ### FEATURES

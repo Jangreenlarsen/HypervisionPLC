@@ -165,16 +165,26 @@ static void st_logic_pool_free(st_logic_engine_state_t *state, uint8_t program_i
   uint32_t free_offset = prog->source_offset;
   uint32_t free_size = prog->source_size;
 
-  // Move data down
-  for (uint8_t i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
-    st_logic_program_config_t *other = &state->programs[i];
-    if (other->source_offset > free_offset && other->source_offset != 0xFFFFFFFF) {
-      // Move this program's source code down
-      memmove(&state->source_pool[other->source_offset - free_size],
-              &state->source_pool[other->source_offset],
-              other->source_size);
-      other->source_offset -= free_size;
+  // Move data down — BUG-474: i stigende offset-rækkefølge. Slot-rækkefølge
+  // (0..3) flyttede fx slot 2 ned oven i slot 4's endnu ikke flyttede kilde,
+  // når slot 4 lå før slot 2 i puljen → blandet kildetekst, der blev gemt og
+  // ved næste boot kompileret som det forkerte program.
+  uint8_t moved_mask = 0;
+  for (uint8_t n = 0; n < ST_LOGIC_MAX_PROGRAMS; n++) {
+    int8_t next = -1;
+    for (uint8_t i = 0; i < ST_LOGIC_MAX_PROGRAMS; i++) {
+      st_logic_program_config_t *other = &state->programs[i];
+      if (i == program_id || (moved_mask & (1u << i))) continue;
+      if (other->source_offset == 0xFFFFFFFF || other->source_offset <= free_offset) continue;
+      if (next < 0 || other->source_offset < state->programs[next].source_offset) next = (int8_t)i;
     }
+    if (next < 0) break;
+    st_logic_program_config_t *other = &state->programs[next];
+    memmove(&state->source_pool[other->source_offset - free_size],
+            &state->source_pool[other->source_offset],
+            other->source_size);
+    other->source_offset -= free_size;
+    moved_mask |= (uint8_t)(1u << next);
   }
 
   // Mark as freed
