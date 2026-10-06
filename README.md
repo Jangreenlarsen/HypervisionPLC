@@ -27,7 +27,7 @@ The **[user manual](docs/manual/00_INDEKS.md)** (Danish, 13 chapters + 4 appendi
 
 | Monitor dashboard | ST Logic editor |
 |---|---|
-| ![Monitor Dashboard](docs/manual/assets/screenshots/dashboard_overview.png) | ![ST Logic Editor](docs/manual/assets/screenshots/editor_page.png) |
+| ![Monitor Dashboard](docs/manual/assets/screenshots/dashboard_overview.png) | ![ST Logic Editor med Monitor-sidevindue og trends](docs/manual/assets/screenshots/editor_monitor.png) |
 
 ---
 

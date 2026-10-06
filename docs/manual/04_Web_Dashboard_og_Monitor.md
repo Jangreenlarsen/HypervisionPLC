@@ -145,7 +145,7 @@ Ud over selve "Metrics"-visningen (kort/faner, beskrevet ovenfor) har `/dashboar
 
 Se [kapitel 8](08_ST_Logic_Programmering.md) for selve sproget. Dette afsnit dækker værktøjet.
 
-![ST Logic Editor — kildekode med syntax-highlighting og funktions-reference](assets/screenshots/editor_page.png)
+![ST Logic Editor — det aktive program markeret med ▶ og "Redigerer"-badge, kildekode med syntax-highlighting til venstre og Monitor som sidevindue med live-værdier og trends til højre](assets/screenshots/editor_monitor.png)
 
 Editoren har 4 uafhængige program-faner (Logic1-4), vist øverst i deres egen række sammen med **Editor**-knappen (som skifter tilbage til kildekode-visningen — placeret her og ikke i værktøjslinjen, da den hører logisk sammen med program-valget, ikke med selve handlingerne på det valgte program). Værktøjslinjen:
 
