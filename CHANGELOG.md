@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.113] - 2026-10-06
+
+### CHANGES
+- **FEAT-480:** "Funktions-test (capability probe)" er fjernet fra I/O-siden. Den sendte rigtige skrivninger til en slave. Boardets understøttede function codes vises fortsat under Kanaler uden bustrafik.
+
 ## [7.9.68.112] - 2026-10-06
 
 ### CHANGES
