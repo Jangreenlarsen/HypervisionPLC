@@ -521,9 +521,13 @@ static void mbx_backoff_on_success(uint8_t board, uint8_t channel, uint8_t slave
   auto &s = g_mbx_async.slave_backoff[idx];
   s.timeout_count = 0;
   s.success_count++;
-  if (s.backoff_ms > 0) {
-    s.backoff_ms = (s.backoff_ms > MBX_BACKOFF_DECAY_MS) ? (s.backoff_ms - MBX_BACKOFF_DECAY_MS) : 0;
-  }
+  // BUG-480: et svar beviser at slaven lever — nulstil backoff straks. Foer
+  // aftrappede den kun 100 ms pr. succes, men under backoff springes naesten
+  // alt over (faa succeser), saa en enkelt timeout ved hurtig trafik (fx
+  // 4 skrivninger i traek pr. puls) holdt kanalen i op til 2 s backoff og
+  // skrivningerne blev droppet. Backoff beskytter nu kun mod en doed slave
+  // (gentagne timeouts uden svar imellem).
+  s.backoff_ms = 0;
 }
 
 /* ============================================================================

@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.117] - 2026-10-06
+
+### BUG FIXES
+- **BUG-480:** En enkelt timeout fra en slave bag et expansion board kunne holde kanalen i "backoff" i op til 2 sekunder, så skrivninger blev droppet, fx ved hurtige pulser til et relæmodul. Backoff nulstilles nu, så snart slaven svarer igen.
+
+### CHANGES
+- Monitorens kildevalg for eksterne registre hedder nu "Intern", "Extern" og "Expansion board".
+
 ## [7.9.68.116] - 2026-10-06
 
 ### FEATURES
