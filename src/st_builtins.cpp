@@ -705,6 +705,7 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_TIME_HOUR:          return "TIME_HOUR";
     case ST_BUILTIN_TIME_MINUTE:        return "TIME_MINUTE";
     case ST_BUILTIN_TIME_DAY:           return "TIME_DAY";
+    case ST_BUILTIN_ENC_POS:            return "ENC_POS";       // FEAT-470
     case ST_BUILTIN_CNT_SETUP:     return "CNT_SETUP";
     case ST_BUILTIN_CNT_SETUP_ADV: return "CNT_SETUP_ADV";
     case ST_BUILTIN_CNT_SETUP_CMP: return "CNT_SETUP_CMP";
@@ -871,6 +872,7 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_CNT_SETUP_CMP: // CNT_SETUP_CMP(id, cmp_mode, cmp_value, cmp_source, reset_on_read)
       return 5;
 
+    case ST_BUILTIN_ENC_POS:       // ENC_POS(clk_di, dt_di) — FEAT-470
     case ST_BUILTIN_CNT_ENABLE:    // CNT_ENABLE(id, on_off)
     case ST_BUILTIN_CNT_CTRL:      // CNT_CTRL(id, cmd)
       return 2;

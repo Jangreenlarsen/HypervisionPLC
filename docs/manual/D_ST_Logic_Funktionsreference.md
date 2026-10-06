@@ -277,6 +277,26 @@ END_IF;
 i_dag := CNT_VALUE(1) - base;
 ```
 
+### D.5.9d Drejeenkoder (FEAT-470)
+
+| Funktion | Returnerer | Beskrivelse |
+|---|---|---|
+| `ENC_POS(clk_di, dt_di)` | INT | Encoderens position i rå overgange. `clk_di`/`dt_di` er DI-nummer 1–8 (ES32D26 DI1–DI8). Tælleren løber frit og wrapper ved ±32768. Den går op, når CLK skifter før DT (med uret på en KY-040) |
+
+Encoderen dekodes i firmwaren hvert 2 ms (samme scan som de hurtige tællere), så der ikke tabes hak, selvom ST kun kører hvert ~10 ms. Den registreres ved første kald, og der skal ikke opsættes noget. Højst 2 encodere.
+
+ST'en regner selv forskel og hele hak ud. En KY-040/Geekcreit giver 4 overgange pr. hak. Kontrakten er bevidst den samme som en positionstæller i et holding-register på et (fremtidigt) encoder-expansion board, så kun linjen `pos := …` skal ændres, fx til `pos := MBX_READ_HOLDING(1, 'A', 20, 0);`:
+```
+pos := ENC_POS(2, 1);                  (* CLK = DI2, DT = DI1 *)
+IF NOT pos_ok THEN pos_last := pos; pos_ok := TRUE; END_IF;
+raw := pos;  raw := raw - pos_last;    (* raw, acc: DINT *)
+IF raw > 32767 THEN raw := raw - 65536; ELSIF raw < -32768 THEN raw := raw + 65536; END_IF;
+pos_last := pos;
+acc := acc + raw;
+hak := acc / 4;  acc := acc - hak * 4; (* resten gemmes til næste gang *)
+```
+Kører encoderen den forkerte vej, så byt de to argumenter.
+
 ### D.5.9b Modbus Expansion Board (MBX_*, FEAT-410)
 
 Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ekstern "HypervisionPLC Extension Board" over Modbus TCP i stedet for den lokale RS485-bus — de to første argumenter (`board`, `kanal`) vælger hvilket board (1-8, se [kapitel 6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)) og hvilken kanal (1-8, A=1/B=2) forespørgslen gælder. **v7.9.68.0: multi-register/coil WRITE tilføjet** (`MBX_WRITE_HOLDINGS`/`MBX_WRITE_COILS`) — multi-**read** findes stadig ikke (ingen `MBX_READ_HOLDINGS`).

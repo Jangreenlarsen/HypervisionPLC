@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.103] - 2026-10-06
+
+### FEATURES
+- **FEAT-470:** Ny ST-funktion `ENC_POS(clk_di, dt_di)` til drejeenkodere (fx Geekcreit/KY-040) på DI1–DI8. Firmwaren dekoder encoderen hvert 2 ms, så der ikke tabes hak ved hurtig drejning, og ST'en læser en fritløbende positionstæller. Samme kontrakt som en tæller i et register på et fremtidigt encoder-expansion board, hvor kun kildelinjen skal ændres. Manual §D.5.9d og editorens hjælp er opdateret.
+
 ## [7.9.68.102] - 2026-10-06
 
 ### BUG FIXES

@@ -6,6 +6,7 @@
 #include "st_types.h"
 #include "st_logic_config.h"
 #include "types.h"
+#include "encoder_sw.h"
 
 uint32_t g_fake_ms = 1000;
 uint32_t millis(void) { return g_fake_ms; }
@@ -53,6 +54,7 @@ bool counter_config_get(uint8_t, CounterConfig *) { return false; }
 bool counter_config_set(uint8_t, const CounterConfig *) { return false; }
 bool counter_engine_configure(uint8_t, const CounterConfig *) { return false; }
 uint64_t counter_engine_get_value(uint8_t) { return 0; }
+int16_t encoder_sw_pos(int16_t clk, int16_t dt) { return (int16_t)(clk * 10 + dt); }  // FEAT-470: testbar markør
 void counter_engine_reset(uint8_t) {}
 uint16_t counter_frequency_get(uint8_t) { return 0; }
 uint16_t registers_get_holding_register(uint16_t) { return 0; }

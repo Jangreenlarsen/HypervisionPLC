@@ -694,6 +694,7 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "TIME_HOUR") == 0) func_id = ST_BUILTIN_TIME_HOUR;
       else if (strcasecmp(node->data.function_call.func_name, "TIME_MINUTE") == 0) func_id = ST_BUILTIN_TIME_MINUTE;
       else if (strcasecmp(node->data.function_call.func_name, "TIME_DAY") == 0) func_id = ST_BUILTIN_TIME_DAY;
+      else if (strcasecmp(node->data.function_call.func_name, "ENC_POS") == 0) func_id = ST_BUILTIN_ENC_POS;  // FEAT-470
       else if (strcasecmp(node->data.function_call.func_name, "MBX_BUSY") == 0) func_id = ST_BUILTIN_MBX_BUSY;
       else if (strcasecmp(node->data.function_call.func_name, "MBX_ERROR") == 0) func_id = ST_BUILTIN_MBX_ERROR;
       else if (strcasecmp(node->data.function_call.func_name, "WDT_FEED") == 0) func_id = ST_BUILTIN_WDT_FEED;  // FEAT-427

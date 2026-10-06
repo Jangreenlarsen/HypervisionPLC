@@ -237,6 +237,13 @@ int main() {
          geti(bc, "d") >= 1 && geti(bc, "d") <= 31, "TIME_HOUR/MINUTE/DAY: gyldige vaerdier");
     }
   }
+  {  // FEAT-470: ENC_POS(clk, dt) — host-stubben returnerer clk*10+dt
+    st_bytecode_program_t *bc = compile("PROGRAM t VAR v: INT; END_VAR v := ENC_POS(2, 1); END_PROGRAM");
+    ok(bc != NULL, "ENC_POS: compiler");
+    if (bc) { cycle(bc); ok(geti(bc, "v") == 21, "ENC_POS: argumenterne naar frem i rigtig raekkefoelge"); }
+    st_bytecode_program_t *bad = compile("PROGRAM t VAR v: INT; END_VAR v := ENC_POS(2, 1, 4); END_PROGRAM");
+    ok(bad == NULL, "ENC_POS: forkert antal argumenter afvises");
+  }
   printf(fails ? "%d FEJL\n" : "ALLE TESTS OK\n", fails);
   return fails ? 1 : 0;
 }
