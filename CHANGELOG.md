@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.99] - 2026-10-06
+
+### BUG FIXES
+- **BUG-472:** `MBX_SUCCESS()` efter en enkelt-læsning (`MBX_READ_HOLDING`/`_INPUT_REG`/`_COIL`/`_INPUT`) var ved konstant polling næsten altid FALSE (målt: 0 af 8499 cyklusser), fordi hver opfriskning markerer cache-posten PENDING. En post under opfriskning med en gyldig tidligere værdi og uden fejl tæller nu som succes, ligesom i `MBX_READ_HOLDINGS`.
+
+### FEATURES
+- **FEAT-467b:** Kanalen i `MBX_*` kan også skrives uden anførselstegn, fx `MBX_READ_HOLDING(1, c, 9, 2)`, så længe der ikke findes en variabel med samme navn. Findes variablen, bruges den som før.
+
 ## [7.9.68.98] - 2026-10-06
 
 ### FEATURES

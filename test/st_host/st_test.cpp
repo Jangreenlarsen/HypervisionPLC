@@ -214,6 +214,19 @@ int main() {
     st_bytecode_program_t *num = compile("PROGRAM t VAR v: INT; END_VAR v := MBX_READ_HOLDING(1, 2, 9, 2); END_PROGRAM");
     ok(num != NULL, "MBX kanal som tal virker stadig");
   }
+  {  // FEAT-467b: kanal-bogstav uden anførselstegn
+    st_bytecode_program_t *bc = compile("PROGRAM t VAR x: INT; okx: BOOL; END_VAR x := MBX_READ_HOLDING(1, c, 9, 2); okx := MBX_SUCCESS(); END_PROGRAM");
+    ok(bc != NULL, "MBX kanal uden anfoerselstegn: c compiler");
+    bool found = false;
+    if (bc) for (uint32_t i = 0; i + 1 < bc->instr_count; i++)
+      if (bc->instructions[i].opcode == ST_OP_PUSH_INT && bc->instructions[i].arg.int_arg == 1 &&
+          bc->instructions[i + 1].opcode == ST_OP_PUSH_INT && bc->instructions[i + 1].arg.int_arg == 3) found = true;
+    ok(found, "MBX kanal uden anfoerselstegn: c -> 3");
+    st_bytecode_program_t *v = compile("PROGRAM t VAR x: INT; c: INT; END_VAR c := 2; x := MBX_READ_HOLDING(1, c, 9, 2); END_PROGRAM");
+    bool usesvar = false;
+    if (v) for (uint32_t i = 0; i < v->instr_count; i++) if (v->instructions[i].opcode == ST_OP_LOAD_VAR) usesvar = true;
+    ok(v != NULL && usesvar, "MBX kanal: findes variablen c, bruges variablen");
+  }
   printf(fails ? "%d FEJL\n" : "ALLE TESTS OK\n", fails);
   return fails ? 1 : 0;
 }

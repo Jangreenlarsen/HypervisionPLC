@@ -1003,6 +1003,18 @@ static bool st_compiler_compile_mbx_channel(st_compiler_t *compiler, st_ast_node
     st_compiler_error(compiler, "MBX kanal skal være 'A'-'H' eller et tal 1-8");
     return false;
   }
+  // FEAT-467b: også uden anførselstegn (MBX_READ_HOLDING(1, C, 9, 2)) — et
+  // enkelt bogstav A-H, når der IKKE findes en variabel med det navn.
+  if (arg && arg->type == ST_AST_VARIABLE && !arg->data.variable.field_name[0]) {
+    const char *n = arg->data.variable.var_name;
+    char c = (n[0] && !n[1]) ? (char)toupper((unsigned char)n[0]) : 0;
+    if (c >= 'A' && c <= 'H' && st_compiler_lookup_symbol(compiler, n) == 0xFF) {
+      st_logic_engine_state_t *gs = st_logic_get_state();
+      if (!gs || st_logic_globals_lookup(gs, n) == 0xFF) {
+        return st_compiler_emit_int(compiler, ST_OP_PUSH_INT, c - 'A' + 1);
+      }
+    }
+  }
   return st_compiler_compile_expr(compiler, arg);
 }
 

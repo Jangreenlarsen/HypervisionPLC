@@ -97,12 +97,14 @@ st_value_t st_builtin_mbx_read_coil(st_value_t board, st_value_t channel, st_val
   mbx_cache_status_t status = entry->status;
   g_mbx_last_error = entry->last_error;
   bool expired = mbx_cache_entry_expired(entry);
+  // BUG-472: en post under opfriskning med gyldig tidligere værdi og ingen fejl
+  const bool refreshing_ok = status == MBX_CACHE_PENDING && entry->last_update_ms > 0 && entry->last_error == MB_OK;
   portEXIT_CRITICAL(&mbx_cache_spinlock);
 
   if (!g_mbx_cache_enabled || expired || status != MBX_CACHE_PENDING) {
     modbus_expansion_async_queue_read(MBX_REQ_READ_COIL, b, c, s, a);
   }
-  g_mbx_success = (status == MBX_CACHE_VALID && !expired);
+  g_mbx_success = ((status == MBX_CACHE_VALID || refreshing_ok) && !expired);  // BUG-472
   return result;
 }
 
@@ -122,12 +124,14 @@ st_value_t st_builtin_mbx_read_input(st_value_t board, st_value_t channel, st_va
   mbx_cache_status_t status = entry->status;
   g_mbx_last_error = entry->last_error;
   bool expired = mbx_cache_entry_expired(entry);
+  // BUG-472: en post under opfriskning med gyldig tidligere værdi og ingen fejl
+  const bool refreshing_ok = status == MBX_CACHE_PENDING && entry->last_update_ms > 0 && entry->last_error == MB_OK;
   portEXIT_CRITICAL(&mbx_cache_spinlock);
 
   if (!g_mbx_cache_enabled || expired || status != MBX_CACHE_PENDING) {
     modbus_expansion_async_queue_read(MBX_REQ_READ_INPUT, b, c, s, a);
   }
-  g_mbx_success = (status == MBX_CACHE_VALID && !expired);
+  g_mbx_success = ((status == MBX_CACHE_VALID || refreshing_ok) && !expired);  // BUG-472
   return result;
 }
 
@@ -147,12 +151,14 @@ st_value_t st_builtin_mbx_read_holding(st_value_t board, st_value_t channel, st_
   mbx_cache_status_t status = entry->status;
   g_mbx_last_error = entry->last_error;
   bool expired = mbx_cache_entry_expired(entry);
+  // BUG-472: en post under opfriskning med gyldig tidligere værdi og ingen fejl
+  const bool refreshing_ok = status == MBX_CACHE_PENDING && entry->last_update_ms > 0 && entry->last_error == MB_OK;
   portEXIT_CRITICAL(&mbx_cache_spinlock);
 
   if (!g_mbx_cache_enabled || expired || status != MBX_CACHE_PENDING) {
     modbus_expansion_async_queue_read(MBX_REQ_READ_HOLDING, b, c, s, a);
   }
-  g_mbx_success = (status == MBX_CACHE_VALID && !expired);
+  g_mbx_success = ((status == MBX_CACHE_VALID || refreshing_ok) && !expired);  // BUG-472
   return result;
 }
 
@@ -172,12 +178,14 @@ st_value_t st_builtin_mbx_read_input_reg(st_value_t board, st_value_t channel, s
   mbx_cache_status_t status = entry->status;
   g_mbx_last_error = entry->last_error;
   bool expired = mbx_cache_entry_expired(entry);
+  // BUG-472: en post under opfriskning med gyldig tidligere værdi og ingen fejl
+  const bool refreshing_ok = status == MBX_CACHE_PENDING && entry->last_update_ms > 0 && entry->last_error == MB_OK;
   portEXIT_CRITICAL(&mbx_cache_spinlock);
 
   if (!g_mbx_cache_enabled || expired || status != MBX_CACHE_PENDING) {
     modbus_expansion_async_queue_read(MBX_REQ_READ_INPUT_REG, b, c, s, a);
   }
-  g_mbx_success = (status == MBX_CACHE_VALID && !expired);
+  g_mbx_success = ((status == MBX_CACHE_VALID || refreshing_ok) && !expired);  // BUG-472
   return result;
 }
 
