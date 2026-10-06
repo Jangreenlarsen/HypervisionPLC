@@ -1062,6 +1062,10 @@ function renderExpCapabilities(caps){
 function renderExpChannels(boardId,channels){
   if(!Array.isArray(channels)||channels.length===0){$('expChannelsBody').innerHTML='<p style="color:#6c7086">Ingen kanaler rapporteret</p>';return}
   const chLabel=n=>(n>=1&&n<=8)?String.fromCharCode(64+n):String(n);  // FEAT-467
+  // FEAT-468: baudrate som dropdown — præcis de værdier boardet accepterer
+  // (mb_is_valid_baudrate); en evt. anden aktuel værdi vises også, så den ikke tabes.
+  const EXP_BAUDS=[1200,2400,4800,9600,19200,38400,57600,115200];
+  const expBaudOptions=cur=>(EXP_BAUDS.includes(cur)?EXP_BAUDS:[cur].concat(EXP_BAUDS)).map(b=>'<option value="'+b+'"'+(b===cur?' selected':'')+'>'+b+'</option>').join('');
   $('expChannelsBody').innerHTML=channels.map(c=>{
     const pre='exp_'+boardId+'_'+c.channel+'_';
     return '<div style="background:#181825;border:1px solid #313244;border-radius:6px;padding:10px">'+
@@ -1071,7 +1075,7 @@ function renderExpChannels(boardId,channels){
       '<div><label style="color:#a6adc8" title="Fysisk RS485/RS232-valg sidder på boardets hardware — kan ikke ændres herfra">Mode</label>'+
       '<div style="width:100%;padding:3px;color:#cdd6f4">'+(c.mode==='rs485'?'RS485':'RS232')+'</div>'+
       '<input type="hidden" id="'+pre+'mode" value="'+c.mode+'"></div>'+
-      '<div><label style="color:#a6adc8">Baudrate</label><input type="number" id="'+pre+'baud" value="'+c.baudrate+'" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"></div>'+
+      '<div><label style="color:#a6adc8">Baudrate</label><select id="'+pre+'baud" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4">'+expBaudOptions(c.baudrate)+'</select></div>'+
       '<div><label style="color:#a6adc8">Paritet</label><select id="'+pre+'parity" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"><option value="none"'+(c.parity==='none'?' selected':'')+'>None</option><option value="even"'+(c.parity==='even'?' selected':'')+'>Even</option><option value="odd"'+(c.parity==='odd'?' selected':'')+'>Odd</option></select></div>'+
       '<div><label style="color:#a6adc8">Stopbits</label><input type="number" id="'+pre+'stop" min="1" max="2" value="'+c.stop_bits+'" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"></div>'+
       '<div><label style="color:#a6adc8">Timeout (ms)</label><input type="number" id="'+pre+'to" value="'+c.timeout_ms+'" style="width:100%;padding:3px;background:#313244;border:1px solid #45475a;border-radius:3px;color:#cdd6f4"></div>'+

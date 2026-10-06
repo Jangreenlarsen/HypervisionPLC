@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.100] - 2026-10-06
+
+### CHANGES
+- **FEAT-468:** Baudrate i expansion boardets kanalopsætning (I/O → Kanaler) er nu en dropdown med de værdier boardet accepterer: 1200–115200.
+
 ## [7.9.68.99] - 2026-10-06
 
 ### BUG FIXES
