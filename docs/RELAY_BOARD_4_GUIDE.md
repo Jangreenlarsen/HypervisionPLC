@@ -22,12 +22,12 @@ Opsummering af producentens manual: [`Relay Board-4 MODBUS RTU 4CH Relay Command
 
 | Handling | Ramme (hex, adresse 1) | Funktion |
 |---|---|---|
-| Relæ 1 til | `01 05 00 01 01 00 9D 9A` | FC05, coil **1** |
-| Relæ 1 fra | `01 05 00 01 00 00 9C 0A` | |
-| Relæ 2/3/4 | coil `00 02` / `00 03` / `00 04` | samme mønster |
+| Relæ 1 til | `01 05 00 00 FF 00 8C 3A` | FC05, coil **0** (manualen siger coil 1 — forkert, se faldgrube 2) |
+| Relæ 1 fra | `01 05 00 00 00 00 CD CA` | |
+| Relæ 2/3/4 | coil `00 01` / `00 02` / `00 03` | samme mønster |
 | Alle til | `01 05 00 FF FF FF FC 4A` | coil 0x00FF = alle |
 | Alle fra | `01 05 00 FF 00 00 FD FA` | |
-| Læs relæstatus | `01 01 00 01 00 04 6C 09` | FC01 fra coil 1, 4 stk. |
+| Læs relæstatus | `01 01 00 00 00 04 3D C9` | FC01 fra coil 0, 4 stk. |
 | Læs indgange | `01 02 00 00 00 00 78 0A` | FC02 (antal 0 i manualen) |
 | Sæt adresse til 2 | `00 06 40 00 00 02 1C 1A` | FC06 broadcast (adr. 0) til register **0x4000** |
 | Læs adresse | `00 03 40 00 00 01 90 1B` | FC03 broadcast, register 0x4000 |
@@ -38,23 +38,22 @@ Broadcast-kommandoerne (adresse 0) må kun bruges, når modulet er **alene på b
 ## Faldgruber i forhold til PLC'en
 
 1. **"Til"-værdien er ikke standard.** Manualen bruger `0x0100` som "til" i FC05. Standard Modbus, og dermed PLC'ens `MB_WRITE_COIL` og `MBX_WRITE_COIL`, sender `0xFF00`.
-   - Det er uafklaret, om modulet også accepterer `0xFF00`.
-   - **Test først** med I/O-siden → *Test funktions-register* (FC05, coil 1, TRUE), og se om relæ 1 trækker.
-   - Accepterer modulet kun `0x0100`, kan PLC'en ikke styre relæerne med de nuværende funktioner.
-2. **Coil-adresserne starter ved 1:** relæ 1 = coil 1. Coil 0 bruges ikke.
+   - **Testet:** modulet accepterer `0xFF00` (PLC'ens standard), afprøvet med FC05 fra I/O-siden.
+2. **Coil-adresserne starter ved 0 (afprøvet):** relæ 1 = coil 0 … relæ 4 = coil 3 — modsat manualen, der siger 1-4. En skrivning til coil 4 findes ikke på modulet; det svarer med et forkert ekko, som expansion-boardet (v0.34.3+) melder som `MB_RESPONSE_MISMATCH`.
 3. **Adressekollision:** Standardadressen 1 er den samme som DM56A04-displayet på den lokale RS485-bus. Giv modulet en ny adresse, mens det sidder alene på bussen, før det kobles sammen med displayet.
 4. **Antal 0 ved læsning af indgange (FC02):** Manualens eksempel er usædvanligt. Ved læsning fra ST (`MB_READ_INPUT(slave, addr)`) skal det afprøves, hvilken adresse (0 eller 1) der giver IN1.
 
-## Fra ST Logic (når "til"-værdien er afklaret)
+## Fra ST Logic
 
 Syntaksen er compile-testet på PLC'en (v7.9.68.113).
 
 ```
 (* lokal RS485-bus, modul paa adresse 2 *)
-MB_WRITE_COIL(2, 1) := TRUE;      (* relae 1 til (ogsaa: ok := MB_WRITE_COIL(2, 1, TRUE);) *)
-MB_WRITE_COIL(2, 1) := FALSE;     (* relae 1 fra  *)
+MB_WRITE_COIL(2, 0) := TRUE;      (* relae 1 til (ogsaa: ok := MB_WRITE_COIL(2, 0, TRUE);) *)
+MB_WRITE_COIL(2, 0) := FALSE;     (* relae 1 fra  *)
 in1 := MB_READ_INPUT(2, 0);       (* IN1 - adresse 0 eller 1, se faldgrube 4 *)
 
-(* via expansion board 1, kanal C - MBX_WRITE_COIL kraever kaldsformen *)
-ok := MBX_WRITE_COIL(1, C, 2, 1, TRUE);
+(* via expansion board 1, kanal C - MBX_WRITE_COIL kraever kaldsformen,
+   og kanalbogstavet skal citeres ('C'), ellers laeses det som en variabel *)
+ok := MBX_WRITE_COIL(1, 'C', 2, 0, TRUE);  (* relae 1 *)
 ```
