@@ -14,6 +14,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>  // FEAT-469
 
 /* ============================================================================
  * MATHEMATICAL FUNCTIONS
@@ -556,6 +557,27 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
       result = st_builtin_mbx_error_func();
       break;
 
+    // FEAT-469: lokal tid fra systemuret (sat af NTP, tidszonen fra 'set ntp timezone')
+    case ST_BUILTIN_TIME_VALID:
+    case ST_BUILTIN_TIME_HOUR:
+    case ST_BUILTIN_TIME_MINUTE:
+    case ST_BUILTIN_TIME_DAY: {
+      time_t now = time(NULL);
+      const bool valid = now > 1577836800;  // efter 2020-01-01 = uret er sat
+      struct tm lt;
+      memset(&lt, 0, sizeof(lt));
+#if defined(_WIN32)
+      if (valid) localtime_s(&lt, &now);   // host-tests (MinGW)
+#else
+      if (valid) localtime_r(&now, &lt);
+#endif
+      if (func_id == ST_BUILTIN_TIME_VALID) result.bool_val = valid;
+      else if (func_id == ST_BUILTIN_TIME_HOUR) result.int_val = valid ? lt.tm_hour : 0;
+      else if (func_id == ST_BUILTIN_TIME_MINUTE) result.int_val = valid ? lt.tm_min : 0;
+      else result.int_val = valid ? lt.tm_mday : 0;
+      break;
+    }
+
     // Async Modbus Status (v7.7.0 — 0-arg)
     case ST_BUILTIN_MB_SUCCESS:
       result = st_builtin_mb_success_func();
@@ -679,6 +701,10 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_WDT_FEED:           return "WDT_FEED";
     case ST_BUILTIN_MBX_BUSY:           return "MBX_BUSY";
     case ST_BUILTIN_MBX_ERROR:          return "MBX_ERROR";
+    case ST_BUILTIN_TIME_VALID:         return "TIME_VALID";   // FEAT-469
+    case ST_BUILTIN_TIME_HOUR:          return "TIME_HOUR";
+    case ST_BUILTIN_TIME_MINUTE:        return "TIME_MINUTE";
+    case ST_BUILTIN_TIME_DAY:           return "TIME_DAY";
     case ST_BUILTIN_CNT_SETUP:     return "CNT_SETUP";
     case ST_BUILTIN_CNT_SETUP_ADV: return "CNT_SETUP_ADV";
     case ST_BUILTIN_CNT_SETUP_CMP: return "CNT_SETUP_CMP";
@@ -808,6 +834,10 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_BUSY:      // MBX_BUSY() — FEAT-410
     case ST_BUILTIN_MBX_ERROR:     // MBX_ERROR() — FEAT-410
     case ST_BUILTIN_WDT_FEED:      // WDT_FEED() — FEAT-427
+    case ST_BUILTIN_TIME_VALID:    // FEAT-469
+    case ST_BUILTIN_TIME_HOUR:
+    case ST_BUILTIN_TIME_MINUTE:
+    case ST_BUILTIN_TIME_DAY:
       return 0;
 
     // FEAT-410: Modbus Expansion Board — 4-arg reads (board, kanal, slave, addr)
@@ -918,6 +948,7 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_SUCCESS:       // MBX_SUCCESS → BOOL — FEAT-410
     case ST_BUILTIN_MBX_BUSY:          // MBX_BUSY → BOOL — FEAT-410
     case ST_BUILTIN_WDT_FEED:          // WDT_FEED → BOOL — FEAT-427
+    case ST_BUILTIN_TIME_VALID:        // TIME_VALID → BOOL — FEAT-469
     // BUG-433: manglede og faldt til INT — VM'en mærkede resultatet forkert
     // (kun bool_val sat i en ellers uinitialiseret vaerdi -> FALSE kunne blive TRUE)
     case ST_BUILTIN_SR:

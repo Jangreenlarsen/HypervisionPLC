@@ -227,6 +227,16 @@ int main() {
     if (v) for (uint32_t i = 0; i < v->instr_count; i++) if (v->instructions[i].opcode == ST_OP_LOAD_VAR) usesvar = true;
     ok(v != NULL && usesvar, "MBX kanal: findes variablen c, bruges variablen");
   }
+  {  // FEAT-469: TIME_VALID/HOUR/MINUTE/DAY
+    st_bytecode_program_t *bc = compile("PROGRAM t VAR v: BOOL; h: INT; m: INT; d: INT; END_VAR v := TIME_VALID(); h := TIME_HOUR(); m := TIME_MINUTE(); d := TIME_DAY(); END_PROGRAM");
+    ok(bc != NULL, "TIME_*: compiler");
+    if (bc) {
+      cycle(bc);
+      ok(getb(bc, "v"), "TIME_VALID: TRUE paa host (systemuret er sat)");
+      ok(geti(bc, "h") >= 0 && geti(bc, "h") <= 23 && geti(bc, "m") >= 0 && geti(bc, "m") <= 59 &&
+         geti(bc, "d") >= 1 && geti(bc, "d") <= 31, "TIME_HOUR/MINUTE/DAY: gyldige vaerdier");
+    }
+  }
   printf(fails ? "%d FEJL\n" : "ALLE TESTS OK\n", fails);
   return fails ? 1 : 0;
 }

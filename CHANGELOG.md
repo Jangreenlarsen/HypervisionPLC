@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.101] - 2026-10-06
+
+### FEATURES
+- **FEAT-469:** Nye ST-funktioner for lokal tid fra NTP: `TIME_VALID()`, `TIME_HOUR()`, `TIME_MINUTE()` og `TIME_DAY()`, fx til tællere der nulstilles ved midnat. Builtin-ID'erne er tilføjet sidst, så gemt bytecode er uændret. Der er 3 nye host-tests, og Appendiks D §D.5.9c og editorens hjælp er opdateret.
+
 ## [7.9.68.100] - 2026-10-06
 
 ### CHANGES

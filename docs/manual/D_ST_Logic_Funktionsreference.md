@@ -257,6 +257,26 @@ Alle kald er **asynkrone/non-blocking**: en læsning returnerer en cachet værdi
 | 7 | `MB_INVALID_ADDRESS` | Adresse udenfor 0-65535 |
 | 8 | `MB_BUS_BUSY` | Kunne ikke opnå UART-mutex indenfor 2s (bussen optaget) |
 
+### D.5.9c Lokal tid (FEAT-469)
+
+PLC'ens lokale tid fra NTP, med tidszonen fra `set ntp timezone`.
+
+| Funktion | Returnerer | Beskrivelse |
+|---|---|---|
+| `TIME_VALID()` | BOOL | TRUE når uret er sat (NTP har synkroniseret). Før det giver de øvrige 0 |
+| `TIME_HOUR()` | INT 0–23 | Time |
+| `TIME_MINUTE()` | INT 0–59 | Minut |
+| `TIME_DAY()` | INT 1–31 | Dag i måneden. Brug et skift i værdien til at registrere midnat |
+
+Eksempel, en daglig tæller der nulstilles ved midnat:
+```
+IF TIME_VALID() THEN
+  d := TIME_DAY();
+  IF d <> dag_sidst THEN base := CNT_VALUE(1); dag_sidst := d; END_IF;
+END_IF;
+i_dag := CNT_VALUE(1) - base;
+```
+
 ### D.5.9b Modbus Expansion Board (MBX_*, FEAT-410)
 
 Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ekstern "HypervisionPLC Extension Board" over Modbus TCP i stedet for den lokale RS485-bus — de to første argumenter (`board`, `kanal`) vælger hvilket board (1-8, se [kapitel 6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)) og hvilken kanal (1-8, A=1/B=2) forespørgslen gælder. **v7.9.68.0: multi-register/coil WRITE tilføjet** (`MBX_WRITE_HOLDINGS`/`MBX_WRITE_COILS`) — multi-**read** findes stadig ikke (ingen `MBX_READ_HOLDINGS`).

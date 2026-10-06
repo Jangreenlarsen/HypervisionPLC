@@ -159,6 +159,12 @@ typedef enum {
   // FEAT-461: altid tilføjet SIDST (gemt bytecode refererer ID'er numerisk)
   ST_BUILTIN_MBX_READ_HOLDINGS,  // arr := MBX_READ_HOLDINGS(board, kanal, slave, addr, count) → BOOL (FC03 multi)
 
+  // FEAT-469: lokal tid (NTP) — altid tilføjet SIDST
+  ST_BUILTIN_TIME_VALID,         // TIME_VALID() → BOOL (TRUE når NTP-tiden er sat)
+  ST_BUILTIN_TIME_HOUR,          // TIME_HOUR() → INT 0-23
+  ST_BUILTIN_TIME_MINUTE,        // TIME_MINUTE() → INT 0-59
+  ST_BUILTIN_TIME_DAY,           // TIME_DAY() → INT 1-31 (dag i måneden)
+
   ST_BUILTIN_COUNT          // Total number of built-ins
 } st_builtin_func_t;
 
