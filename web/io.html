@@ -150,6 +150,14 @@
 <tbody id="expBoardsBody"><tr><td colspan="8" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
 </table>
 <div class="alert" id="expBoardsAlert"></div>
+<!-- FEAT-479: samlet Redigér-panel for et board -->
+<div id="expEditPanel" style="display:none;margin-top:10px;background:#181825;border:1px solid #89b4fa;border-radius:6px;padding:10px 12px">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><b style="color:#89b4fa" id="expEditTitle">Redigér board</b><span style="flex:1"></span><button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="expEditClose()" title="Luk">&#x2715;</button></div>
+<div style="font-size:11px;color:#a6adc8;margin-bottom:4px">Opsætning</div>
+<div class="btn-row" id="expEditSetup" style="flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+<div style="font-size:11px;color:#a6adc8;margin-bottom:4px">Vedligehold</div>
+<div class="btn-row" id="expEditMaint" style="flex-wrap:wrap;gap:6px"></div>
+</div>
 <!-- FEAT-464: firmware-overblik -->
 <div style="display:flex;gap:10px;align-items:center;margin-top:8px"><button class="btn btn-sm btn-primary" onclick="expFwPickAll()">Opdatér alle boards…</button><span id="expFwNote" style="font-size:12px;color:#fab387"></span></div>
 <!-- FEAT-463: syslog-modtager på et board -->
@@ -825,19 +833,37 @@ function loadExpBoards(){
       return '<tr><td>'+b.number+'</td><td>'+escHtml(b.name)+'</td><td style="font-size:11px">'+escHtml(typeLabel)+'</td><td>'+escHtml(b.ip)+'</td><td>'+(b.has_token?'<span style="color:#a6e3a1">Sat</span>':'<span style="color:#f38ba8">Mangler</span>')+
         '</td><td style="color:#6c7086"><span id="expStatus'+b.id+'">-</span>'+expWarnHtml(b)+'</td>'+
         '<td id="expFw'+b.id+'" style="font-size:11px">'+expFwCellHtml(b.id)+'</td>'+
-        '<td><button class="btn btn-sm btn-primary" onclick="testExpBoardConnection('+b.id+')">Test forbindelse</button> '+
-        '<button class="btn btn-sm btn-primary" onclick="showExpChannels('+b.id+',\''+nameEsc+'\')">Kanaler</button> '+
-        '<button class="btn btn-sm btn-primary" onclick="expFwPick('+b.id+')">Opdatér firmware…</button> '+
-        '<button class="btn btn-sm btn-primary" title="Sæt boardets DHCP-hostname til '+escHtml(b.hostname||'')+' (genstarter boardet)" onclick="expAskHostname('+b.id+',\''+nameEsc+'\','+b.number+')">Hostname</button> '+
-        (b.board_config?'<button class="btn btn-sm btn-primary" title="Skriv PLC\'ens kopi af opsætningen tilbage (fx efter udskiftning)" onclick="expRestore('+b.id+')">Genskab</button> ':'')+
-        '<button class="btn btn-sm btn-primary" title="Sæt boardets PLC-IP til PLC\'ens aktuelle IP" onclick="expSetPlcIp('+b.id+')">PLC-IP</button> '+
-        '<button class="btn btn-sm btn-primary" onclick="expSyslogForm('+b.id+')">Syslog…</button> '+
-        '<button class="btn btn-sm btn-primary" onclick="editExpBoard('+b.id+','+b.number+',\''+nameEsc+'\',\''+b.ip+'\',\''+b.type+'\')">Redigér</button> '+
+        '<td style="white-space:nowrap"><button class="btn btn-sm btn-primary" onclick="testExpBoardConnection('+b.id+')">Test forbindelse</button> '+
+        '<button class="btn btn-sm btn-primary" onclick="expEditOpen('+b.id+')" title="Opsætning (navn/IP/token, kanaler, hostname, PLC-IP, syslog) og vedligehold (firmware, genskab)">Redigér</button> '+
         '<button class="btn btn-sm btn-danger" onclick="deleteExpBoard('+b.id+',\''+nameEsc+'\')">Slet</button></td></tr>';
     }).join('');
     if(!_expFwBusy)loadExpFwStatuses(d.boards.map(b=>b.id));
+    if(_expEditId!==null){if(_expBoardsFull[_expEditId])expEditOpen(_expEditId,true);else expEditClose();}
   }).catch(()=>{$('expBoardsBody').innerHTML='<tr><td colspan="8" style="color:#f38ba8;text-align:center">Kunne ikke hente boards</td></tr>'});
 }
+
+// FEAT-479: eet Redigér-panel samler alle redigerings-/vedligeholdshandlinger
+let _expEditId=null;
+function expEditOpen(id,quiet){
+  const b=_expBoardsFull[id];if(!b)return;
+  _expEditId=id;
+  const n=b.name.replace(/'/g,"\\'");
+  const btn=(lbl,fn,tip)=>'<button class="btn btn-sm btn-primary" title="'+escHtml(tip)+'" onclick="'+fn+'">'+lbl+'</button>';
+  $('expEditTitle').textContent='Redigér board #'+b.number+' — '+b.name;
+  $('expEditSetup').innerHTML=
+    btn('Board (navn, IP, token)',"editExpBoard("+id+","+b.number+",'"+n+"','"+b.ip+"','"+b.type+"');expEditScroll('expFormTitle')",'Ret navn, IP-adresse, type og token (formularen nedenfor)')+
+    btn('Kanaler',"showExpChannels("+id+",'"+n+"');expEditScroll('expChannelsPanel')",'Baudrate, paritet, timeout m.m. pr. kanal A-D')+
+    btn('Hostname',"expAskHostname("+id+",'"+n+"',"+b.number+")",'Sæt boardets DHCP-hostname til '+(b.hostname||'')+' (genstarter boardet)')+
+    btn('PLC-IP',"expSetPlcIp("+id+")","Sæt boardets PLC-IP til PLC'ens aktuelle IP")+
+    btn('Syslog…',"expSyslogForm("+id+");expEditScroll('expSyslogForm')",'Send boardets log til en syslog-modtager');
+  $('expEditMaint').innerHTML=
+    btn('Opdatér firmware…',"expFwPick("+id+")",'Upload ny firmware til boardet via PLC\'en')+
+    (b.board_config?btn('Genskab',"expRestore("+id+")","Skriv PLC'ens kopi af opsætningen tilbage (fx efter udskiftning)"):'<span style="font-size:11px;color:#6c7086">Genskab: ingen gemt kopi af boardets opsætning endnu</span>');
+  $('expEditPanel').style.display='block';
+  if(!quiet)$('expEditPanel').scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+function expEditClose(){_expEditId=null;$('expEditPanel').style.display='none';}
+function expEditScroll(id){setTimeout(()=>{const el=$(id);if(el)el.scrollIntoView({block:'nearest',behavior:'smooth'});},50);}
 
 function clearExpForm(){
   expEditingId=null;

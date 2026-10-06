@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.112] - 2026-10-06
+
+### CHANGES
+- **FEAT-479:** I expansion-tabellen på I/O-siden har hvert board nu kun knapperne Test forbindelse, Redigér og Slet. Redigér åbner et panel med al opsætning (board, kanaler, hostname, PLC-IP, syslog) og vedligehold (firmware, genskab).
+
 ## [7.9.68.111] - 2026-10-06
 
 ### FEATURES
