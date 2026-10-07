@@ -53,7 +53,7 @@ typedef struct { const char *value; const char *label; } ExpansionBoardTypeInfo;
 static const ExpansionBoardTypeInfo EXPANSION_BOARD_KNOWN_TYPES[] = {
   // FEAT-466: værdien "modbus_2ch" bevares (gemt i NVS/backups); det faktiske kanaltal
   // (2, eller 4 med CJMCU-752) aflæses fra boardet selv (active_channels/board_type).
-  { EXPANSION_BOARD_TYPE_MODBUS_2CH, "Modbus Expansion (RS485/RS232, 2 eller 4 kanaler)" },
+  { EXPANSION_BOARD_TYPE_MODBUS_2CH, "Modbus Expansion board (RS485/RS232 og kanaltal aflæses fra boardet)" },
 };
 #define EXPANSION_BOARD_KNOWN_TYPES_COUNT (sizeof(EXPANSION_BOARD_KNOWN_TYPES) / sizeof(EXPANSION_BOARD_KNOWN_TYPES[0]))
 

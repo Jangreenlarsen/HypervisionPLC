@@ -7,7 +7,8 @@ All notable changes to this project are documented in this file.
 ## [7.9.68.122] - 2026-10-07
 
 ### IMPROVEMENTS
-- **FEAT-482b:** Genstartsårsagen "strøm tilsluttet" for et expansion board hedder nu "strøm tilsluttet eller reset-knap (EN)". ESP32 melder et tryk på EN-knappen som en power-on reset, så de to kan ikke skelnes (fundet ved test). Ikke OTA'et endnu (72 t soak på v7.9.68.121).
+- **FEAT-485:** I/O → Expansion boards viser boardets faktiske hardware (fx "RS232 — 2 kanaler" eller "RS485 — 4 kanaler") i Type-kolonnen og i redigeringsformularen i stedet for den generiske "Modbus Expansion (RS485/RS232, 2 eller 4 kanaler)". Siden henter listen igen, til alle boards har meldt hardware, så testpanelet ikke længere viser kanal A-D for et 2-kanals board, der blev spurgt sent. "Test forbindelse" opdaterer typen med det samme.
+- **FEAT-482b:** Genstartsårsagen "strøm tilsluttet" for et expansion board hedder nu "strøm tilsluttet eller reset-knap (EN)". ESP32 melder et tryk på EN-knappen som en power-on reset, så de to kan ikke skelnes (fundet ved test). Ikke OTA'et endnu (72 t soak på v7.9.68.121) — gælder hele v7.9.68.122.
 
 ## [7.9.68.121] - 2026-10-07
 
