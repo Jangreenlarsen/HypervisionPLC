@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.122] - 2026-10-07
+
+### IMPROVEMENTS
+- **FEAT-482b:** Genstartsårsagen "strøm tilsluttet" for et expansion board hedder nu "strøm tilsluttet eller reset-knap (EN)". ESP32 melder et tryk på EN-knappen som en power-on reset, så de to kan ikke skelnes (fundet ved test). Ikke OTA'et endnu (72 t soak på v7.9.68.121).
+
 ## [7.9.68.121] - 2026-10-07
 
 ### BUG FIXES

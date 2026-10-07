@@ -1023,7 +1023,7 @@ function pollExpAction(onDone,tries){
 }
 
 // FEAT-482: boardets oppetid + aarsag til sidste genstart (board-fw v0.35.0+)
-const EXP_RESET_TXT={power_on:'strøm tilsluttet',external:'reset-knap',software:'genstart (kommando/OTA)',panic:'CRASH',int_wdt:'watchdog (interrupt)',task_wdt:'watchdog (task)',wdt:'watchdog',deep_sleep:'deep sleep',brownout:'spændingsfald',sdio:'SDIO',unknown:'ukendt'};
+const EXP_RESET_TXT={power_on:'strøm tilsluttet eller reset-knap (EN)',external:'ekstern reset',software:'genstart (kommando/OTA)',panic:'CRASH',int_wdt:'watchdog (interrupt)',task_wdt:'watchdog (task)',wdt:'watchdog',deep_sleep:'deep sleep',brownout:'spændingsfald',sdio:'SDIO',unknown:'ukendt'};
 function expResetText(r){
   let s='';
   if(r.uptime_s!==undefined){const u=r.uptime_s;s+=', oppe '+(u>=86400?Math.floor(u/86400)+'d ':'')+Math.floor(u%86400/3600)+'t '+Math.floor(u%3600/60)+'m';}

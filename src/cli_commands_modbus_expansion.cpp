@@ -99,7 +99,7 @@ static void mbx_print_result(const char *label) {
  * hvis svaret ikke kan parses. */
 static const char *mbx_reset_reason_text(const char *r) {
   static const char *const map[][2] = {
-    {"power_on", "stroem tilsluttet"}, {"external", "reset-knap"}, {"software", "genstart (kommando/OTA)"},
+    {"power_on", "stroem tilsluttet eller reset-knap (EN)"}, {"external", "ekstern reset"},  // ESP32: EN-knap = power-on {"software", "genstart (kommando/OTA)"},
     {"panic", "CRASH"}, {"int_wdt", "watchdog (interrupt)"}, {"task_wdt", "watchdog (task)"}, {"wdt", "watchdog"},
     {"deep_sleep", "deep sleep"}, {"brownout", "spaendingsfald"}, {"sdio", "SDIO"}, {"unknown", "ukendt"}};
   for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
