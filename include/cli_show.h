@@ -71,6 +71,7 @@ void cli_cmd_show_timer(uint8_t id, bool verbose = false);
  * @param count Number of registers to show (0 if all)
  */
 void cli_cmd_show_registers(uint16_t start, uint16_t count);
+void cli_cmd_show_registers_ex(bool input_regs, uint16_t start, uint16_t count);  // FEAT-484
 
 /**
  * @brief Handle "show coils" command

@@ -37,7 +37,7 @@
  * ============================================================================ */
 
 #define HOLDING_REGS_SIZE   256         // Number of holding registers (0-255)
-#define INPUT_REGS_SIZE     256         // Number of input registers (0-255)
+#define INPUT_REGS_SIZE     320         // Number of input registers (0-319). BUG-482: var 256, men ST-statistikken ligger paa IR 252-293
 #define COILS_SIZE          32          // Coil bits (0-255 packed)
 #define DISCRETE_INPUTS_SIZE 32         // Discrete input bits (0-255 packed)
 
@@ -712,7 +712,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.68.119"
+#define PROJECT_VERSION     "7.9.68.121"
 #define PROJECT_LICENSE     "AGPL-3.0-or-later"
 #define PROJECT_SOURCE_URL  "https://github.com/Jangreenlarsen/HypervisionPLC"   // FEAT-433: AGPL §13 kildekode-tilbud
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)

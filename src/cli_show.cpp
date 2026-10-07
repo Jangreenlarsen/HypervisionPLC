@@ -2788,23 +2788,37 @@ void cli_cmd_show_timer(uint8_t id, bool verbose) {
  * SHOW REGISTERS
  * ============================================================================ */
 
-void cli_cmd_show_registers(uint16_t start, uint16_t count) {
-  debug_println("\n=== HOLDING REGISTERS (0..159) ===\n");
+// FEAT-484: 'show regs [hr|ir] [start] [count]' — hele omraadet som standard
+// (foer kun HR 0-159; start/count blev ignoreret, og IR kunne ikke vises).
+void cli_cmd_show_registers_ex(bool input_regs, uint16_t start, uint16_t count) {
+  const uint16_t size = input_regs ? INPUT_REGS_SIZE : HOLDING_REGS_SIZE;
+  if (start >= size) {
+    debug_printf("SHOW REGS: start %u udenfor omraadet (0-%u)\n", (unsigned)start, (unsigned)(size - 1));
+    return;
+  }
+  if (count == 0 || start + count > size) count = size - start;
+  const uint16_t end = start + count;  // eksklusiv
+  debug_printf("\n=== %s (%u..%u) ===\n\n", input_regs ? "INPUT REGISTERS" : "HOLDING REGISTERS", (unsigned)start,
+               (unsigned)(end - 1));
 
-  // Show registers in groups of 8 (Mega2560 format)
-  for (uint16_t base = 0; base < HOLDING_REGS_SIZE && base < 160; base += 8) {
-    debug_print_uint(base);
-    debug_print(": ");
-
-    for (uint8_t i = 0; i < 8 && (base + i) < HOLDING_REGS_SIZE; i++) {
-      uint16_t value = registers_get_holding_register(base + i);
-      debug_print_uint(value);
+  // 8 pr. linje, justeret til hele 8-blokke
+  for (uint16_t base = start - (start % 8); base < end; base += 8) {
+    debug_printf("%3u: ", (unsigned)base);
+    for (uint16_t a = base; a < base + 8 && a < end; a++) {
+      if (a < start) { debug_print("\t"); continue; }
+      debug_print_uint(input_regs ? registers_get_input_register(a) : registers_get_holding_register(a));
       debug_print("\t");
     }
     debug_println("");
   }
-
+  if (input_regs && start <= ST_LOGIC_EXEC_INTERVAL_RO_REG && end > ST_LOGIC_STATUS_REG_BASE) {
+    debug_println("\n(IR 200-293 = ST Logic status/statistik — se 'show logic stats')");
+  }
   debug_println("");
+}
+
+void cli_cmd_show_registers(uint16_t start, uint16_t count) {
+  cli_cmd_show_registers_ex(false, start, count);
 }
 
 /* ============================================================================
@@ -4129,7 +4143,7 @@ void cli_cmd_read_reg(uint8_t argc, char* argv[]) {
  * ============================================================================ */
 
 void cli_cmd_read_input_reg(uint8_t argc, char* argv[]) {
-  // read input-reg <start> [count] [int|uint|dint|dword|real] - Read Input Registers (0-1023)
+  // read input-reg <start> [count] [int|uint|dint|dword|real] - Read Input Registers (0..INPUT_REGS_SIZE-1)
   if (argc < 1) {
     debug_println("READ INPUT-REG: manglende parametre");
     debug_println("  Brug: read input-reg <id> [antal] [int|uint|dint|dword|real]");
@@ -4202,8 +4216,8 @@ void cli_cmd_read_input_reg(uint8_t argc, char* argv[]) {
   uint16_t *input_regs = registers_get_input_regs();
 
   // Validate parameters (input registers can be larger than holding regs)
-  if (start_addr >= 1024) {  // Modbus limit
-    debug_println("READ INPUT-REG: startadresse udenfor område (max 1023)");
+  if (start_addr >= INPUT_REGS_SIZE) {  // BUG-482: arrayets stoerrelse, ikke 1024 (OOB-laesning)
+    debug_printf("READ INPUT-REG: startadresse udenfor område (max %u)\n", (unsigned)(INPUT_REGS_SIZE - 1));
     return;
   }
 
@@ -4213,8 +4227,8 @@ void cli_cmd_read_input_reg(uint8_t argc, char* argv[]) {
   }
 
   // Adjust count if it exceeds available input registers
-  if (start_addr + count > 1024) {
-    count = 1024 - start_addr;
+  if (start_addr + count > INPUT_REGS_SIZE) {
+    count = INPUT_REGS_SIZE - start_addr;
     debug_print("READ INPUT-REG: justeret antal til ");
     debug_print_uint(count);
     debug_println(" registre");
@@ -4223,7 +4237,7 @@ void cli_cmd_read_input_reg(uint8_t argc, char* argv[]) {
   // BUG-179 FIX: REAL type requires 2 consecutive registers
   if (display_as_real) {
     // Validate that we have enough registers available (count REAL values = count * 2 registers)
-    if (start_addr + (count * 2) > 1024) {
+    if (start_addr + (count * 2) > INPUT_REGS_SIZE) {
       debug_print("READ INPUT-REG: REAL kræver ");
       debug_print_uint(count * 2);
       debug_println(" registre, adresse udenfor område");
@@ -4271,7 +4285,7 @@ void cli_cmd_read_input_reg(uint8_t argc, char* argv[]) {
   // DINT type (32-bit signed integer, 2 consecutive registers)
   if (display_as_dint) {
     // Validate that we have enough registers available (count DINT values = count * 2 registers)
-    if (start_addr + (count * 2) > 1024) {
+    if (start_addr + (count * 2) > INPUT_REGS_SIZE) {
       debug_print("READ INPUT-REG: DINT kræver ");
       debug_print_uint(count * 2);
       debug_println(" registre, adresse udenfor område");
@@ -4318,7 +4332,7 @@ void cli_cmd_read_input_reg(uint8_t argc, char* argv[]) {
   // DWORD type (32-bit unsigned integer, 2 consecutive registers)
   if (display_as_dword) {
     // Validate that we have enough registers available (count DWORD values = count * 2 registers)
-    if (start_addr + (count * 2) > 1024) {
+    if (start_addr + (count * 2) > INPUT_REGS_SIZE) {
       debug_print("READ INPUT-REG: DWORD kræver ");
       debug_print_uint(count * 2);
       debug_println(" registre, adresse udenfor område");

@@ -146,9 +146,14 @@ typedef struct {
   uint8_t  status;
 } SseExtPrev;
 
+// BUG-482: INPUT_REGS_SIZE er 320, men IR 256-293 er ST-statistik, der aendrer
+// sig hver cyklus — watch_all streamer kun 0-255 (som foer) for ikke at sende
+// ~40 events pr. tick; dashboardet henter dem via /api/metrics.
+#define SSE_IR_WATCH_ALL 256
+
 typedef struct {
   uint16_t hr[HOLDING_REGS_SIZE];     // 256 holding registers
-  uint16_t ir[INPUT_REGS_SIZE];       // 256 input registers
+  uint16_t ir[SSE_IR_WATCH_ALL];      // 256 input registers (BUG-482: ikke ST-statistikken 256-293)
   uint8_t  coils[256];                // 256 coils
   uint8_t  di[256];                   // 256 discrete inputs
   SseExtPrev ext_rtu[MB_CACHE_MAX_ENTRIES];         // FEAT-447
@@ -559,7 +564,7 @@ static void sse_client_session(const SseClientParams *params)
         "{\"status\":\"connected\",\"topics\":\"0x%02x\",\"max_clients\":%d,\"active_clients\":%d,\"port\":%d,"
         "\"watching\":{\"mode\":\"all\",\"hr\":%d,\"ir\":%d,\"coils\":256,\"di\":256}}",
         topics, (int)sse_cfg_max_clients(), (int)sse_active_clients, sse_port,
-        (int)HOLDING_REGS_SIZE, (int)INPUT_REGS_SIZE);
+        (int)HOLDING_REGS_SIZE, (int)SSE_IR_WATCH_ALL);
     } else {
       snprintf(init_buf, 384,
         "{\"status\":\"connected\",\"topics\":\"0x%02x\",\"max_clients\":%d,\"active_clients\":%d,\"port\":%d,"
@@ -603,14 +608,14 @@ static void sse_client_session(const SseClientParams *params)
       // Snapshot all registers
       for (int i = 0; i < HOLDING_REGS_SIZE; i++)
         all_state->hr[i] = registers_get_holding_register(i);
-      for (int i = 0; i < INPUT_REGS_SIZE; i++)
+      for (int i = 0; i < SSE_IR_WATCH_ALL; i++)
         all_state->ir[i] = registers_get_input_register(i);
       for (int i = 0; i < 256; i++) {
         all_state->coils[i] = registers_get_coil(i);
         all_state->di[i] = registers_get_discrete_input(i);
       }
       ESP_LOGI(TAG, "watch_all mode: monitoring %d HR + %d IR + 256 coils + 256 DI",
-        HOLDING_REGS_SIZE, INPUT_REGS_SIZE);
+        HOLDING_REGS_SIZE, SSE_IR_WATCH_ALL);
     }
 
     // Main SSE loop
@@ -685,7 +690,7 @@ static void sse_client_session(const SseClientParams *params)
             all_state->hr[i] = val;
           }
         }
-        for (int i = 0; i < INPUT_REGS_SIZE; i++) {
+        for (int i = 0; i < SSE_IR_WATCH_ALL; i++) {
           uint16_t val = registers_get_input_register(i);
           if (val != all_state->ir[i]) {
             snprintf(data, sizeof(data), "{\"type\":\"ir\",\"addr\":%d,\"value\":%u}", i, val);

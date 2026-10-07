@@ -65,7 +65,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `show modbus` | — | Genvej til `show config modbus` (slave + master samlet) |
 | `show modbus-slave` / `mb-slave` | — | Modbus Slave-konfiguration + statistik (CRC-fejl, exceptions m.m.) |
 | `show modbus-master` / `mb-master` | — | Modbus Master-konfiguration, statistik, async cache-state, adaptive backoff pr. slave, cache entries |
-| `show registers [start] [count]` / `regs` | — | Holding registers (default: alle) |
+| `show registers [hr\|ir] [start] [count]` / `regs` | — | Holding registers (standard) eller input registers (`ir`), hele området som standard. Eksempel: `show regs ir 252 42` viser ST Logics performance-statistik (FEAT-484) |
 | `show coils` | — | Coil-tilstande |
 | `show inputs` / `ins` | — | Discrete inputs |
 | `show h-reg` | — | STATIC/DYNAMIC register-mappings (samme output som `set holding-reg` ville producere) |
@@ -378,7 +378,7 @@ Administration af eksterne HypervisionPLC Extension Boards (se [kapitel 6.7](06_
 | `set modbus-expansion remove <board>` | Fjern et board fra listen (påvirker ikke selve boardet) |
 | `set modbus-expansion channel <board> <kanal> <mode> <baud> <parity> <stopbits> <timeout_ms> <inter_frame_ms> <on\|off>` | Push kanal-konfiguration ATOMISK til boardet. `<kanal>`: A/B (eller 1-8). `<mode>`: rs485/rs232. `<parity>`: none/even/odd |
 | `show modbus-expansion` | Liste over alle konfigurerede boards (lokal data) |
-| `show modbus-expansion <board>` | Live status + kanal-detaljer hentet fra boardet selv |
+| `show modbus-expansion <board>` | Live status hentet fra boardet selv: firmware, oppetid, sidste genstart, board-type og netværk, derefter en tabel med én linje pr. kanal (A-D: aktiv, mode, baud, format, timeout, status, requests/OK/timeout/CRC/exception) og seneste fejl pr. kanal (FEAT-483) |
 | `show modbus-expansion queue` | FEAT-410: kø/cache-diagnostik for den kontinuerlige `MBX_*`-datatrafik (kø-dybde, cache-hits/misses, fejl/timeouts, adaptiv backoff pr. board/kanal/slave) — se [Appendiks D.5.9b](D_ST_Logic_Funktionsreference.md#d59b-modbus-expansion-board-mbx_-feat-410) |
 | `mbx <board> status` | Alias for `show modbus-expansion <board>` |
 | `mbx <board> ota status` | Boardets firmware-/OTA-status: `running_version`, `pending_confirm`, `confirm_remaining_s`, `last_update_rolled_back` (FEAT-420) |

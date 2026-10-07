@@ -469,7 +469,7 @@
 <div class="regview" id="regmapHR"></div>
 </div>
 <div class="card" style="margin-bottom:12px">
-<h2>Input Registers (IR 0-255)</h2>
+<h2>Input Registers (IR 0-319)</h2>
 <div class="regview" id="regmapIR"></div>
 </div>
 <div class="card" style="margin-bottom:12px">
@@ -1507,13 +1507,14 @@ function regFlash(c){c.classList.remove('rc-flash');void c.offsetWidth;c.classLi
 // FØR SSE's nyere værdi kom — ellers hoppede værdien tilbage (FEAT-445).
 const _sseCellTs=new WeakMap();
 const SSE_CELL_FRESH_MS=10000;
-function renderMapGrid(el,alloc,prefix,vals,isBit){
-  if(el.children.length!==256){
+function renderMapGrid(el,alloc,prefix,vals,isBit,size){
+  const n=size||256;  // BUG-482: IR har 320
+  if(el.children.length!==n){
     let html='';
-    for(let i=0;i<256;i++)html+='<div class="rc rm-free"></div>';
+    for(let i=0;i<n;i++)html+='<div class="rc rm-free"></div>';
     el.innerHTML=html;
   }
-  for(let i=0;i<256;i++){
+  for(let i=0;i<n;i++){
     const c=el.children[i], a=alloc[i];
     const v=vals?vals[i]:null;
     const txt=v==null?'-':(isBit?(v?'1':'0'):String(v));
@@ -1534,9 +1535,10 @@ function renderMapGrid(el,alloc,prefix,vals,isBit){
   if(_regmapPinned&&el.contains(_regmapPinned))$('regmapInfo').textContent='📌 '+_regmapInfoText(_regmapPinned);
 }
 // BUG-450: HR/IR-værdier fra metrics (kun ikke-nul registre sendes → resten 0)
-function _metricRegVals(m,name){
-  const v=new Array(256).fill(0);
-  (m[name]||[]).forEach(e=>{const a=parseInt(e.labels&&e.labels.addr);if(a>=0&&a<256)v[a]=Math.round(e.value);});
+function _metricRegVals(m,name,size){
+  const n=size||256;
+  const v=new Array(n).fill(0);
+  (m[name]||[]).forEach(e=>{const a=parseInt(e.labels&&e.labels.addr);if(a>=0&&a<n)v[a]=Math.round(e.value);});
   return v;
 }
 // BUG-450: coils/DI findes ikke i metrics — hentes med bulk-endpointet (ét
@@ -1746,7 +1748,7 @@ function updateRegisterMap(m){
   renderMapGrid($('regmapHR'),hrAlloc,'HR',_metricRegVals(m,'modbus_holding_register'));
 
   // === IR Allocation ===
-  const irAlloc=new Array(256).fill(null);
+  const irAlloc=new Array(320).fill(null);  // BUG-482: IR 0-319
 
   // ST Logic EXPORT pool: IR 220-251
   const stExec=gAll(m,'st_logic_execution_count');
@@ -1758,8 +1760,10 @@ function updateRegisterMap(m){
   });
   // Mark IR 220-251 as ST pool even without active programs
   for(let i=220;i<=251;i++)if(!irAlloc[i])irAlloc[i]={type:'st',label:'ST EXPORT Pool'};
+  // BUG-482: ST Logic performance-statistik IR 252-293
+  for(let i=252;i<=293;i++)if(!irAlloc[i])irAlloc[i]={type:'st',label:i<284?'ST statistik (Logic'+(((i-252)>>1)%4+1)+')':'ST cyklus-statistik'};
 
-  renderMapGrid($('regmapIR'),irAlloc,'IR',_metricRegVals(m,'modbus_input_register'));
+  renderMapGrid($('regmapIR'),irAlloc,'IR',_metricRegVals(m,'modbus_input_register',320),false,320);
 
   // === Coil Allocation ===
   const coilAlloc=new Array(256).fill(null);

@@ -67,21 +67,124 @@ static void mbx_print_unknown_board(const char *arg) {
 
 // Faelles "start kald, vent, print raa/pae\u0301nt resultat"-flow. `kind` bruges
 // kun til en menneskelig label i output, ikke til logik.
-static void mbx_print_result(const char *label) {
-  static ExpansionApiResult res;  // BUG-470: ~1,6 KB — ikke paa httpd-stakken (web-CLI)
+static ExpansionApiResult g_mbx_cli_res;  // BUG-470: ~1,6 KB — ikke paa httpd-stakken (web-CLI)
+
+// Venter paa svaret og udskriver evt. transportfejl. Returnerer svaret, eller
+// NULL hvis der intet brugbart svar kom.
+static const ExpansionApiResult *mbx_wait_result(const char *label) {
+  ExpansionApiResult &res = g_mbx_cli_res;
   bool finished = expansion_api_wait_result(MBX_WAIT_TIMEOUT_MS, &res);
   if (!finished) {
     debug_printf("FEJL: %s - intet svar fra boardet indenfor %d ms (tjek IP/netvaerk/at boardet er taendt)\n",
                  label, MBX_WAIT_TIMEOUT_MS);
-    return;
+    return NULL;
   }
   if (!res.transport_ok) {
     debug_printf("FEJL: %s - kunne ikke naa boardet (http=%d)\n", label, res.http_status);
     debug_printf("  %s\n", res.response_json);
+    return NULL;
+  }
+  return &res;
+}
+
+static void mbx_print_result(const char *label) {
+  const ExpansionApiResult *res = mbx_wait_result(label);
+  if (!res) return;
+  debug_printf("[%s] HTTP %d:\n", label, res->http_status);
+  debug_printf("  %s\n", res->response_json);
+}
+
+/* FEAT-483: 'show modbus-expansion <board>' som laesbar tabel i stedet for
+ * boardets raa JSON (en lang linje pr. kanal). Falder tilbage til raa JSON
+ * hvis svaret ikke kan parses. */
+static const char *mbx_reset_reason_text(const char *r) {
+  static const char *const map[][2] = {
+    {"power_on", "stroem tilsluttet"}, {"external", "reset-knap"}, {"software", "genstart (kommando/OTA)"},
+    {"panic", "CRASH"}, {"int_wdt", "watchdog (interrupt)"}, {"task_wdt", "watchdog (task)"}, {"wdt", "watchdog"},
+    {"deep_sleep", "deep sleep"}, {"brownout", "spaendingsfald"}, {"sdio", "SDIO"}, {"unknown", "ukendt"}};
+  for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
+    if (strcmp(r, map[i][0]) == 0) return map[i][1];
+  }
+  return r;
+}
+
+static const char *mbx_error_type_text(int t) {
+  static const char *const names[] = {"OK", "timeout", "CRC", "exception", "for mange", "ikke aktiv", "ugyldig slave",
+                                      "ugyldig adresse", "bus optaget", "kanal utilgaengelig", "FC ikke understoettet",
+                                      "forkert ekko"};
+  return (t >= 0 && t < (int)(sizeof(names) / sizeof(names[0]))) ? names[t] : "?";
+}
+
+static void mbx_print_uptime(uint32_t s) {
+  if (s >= 86400) debug_printf("%lud ", (unsigned long)(s / 86400));
+  debug_printf("%02lu:%02lu:%02lu", (unsigned long)(s % 86400 / 3600), (unsigned long)(s % 3600 / 60),
+               (unsigned long)(s % 60));
+}
+
+static void mbx_print_status_pretty(const char *json) {
+  JsonDocument doc;
+  if (deserializeJson(doc, json) || !doc.is<JsonObject>()) { debug_printf("  %s\n", json); return; }
+  debug_printf("  Firmware:       %s (build %s)\n", doc["fw_version"] | "?", doc["fw_build"] | "?");
+  debug_print("  Oppetid:        "); mbx_print_uptime(doc["uptime_s"] | 0u); debug_println("");
+  if (doc["reset_reason"].is<const char *>()) {
+    debug_printf("  Sidste genstart: %s\n", mbx_reset_reason_text(doc["reset_reason"]));
+  }
+  debug_printf("  Board-type:     %s (%u kanaler, expander %s)\n", doc["board_type"] | "?",
+               (unsigned)(doc["active_channels"] | 0), doc["expander"] | "?");
+  debug_printf("  Fri heap:       %lu bytes\n", (unsigned long)(doc["heap_free_bytes"] | 0ul));
+  if (doc["ethernet"]["connected"] | false) {
+    debug_printf("  Ethernet:       forbundet, %s\n", doc["ethernet"]["ip"] | "?");
+  } else {
+    debug_printf("  Ethernet:       %s\n", doc["ethernet"]["status"] | "ikke forbundet");
+  }
+  if (doc["wifi"]["connected"] | false) {
+    debug_printf("  WiFi:           forbundet, %s (%d dBm)\n", doc["wifi"]["ip"] | "?", (int)(doc["wifi"]["rssi_dbm"] | 0));
+  } else {
+    debug_println("  WiFi:           ikke forbundet");
+  }
+  debug_printf("  Provisioneret:  %s\n", (doc["provisioned"] | false) ? "ja" : "nej");
+}
+
+static void mbx_print_channels_pretty(const char *json) {
+  JsonDocument doc;
+  if (deserializeJson(doc, json) || !doc.is<JsonArray>()) { debug_printf("  %s\n", json); return; }
+  debug_println("  Kanal  Aktiv  Mode   Baud    Format  Timeout  Status  Requests     OK  Timeout  CRC  Exc");
+  debug_println("  -----  -----  -----  ------  ------  -------  ------  --------  -----  -------  ---  ---");
+  for (JsonObject c : doc.as<JsonArray>()) {
+    int ch = c["channel"] | 0;
+    const char *par = c["parity"] | "none";
+    char fmt[8];
+    snprintf(fmt, sizeof(fmt), "8%c%d", (char)toupper((unsigned char)par[0]), (int)(c["stop_bits"] | 1));
+    debug_printf("  %-5c  %-5s  %-5s  %6lu  %-6s  %4u ms  %-6s  %8lu  %5lu  %7lu  %3lu  %3lu\n",
+                 (ch >= 1 && ch <= 8) ? (char)('A' + ch - 1) : '?', (c["enabled"] | false) ? "ja" : "nej",
+                 c["mode"] | "?", (unsigned long)(c["baudrate"] | 0ul), fmt, (unsigned)(c["timeout_ms"] | 0u),
+                 c["status"] | "?", (unsigned long)(c["total_requests"] | 0ul),
+                 (unsigned long)(c["successful_requests"] | 0ul), (unsigned long)(c["timeout_errors"] | 0ul),
+                 (unsigned long)(c["crc_errors"] | 0ul), (unsigned long)(c["exception_errors"] | 0ul));
+  }
+  bool any_err = false;
+  for (JsonObject c : doc.as<JsonArray>()) {
+    int t = c["last_error_type"] | 0;
+    if (t == 0) continue;
+    if (!any_err) { debug_println("  Seneste fejl:"); any_err = true; }
+    int ch = c["channel"] | 0;
+    debug_printf("    Kanal %c: %s, slave %u, adresse %u, ved oppetid ", (ch >= 1 && ch <= 8) ? (char)('A' + ch - 1) : '?',
+                 mbx_error_type_text(t), (unsigned)(c["last_error_slave_id"] | 0u),
+                 (unsigned)(c["last_error_address"] | 0u));
+    mbx_print_uptime(c["last_error_at_uptime_s"] | 0u);
+    debug_println("");
+  }
+}
+
+static void mbx_print_pretty(const char *label, void (*fmt)(const char *)) {
+  const ExpansionApiResult *res = mbx_wait_result(label);
+  if (!res) return;
+  if (res->http_status != 200) {
+    debug_printf("[%s] HTTP %d:\n  %s\n", label, res->http_status, res->response_json);
     return;
   }
-  debug_printf("[%s] HTTP %d:\n", label, res.http_status);
-  debug_printf("  %s\n", res.response_json);
+  debug_printf("[%s]\n", label);
+  fmt(res->response_json);
 }
 
 /* ============================================================================
@@ -261,11 +364,11 @@ void cli_cmd_show_modbus_expansion(uint8_t argc, char **argv) {
     debug_println("FEJL: Kunne ikke starte kald mod boardet");
     return;
   }
-  mbx_print_result("status");
+  mbx_print_pretty("Status", mbx_print_status_pretty);
 
   if (expansion_api_is_busy()) return;  // usandsynligt, men vaer defensiv
   if (!expansion_api_start_channels((uint8_t)idx)) return;
-  mbx_print_result("kanaler");
+  mbx_print_pretty("Kanaler", mbx_print_channels_pretty);
 }
 
 /* ============================================================================

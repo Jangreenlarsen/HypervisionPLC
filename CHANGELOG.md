@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.121] - 2026-10-07
+
+### BUG FIXES
+- **BUG-482:** ST Logics performance-statistik ligger på input-register 252-293, men PLC'en havde kun input-register 0-255. Register 256-293 (max/gennemsnitlig afviklingstid, overruns og cyklusstatistik) blev derfor aldrig gemt, kunne ikke læses via Modbus FC04, og `show logic stats` og `read input-reg` læste uden for arrayet og viste tilfældige tal. Der er nu 320 input-registre (0-319), og `read input-reg` er begrænset til dem.
+
+### IMPROVEMENTS
+- **FEAT-484:** `show regs [hr|ir] [start] [antal]` viser nu hele området som standard (før kun HR 0-159), respekterer start/antal og kan vise input-registre (`show regs ir 252 42` = ST-statistikken). Dashboardets registerkort viser IR 0-319 og markerer ST-statistikken.
+
+## [7.9.68.120] - 2026-10-07
+
+### IMPROVEMENTS
+- **FEAT-483:** `show modbus-expansion <board>` (og `mbx <board> status`) viser nu boardets status og kanaler som læsbar tekst og en tabel i stedet for rå JSON: firmware, oppetid, sidste genstart, board-type, netværk, en linje pr. kanal (A-D) med opsætning og tællere, og seneste fejl pr. kanal. Kan svaret ikke læses, vises den rå JSON som før.
+
 ## [7.9.68.119] - 2026-10-07
 
 ### NEW FEATURES

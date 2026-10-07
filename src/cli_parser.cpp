@@ -421,8 +421,8 @@ static void print_show_help(void) {
   debug_println("    show modbus-slave      - Modbus Slave config");
   debug_println("    show modbus-master     - Modbus Master config");
   debug_println("    show modbus-expansion [board] - Expansion Board-liste, eller live status for ét board (FEAT-409)");
-  debug_println("    show registers         - Holding registers");
-  debug_println("    show inputs            - Input registers");
+  debug_println("    show regs [hr|ir] [start] [antal] - Holding (standard) eller input registers");
+  debug_println("    show inputs            - Discrete inputs");
   debug_println("    show coils             - Coil states");
   debug_println("");
   debug_println("  Features:");
@@ -931,10 +931,15 @@ bool cli_parser_execute(char* line) {
       cli_cmd_show_timer(id, verbose);
       return true;
     } else if (!strcmp(what, "REGISTERS")) {
+      // FEAT-484: show regs [hr|ir] [start] [count]
+      uint8_t a = 2;
+      bool ir = false;
+      if (argc > a && (!strcasecmp(argv[a], "ir") || !strcasecmp(argv[a], "input"))) { ir = true; a++; }
+      else if (argc > a && (!strcasecmp(argv[a], "hr") || !strcasecmp(argv[a], "holding"))) { a++; }
       uint16_t start = 0, count = 0;
-      if (argc > 2) start = atoi(argv[2]);
-      if (argc > 3) count = atoi(argv[3]);
-      cli_cmd_show_registers(start, count);
+      if (argc > a) start = atoi(argv[a]);
+      if (argc > a + 1) count = atoi(argv[a + 1]);
+      cli_cmd_show_registers_ex(ir, start, count);
       return true;
     } else if (!strcmp(what, "COILS")) {
       cli_cmd_show_coils();
@@ -3101,7 +3106,7 @@ bool cli_parser_execute(char* line) {
     debug_println("  show timer <id> [verbose]   - Timer 1-4 details");
     debug_println("  show logic, log         - ST Logic programs");
     debug_println("  show gpio [pin]         - GPIO mappings");
-    debug_println("  show registers, regs    - Holding registers");
+    debug_println("  show registers, regs [hr|ir] [start] [antal] - Holding/input registers");
     debug_println("  show inputs, ins        - Discrete inputs");
     debug_println("  show coils              - Coils");
     debug_println("  show debug, dbg         - Debug flags");
@@ -3458,7 +3463,7 @@ void cli_parser_print_help(void) {
   debug_println("  show timers         - Display timer status");
   debug_println("  show logic          - Display ST Logic programs status");
   debug_println("  show logic stats    - Display ST Logic detailed statistics");
-  debug_println("  show registers [start] [count]");
+  debug_println("  show registers [hr|ir] [start] [count]");
   debug_println("  show coils          - Display coil states");
   debug_println("  show inputs         - Display discrete inputs");
   debug_println("  show st-stats       - Display ST Logic stats (Modbus IR 252-293)");
@@ -3475,7 +3480,7 @@ void cli_parser_print_help(void) {
   debug_println("  write h-reg <addr> value int <-32768..32767> - Write signed holding register (two's complement)");
   debug_println("");
   debug_println("  === INPUT REGISTERS (FC04 Read only) ===");
-  debug_println("  read i-reg <id> [count] [type]      - Read input registers (IR 0-1023)");
+  debug_println("  read i-reg <id> [count] [type]      - Read input registers (IR 0-319)");
   debug_println("    IR 200-203:   ST Logic Status (enabled, compiled, running, error)");
   debug_println("    IR 204-207:   Execution Count");
   debug_println("    IR 208-211:   Error Count");
