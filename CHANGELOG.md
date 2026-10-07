@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.119] - 2026-10-07
+
+### NEW FEATURES
+- **FEAT-482:** I/O → Expansion boards → **Test forbindelse** viser nu boardets oppetid og årsagen til sidste genstart (strøm tilsluttet, reset-knap, genstart via kommando/OTA, crash, watchdog eller spændingsfald). Crash, watchdog og spændingsfald vises med rødt. Kræver board-firmware v0.35.0. `show modbus-expansion <board>` viser feltet `reset_reason` i status-JSON'en.
+
 ## [7.9.68.118] - 2026-10-06
 
 ### BUG FIXES

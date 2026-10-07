@@ -1022,6 +1022,15 @@ function pollExpAction(onDone,tries){
   }).catch(e=>onDone({error:e.message}));
 }
 
+// FEAT-482: boardets oppetid + aarsag til sidste genstart (board-fw v0.35.0+)
+const EXP_RESET_TXT={power_on:'strøm tilsluttet',external:'reset-knap',software:'genstart (kommando/OTA)',panic:'CRASH',int_wdt:'watchdog (interrupt)',task_wdt:'watchdog (task)',wdt:'watchdog',deep_sleep:'deep sleep',brownout:'spændingsfald',sdio:'SDIO',unknown:'ukendt'};
+function expResetText(r){
+  let s='';
+  if(r.uptime_s!==undefined){const u=r.uptime_s;s+=', oppe '+(u>=86400?Math.floor(u/86400)+'d ':'')+Math.floor(u%86400/3600)+'t '+Math.floor(u%3600/60)+'m';}
+  if(r.reset_reason){const bad=/panic|wdt|brownout/.test(r.reset_reason);s+=', sidste genstart: <span style="color:'+(bad?'#f38ba8':'#a6adc8')+'">'+escHtml(EXP_RESET_TXT[r.reset_reason]||r.reset_reason)+'</span>';}
+  return s;
+}
+
 function testExpBoardConnection(id){
   const cell=$('expStatus'+id);
   if(cell)cell.textContent='Tester...';
@@ -1031,7 +1040,7 @@ function testExpBoardConnection(id){
       if(!cell)return;
       if(d.error||!d.transport_ok){cell.innerHTML='<span style="color:#f38ba8">Ikke tilgængelig</span>';return}
       const r=d.response||{};
-      cell.innerHTML='<span style="color:#a6e3a1">OK</span> fw '+(r.fw_version||'?')+', kanaler '+(r.active_channels!==undefined?r.active_channels:'?');
+      cell.innerHTML='<span style="color:#a6e3a1">OK</span> fw '+(r.fw_version||'?')+', kanaler '+(r.active_channels!==undefined?r.active_channels:'?')+expResetText(r);
       // BUG-477: opdater kanaltallet paa siden med det samme (test-panelets kanalliste)
       if(r.active_channels&&_expBoards[id]){_expBoards[id].channels=r.active_channels;updateExpTestFields();}
     });
