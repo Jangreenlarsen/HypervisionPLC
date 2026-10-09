@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.126] - 2026-10-09
+
+### BUG FIXES
+- **BUG-488:** `POST /api/ext/mbx/...?wait=` svarede `timeout` på en skrivning, når expansion-cachen allerede havde samme værdi. Det skete typisk med FRA, fordi et ST-program havde skrevet samme coil lige før. Skrivningen blev droppet som dublet, så cachen blev aldrig opdateret. REST-skrivninger til expansion boards går nu altid ud på bussen, ligesom RS485-skrivningerne.
+- **BUG-489:** `GET /api/ext/...` for en slave, der ikke svarer, kunne en gang imellem vise `"status":"ok","value":0`. Det sker, når en cache-post står som gyldig eller ventende, men sidste resultat var en fejl. Nu vurderes status ud fra sidste resultat, og svaret bliver `error` med `value: null`, indtil slaven svarer.
+
 ## [7.9.68.125] - 2026-10-09
 
 ### BUG FIXES

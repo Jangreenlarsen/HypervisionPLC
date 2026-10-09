@@ -341,7 +341,8 @@ bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, u
   return true;
 }
 
-bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, st_value_t value) {
+bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, st_value_t value,
+                                        bool force) {
   uint8_t read_type = (type == MBX_REQ_WRITE_COIL) ? (uint8_t)MBX_REQ_READ_COIL : (uint8_t)MBX_REQ_READ_HOLDING;
   mbx_cache_entry_t *cached = mbx_cache_find(board, channel, slave_id, address, read_type);
   // BUG-419: same cross-core race as modbus_expansion_async_queue_read() —
@@ -354,7 +355,7 @@ bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, 
       (type == MBX_REQ_WRITE_COIL ? (cached->value.bool_val == value.bool_val) : (cached->value.int_val == value.int_val)));
     portEXIT_CRITICAL(&mbx_cache_spinlock);
   }
-  if (same_value_already_written) {
+  if (same_value_already_written && !force) {
     return true;  // Samme vaerdi allerede bekraeftet skrevet — skip (samme dedup som mb_async)
   }
 

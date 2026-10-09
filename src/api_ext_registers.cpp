@@ -51,6 +51,7 @@ typedef struct {
   uint8_t status;    // 0 empty, 1 pending, 2 valid, 3 error (begge caches bruger samme numre)
   uint16_t raw;      // HR/IR: 16 bit; coils/DI: 0/1
   uint32_t updated;  // last_update_ms (0 = aldrig)
+  int32_t err;       // last_error (MB_OK = 0) — BUG-489: afgør om sidste svar var gyldigt
 } ext_snap_t;
 
 static const char *ext_kind_name(uint8_t k) {
@@ -126,14 +127,14 @@ static void ext_snapshot(const ext_target_t *t, uint16_t addr, ext_snap_t *s) {
     mb_cache_entry_t *e = mb_cache_find(t->slave, addr, t->kind);
     if (!e) return;
     portENTER_CRITICAL(&mb_cache_spinlock);
-    s->exists = true; s->status = (uint8_t)e->status; s->updated = e->last_update_ms;
+    s->exists = true; s->status = (uint8_t)e->status; s->updated = e->last_update_ms; s->err = e->last_error;
     s->raw = bit ? (e->value.bool_val ? 1 : 0) : (uint16_t)e->value.int_val;
     portEXIT_CRITICAL(&mb_cache_spinlock);
   } else {
     mbx_cache_entry_t *e = mbx_cache_find(t->board, t->channel, t->slave, addr, t->kind);
     if (!e) return;
     portENTER_CRITICAL(&mbx_cache_spinlock);
-    s->exists = true; s->status = (uint8_t)e->status; s->updated = e->last_update_ms;
+    s->exists = true; s->status = (uint8_t)e->status; s->updated = e->last_update_ms; s->err = e->last_error;
     s->raw = bit ? (e->value.bool_val ? 1 : 0) : (uint16_t)e->value.int_val;
     portEXIT_CRITICAL(&mbx_cache_spinlock);
   }
@@ -152,8 +153,16 @@ static bool ext_done(const ext_snap_t *s, uint32_t t0, bool queued) {
   return s->updated != 0 && (int32_t)(s->updated - t0) >= 0;
 }
 
+// BUG-489: en post kan staa som VALID/PENDING med en fejl som sidste resultat
+// (stale-PENDING-oprydningen saetter VALID + last_error=TIMEOUT, og en ny
+// laesning markerer PENDING oven paa et fejlsvar) — saa er vaerdien ikke gyldig
+static bool ext_ok(const ext_snap_t *s) {
+  return s->exists && s->updated != 0 && s->status != 3 && s->err == 0;
+}
+
 static const char *ext_status_name(const ext_snap_t *s) {
   if (!s->exists) return "pending";
+  if (s->updated != 0 && s->err != 0) return "error";
   switch (s->status) {
     case 2: return "ok";
     case 3: return "error";
@@ -269,7 +278,7 @@ esp_err_t api_ext_registers_get(httpd_req_t *req) {
     ext_snap_t a, b;
     ext_snapshot(&t, t.addr + v * width, &a);
     if (width == 2) ext_snapshot(&t, t.addr + v * width + 1, &b);
-    const bool valid = a.exists && a.updated != 0 && a.status != 3 && (width == 1 || (b.exists && b.updated != 0 && b.status != 3));
+    const bool valid = ext_ok(&a) && (width == 1 || ext_ok(&b));  // BUG-489
     if (!valid) {
       strcpy(vals[v], "null");
     } else if (bit) {
@@ -373,7 +382,7 @@ esp_err_t api_ext_registers_post(httpd_req_t *req, const char *user, const char 
   if (t.kind == EXT_COILS) {
     if (n == 1) {
       st_value_t sv; memset(&sv, 0, sizeof(sv)); sv.bool_val = bits[0];
-      ok = t.mbx ? modbus_expansion_async_queue_write(MBX_REQ_WRITE_COIL, t.board, t.channel, t.slave, t.addr, sv)
+      ok = t.mbx ? modbus_expansion_async_queue_write(MBX_REQ_WRITE_COIL, t.board, t.channel, t.slave, t.addr, sv, true)
                  : mb_async_queue_write(MB_REQ_WRITE_COIL, t.slave, t.addr, sv, true);
     } else {
       ok = t.mbx ? modbus_expansion_async_queue_write_multi_coils(t.board, t.channel, t.slave, t.addr, (uint8_t)n, bits)
@@ -382,7 +391,7 @@ esp_err_t api_ext_registers_post(httpd_req_t *req, const char *user, const char 
   } else {
     if (n == 1) {
       st_value_t sv; memset(&sv, 0, sizeof(sv)); sv.int_val = (int16_t)regs[0];
-      ok = t.mbx ? modbus_expansion_async_queue_write(MBX_REQ_WRITE_HOLDING, t.board, t.channel, t.slave, t.addr, sv)
+      ok = t.mbx ? modbus_expansion_async_queue_write(MBX_REQ_WRITE_HOLDING, t.board, t.channel, t.slave, t.addr, sv, true)
                  : mb_async_queue_write(MB_REQ_WRITE_HOLDING, t.slave, t.addr, sv, true);
     } else {
       ok = t.mbx ? modbus_expansion_async_queue_write_multi_holdings(t.board, t.channel, t.slave, t.addr, (uint8_t)n, regs)
@@ -411,7 +420,7 @@ esp_err_t api_ext_registers_post(httpd_req_t *req, const char *user, const char 
       ext_snap_t s;
       ext_snapshot(&t, t.addr + i, &s);
       if (!ext_done(&s, t0, true)) { state = "timeout"; break; }
-      if (s.status == 3) { state = "error"; break; }
+      if (s.status == 3 || s.err != 0) { state = "error"; break; }  // BUG-489
     }
   }
   char out[256];

@@ -220,7 +220,10 @@ mbx_cache_entry_t *mbx_cache_find(uint8_t board, uint8_t channel, uint8_t slave_
 mbx_cache_entry_t *mbx_cache_get_or_create(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t req_type);
 
 bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address);
-bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, st_value_t value);
+// BUG-488: force=true springer write-dedup over (REST-skrivning skal altid ud paa
+// bussen og opdatere cachen, ogsaa naar cachen allerede viser samme vaerdi — som mb_async)
+bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, st_value_t value,
+                                        bool force = false);
 
 // v7.9.68.0: multi-register write (FC16) / multi-coil write (FC15) — bypass the
 // single-address cache entirely (see file header design note above).
