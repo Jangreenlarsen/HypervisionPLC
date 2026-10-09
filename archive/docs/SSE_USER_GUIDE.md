@@ -162,13 +162,15 @@ Når `registers` er inkluderet i subscribe, kan du specificere præcist hvilke a
 | Parameter | Beskrivelse | Adresseområde | Max pr. type |
 |-----------|-------------|----------------|--------------|
 | `hr` | Holding Registers | 0-255 | 32 |
-| `ir` | Input Registers | 0-255 | 32 |
+| `ir` | Input Registers | 0-319 (252-293 = ST-statistik) | 32 |
 | `coils` | Coils (output) | 0-255 | 32 |
 | `di` | Discrete Inputs | 0-255 | 32 |
 
+Adresser kan angives som liste og intervaller (`hr=0,5,10-15`). Kommaer må gerne være URL-kodede (`%2C`) — PLC'en afkoder query-strengen fra v7.9.68.123 (BUG-486; før blev kun den første adresse pr. type overvåget). HR blev før v7.9.68.123 begrænset til 0-159. Sammenlign altid `watching` i `connected`-hændelsen med det antal adresser, du bad om — adresser uden for området springes stille over.
+
 ### watch_all mode (subscribe=all)
 
-Når du bruger `subscribe=all` **uden** eksplicitte adresse-parametre (hr/ir/coils/di), aktiveres **watch_all mode**. I denne mode overvåges **alle** 256 HR + 256 IR + 256 coils + 256 DI automatisk. Du behøver ikke angive specifikke adresser.
+Når du bruger `subscribe=all` **uden** eksplicitte adresse-parametre (hr/ir/coils/di), aktiveres **watch_all mode**. I denne mode overvåges **alle** 256 HR + IR 0-255 + 256 coils + 256 DI automatisk (IR 256-319 — ST-statistikken — streames ikke i watch_all, da den ændrer sig hver cyklus; angiv dem eksplicit med `ir=` eller brug `/api/registers/ir`). Du behøver ikke angive specifikke adresser.
 
 ```bash
 # watch_all mode — overvåger ALLE registre, coils og DI

@@ -105,4 +105,8 @@ void http_server_reset_stats(void);
  */
 void http_server_print_status(void);
 
+/* BUG-485: finder den registrerede (uversionerede) rute for uri+metode — bruges af /api/v1/*-fallbacken */
+#include <esp_http_server.h>
+const httpd_uri_t *http_server_find_route(const char *uri, int method);
+
 #endif // HTTP_SERVER_H

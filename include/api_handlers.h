@@ -418,6 +418,7 @@ esp_err_t api_handler_rate_limit_post(httpd_req_t *req);  // FEAT: GUI-oprydning
 esp_err_t api_v1_dispatch_get(httpd_req_t *req);
 esp_err_t api_v1_dispatch_post(httpd_req_t *req);
 esp_err_t api_v1_dispatch_delete(httpd_req_t *req);
+esp_err_t api_v1_dispatch_put(httpd_req_t *req);  // BUG-485
 
 /* ============================================================================
  * UTILITY FUNCTIONS

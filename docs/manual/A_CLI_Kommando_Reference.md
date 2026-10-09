@@ -297,7 +297,7 @@ Max 8 grupper × 16 registre. ST Logic: `SAVE(0)`/`LOAD(0)` = alle grupper, `SAV
 
 **`set http <option> <værdi>`:** `enabled on|off`, `port <1-65535>` (default 80, bruges KUN til almindelig HTTP), `https-port <1-65535>` (default 443, dedikeret HTTPS-port — se BUG-350, kræver reboot), `auth on|off`, `username <navn>`, `password <pw>`, `api on|off` (aktiverer/deaktiverer REST API-endpoints), `tls on|off` (kræver reboot; lytter på `https-port`, ikke `port`).
 
-**`set sse <option> [værdi]`:** `enable`/`disable` (kræver reboot), `port <0-65535>` (0=auto=HTTP-port+1), `max-clients <1-5>`, `interval <50-5000>` (check-interval ms), `heartbeat <1000-60000>` (ms), `disconnect all` / `disconnect <slot>`.
+**`set sse <option> [værdi]`:** `enable`/`disable` (kræver reboot), `port <0-65535>` (0=auto=HTTP-port+1), `max-clients <1-3>` (BUG-483: firmwaren har 3 SSE-slots), `interval <50-5000>` (check-interval ms), `heartbeat <1000-60000>` (ms), `disconnect all` / `disconnect <slot>`.
 
 **`set rate-limit enable|disable`:** Slår token-bucket rate limiting til/fra (default: aktiveret, 30 req burst / 10 req/s pr. IP).
 

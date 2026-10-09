@@ -2617,7 +2617,7 @@ void cli_cmd_set_sse(uint8_t argc, char* argv[]) {
     debug_println("    enable              - Enable SSE server");
     debug_println("    disable             - Disable SSE server");
     debug_println("    port <port>         - SSE port (1-65535, 0=auto)");
-    debug_println("    max-clients <1-5>   - Max simultaneous clients");
+    debug_println("    max-clients <1-3>   - Max simultaneous clients");
     debug_println("    interval <50-5000>  - Change detection interval (ms)");
     debug_println("    heartbeat <1000-60000> - Heartbeat interval (ms)");
     debug_println("    disconnect all         - Disconnect all SSE clients");
@@ -2656,8 +2656,8 @@ void cli_cmd_set_sse(uint8_t argc, char* argv[]) {
   } else if (!strcmp(option, "max-clients") || !strcmp(option, "clients")) {
     if (argc < 2) { debug_println("SET SSE MAX-CLIENTS: missing value"); return; }
     int val = atoi(argv[1]);
-    if (val < 1 || val > 5) {
-      debug_println("SET SSE MAX-CLIENTS: invalid value (1-5)");
+    if (val < 1 || val > SSE_MAX_CLIENTS) {  // BUG-483: var 1-5, men kun SSE_MAX_CLIENTS slots
+      debug_println("SET SSE MAX-CLIENTS: invalid value (1-3)");
       return;
     }
     g_persist_config.network.http.sse_max_clients = (uint8_t)val;

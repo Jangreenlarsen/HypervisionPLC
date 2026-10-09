@@ -4219,7 +4219,7 @@ esp_err_t api_handler_http_config_post(httpd_req_t *req)
     if (s.containsKey("port"))              g_persist_config.network.http.sse_port              = s["port"].as<uint16_t>();
     if (s.containsKey("max_clients")) {
       uint8_t mc = s["max_clients"].as<uint8_t>();
-      if (mc >= 1 && mc <= 5) g_persist_config.network.http.sse_max_clients = mc;
+      if (mc >= 1 && mc <= SSE_MAX_CLIENTS) g_persist_config.network.http.sse_max_clients = mc;  // BUG-483
     }
     if (s.containsKey("check_interval_ms")) {
       uint16_t iv = s["check_interval_ms"].as<uint16_t>();
@@ -11756,6 +11756,11 @@ esp_err_t api_v1_dispatch_delete(httpd_req_t *req)
   return v1_dispatch(req);
 }
 
+esp_err_t api_v1_dispatch_put(httpd_req_t *req)  // BUG-485
+{
+  return v1_dispatch(req);
+}
+
 // Routing table entry
 typedef struct {
   const char *prefix;     // URI prefix to match (after v1 rewrite)
@@ -11931,6 +11936,17 @@ static esp_err_t v1_dispatch(httpd_req_t *req)
     esp_err_t result = r->handler(req);
 
     // Restore URI
+    v1_restore_uri(req, orig_len);
+    return result;
+  }
+
+  // BUG-485: ingen post i tabellen — brug samme handler som den uversionerede
+  // rute (http_server.cpp kender alle registrerede ruter), saa /api/v1/*
+  // altid spejler hele API'et
+  const httpd_uri_t *fb = http_server_find_route(uri, method);
+  if (fb) {
+    req->user_ctx = fb->user_ctx;
+    esp_err_t result = fb->handler(req);
     v1_restore_uri(req, orig_len);
     return result;
   }

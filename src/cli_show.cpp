@@ -3836,7 +3836,7 @@ void cli_cmd_show_sse(void) {
   debug_println("\nCommands:");
   debug_println("  set sse enable|disable");
   debug_println("  set sse port <port|0>");
-  debug_println("  set sse max-clients <1-5>");
+  debug_println("  set sse max-clients <1-3>");
   debug_println("  set sse interval <50-5000>");
   debug_println("  set sse heartbeat <1000-60000>");
   debug_println("  set sse disconnect all       - Disconnect all clients");

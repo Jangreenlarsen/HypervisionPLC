@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <esp_http_server.h>
@@ -97,7 +98,8 @@ static void sse_registry_remove(int slot) {
 // Config accessors with safe fallback to defaults
 static inline uint8_t sse_cfg_max_clients(void) {
   uint8_t v = g_persist_config.network.http.sse_max_clients;
-  return (v >= 1 && v <= 5) ? v : SSE_MAX_CLIENTS;
+  // BUG-483: kan aldrig overstige de kompilerede slots (sse_clients[] m.fl.)
+  return (v >= 1 && v <= SSE_MAX_CLIENTS) ? v : SSE_MAX_CLIENTS;
 }
 static inline uint16_t sse_cfg_check_interval(void) {
   uint16_t v = g_persist_config.network.http.sse_check_interval_ms;
@@ -287,9 +289,21 @@ static bool sse_get_query_param(const char *query, const char *key, char *value,
     const char *val_start = p + key_len + 1;
     const char *val_end = strchr(val_start, '&');
     size_t len = val_end ? (size_t)(val_end - val_start) : strlen(val_start);
-    if (len >= value_len) len = value_len - 1;
-    memcpy(value, val_start, len);
-    value[len] = '\0';
+    // BUG-486: URL-afkod (%XX og '+') — standard-HTTP-klienter sender ','
+    // som %2C, og saa blev kun den foerste adresse pr. type overvaaget
+    size_t o = 0;
+    for (size_t i = 0; i < len && o + 1 < value_len; i++) {
+      char c = val_start[i];
+      if (c == '%' && i + 2 < len &&isxdigit((unsigned char)val_start[i + 1]) && isxdigit((unsigned char)val_start[i + 2])) {
+        char hex[3] = {val_start[i + 1], val_start[i + 2], 0};
+        c = (char)strtol(hex, NULL, 16);
+        i += 2;
+      } else if (c == '+') {
+        c = ' ';
+      }
+      value[o++] = c;
+    }
+    value[o] = '\0';
     return true;
   }
   return false;
@@ -324,9 +338,9 @@ static uint8_t sse_parse_query(const char *query, SseWatchList *watch)
   if (topics & SSE_TOPIC_REGISTERS) {
     char param[128] = {0};
     if (sse_get_query_param(query, "hr", param, sizeof(param)))
-      watch->hr_count = sse_parse_addr_list(param, watch->hr_addrs, SSE_MAX_WATCH_PER_TYPE, 159);
+      watch->hr_count = sse_parse_addr_list(param, watch->hr_addrs, SSE_MAX_WATCH_PER_TYPE, HOLDING_REGS_SIZE - 1);  // BUG-486: var 159
     if (sse_get_query_param(query, "ir", param, sizeof(param)))
-      watch->ir_count = sse_parse_addr_list(param, watch->ir_addrs, SSE_MAX_WATCH_PER_TYPE, 159);
+      watch->ir_count = sse_parse_addr_list(param, watch->ir_addrs, SSE_MAX_WATCH_PER_TYPE, INPUT_REGS_SIZE - 1);  // BUG-486: var 159
     if (sse_get_query_param(query, "coils", param, sizeof(param)))
       watch->coil_count = sse_parse_addr_list(param, watch->coil_addrs, SSE_MAX_WATCH_PER_TYPE, 255);
     if (sse_get_query_param(query, "di", param, sizeof(param)))
@@ -1004,18 +1018,6 @@ static void sse_accept_task(void *arg)
     SseWatchList watch;
     uint8_t topics = sse_parse_query(query, &watch);
 
-    // Send HTTP SSE response headers
-    const char *headers = "HTTP/1.1 200 OK\r\n"
-      "Content-Type: text/event-stream\r\n"
-      "Cache-Control: no-cache\r\n"
-      "Connection: keep-alive\r\n"
-      "Access-Control-Allow-Origin: *\r\n"
-      "X-Accel-Buffering: no\r\n\r\n";
-    if (!sse_sock_send(client_fd, headers, strlen(headers))) {
-      close(client_fd);
-      continue;
-    }
-
     // Resolve username for registry
     const char *sse_username = "(no-auth)";
     if (sse_user_idx >= 0 && sse_user_idx < RBAC_MAX_USERS) {
@@ -1026,10 +1028,28 @@ static void sse_accept_task(void *arg)
     }
 
     // Register client in registry
+    // BUG-483: registrér FØR headers sendes — ellers fik en klient, der ikke
+    // var plads til, "200 OK" + SSE-headers efterfulgt af en rå 503-linje
     int slot = sse_registry_add(client_fd, client_addr.sin_addr.s_addr, sse_username, topics);
     if (slot < 0) {
-      const char *resp = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n";
+      const char *resp = "HTTP/1.1 503 Service Unavailable\r\n"
+        "Content-Type: application/json\r\n"
+        "Connection: close\r\n\r\n"
+        "{\"error\":\"Max SSE clients reached\",\"status\":503}";
       send(client_fd, resp, strlen(resp), 0);
+      close(client_fd);
+      continue;
+    }
+
+    // Send HTTP SSE response headers
+    const char *headers = "HTTP/1.1 200 OK\r\n"
+      "Content-Type: text/event-stream\r\n"
+      "Cache-Control: no-cache\r\n"
+      "Connection: keep-alive\r\n"
+      "Access-Control-Allow-Origin: *\r\n"
+      "X-Accel-Buffering: no\r\n\r\n";
+    if (!sse_sock_send(client_fd, headers, strlen(headers))) {
+      sse_registry_remove(slot);
       close(client_fd);
       continue;
     }

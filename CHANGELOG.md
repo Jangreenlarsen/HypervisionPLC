@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.124] - 2026-10-09
+
+### BUG FIXES
+- **BUG-483:** SSE `max-clients` kunne sættes til 4-5, men firmwaren har kun 3 SSE-slots. En 4. klient fik "200 OK" efterfulgt af en ødelagt strøm. Nu er grænsen 1-3 i CLI, REST og web, en gemt værdi over 3 behandles som 3, og en klient, der ikke er plads til, får et rent 503 med JSON-fejl.
+- **BUG-484:** Manualen angav stadig input-register 0-255; rettet til 0-319 (252-293 = ST-statistik) i §6.3 og appendiks B.
+- **BUG-485:** `/api/v1/*` spejlede ikke hele API'et — ca. 20 grupper (bl.a. `/api/v1/login`, `/api/v1/alarms`, `/api/v1/expansion/*`) gav 404, og PUT var ikke understøttet. Nu falder `/api/v1/*` tilbage til samme handler som den uversionerede rute, og PUT virker. Alle URI-registreringer tjekkes desuden for fejl ved opstart.
+- **BUG-486:** SSE URL-afkodede ikke query-strengen, så klienter der sender `,` som `%2C` (Python, .NET m.fl.) kun fik den første adresse pr. type overvåget. Watch-listens HR-loft var desuden 159; nu HR 0-255 og IR 0-319.
+
 ## [7.9.68.123] - 2026-10-09
 
 ### NEW FEATURES

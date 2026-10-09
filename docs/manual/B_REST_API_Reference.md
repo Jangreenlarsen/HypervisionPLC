@@ -22,7 +22,7 @@ Alle svar er `application/json`. Fejl som `{"error":"...","status":N}` med match
 
 **Wildcard suffix-routing (vigtigt arkitekturvalg):** ESP-IDF's `httpd_uri_match_wildcard` matcher kun `*` i **slutningen** af en URI — et mønster som `/api/logic/*/source` findes ikke og ville aldrig matche. Løsningen i denne kodebase: der registreres én bred wildcard-URI pr. ressource-type (fx `/api/logic/*`, `/api/counters/*`, `/api/gpio/*`, `/api/modbus/*`, `/api/wifi/*`, `/api/persist/groups/*`), og selve C-handler-funktionen undersøger derefter `req->uri`-strengens **suffix** manuelt og delegerer internt til den rette under-handler. Fx håndterer `api_handler_counter_single()` alene: almindelig `GET /api/counters/{id}`, samt (via suffix-check) `POST .../reset`, `.../start`, `.../stop`, `.../control`, og almindelig `POST .../{id}` (config) — alt sammen bag ét `httpd_uri_t`. Rækkefølgen af registreringer har betydning: mere specifikke/eksakte URI'er (fx `/api/gpio/2/heartbeat`) registreres **før** de bredere wildcards, så de ikke skygges — se [kapitel 13](13_Fejlfinding.md) for et konkret eksempel på hvad der sker når dette princip brydes.
 
-**API-versionering (`/api/v1/*`):** spejler **næsten** hele det uversionerede API via en intern rewrite+routingtabel — undtagelsen er `/api/alarms` og `/api/alarms/ack`, som mangler i versioneringstabellen og derfor giver 404 under `/api/v1/`. Brug det uversionerede `/api/alarms` indtil videre.
+**API-versionering (`/api/v1/*`):** spejler hele det uversionerede API (GET/POST/PUT/DELETE) fra v7.9.68.123 (BUG-485): en rute, der ikke står i den interne v1-tabel, sendes til samme handler som den uversionerede. Før manglede ca. 20 grupper (bl.a. `/api/v1/login`, `/api/v1/alarms`, `/api/v1/expansion/*`) og gav 404.
 
 Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 
@@ -51,7 +51,7 @@ Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 | Metode | URI | Auth | Beskrivelse |
 |---|---|---|---|
 | GET | `/api/config` | CHECK_AUTH | Stort read-only snapshot: system, modbus_mode, modbus_slave, modbus_master, analog_outputs, network, telnet, http, **sse** (FEAT-170, se §B.3 POST /api/http), counters[], timers[], gpio[], st_logic (m. programs[]), modules, persistence |
-| POST | `/api/http` | CHECK_AUTH_WRITE | Body-felter: `enabled`, `port`, `https_port`(BUG-350, dedikeret HTTPS-port, default 443, IKKE samme som `port`), `auth_enabled`, `auth_mode`(**FEAT-397h**, `"basic"`\|`"bearer"` — kun meningsfuldt når `auth_enabled=true`; `bearer` afviser Basic-Auth-headere med 401 på alle endpoints undtagen `/api/login`, se [§10.3.1](10_Sikkerhed_og_Adgangsstyring.md#1031-auth-metode-none--basic--bearer-feat-397h-fra-v79420); standard for både fabriksnye og opgraderede enheder fra v7.9.42.0), `api_enabled`, `tls_enabled`, `username`, `password`, `priority`(`LOW`/`NORMAL`/`HIGH`), samt (**FEAT-170**) et nested `sse` objekt: `{"enabled":bool,"port":N,"max_clients":1-5,"check_interval_ms":50-5000,"heartbeat_ms":1000-60000}` — samme `network.http`-struct som resten af feltlisten. Port/https_port/TLS/sse.port kræver reboot. |
+| POST | `/api/http` | CHECK_AUTH_WRITE | Body-felter: `enabled`, `port`, `https_port`(BUG-350, dedikeret HTTPS-port, default 443, IKKE samme som `port`), `auth_enabled`, `auth_mode`(**FEAT-397h**, `"basic"`\|`"bearer"` — kun meningsfuldt når `auth_enabled=true`; `bearer` afviser Basic-Auth-headere med 401 på alle endpoints undtagen `/api/login`, se [§10.3.1](10_Sikkerhed_og_Adgangsstyring.md#1031-auth-metode-none--basic--bearer-feat-397h-fra-v79420); standard for både fabriksnye og opgraderede enheder fra v7.9.42.0), `api_enabled`, `tls_enabled`, `username`, `password`, `priority`(`LOW`/`NORMAL`/`HIGH`), samt (**FEAT-170**) et nested `sse` objekt: `{"enabled":bool,"port":N,"max_clients":1-3,"check_interval_ms":50-5000,"heartbeat_ms":1000-60000}` — samme `network.http`-struct som resten af feltlisten. Port/https_port/TLS/sse.port kræver reboot. |
 | GET | `/api/modules` | CHECK_AUTH | `{"counters":bool,"timers":bool,"st_logic":bool}` (modul-flag) |
 | POST | `/api/modules` | CHECK_AUTH_WRITE | Samme felter — slå moduler til/fra |
 | GET | `/api/dashboard/layout` | *Ingen* | `card_order`, `card_tabs`, `card_hidden` (dashboard UI-præference) |
@@ -103,7 +103,7 @@ Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 | POST | `/api/registers/coils/bulk` | CHECK_AUTH_WRITE | Body: `{"writes":[{"addr":N,"value":bool},...]}` |
 | GET | `/api/registers/di?start=&count=` | CHECK_AUTH | Bulk-læsning discrete inputs, count 1–256 |
 
-Adresseområder: HR/IR 0–255, coils/DI 0–255.
+Adresseområder: HR 0–255, IR 0–319 (IR 252–293 er ST Logic-statistik, BUG-482), coils/DI 0–255. SSE `watch_all` streamer kun IR 0–255; IR 256–319 læses med `/api/registers/ir` eller en eksplicit SSE-watch-liste.
 
 ## B.8 GPIO
 

@@ -35,7 +35,7 @@ Protokol: **Modbus RTU** over RS-485 (framing, CRC16) for systemets egen Slave/M
 | Type | Antal | Adresser |
 |------|-------|----------|
 | Holding Registers | 256 | 0-255 |
-| Input Registers | 256 | 0-255 |
+| Input Registers | 320 | 0-319 (252-293 = ST Logic-statistik, BUG-482) |
 | Coils | 256 bits (32 bytes) | 0-255 |
 | Discrete Inputs | 256 bits (32 bytes) | 0-255 |
 

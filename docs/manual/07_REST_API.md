@@ -8,7 +8,7 @@
 
 - **Format:** JSON over HTTP(S)
 - **Base-URL:** `http://<enhedens-ip>/api/...` (eller `https://` hvis TLS er aktiveret, se [kapitel 10](10_Sikkerhed_og_Adgangsstyring.md))
-- **Versionering:** endpoints kan tilgås både uden præfiks (`/api/status`) og med eksplicit versionspræfiks (`/api/v1/status`) — de er ækvivalente i dag, men brug `/api/v1/` i ny integrationskode for fremtidssikring, hvis der senere indføres et `/api/v2/`.
+- **Versionering:** endpoints kan tilgås både uden præfiks (`/api/status`) og med eksplicit versionspræfiks (`/api/v1/status`) — de er ækvivalente (fra v7.9.68.123 for alle endpoints, BUG-485), så brug gerne `/api/v1/` i ny integrationskode for fremtidssikring, hvis der senere indføres et `/api/v2/`.
 - **CORS:** `Access-Control-Allow-Origin: *` sættes konsekvent — API'et kan kaldes direkte fra browser-JavaScript på en anden origin.
 
 ## 7.2 Autentificering

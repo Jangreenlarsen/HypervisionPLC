@@ -134,6 +134,7 @@ extern esp_err_t api_handler_api_version(httpd_req_t *req);
 extern esp_err_t api_v1_dispatch_get(httpd_req_t *req);
 extern esp_err_t api_v1_dispatch_post(httpd_req_t *req);
 extern esp_err_t api_v1_dispatch_delete(httpd_req_t *req);
+extern esp_err_t api_v1_dispatch_put(httpd_req_t *req);  // BUG-485
 // v7.0.4 FEAT-032 Prometheus + FEAT-022 Persist API
 extern esp_err_t api_handler_metrics(httpd_req_t *req);
 extern esp_err_t api_handler_persist_groups_list(httpd_req_t *req);
@@ -1253,6 +1254,40 @@ static const httpd_uri_t uri_v1_delete = {
   .handler  = api_v1_dispatch_delete,
   .user_ctx = NULL
 };
+static const httpd_uri_t uri_v1_put = {  // BUG-485: /api/expansion/boards/{id} bruger PUT
+  .uri      = "/api/v1/*",
+  .method   = HTTP_PUT,
+  .handler  = api_v1_dispatch_put,
+  .user_ctx = NULL
+};
+
+/* BUG-485: liste over alle registrerede ruter, saa /api/v1/* kan falde
+ * tilbage til den uversionerede handler (v1_routes[]-tabellen i
+ * api_handlers.cpp blev aldrig holdt i sync — ~20 endpoint-grupper gav 404).
+ * http_reg() tjekker desuden returkoden (BUG-354/BUG-403: en registrering
+ * over max_uri_handlers fejlede tidligere helt stille). */
+#define HTTP_URI_LIST_MAX 176
+static const httpd_uri_t *s_uri_list[HTTP_URI_LIST_MAX];
+static uint16_t s_uri_count = 0;
+
+static void http_reg(const httpd_uri_t *u)
+{
+  esp_err_t e = httpd_register_uri_handler(http_state.server, u);
+  if (e != ESP_OK) ESP_LOGE(TAG, "URI-registrering fejlede: %s (%d)", u->uri, (int)e);
+  if (s_uri_count < HTTP_URI_LIST_MAX) s_uri_list[s_uri_count++] = u;
+}
+
+const httpd_uri_t *http_server_find_route(const char *uri, int method)
+{
+  const size_t len = strcspn(uri, "?");
+  for (uint16_t i = 0; i < s_uri_count; i++) {
+    const httpd_uri_t *u = s_uri_list[i];
+    if ((int)u->method != method) continue;
+    if (strncmp(u->uri, "/api/v1/", 8) == 0) continue;  // aldrig rekursivt tilbage i v1
+    if (httpd_uri_match_wildcard(u->uri, uri, len)) return u;
+  }
+  return NULL;
+}
 
 /* ============================================================================
  * INITIALIZATION & CONTROL
@@ -1438,189 +1473,191 @@ int http_server_start(const HttpConfig *config)
   // a cap of EXACTLY 128 — zero headroom left over from BUG-354's own fix).
   // Bumped to 160 this time (29 spare), not just to the current count.
   // After adding a new route here, run:
-  //   grep -c "httpd_register_uri_handler(http_state.server" src/http_server.cpp
+  //   grep -c "http_reg(&" src/http_server.cpp   (BUG-485: alle registreringer gaar via http_reg)
   // and keep max_uri_handlers comfortably above that number, not just equal to it.
   //
+  s_uri_count = 0;  // BUG-485: listen genopbygges ved hver (gen)start
   // Discovery + status
-  httpd_register_uri_handler(http_state.server, &uri_common_css);
-  httpd_register_uri_handler(http_state.server, &uri_common_js);
-  httpd_register_uri_handler(http_state.server, &uri_endpoints);
-  httpd_register_uri_handler(http_state.server, &uri_endpoints_slash);
-  httpd_register_uri_handler(http_state.server, &uri_status);
-  httpd_register_uri_handler(http_state.server, &uri_config);
+  http_reg(&uri_common_css);
+  http_reg(&uri_common_js);
+  http_reg(&uri_endpoints);
+  http_reg(&uri_endpoints_slash);
+  http_reg(&uri_status);
+  http_reg(&uri_config);
   // Counters (wildcard handles GET + suffix routing for POST /reset, /start, /stop)
-  httpd_register_uri_handler(http_state.server, &uri_counters);
-  httpd_register_uri_handler(http_state.server, &uri_counter_single_get);
-  httpd_register_uri_handler(http_state.server, &uri_counter_single_post);
+  http_reg(&uri_counters);
+  http_reg(&uri_counter_single_get);
+  http_reg(&uri_counter_single_post);
   // FEAT-034/035/036/037: Analog I/O
-  httpd_register_uri_handler(http_state.server, &uri_analog_get);
-  httpd_register_uri_handler(http_state.server, &uri_analog_post);
+  http_reg(&uri_analog_get);
+  http_reg(&uri_analog_post);
   // FEAT-086/089: Haendelses- og registerandringslog
-  httpd_register_uri_handler(http_state.server, &uri_syslog_get);
-  httpd_register_uri_handler(http_state.server, &uri_syslog_post);
-  httpd_register_uri_handler(http_state.server, &uri_trend_get);
-  httpd_register_uri_handler(http_state.server, &uri_trend_post);
-  httpd_register_uri_handler(http_state.server, &uri_audit_log_get);
-  httpd_register_uri_handler(http_state.server, &uri_audit_log_post);
-  httpd_register_uri_handler(http_state.server, &uri_rate_limit_get);
-  httpd_register_uri_handler(http_state.server, &uri_rate_limit_post);
-  httpd_register_uri_handler(http_state.server, &uri_schema);
+  http_reg(&uri_syslog_get);
+  http_reg(&uri_syslog_post);
+  http_reg(&uri_trend_get);
+  http_reg(&uri_trend_post);
+  http_reg(&uri_audit_log_get);
+  http_reg(&uri_audit_log_post);
+  http_reg(&uri_rate_limit_get);
+  http_reg(&uri_rate_limit_post);
+  http_reg(&uri_schema);
   // Timers
-  httpd_register_uri_handler(http_state.server, &uri_timers);
-  httpd_register_uri_handler(http_state.server, &uri_timer_single);
+  http_reg(&uri_timers);
+  http_reg(&uri_timer_single);
   // FEAT-021: Bulk register operations (must be before wildcard routes)
-  httpd_register_uri_handler(http_state.server, &uri_hr_bulk_read);
-  httpd_register_uri_handler(http_state.server, &uri_hr_bulk_write);
-  httpd_register_uri_handler(http_state.server, &uri_ir_bulk_read);
-  httpd_register_uri_handler(http_state.server, &uri_coils_bulk_read);
-  httpd_register_uri_handler(http_state.server, &uri_coils_bulk_write);
-  httpd_register_uri_handler(http_state.server, &uri_di_bulk_read);
+  http_reg(&uri_hr_bulk_read);
+  http_reg(&uri_hr_bulk_write);
+  http_reg(&uri_ir_bulk_read);
+  http_reg(&uri_coils_bulk_read);
+  http_reg(&uri_coils_bulk_write);
+  http_reg(&uri_di_bulk_read);
   // Registers (single, wildcard)
-  httpd_register_uri_handler(http_state.server, &uri_hr_read);
-  httpd_register_uri_handler(http_state.server, &uri_hr_write);
-  httpd_register_uri_handler(http_state.server, &uri_ir_read);
-  httpd_register_uri_handler(http_state.server, &uri_coil_read);
-  httpd_register_uri_handler(http_state.server, &uri_coil_write);
-  httpd_register_uri_handler(http_state.server, &uri_di_read);
+  http_reg(&uri_hr_read);
+  http_reg(&uri_hr_write);
+  http_reg(&uri_ir_read);
+  http_reg(&uri_coil_read);
+  http_reg(&uri_coil_write);
+  http_reg(&uri_di_read);
   // FEAT-486: eksterne registre
-  httpd_register_uri_handler(http_state.server, &uri_ext_read);
-  httpd_register_uri_handler(http_state.server, &uri_ext_write);
+  http_reg(&uri_ext_read);
+  http_reg(&uri_ext_write);
   // v6.3.0: FEAT-026 Heartbeat (MUST register before GPIO wildcard to avoid /api/gpio/* catching it)
-  httpd_register_uri_handler(http_state.server, &uri_heartbeat_get);
-  httpd_register_uri_handler(http_state.server, &uri_heartbeat_post);
+  http_reg(&uri_heartbeat_get);
+  http_reg(&uri_heartbeat_post);
   // GPIO
-  httpd_register_uri_handler(http_state.server, &uri_gpio);
-  httpd_register_uri_handler(http_state.server, &uri_gpio_single);
-  httpd_register_uri_handler(http_state.server, &uri_gpio_write);
+  http_reg(&uri_gpio);
+  http_reg(&uri_gpio_single);
+  http_reg(&uri_gpio_write);
   // ST Logic (wildcard handles GET/POST/DELETE + suffix routing)
-  httpd_register_uri_handler(http_state.server, &uri_logic);
-  httpd_register_uri_handler(http_state.server, &uri_logic_single_get);
-  httpd_register_uri_handler(http_state.server, &uri_logic_single_post);
-  httpd_register_uri_handler(http_state.server, &uri_logic_single_delete);
+  http_reg(&uri_logic);
+  http_reg(&uri_logic_single_get);
+  http_reg(&uri_logic_single_post);
+  http_reg(&uri_logic_single_delete);
   // Debug
-  httpd_register_uri_handler(http_state.server, &uri_debug_get);
-  httpd_register_uri_handler(http_state.server, &uri_debug_set);
+  http_reg(&uri_debug_get);
+  http_reg(&uri_debug_set);
   // System
-  httpd_register_uri_handler(http_state.server, &uri_system_reboot);
-  httpd_register_uri_handler(http_state.server, &uri_system_save);
-  httpd_register_uri_handler(http_state.server, &uri_system_load);
-  httpd_register_uri_handler(http_state.server, &uri_system_defaults);
+  http_reg(&uri_system_reboot);
+  http_reg(&uri_system_save);
+  http_reg(&uri_system_load);
+  http_reg(&uri_system_defaults);
   // GAP-ANALYSE routes (v6.1.0+)
-  httpd_register_uri_handler(http_state.server, &uri_counter_delete);
-  httpd_register_uri_handler(http_state.server, &uri_timer_config_post);
-  httpd_register_uri_handler(http_state.server, &uri_timer_delete);
-  httpd_register_uri_handler(http_state.server, &uri_modbus_get);
-  httpd_register_uri_handler(http_state.server, &uri_modbus_post);
-  httpd_register_uri_handler(http_state.server, &uri_wifi_get);
-  httpd_register_uri_handler(http_state.server, &uri_wifi_post);
-  httpd_register_uri_handler(http_state.server, &uri_wifi_config_post);
-  httpd_register_uri_handler(http_state.server, &uri_ethernet_get);
-  httpd_register_uri_handler(http_state.server, &uri_ethernet_post);
-  httpd_register_uri_handler(http_state.server, &uri_http_config_post);
-  httpd_register_uri_handler(http_state.server, &uri_gpio_delete);
-  httpd_register_uri_handler(http_state.server, &uri_logic_settings_post);
-  httpd_register_uri_handler(http_state.server, &uri_modules_get);
-  httpd_register_uri_handler(http_state.server, &uri_modules_post);
+  http_reg(&uri_counter_delete);
+  http_reg(&uri_timer_config_post);
+  http_reg(&uri_timer_delete);
+  http_reg(&uri_modbus_get);
+  http_reg(&uri_modbus_post);
+  http_reg(&uri_wifi_get);
+  http_reg(&uri_wifi_post);
+  http_reg(&uri_wifi_config_post);
+  http_reg(&uri_ethernet_get);
+  http_reg(&uri_ethernet_post);
+  http_reg(&uri_http_config_post);
+  http_reg(&uri_gpio_delete);
+  http_reg(&uri_logic_settings_post);
+  http_reg(&uri_modules_get);
+  http_reg(&uri_modules_post);
   // RBAC user management
-  httpd_register_uri_handler(http_state.server, &uri_rbac_get);
-  httpd_register_uri_handler(http_state.server, &uri_rbac_post);
-  httpd_register_uri_handler(http_state.server, &uri_rbac_users_post);
-  httpd_register_uri_handler(http_state.server, &uri_rbac_user_delete);
-  httpd_register_uri_handler(http_state.server, &uri_acl_get);
-  httpd_register_uri_handler(http_state.server, &uri_acl_post);
-  httpd_register_uri_handler(http_state.server, &uri_acl_rules_post);
-  httpd_register_uri_handler(http_state.server, &uri_acl_rule_post);
-  httpd_register_uri_handler(http_state.server, &uri_acl_rule_delete);
-  httpd_register_uri_handler(http_state.server, &uri_acl_confirm);
+  http_reg(&uri_rbac_get);
+  http_reg(&uri_rbac_post);
+  http_reg(&uri_rbac_users_post);
+  http_reg(&uri_rbac_user_delete);
+  http_reg(&uri_acl_get);
+  http_reg(&uri_acl_post);
+  http_reg(&uri_acl_rules_post);
+  http_reg(&uri_acl_rule_post);
+  http_reg(&uri_acl_rule_delete);
+  http_reg(&uri_acl_confirm);
   // FEAT-409: Modbus Expansion Board
-  httpd_register_uri_handler(http_state.server, &uri_expansion_board_types_get);
-  httpd_register_uri_handler(http_state.server, &uri_expansion_boards_get);
-  httpd_register_uri_handler(http_state.server, &uri_expansion_boards_post);
-  httpd_register_uri_handler(http_state.server, &uri_expansion_board_put);
-  httpd_register_uri_handler(http_state.server, &uri_expansion_board_delete);
-  httpd_register_uri_handler(http_state.server, &uri_expansion_board_action_post);
-  httpd_register_uri_handler(http_state.server, &uri_expansion_action_status_get);
-  httpd_register_uri_handler(http_state.server, &uri_expansion_connections_get);
-  httpd_register_uri_handler(http_state.server, &uri_acl_draft_get);
-  httpd_register_uri_handler(http_state.server, &uri_acl_draft_begin);
-  httpd_register_uri_handler(http_state.server, &uri_acl_draft_delete);
-  httpd_register_uri_handler(http_state.server, &uri_acl_draft_post);
-  httpd_register_uri_handler(http_state.server, &uri_acl_draft_rules_post);
-  httpd_register_uri_handler(http_state.server, &uri_acl_draft_rule_post);
-  httpd_register_uri_handler(http_state.server, &uri_acl_draft_rule_delete);
-  httpd_register_uri_handler(http_state.server, &uri_acl_draft_apply);
+  http_reg(&uri_expansion_board_types_get);
+  http_reg(&uri_expansion_boards_get);
+  http_reg(&uri_expansion_boards_post);
+  http_reg(&uri_expansion_board_put);
+  http_reg(&uri_expansion_board_delete);
+  http_reg(&uri_expansion_board_action_post);
+  http_reg(&uri_expansion_action_status_get);
+  http_reg(&uri_expansion_connections_get);
+  http_reg(&uri_acl_draft_get);
+  http_reg(&uri_acl_draft_begin);
+  http_reg(&uri_acl_draft_delete);
+  http_reg(&uri_acl_draft_post);
+  http_reg(&uri_acl_draft_rules_post);
+  http_reg(&uri_acl_draft_rule_post);
+  http_reg(&uri_acl_draft_rule_delete);
+  http_reg(&uri_acl_draft_apply);
   // Backup/restore
-  httpd_register_uri_handler(http_state.server, &uri_system_backup);
-  httpd_register_uri_handler(http_state.server, &uri_system_restore);
+  http_reg(&uri_system_backup);
+  http_reg(&uri_system_restore);
   // v6.3.0: FEAT-019 Telnet config
-  httpd_register_uri_handler(http_state.server, &uri_telnet_get);
-  httpd_register_uri_handler(http_state.server, &uri_telnet_post);
+  http_reg(&uri_telnet_get);
+  http_reg(&uri_telnet_post);
   // v7.8.1: NTP API
-  httpd_register_uri_handler(http_state.server, &uri_ntp_get);
-  httpd_register_uri_handler(http_state.server, &uri_ntp_post);
+  http_reg(&uri_ntp_get);
+  http_reg(&uri_ntp_post);
   // v6.3.0: FEAT-024 Hostname
-  httpd_register_uri_handler(http_state.server, &uri_hostname_get);
-  httpd_register_uri_handler(http_state.server, &uri_hostname_post);
+  http_reg(&uri_hostname_get);
+  http_reg(&uri_hostname_post);
   // v6.3.0: FEAT-025 Watchdog
-  httpd_register_uri_handler(http_state.server, &uri_system_watchdog);
-  httpd_register_uri_handler(http_state.server, &uri_system_watchdog_post);  // FEAT-427
+  http_reg(&uri_system_watchdog);
+  http_reg(&uri_system_watchdog_post);  // FEAT-427
   // v6.3.0: FEAT-027 CORS preflight
-  httpd_register_uri_handler(http_state.server, &uri_cors_preflight_root);
-  httpd_register_uri_handler(http_state.server, &uri_cors_preflight);
+  http_reg(&uri_cors_preflight_root);
+  http_reg(&uri_cors_preflight);
   // v7.0.0: FEAT-023 SSE status (stream runs on dedicated SSE server port)
-  httpd_register_uri_handler(http_state.server, &uri_sse_status);
-  httpd_register_uri_handler(http_state.server, &uri_sse_clients);
-  httpd_register_uri_handler(http_state.server, &uri_sse_disconnect);
+  http_reg(&uri_sse_status);
+  http_reg(&uri_sse_clients);
+  http_reg(&uri_sse_disconnect);
   // v7.0.0: FEAT-030 API version endpoint
-  httpd_register_uri_handler(http_state.server, &uri_api_version);
+  http_reg(&uri_api_version);
   // v7.0.4: FEAT-032 Prometheus metrics
-  httpd_register_uri_handler(http_state.server, &uri_metrics);
-  httpd_register_uri_handler(http_state.server, &uri_metrics_public);
+  http_reg(&uri_metrics);
+  http_reg(&uri_metrics_public);
   // v7.8.0: FEAT-085 Alarm history API
-  httpd_register_uri_handler(http_state.server, &uri_alarms_get);
-  httpd_register_uri_handler(http_state.server, &uri_alarms_ack);
+  http_reg(&uri_alarms_get);
+  http_reg(&uri_alarms_ack);
   // v7.0.4: FEAT-022 Persistence group API
-  httpd_register_uri_handler(http_state.server, &uri_persist_groups_list);
-  httpd_register_uri_handler(http_state.server, &uri_persist_group_get);
-  httpd_register_uri_handler(http_state.server, &uri_persist_group_post);
-  httpd_register_uri_handler(http_state.server, &uri_persist_group_delete);
-  httpd_register_uri_handler(http_state.server, &uri_persist_save);
-  httpd_register_uri_handler(http_state.server, &uri_persist_restore);
-  httpd_register_uri_handler(http_state.server, &uri_persist_config);
+  http_reg(&uri_persist_groups_list);
+  http_reg(&uri_persist_group_get);
+  http_reg(&uri_persist_group_post);
+  http_reg(&uri_persist_group_delete);
+  http_reg(&uri_persist_save);
+  http_reg(&uri_persist_restore);
+  http_reg(&uri_persist_config);
   // FEAT-108: Dashboard layout
-  httpd_register_uri_handler(http_state.server, &uri_dashboard_layout_get);
-  httpd_register_uri_handler(http_state.server, &uri_dashboard_layout_post);
-  httpd_register_uri_handler(http_state.server, &uri_public_dashboard_cards_get);
-  httpd_register_uri_handler(http_state.server, &uri_public_dashboard_cards_post);
-  httpd_register_uri_handler(http_state.server, &uri_public_dashboard_extras_get);
-  httpd_register_uri_handler(http_state.server, &uri_public_dashboard_trend_get);
+  http_reg(&uri_dashboard_layout_get);
+  http_reg(&uri_dashboard_layout_post);
+  http_reg(&uri_public_dashboard_cards_get);
+  http_reg(&uri_public_dashboard_cards_post);
+  http_reg(&uri_public_dashboard_extras_get);
+  http_reg(&uri_public_dashboard_trend_get);
   // v7.0.0: FEAT-030 /api/v1/* dispatchers
-  httpd_register_uri_handler(http_state.server, &uri_v1_get);
-  httpd_register_uri_handler(http_state.server, &uri_v1_post);
-  httpd_register_uri_handler(http_state.server, &uri_v1_delete);
+  http_reg(&uri_v1_get);
+  http_reg(&uri_v1_post);
+  http_reg(&uri_v1_delete);
+  http_reg(&uri_v1_put);
   // v7.2.3: Web-based ST Logic editor (served outside /api/ namespace)
   // v7.3.1: Web CLI + Bindings
-  httpd_register_uri_handler(http_state.server, &uri_user_me);
+  http_reg(&uri_user_me);
   // BUG-353: REST API auth-modernisering fase 2 — session-tokens
-  httpd_register_uri_handler(http_state.server, &uri_login);
-  httpd_register_uri_handler(http_state.server, &uri_logout);
-  httpd_register_uri_handler(http_state.server, &uri_session_renew);  // BUG-427
-  httpd_register_uri_handler(http_state.server, &uri_cli_exec);
-  httpd_register_uri_handler(http_state.server, &uri_bindings_list);
-  httpd_register_uri_handler(http_state.server, &uri_bindings_delete);
+  http_reg(&uri_login);
+  http_reg(&uri_logout);
+  http_reg(&uri_session_renew);  // BUG-427
+  http_reg(&uri_cli_exec);
+  http_reg(&uri_bindings_list);
+  http_reg(&uri_bindings_delete);
 
-  httpd_register_uri_handler(http_state.server, &uri_editor);
-  httpd_register_uri_handler(http_state.server, &uri_dashboard);
-  httpd_register_uri_handler(http_state.server, &uri_status_page);
-  httpd_register_uri_handler(http_state.server, &uri_system);
+  http_reg(&uri_editor);
+  http_reg(&uri_dashboard);
+  http_reg(&uri_status_page);
+  http_reg(&uri_system);
   // v7.5.0: FEAT-031 OTA firmware update (register specific paths BEFORE wildcards)
-  httpd_register_uri_handler(http_state.server, &uri_ota_status);
-  httpd_register_uri_handler(http_state.server, &uri_ota_rollback);
-  httpd_register_uri_handler(http_state.server, &uri_ota_upload);
-  httpd_register_uri_handler(http_state.server, &uri_ota_page);
-  httpd_register_uri_handler(http_state.server, &uri_cli_page);
-  httpd_register_uri_handler(http_state.server, &uri_logs_page);
-  httpd_register_uri_handler(http_state.server, &uri_io_page);
+  http_reg(&uri_ota_status);
+  http_reg(&uri_ota_rollback);
+  http_reg(&uri_ota_upload);
+  http_reg(&uri_ota_page);
+  http_reg(&uri_cli_page);
+  http_reg(&uri_logs_page);
+  http_reg(&uri_io_page);
 
   http_state.running = 1;
   ESP_LOGI(TAG, "%s server started on port %d", config->tls_enabled ? "HTTPS" : "HTTP", http_state.active_port);
