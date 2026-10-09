@@ -89,6 +89,8 @@ esp_err_t api_handler_coil_write(httpd_req_t *req);
  * Read discrete input
  */
 esp_err_t api_handler_di_read(httpd_req_t *req);
+esp_err_t api_handler_ext_get(httpd_req_t *req);   // FEAT-486
+esp_err_t api_handler_ext_post(httpd_req_t *req);  // FEAT-486
 
 /**
  * GET /api/logic

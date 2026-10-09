@@ -20,6 +20,7 @@
 #include <mbedtls/base64.h>
 
 #include "api_handlers.h"
+#include "api_ext_registers.h"  // FEAT-486
 #include "http_server.h"
 #include "constants.h"
 #include <math.h>  // FEAT-034/035/036: lroundf() for analog setpoint
@@ -992,6 +993,10 @@ static const api_route_info_t API_ROUTES[] = {
   {"GET",    "/api/public-dashboard/extras",        "FEAT-435: auth-free watchdog/expansion status for the public status page (only selected cards)"},
   {"GET",    "/api/public-dashboard/trend",         "FEAT-441: auth-free trend data (newest 240 samples) when the Trend Recorder card is public"},
   {"GET",    "/api/modbus/external",                "FEAT-446: snapshot of the RTU master + expansion caches (external registers ST reads/writes)"},
+  {"GET",    "/api/ext/rtu/{slave}/{hr|ir|coils|di}/{addr}", "FEAT-486: read external RS485 slave register (?count=&type=&wait=&max_age=)"},
+  {"POST",   "/api/ext/rtu/{slave}/{hr|coils}/{addr}",       "FEAT-486: write external RS485 slave register ({value,type} or {values}; ?wait=)"},
+  {"GET",    "/api/ext/mbx/{board}/{ch}/{slave}/{type}/{addr}", "FEAT-486: read expansion board register (?count=&type=&wait=&max_age=)"},
+  {"POST",   "/api/ext/mbx/{board}/{ch}/{slave}/{hr|coils}/{addr}", "FEAT-486: write expansion board register (?wait=)"},
   {"POST",   "/api/system/ota",                    "Upload firmware (OTA, FEAT-031)"},
   {"GET",    "/api/system/ota/status",              "OTA progress status (FEAT-031)"},
   {"POST",   "/api/system/ota/rollback",           "Rollback firmware (FEAT-031)"},
@@ -8991,6 +8996,26 @@ esp_err_t api_handler_modbus_external_get(httpd_req_t *req)
 }
 
 /* ============================================================================
+ * FEAT-486: /api/ext/... — eksterne registre på samme vilkår som de interne
+ * (logikken ligger i api_ext_registers.cpp; auth-makroerne lever her)
+ * ============================================================================ */
+esp_err_t api_handler_ext_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+  return api_ext_registers_get(req);
+}
+
+esp_err_t api_handler_ext_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+  char ip[16], user[24];
+  http_get_client_info(req, ip, sizeof(ip), user, sizeof(user));
+  return api_ext_registers_post(req, user, ip);
+}
+
+/* ============================================================================
  * FEAT-025: GET /api/system/watchdog
  * ============================================================================ */
 
@@ -11853,6 +11878,8 @@ static const V1Route v1_routes[] = {
   {"/api/registers/coils/", false, HTTP_GET,    api_handler_coil_read},
   {"/api/registers/coils/", false, HTTP_POST,   api_handler_coil_write},
   {"/api/registers/di/",    false, HTTP_GET,    api_handler_di_read},
+  {"/api/ext/",             false, HTTP_GET,    api_handler_ext_get},   // FEAT-486
+  {"/api/ext/",             false, HTTP_POST,   api_handler_ext_post},
   {"/api/gpio/",            false, HTTP_GET,    api_handler_gpio_single},
   {"/api/gpio/",            false, HTTP_POST,   api_handler_gpio_write},
   {"/api/gpio/",            false, HTTP_DELETE,  api_handler_gpio_config_delete},

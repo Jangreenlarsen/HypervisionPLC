@@ -73,6 +73,7 @@ Fuld liste med metode, auth-krav og beskrivelse: [**Appendiks B: REST API-refere
 | Registre & Coils | `/api/registers`, `/api/coils`, `/api/gpio/{pin}` | Direkte læs/skriv-adgang til register-lageret |
 | Modbus Slave/Master | `/api/modbus/slave`, `/api/modbus/master`, `/api/modbus/master/rw` | Konfiguration + manuel Master-adgang |
 | Modbus Aktivitetslog | `/api/modbus/activity` | Wire-level trafiklog (se [§4.2](04_Web_Dashboard_og_Monitor.md)) |
+| Eksterne registre | `/api/ext/rtu/{slave}/hr/{addr}`, `/api/ext/mbx/{board}/{kanal}/{slave}/coils/{addr}` | Læs/skriv registre på RS485-slaver og expansion boards med samme form som de interne (FEAT-486, se §7.7) |
 | Modbus Expansion Board | `/api/expansion/boards`, `/api/expansion/boards/{id}/channels/{n}/read` | CRUD + diagnostisk læs/skriv mod eksterne expansion-boards (se [§6.7](06_Modbus_Interface.md#67-modbus-expansion-boards-feat-409)) |
 | ST Logic | `/api/logic`, `/api/logic/{id}/source`, `/api/logic/{id}/debug` | Programmer, kildekode, debugger, bindings |
 | Tællere/Timere | `/api/counters`, `/api/timers` | Status og styring |
@@ -109,7 +110,48 @@ curl -u admin:modbus123 -X POST http://192.168.1.100/api/modbus/master/rw \
 
 Læsninger er **asynkrone** — svaret kommer enten fra cachen med det samme (`"status":"ok","source":"cache"`), eller som `"status":"pending"` hvis værdien først skal hentes fra bussen; poll samme endpoint igen for at hente resultatet. Se [kapitel 6](06_Modbus_Interface.md#65-modbus-master--konfiguration) for baggrund om cache/kø-mekanismen.
 
-## 7.7 Node-RED / SCADA-integration
+## 7.7 Eksterne registre (RS485-slaver og expansion boards) — FEAT-486
+
+SCADA og andre systemer kan læse og skrive registre på enhederne bag PLC'en med samme slags URL'er som de interne registre:
+
+| Kilde | URL |
+|---|---|
+| Slave på PLC'ens egen RS485-bus (Modbus Master skal være aktiveret) | `/api/ext/rtu/{slave}/{type}/{addr}` |
+| Slave bag et expansion board | `/api/ext/mbx/{board}/{kanal}/{slave}/{type}/{addr}` |
+
+`{type}` er `hr`, `ir`, `coils` eller `di`; `{kanal}` er `A`-`H` eller `1`-`8`; adresser 0-65535.
+
+**Læsning (GET)** — query-parametre, alle valgfrie:
+
+| Parameter | Betydning |
+|---|---|
+| `count=N` | Antal værdier (højst 16 registre pr. kald) |
+| `type=uint\|int\|dint\|dword\|real` | Fortolkning af HR/IR; 32-bit-typer bruger 2 registre (high word først, som de interne) |
+| `wait=ms` | Vent op til `ms` (max 2000) på et friskt svar fra bussen |
+| `max_age=ms` | Hvor gammel en cache-værdi må være, før den hentes igen (standard 1000) |
+
+```bash
+curl -u admin:… "http://10.1.1.30/api/ext/mbx/1/D/1/coils/0?count=4&wait=500"
+# {"src":"mbx","board":1,"channel":"D","slave":1,"type":"coils","address":0,"format":"bool",
+#  "value":true,"status":"ok","age_ms":12,"count":4,"values":[true,false,false,true],
+#  "states":["ok","ok","ok","ok"],"ages_ms":[12,12,12,12]}
+```
+
+Læsninger går gennem **samme kø og cache som ST Logic** — PLC'ens webserver taler aldrig selv med bussen. Uden `wait` får du den seneste kendte værdi med det samme, og kaldet sætter en opfriskning i kø; første læsning af en ny adresse giver derfor `"value":null,"status":"pending"`. En SCADA, der poller fast, har værdien fra 2. kald. Med `wait` venter kaldet på svaret, men webserveren er optaget imens — brug korte ventetider. `status` er `ok`, `pending` eller `error`.
+
+**Skrivning (POST)** — kun `hr` og `coils`, kræver skriverettighed og logges i hændelsesloggen:
+
+```bash
+curl -u admin:… -X POST "http://10.1.1.30/api/ext/rtu/90/hr/10?wait=500" -d '{"value":1234}'
+curl -u admin:… -X POST "http://10.1.1.30/api/ext/rtu/90/hr/20" -d '{"value":21.5,"type":"real"}'
+curl -u admin:… -X POST "http://10.1.1.30/api/ext/mbx/1/D/1/coils/0" -d '{"values":[true,false,true,false]}'
+```
+
+`{"value":…}` skriver ét register/én coil (FC06/FC05; `dint`/`dword`/`real` = 2 registre med FC16); `{"values":[…]}` skriver op til 16 (FC16/FC15). Svaret har `"result":"queued"`, eller med `wait` slavens resultat `ok`/`error`/`timeout` (HTTP 502 ved fejl). Flere-register-skrivninger til et expansion board kan ikke bekræftes og svarer altid `queued`.
+
+**Begrænsninger:** cachen deles med ST Logic (32 poster for RS485, 48 for expansion boards). Overvåger SCADA mange flere registre end det, skubber de hinanden og ST's værdier ud af cachen, og hver læsning bliver til bustrafik. Hold antallet af eksterne adresser nede, eller læs sammenhængende holding registers med `count` (ét FC03-kald).
+
+## 7.8 Node-RED / SCADA-integration
 
 Se [`../../archive/docs/API_HELLO_WORLD_GUIDE.md`](../../archive/docs/API_HELLO_WORLD_GUIDE.md) for en trin-for-trin-gennemgang med et komplet eksempel (ST-program + GPIO + REST-kald), og [`../../archive/docs/SSE_USER_GUIDE.md`](../../archive/docs/SSE_USER_GUIDE.md) for real-time push-integration i stedet for polling.
 

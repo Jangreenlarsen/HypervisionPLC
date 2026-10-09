@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.123] - 2026-10-09
+
+### NEW FEATURES
+- **FEAT-486:** REST-adgang til eksterne Modbus-registre på samme vilkår som de interne, fx til SCADA: `GET/POST /api/ext/rtu/{slave}/{hr|ir|coils|di}/{addr}` for slaver på PLC'ens RS485-bus og `/api/ext/mbx/{board}/{kanal}/{slave}/{type}/{addr}` for slaver bag et expansion board. Læsning understøtter `count` (op til 16), `type` (uint/int/dint/dword/real), `wait` (vent på frisk svar, max 2 s) og `max_age`. Skrivning (`hr`/`coils`) kræver skriverettighed, logges i hændelsesloggen og kan vente på slavens svar med `wait`. Alt går gennem samme kø og cache som ST Logic. Manual §7.7 og appendiks B. Ikke OTA'et endnu (72 t soak på v7.9.68.121).
+
 ## [7.9.68.122] - 2026-10-07
 
 ### IMPROVEMENTS

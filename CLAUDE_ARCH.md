@@ -62,6 +62,7 @@ Each layer has **ONE responsibility**. No circular dependencies.
 |------|---------|
 | `http_server.cpp/h` | HTTP server init, URI registrering, TLS (optional) |
 | `api_handlers.cpp/h` | Alle REST API handlers (72+ endpoints) |
+| `api_ext_registers.cpp/h` | FEAT-486: `/api/ext/rtu/...` + `/api/ext/mbx/...` — eksterne Modbus-registre via kø/cache (auth i api_handlers.cpp) |
 
 **Key Principle:** API handlers kalder direkte ned i Layer 4-5 (registers, engines). Kører i separat FreeRTOS task, blokerer ikke Modbus.
 

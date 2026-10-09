@@ -80,6 +80,8 @@ extern esp_err_t api_handler_ir_read(httpd_req_t *req);
 extern esp_err_t api_handler_coil_read(httpd_req_t *req);
 extern esp_err_t api_handler_coil_write(httpd_req_t *req);
 extern esp_err_t api_handler_di_read(httpd_req_t *req);
+extern esp_err_t api_handler_ext_get(httpd_req_t *req);   // FEAT-486
+extern esp_err_t api_handler_ext_post(httpd_req_t *req);  // FEAT-486
 extern esp_err_t api_handler_gpio(httpd_req_t *req);
 extern esp_err_t api_handler_gpio_single(httpd_req_t *req);
 extern esp_err_t api_handler_gpio_write(httpd_req_t *req);
@@ -338,6 +340,21 @@ static const httpd_uri_t uri_di_read = {
   .uri      = "/api/registers/di/*",
   .method   = HTTP_GET,
   .handler  = api_handler_di_read,
+  .user_ctx = NULL
+};
+
+// FEAT-486: eksterne Modbus-registre (RS485-slaver + expansion boards)
+static const httpd_uri_t uri_ext_read = {
+  .uri      = "/api/ext/*",
+  .method   = HTTP_GET,
+  .handler  = api_handler_ext_get,
+  .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_ext_write = {
+  .uri      = "/api/ext/*",
+  .method   = HTTP_POST,
+  .handler  = api_handler_ext_post,
   .user_ctx = NULL
 };
 
@@ -1465,6 +1482,9 @@ int http_server_start(const HttpConfig *config)
   httpd_register_uri_handler(http_state.server, &uri_coil_read);
   httpd_register_uri_handler(http_state.server, &uri_coil_write);
   httpd_register_uri_handler(http_state.server, &uri_di_read);
+  // FEAT-486: eksterne registre
+  httpd_register_uri_handler(http_state.server, &uri_ext_read);
+  httpd_register_uri_handler(http_state.server, &uri_ext_write);
   // v6.3.0: FEAT-026 Heartbeat (MUST register before GPIO wildcard to avoid /api/gpio/* catching it)
   httpd_register_uri_handler(http_state.server, &uri_heartbeat_get);
   httpd_register_uri_handler(http_state.server, &uri_heartbeat_post);
