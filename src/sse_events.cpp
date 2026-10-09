@@ -1031,6 +1031,13 @@ static void sse_accept_task(void *arg)
     // BUG-483: registrér FØR headers sendes — ellers fik en klient, der ikke
     // var plads til, "200 OK" + SSE-headers efterfulgt af en rå 503-linje
     int slot = sse_registry_add(client_fd, client_addr.sin_addr.s_addr, sse_username, topics);
+    // BUG-487: slottets worker skal findes FØR headers sendes (ellers "200 OK"
+    // efterfulgt af en lukket forbindelse uden events)
+    if (slot >= 0 && !sse_slot_ensure(slot)) {
+      ESP_LOGE(TAG, "Ingen SSE-worker til slot %d (lav/fragmenteret heap)", slot);
+      sse_registry_remove(slot);
+      slot = -1;
+    }
     if (slot < 0) {
       const char *resp = "HTTP/1.1 503 Service Unavailable\r\n"
         "Content-Type: application/json\r\n"
@@ -1301,7 +1308,10 @@ int sse_start(uint16_t port)
   // BUG-456: de to første klient-workers oprettes ved opstart, mens den
   // interne heap har store sammenhængende blokke — senere kan en 6 KB-stak
   // ikke længere allokeres (fragmentering). Slot 2 oprettes ved behov.
-  for (int w = 0; w < 2 && w < (int)sse_cfg_max_clients() && w < SSE_MAX_CLIENTS; w++) {
+  // BUG-487: ALLE slots (op til max_clients) oprettes nu ved opstart — slot 2
+  // "ved behov" fejlede i praksis altid efter nogle timers drift (største frie
+  // interne blok ~2-7 KB < 4,6 KB stak), så det reelle loft var 2 klienter.
+  for (int w = 0; w < (int)sse_cfg_max_clients() && w < SSE_MAX_CLIENTS; w++) {
     if (!sse_slot_ensure(w)) ESP_LOGE(TAG, "Kunne ikke oprette SSE-worker %d", w);
   }
   BaseType_t ret = xTaskCreatePinnedToCore(sse_accept_task, "sse_accept", 4096, NULL, 4, &sse_accept_task_handle, 0);

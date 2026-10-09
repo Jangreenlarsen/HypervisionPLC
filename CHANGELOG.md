@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.125] - 2026-10-09
+
+### BUG FIXES
+- **BUG-487:** I praksis kunne kun 2 SSE-klienter være forbundet ad gangen. Worker til slot 3 blev først oprettet, når den skulle bruges, og det fejlede efter nogle timers drift, fordi der ikke længere var en sammenhængende blok på 4,6 KB. Klienten fik "200 OK" og blev derefter lukket uden hændelser. Nu oprettes alle 3 workers ved opstart, og hvis en alligevel mangler, får klienten et rent 503, før der sendes headers.
+
 ## [7.9.68.124] - 2026-10-09
 
 ### BUG FIXES
