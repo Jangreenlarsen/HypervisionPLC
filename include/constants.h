@@ -607,8 +607,10 @@ typedef enum {
 #define WIFI_PASSWORD_MAX_LEN           64          // Max password length (WPA2)
 #define WIFI_SCAN_TIMEOUT_MS            10000       // Wi-Fi scan timeout
 #define WIFI_CONNECT_TIMEOUT_MS         15000       // Connection timeout
-#define WIFI_RECONNECT_INTERVAL_MS      5000        // Retry interval on disconnect
-#define WIFI_RECONNECT_MAX_RETRIES      10          // Max reconnection attempts
+#define WIFI_RECONNECT_INTERVAL_MS      5000        // Første retry-interval efter disconnect (fordobles pr. forsøg)
+#define WIFI_RECONNECT_MAX_INTERVAL_MS  60000       // BUG-490: loft for backoff — der prøves igen FOR ALTID (var max 10 forsøg)
+#define WIFI_DHCP_TIMEOUT_MS            30000       // BUG-490: tilknyttet AP men ingen DHCP-lease efter 30 s -> forbind igen
+#define WIFI_CONNECTING_TIMEOUT_MS      30000       // BUG-490: hængt i CONNECTING uden event -> forbind igen
 
 #define TELNET_PORT                     23          // Telnet standard port
 #define TELNET_MAX_CLIENTS              1           // Single client for simplicity
@@ -712,7 +714,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.68.126"
+#define PROJECT_VERSION     "7.9.68.127"
 #define PROJECT_LICENSE     "AGPL-3.0-or-later"
 #define PROJECT_SOURCE_URL  "https://github.com/Jangreenlarsen/HypervisionPLC"   // FEAT-433: AGPL §13 kildekode-tilbud
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)

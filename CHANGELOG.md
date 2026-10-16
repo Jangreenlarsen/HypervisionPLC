@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.127] - 2026-10-16
+
+### BUG FIXES
+- **BUG-490:** PLC'en kom ikke på netværket, hvis DHCP ikke kunne give en IP-adresse ved opstart. Wi-Fi-driveren gav op efter 10 forsøg (ca. 50 s), så en PLC, der startede før routeren, blev aldrig forbundet. En tilknytning til access pointet uden DHCP-lease blev heller aldrig genforsøgt, fordi forsøgstælleren blev nulstillet allerede ved tilknytningen. Nu:
+  - PLC'en prøver igen for altid med stigende ventetid (5, 10, 20 og 40 s, derefter 60 s).
+  - Den forbinder igen, hvis der ikke er kommet en DHCP-lease efter 30 s, eller hvis leasen mistes.
+  - Den forbinder igen, hvis den hænger i "connecting" i 30 s.
+  - Den prøver også igen, hvis det første forbindelsesforsøg fejler.
+  - Efter `disconnect wifi` forbinder den ikke længere selv igen.
+
 ## [7.9.68.126] - 2026-10-09
 
 ### BUG FIXES

@@ -55,6 +55,8 @@ show ethernet         (detaljeret Ethernet-status, link-status)
 
 Dashboardets **Netværk**-kort ([§4.2](04_Web_Dashboard_og_Monitor.md)) viser samme information visuelt, inkl. antal Wi-Fi-genforbindelser — en stigende tæller her indikerer et ustabilt trådløst signal.
 
+**Automatisk genforbindelse (BUG-490, v7.9.68.127):** mister PLC'en Wi-Fi, eller er netværket ikke klar ved opstart (fx når routeren starter langsommere end PLC'en efter et strømsvigt), prøver den igen **uden at give op** — efter 5, 10, 20 og 40 sekunder og derefter hvert minut. Er PLC'en tilknyttet access pointet, men får ingen IP-adresse fra DHCP inden for 30 sekunder, afbryder den selv og forbinder igen, så DHCP startes forfra. Det gælder også, hvis en lease mistes under drift. Efter `disconnect wifi` forbinder den ikke selv igen, før man giver `connect wifi`. (Før v7.9.68.127 gav PLC'en op efter 10 forsøg, ca. 50 sekunder, og en tilknytning uden DHCP-lease blev aldrig genforsøgt.)
+
 ## 12.5 Konfiguration via web-GUI (FEAT-166)
 
 ![System-siden — WiFi/Ethernet/Telnet-konfiguration](assets/screenshots/system_network.png)

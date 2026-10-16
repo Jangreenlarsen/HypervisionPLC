@@ -56,8 +56,10 @@ typedef struct {
   char password[WIFI_PASSWORD_MAX_LEN];
   int8_t rssi;
   uint32_t connect_time_ms;
-  uint32_t reconnect_retries;
+  uint32_t reconnect_retries;          // BUG-490: fortløbende forsøg siden sidste IP (nulstilles ved GOT_IP)
   uint32_t last_reconnect_attempt_ms;
+  uint32_t state_since_ms;             // BUG-490: hvornår CONNECTING/CONNECTED-uden-IP startede
+  uint8_t auto_reconnect;              // BUG-490: 0 efter bruger-disconnect (ellers forbinder eventet igen)
 
   // Static IP config
   uint32_t static_ip;
@@ -83,6 +85,8 @@ static WifiDriverState wifi_state = {
   .connect_time_ms = 0,
   .reconnect_retries = 0,
   .last_reconnect_attempt_ms = 0,
+  .state_since_ms = 0,
+  .auto_reconnect = 0,
   .static_ip = 0,
   .static_gateway = 0,
   .static_netmask = 0,
@@ -91,6 +95,14 @@ static WifiDriverState wifi_state = {
   .scan_index = 0,
   .scan_result_count = 0
 };
+
+// BUG-490: ventetid foer naeste forsoeg — 5 s, 10 s, 20 s, 40 s, derefter 60 s
+static uint32_t wifi_reconnect_interval_ms(void)
+{
+  uint32_t ms = WIFI_RECONNECT_INTERVAL_MS;
+  for (uint32_t i = 1; i < wifi_state.reconnect_retries && ms < WIFI_RECONNECT_MAX_INTERVAL_MS; i++) ms *= 2;
+  return ms > WIFI_RECONNECT_MAX_INTERVAL_MS ? WIFI_RECONNECT_MAX_INTERVAL_MS : ms;
+}
 
 /* ============================================================================
  * EVENT HANDLERS (Wi-Fi events)
@@ -109,7 +121,9 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
       case WIFI_EVENT_STA_CONNECTED:
         ESP_LOGI(TAG, "Wi-Fi connected to AP");
         wifi_state.state = WIFI_STATE_CONNECTED;
-        wifi_state.reconnect_retries = 0;
+        // BUG-490: retries nulstilles foerst ved GOT_IP — en tilknytning uden
+        // DHCP-lease er ikke en succes. DHCP-vagten i loop() maaler herfra.
+        wifi_state.state_since_ms = millis();
 
         // Apply static IP if configured (must happen before DHCP assigns an address)
         if (wifi_state.use_static_ip) {
@@ -124,13 +138,16 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         wifi_state.state = WIFI_STATE_DISCONNECTED;
         wifi_state.local_ip = 0;
 
-        // Auto-reconnect if enabled
-        if (wifi_state.reconnect_retries < WIFI_RECONNECT_MAX_RETRIES) {
+        // BUG-490: forsøg igen for altid (med backoff i loop()) — tidligere gav
+        // driveren op efter 10 forsøg, saa en PLC der bootede foer routeren
+        // aldrig kom paa nettet. Undtagen efter en bruger-disconnect.
+        if (wifi_state.auto_reconnect) {
           wifi_state.reconnect_retries++;
           wifi_state.last_reconnect_attempt_ms = millis();
-          ESP_LOGI(TAG, "Reconnect attempt %lu/%d in %dms",
-                   wifi_state.reconnect_retries, WIFI_RECONNECT_MAX_RETRIES,
-                   WIFI_RECONNECT_INTERVAL_MS);
+          ESP_LOGI(TAG, "Reconnect attempt %lu om %lu ms", (unsigned long)wifi_state.reconnect_retries,
+                   (unsigned long)wifi_reconnect_interval_ms());
+        } else {
+          wifi_state.state = WIFI_STATE_IDLE;
         }
         break;
       }
@@ -163,12 +180,14 @@ static void ip_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Netmask: " IPSTR, IP2STR(&event->ip_info.netmask));
 
         wifi_state.connect_time_ms = millis();
+        wifi_state.reconnect_retries = 0;  // BUG-490: foerst nu er forbindelsen en succes
         break;
       }
 
       case IP_EVENT_STA_LOST_IP:
         ESP_LOGW(TAG, "Lost IP address");
         wifi_state.local_ip = 0;
+        wifi_state.state_since_ms = millis();  // BUG-490: DHCP-vagten forbinder igen, hvis lease ikke kommer
         break;
 
       default:
@@ -300,14 +319,20 @@ int wifi_driver_connect(const char *ssid, const char *password)
   }
 
   // Connect
+  wifi_state.auto_reconnect = 1;  // BUG-490
+  wifi_state.reconnect_retries = 0;
   err = esp_wifi_connect();
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to connect to Wi-Fi: %s", esp_err_to_name(err));
+    // BUG-490: lad auto-reconnect i loop() prøve igen i stedet for at give op
+    ESP_LOGE(TAG, "Failed to connect to Wi-Fi: %s (prøver igen)", esp_err_to_name(err));
+    wifi_state.state = WIFI_STATE_DISCONNECTED;
+    wifi_state.reconnect_retries = 1;
+    wifi_state.last_reconnect_attempt_ms = millis();
     return -1;
   }
 
   wifi_state.state = WIFI_STATE_CONNECTING;
-  wifi_state.reconnect_retries = 0;
+  wifi_state.state_since_ms = millis();
   ESP_LOGI(TAG, "Connecting to SSID: %s", ssid);
 
   return 0;
@@ -315,6 +340,7 @@ int wifi_driver_connect(const char *ssid, const char *password)
 
 int wifi_driver_disconnect(void)
 {
+  wifi_state.auto_reconnect = 0;  // BUG-490: DISCONNECTED-eventet maa ikke forbinde igen
   esp_err_t err = esp_wifi_disconnect();
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to disconnect: %s", esp_err_to_name(err));
@@ -724,17 +750,36 @@ uint32_t wifi_driver_resolve_hostname(const char *hostname)
 
 int wifi_driver_loop(void)
 {
-  // Auto-reconnect logic
-  if (wifi_state.state == WIFI_STATE_DISCONNECTED &&
-      wifi_state.reconnect_retries < WIFI_RECONNECT_MAX_RETRIES &&
-      (millis() - wifi_state.last_reconnect_attempt_ms) > WIFI_RECONNECT_INTERVAL_MS) {
+  if (!wifi_state.auto_reconnect || strlen(wifi_state.ssid) == 0) return 0;
+  const uint32_t now = millis();
 
-    if (strlen(wifi_state.ssid) > 0) {
-      ESP_LOGI(TAG, "Auto-reconnect attempt %lu", wifi_state.reconnect_retries + 1);
-      esp_wifi_connect();
-      wifi_state.state = WIFI_STATE_CONNECTING;
-      wifi_state.last_reconnect_attempt_ms = millis();
-    }
+  // BUG-490: DHCP-vagt — tilknyttet AP'et, men ingen lease (DHCP-serveren
+  // var ikke klar ved boot, eller lease tabt). Afbryd, saa forbindelsen
+  // genetableres og DHCP startes forfra. Ikke ved statisk IP.
+  if (wifi_state.state == WIFI_STATE_CONNECTED && wifi_state.local_ip == 0 && !wifi_state.use_static_ip &&
+      (now - wifi_state.state_since_ms) > WIFI_DHCP_TIMEOUT_MS) {
+    ESP_LOGW(TAG, "Ingen DHCP-lease efter %lu s — forbinder igen", (unsigned long)(WIFI_DHCP_TIMEOUT_MS / 1000));
+    wifi_state.state_since_ms = now;
+    esp_wifi_disconnect();  // -> WIFI_EVENT_STA_DISCONNECTED -> retry med backoff
+    return 0;
+  }
+
+  // BUG-490: hængt i CONNECTING uden noget event
+  if (wifi_state.state == WIFI_STATE_CONNECTING && (now - wifi_state.state_since_ms) > WIFI_CONNECTING_TIMEOUT_MS) {
+    ESP_LOGW(TAG, "Intet svar fra AP efter %lu s — forbinder igen", (unsigned long)(WIFI_CONNECTING_TIMEOUT_MS / 1000));
+    wifi_state.state = WIFI_STATE_DISCONNECTED;
+    wifi_state.reconnect_retries++;
+    wifi_state.last_reconnect_attempt_ms = now;
+  }
+
+  // Auto-reconnect — for altid, med backoff (BUG-490: var max 10 forsoeg)
+  if (wifi_state.state == WIFI_STATE_DISCONNECTED &&
+      (now - wifi_state.last_reconnect_attempt_ms) > wifi_reconnect_interval_ms()) {
+    ESP_LOGI(TAG, "Auto-reconnect attempt %lu", (unsigned long)wifi_state.reconnect_retries);
+    wifi_state.state = WIFI_STATE_CONNECTING;
+    wifi_state.state_since_ms = now;
+    wifi_state.last_reconnect_attempt_ms = now;
+    esp_wifi_connect();
   }
 
   return 0;
