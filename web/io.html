@@ -840,7 +840,11 @@ function loadExpBoards(){
         '<button class="btn btn-sm btn-primary" onclick="expEditOpen('+b.id+')" title="Opsætning (navn/IP/token, kanaler, hostname, PLC-IP, syslog) og vedligehold (firmware, genskab)">Redigér</button> '+
         '<button class="btn btn-sm btn-danger" onclick="deleteExpBoard('+b.id+',\''+nameEsc+'\')">Slet</button></td></tr>';
     }).join('');
-    if(!_expFwBusy)loadExpFwStatuses(d.boards.map(b=>b.id));
+    // BUG-492: kun boards der IKKE allerede er fw-tjekket — ellers gen-probede
+    // FEAT-485's 80 s hw-retry-løkke et offline board hvert 4. s, og holdt
+    // expansion-workeren optaget (~3 s connect-timeout) næsten konstant, så
+    // "Kør"-testens egen 10 s-genforsøg (BUG-491) ofte ikke fandt en ledig stund.
+    if(!_expFwBusy){const unprobed=d.boards.map(b=>b.id).filter(id=>!(id in _expFw));if(unprobed.length)loadExpFwStatuses(unprobed);}
     // FEAT-485: PLC'en spoerger boardene i baggrunden — hent igen, til alle har meldt hardware/kanaltal
     clearTimeout(_expHwRetry);
     if(d.boards.some(b=>!b.channels)&&_expHwTries++<20)_expHwRetry=setTimeout(loadExpBoards,4000);

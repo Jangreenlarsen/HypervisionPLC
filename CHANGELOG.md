@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.129] - 2026-10-19
+
+### BUG FIXES
+- **BUG-492:** Opfølgning på BUG-491 — "Test funktions-register" kunne stadig fejle på "optaget", hvis et af de konfigurerede expansion boards var offline. FEAT-485's automatiske kanaltal-genhentning (op til 80 s efter sideindlæsning, hvert 4. s) gentjekkede firmware-status for ALLE boards ved hvert forsøg, også et board der allerede var kendt offline — og et offline board holder PLC'ens expansion-worker optaget ca. 3 s pr. forsøg (connect-timeout), næsten konstant gennem de 80 s. Et board tjekkes nu kun én gang af denne løkke.
+
 ## [7.9.68.128] - 2026-10-19
 
 ### BUG FIXES
