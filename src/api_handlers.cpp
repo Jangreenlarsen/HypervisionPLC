@@ -5413,9 +5413,11 @@ esp_err_t api_handler_cli_exec(httpd_req_t *req)
     }
     probe[n] = '\0';
 
+    // FEAT-487: "mbx ... scan" rammes bevidst af samme probe ("mbx" starter
+    // ogsaa med "mb") — den har samme blokerende karakter som "mb scan".
     if (strncmp(probe, "mb", 2) == 0 && strstr(probe, "scan") != NULL) {
       return api_send_error(req, 409,
-        "'mb scan' kan ikke koeres fra web-CLI: den ville blokere hele "
+        "'mb scan'/'mbx ... scan' kan ikke koeres fra web-CLI: den ville blokere hele "
         "webserveren indtil scanningen var faerdig (httpd behandler én "
         "request ad gangen). Koer den fra telnet eller seriel konsol "
         "i stedet — dashboardet forbliver tilgaengeligt imens. Se BUG-347.");
@@ -5993,6 +5995,7 @@ static void expansion_board_to_json(uint8_t index, const ExpansionBoard *b, Json
   jo["token_invalid"] = (expansion_api_board_health_http(index) == 401);
   jo["channels"] = expansion_board_active_channels(index);   // FEAT-466: 0 = ukendt endnu
   jo["hw_type"] = expansion_board_hw_type(index);
+  jo["expander"] = expansion_board_expander_status(index);   // BUG-493: "ok"/"not_fitted"/"not_found"/""
   const char *snap = expansion_board_config_snapshot(index);
   if (snap) {
     jo["board_config"] = serialized(snap);  // FEAT-462: seneste kopi (ikke-hemmelig)

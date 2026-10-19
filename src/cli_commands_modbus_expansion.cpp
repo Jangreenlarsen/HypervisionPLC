@@ -18,6 +18,9 @@
 #include "modbus_expansion_async.h"  // FEAT-410
 #include "config_struct.h"
 #include "debug.h"
+#include "console.h"            // FEAT-487: "mbx scan" tastaturafbrydelse, som "mb scan"
+#include "cli_shell.h"
+#include "watchdog_monitor.h"
 
 #define MBX_WAIT_TIMEOUT_MS 6000
 
@@ -542,4 +545,114 @@ void cli_cmd_mbx_write(uint8_t argc, char **argv) {
     return;
   }
   mbx_print_result("write");
+}
+
+// FEAT-487: "mbx <board> <kanal> scan" — samme funktion for et expansion
+// boards kanal som "mb scan" allerede giver for PLC'ens lokale RS485-bus
+// (brugerønske: "vi mangler også mulighed for at kunne scanne modbus på
+// ekstern expansion board som vi kan med intern modbus bus i dag").
+//
+// RAII-guard der paa samme maade som RS485-sidens MbAsyncPauseGuard (BUG-338)
+// giver scanningen ukontesteret adgang til boardets kanal, ved at saette
+// ST Logics MBX_*-koe paa pause for hele scanningens varighed (workeren
+// faerdiggoer en evt. igangvaerende transaktion foerst, ser derefter paused
+// og venter — se modbus_expansion_async_task_func()).
+struct MbxAsyncPauseGuard {
+  MbxAsyncPauseGuard() { modbus_expansion_async_pause(); }
+  ~MbxAsyncPauseGuard() { modbus_expansion_async_unpause(); }
+};
+
+void cli_cmd_mbx_scan(uint8_t argc, char **argv) {
+  // mbx <board> <kanal> scan [start_id] [end_id]
+  if (argc < 3) {
+    debug_println("Brug: mbx <board> <kanal> scan [start_id] [end_id]");
+    debug_println("  Scanner slave 1-247 (FC03, addr 0) paa boardets kanal via dets");
+    debug_println("  eget diagnostiske read-endpoint. Samme princip som 'mb scan'.");
+    debug_println("Eksempel: mbx skab3 A scan");
+    debug_println("          mbx skab3 A scan 1 20");
+    return;
+  }
+  int idx = mbx_resolve_board(argv[0]);
+  if (idx < 0) { mbx_print_unknown_board(argv[0]); return; }
+  int ch = mbx_resolve_channel(argv[1]);
+  if (ch < 0) { debug_printf("FEJL: Ugyldig kanal '%s' (brug A/B eller 1-8)\n", argv[1]); return; }
+  // argv[2] er selve "scan"-ordet (allerede matchet af kalderen)
+
+  uint8_t start_id = (argc >= 4) ? (uint8_t)atoi(argv[3]) : 1;
+  uint8_t end_id = (argc >= 5) ? (uint8_t)atoi(argv[4]) : 247;
+  if (start_id < 1) start_id = 1;
+  if (end_id > 247) end_id = 247;
+  if (start_id > end_id) { debug_println("FEJL: start_id skal vaere <= end_id"); return; }
+
+  if (expansion_api_is_busy()) {
+    debug_println("FEJL: Et andet expansion-board-kald er allerede i gang — vent til det er faerdigt");
+    return;
+  }
+
+  MbxAsyncPauseGuard async_pause_guard;
+
+  uint8_t total = end_id - start_id + 1;
+  debug_printf("[MBX SCAN] board=%d kanal=%c: scanner slave %d-%d (FC03, addr 0), %d adresser ...\n",
+               idx + 1, (char)('A' + ch - 1), start_id, end_id, total);
+  debug_println("[MBX SCAN] ST Logics MBX-trafik til boardet sat paa pause imens.");
+  debug_println("[MBX SCAN] Tryk en tast for at afbryde.");
+
+  // BUG-345-princippet: toem evt. efterladt input (CR/LF fra kommandolinjen
+  // selv) FOER afbryd-overvaagningen starter, ellers afbrydes der straks.
+  Console *con = cli_shell_get_debug_console();
+  if (con) {
+    char discard;
+    uint8_t drained = 0;
+    while (console_available(con) && drained < 64) {
+      console_getchar(con, &discard);
+      drained++;
+    }
+  }
+
+  uint8_t found = 0, tested = 0;
+  bool aborted = false;
+
+  for (uint8_t id = start_id; id <= end_id; id++) {
+    watchdog_feed();  // BUG-335-princippet — kritisk ved brede scan-ranges
+
+    if (con && console_available(con)) {
+      char discard;
+      console_getchar(con, &discard);
+      aborted = true;
+      debug_printf("\n[MBX SCAN] Afbrudt af bruger ved slave %d (%d/%d testet)\n", id, tested, total);
+      break;
+    }
+
+    if (!expansion_api_start_diag_read((uint8_t)idx, (uint8_t)ch, 3, id, 0, 1)) {
+      debug_printf("  Slave %3d: FEJL (kunne ikke starte kald mod boardet)\n", id);
+      continue;
+    }
+    ExpansionApiResult res;
+    bool got = expansion_api_wait_result(MBX_WAIT_TIMEOUT_MS, &res);
+    tested++;
+    if (got && res.transport_ok && res.http_status == 200) {
+      if (strstr(res.response_json, "\"ok\":true")) {
+        debug_printf("  Slave %3d: FUNDET (holding[0]-laesning OK)\n", id);
+        found++;
+      } else {
+        // HTTP 200 + ok:false = boardet selv rapporterer en Modbus-exception
+        // FRA SLAVEN (mb_diag_build_exception_json) — slaven svarer altsaa,
+        // bare afvisende paa FC03 addr 0.
+        debug_printf("  Slave %3d: EXCEPTION (svarer men afviser FC03 addr 0)\n", id);
+        found++;
+      }
+    } else if (!got) {
+      debug_printf("  Slave %3d: PLC fik intet svar fra boardet (netvaerksfejl?)\n", id);
+    }
+    // HTTP 502 (boardets eget "channel_error", typisk MB_TIMEOUT — ingen
+    // slave) vises IKKE, ligesom en almindelig timeout ikke vises i "mb scan".
+
+    if ((tested % 10) == 0 && tested < total) {
+      debug_printf("  ... %d/%d testet, %d fundet indtil videre\n", tested, total, found);
+    }
+  }
+
+  if (!aborted) {
+    debug_printf("[MBX SCAN] Faerdigt: %d slave(s) fundet af %d testet\n", found, total);
+  }
 }

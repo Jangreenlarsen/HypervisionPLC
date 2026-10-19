@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.131] - 2026-10-19
+
+### NEW FEATURES
+- **FEAT-487:** `mbx <board> <kanal> scan [start_id] [end_id]` — scanner efter Modbus-slaver på et expansion boards kanal, samme princip som den lokale RS485-bus' `mb scan`. Scanner slave 1-247 (FC03, addr 0) via boardets eget diagnostiske read-endpoint; ST Logics `MBX_*`-trafik til boardet sættes på pause under scanningen; afbryd med en tast (seriel/telnet). Manual appendiks A.
+
+## [7.9.68.130] - 2026-10-19
+
+### NEW FEATURES
+- **BUG-493:** Et expansion boards udvidelsesmodul (CJMCU-752, kanal C/D) kunne stå som ikke fundet (`expander: not_found` i boardets eget statussvar — jumperen siger monteret, men chippen svarer ikke på I2C), uden at det var synligt andre steder end CLI'ens `show modbus-expansion <board>`. I/O-siden viste kun kanaltallet (2 i stedet for 4), ikke hvorfor. Nu vises "⚠ udvidelsesmodul (kanal C/D) ikke fundet" i Type-kolonnen, i "Test forbindelse"-resultatet og i Redigér-panelet, så fejlen er synlig uden CLI.
+
 ## [7.9.68.129] - 2026-10-19
 
 ### BUG FIXES

@@ -630,6 +630,7 @@ static void print_modbus_expansion_help(void) {
   debug_println("  mbx <board> hostname                      - Saet boardets hostname til dets navn + genstart det (FEAT-455)");
   debug_println("  mbx <board> <kanal> read <fc> <slave> <addr> [qty]     - Diagnostisk læsning");
   debug_println("  mbx <board> <kanal> write <fc> <slave> <addr> <val...> - Diagnostisk skrivning");
+  debug_println("  mbx <board> <kanal> scan [start] [end]                 - Scan efter slaver (FEAT-487)");
   debug_println("");
   debug_println("ST Logic Functions (samme non-blocking cache/kø-mønster som MB_*, se 'set modbus-master ?'):");
   debug_println("  MBX_READ_COIL(board, kanal, slave_id, address) → BOOL     (async, cached)");
@@ -3156,7 +3157,8 @@ bool cli_parser_execute(char* line) {
     debug_println("  show modbus-expansion [board]     - Liste/live-status");
     debug_println("  mbx <board> status                - Live status+kanaler fra boardet");
     debug_println("  mbx <board> <kanal> read <fc> <slave> <addr> [qty] - Diagnostisk laesning");
-    debug_println("  mbx <board> <kanal> write <fc> <slave> <addr> <val...> - Diagnostisk skrivning\n");
+    debug_println("  mbx <board> <kanal> write <fc> <slave> <addr> <val...> - Diagnostisk skrivning");
+    debug_println("  mbx <board> <kanal> scan [start] [end]                 - Scan efter slaver (FEAT-487)\n");
 
     debug_println("Network:");
     debug_println("  ping <ip> [count]       - ICMP ping (default 4)");
@@ -3412,8 +3414,13 @@ bool cli_parser_execute(char* line) {
       cli_cmd_mbx_write(argc - 1, argv + 1);
       return true;
     }
+    // FEAT-487: mbx <board> <kanal> scan [start] [end]
+    if (argc >= 4 && !strcasecmp(argv[3], "scan")) {
+      cli_cmd_mbx_scan(argc - 1, argv + 1);
+      return true;
+    }
 
-    debug_println("MBX: ukendt kommando (brug: status, ota, reboot, read, write)");
+    debug_println("MBX: ukendt kommando (brug: status, ota, reboot, read, write, scan)");
     return false;
 
   } else {

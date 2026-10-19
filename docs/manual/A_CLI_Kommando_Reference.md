@@ -387,8 +387,11 @@ Administration af eksterne HypervisionPLC Extension Boards (se [kapitel 6.7](06_
 | `mbx <board> reboot` | Genstart boardet. **NB:** afventer boardet bekræftelse af ny firmware, ruller genstarten tilbage til den forrige firmware (FEAT-420). Selve firmware-filen uploades kun via web-UI'et |
 | `mbx <board> <kanal> read <fc> <slave_id> <address> [quantity]` | Diagnostisk Modbus-læsning (FC01-04) direkte mod boardets kanal |
 | `mbx <board> <kanal> write <fc> <slave_id> <address> <value...>` | Diagnostisk Modbus-skrivning (FC05/06/16, sidstnævnte med flere værdier) |
+| `mbx <board> <kanal> scan [start_id] [end_id]` | **FEAT-487.** Scanner slave-id'er 1–247 (default) på boardets kanal — samme princip som `mb scan`, blot via boardets diagnostiske read-endpoint. ST Logics `MBX_*`-trafik til boardet sættes på pause under scanningen (ikke de øvrige boards/kanaler). Afbryd med en tastatur-tast. Kan — ligesom `mb scan` — **ikke køres fra web-CLI** (blokerer webserveren for alle, se BUG-347); kør den fra telnet eller seriel konsol |
 
 Alle netværkskald mod et board er synkrone fra CLI'ens perspektiv (kommandoen venter på svaret, op til ca. 6 sekunder) — kun ét kald mod expansion-boards ad gangen på tværs af CLI/web-UI.
+
+`mbx scan` kan — ligesom `mb scan` — tage flere minutter for en fuld 1-247-scanning, da hver tomme adresse venter boardets kanal-timeout (typisk 500 ms) plus netværkstid til boardet. Angiv et snævrere område (fx `mbx skab3 A scan 1 20`), hvis den forventede slave-adresse er kendt.
 
 ## A.7 Multi-line ST Logic upload-mode
 

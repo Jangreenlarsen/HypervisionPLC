@@ -347,9 +347,11 @@ int expansion_api_board_health_http(uint8_t index) {
 static uint32_t g_exp_chanfetch_ms[EXPANSION_BOARD_MAX];
 static uint8_t g_exp_active_ch[EXPANSION_BOARD_MAX];     // FEAT-466: 0 = ukendt
 static char g_exp_hw_type[EXPANSION_BOARD_MAX][12];      // FEAT-466: fx "4xRS485"
+static char g_exp_expander[EXPANSION_BOARD_MAX][12];     // BUG-493: "ok"/"not_fitted"/"not_found" fra boardets /api/status
 
 uint8_t expansion_board_active_channels(uint8_t i) { return i < EXPANSION_BOARD_MAX ? g_exp_active_ch[i] : 0; }
 const char *expansion_board_hw_type(uint8_t i) { return i < EXPANSION_BOARD_MAX ? g_exp_hw_type[i] : ""; }
+const char *expansion_board_expander_status(uint8_t i) { return i < EXPANSION_BOARD_MAX ? g_exp_expander[i] : ""; }
 
 static void expansion_parse_channel_timeouts(uint8_t board_index, const char *body) {
   const char *p = body;
@@ -499,6 +501,16 @@ static void expansion_parse_status_hw(uint8_t i, const char *sb) {
     size_t n = 0;
     while (p[n] && p[n] != '"' && n < sizeof(g_exp_hw_type[i]) - 1) { g_exp_hw_type[i][n] = p[n]; n++; }
     g_exp_hw_type[i][n] = 0;
+  }
+  // BUG-493: "expander":"ok"/"not_fitted"/"not_found" — jumperen siger CJMCU-752
+  // er monteret, men chippen svarer ikke paa I2C. Kun vist via CLI's
+  // 'show modbus-expansion <board>' tidligere, ikke paa PLC'ens egen I/O-side.
+  p = strstr(sb, "\"expander\":\"");
+  if (p) {
+    p += 12;
+    size_t n = 0;
+    while (p[n] && p[n] != '"' && n < sizeof(g_exp_expander[i]) - 1) { g_exp_expander[i][n] = p[n]; n++; }
+    g_exp_expander[i][n] = 0;
   }
 }
 

@@ -802,8 +802,15 @@ let _expHwRetry=null,_expHwTries=0;
 // FEAT-485: vis den hardware boardet selv melder (fx "RS232 — 2 kanaler") i stedet for typens generiske navn.
 // board_type er "<kanaler>x<RS485|RS232>" — kanaltallet staar allerede bagefter, saa praefikset droppes.
 function expBusName(b){return String(b.hw_type||'').replace(/^\d+x/i,'')}
+// BUG-493: "expander":"not_found" = jumperen siger CJMCU-752 (kanal C/D) er
+// monteret, men chippen svarer ikke på I2C — en reel hardwarefejl på boardet,
+// ikke bare "2-kanals board". Vis det tydeligt, ikke kun via CLI.
+// Returnerer HTML (ikke ren tekst) — board-data (hw_type/channels, fra
+// boardet selv over netværket) escapes, advarslen er vores egen faste streng.
 function expTypeLabel(b){
-  return b.hw_type?expBusName(b)+' — '+(b.channels||'?')+' kanaler':'Hardware ikke aflæst endnu';
+  if(!b.hw_type)return 'Hardware ikke aflæst endnu';
+  const warn=b.expander==='not_found'?' <span style="color:#f38ba8">⚠ udvidelsesmodul (kanal C/D) ikke fundet</span>':'';
+  return escHtml(expBusName(b)+' — '+(b.channels||'?')+' kanaler')+warn;
 }
 function loadExpBoardTypes(){
   return api('/api/expansion/board-types').then(r=>r.json()).then(d=>{
@@ -833,7 +840,7 @@ function loadExpBoards(){
     updateExpTestFields();
     tbody.innerHTML=d.boards.map(b=>{
       const nameEsc=b.name.replace(/'/g,"\\'");
-      return '<tr><td>'+b.number+'</td><td>'+escHtml(b.name)+'</td><td id="expType'+b.id+'" style="font-size:11px">'+escHtml(expTypeLabel(b))+'</td><td>'+escHtml(b.ip)+'</td><td>'+(b.has_token?'<span style="color:#a6e3a1">Sat</span>':'<span style="color:#f38ba8">Mangler</span>')+
+      return '<tr><td>'+b.number+'</td><td>'+escHtml(b.name)+'</td><td id="expType'+b.id+'" style="font-size:11px">'+expTypeLabel(b)+'</td><td>'+escHtml(b.ip)+'</td><td>'+(b.has_token?'<span style="color:#a6e3a1">Sat</span>':'<span style="color:#f38ba8">Mangler</span>')+
         '</td><td style="color:#6c7086"><span id="expStatus'+b.id+'">-</span>'+expWarnHtml(b)+'</td>'+
         '<td id="expFw'+b.id+'" style="font-size:11px">'+expFwCellHtml(b.id)+'</td>'+
         '<td style="white-space:nowrap"><button class="btn btn-sm btn-primary" onclick="testExpBoardConnection('+b.id+')">Test forbindelse</button> '+
@@ -894,7 +901,7 @@ function editExpBoard(id,number,name,ip,type){
   $('expFormToken').placeholder='Udelad for at bevare eksisterende token';
   if($('expFormType').querySelector('option[value="'+type+'"]'))$('expFormType').value=type;
   const b=_expBoardsFull[id];  // FEAT-485
-  $('expFormHw').textContent=b&&b.hw_type?'Aflæst fra boardet: '+expBusName(b)+', '+b.channels+' kanaler':'Hardware ikke aflæst endnu';
+  $('expFormHw').textContent=b&&b.hw_type?'Aflæst fra boardet: '+expBusName(b)+', '+b.channels+' kanaler'+(b.expander==='not_found'?' — ⚠ udvidelsesmodul (kanal C/D) ikke fundet':''):'Hardware ikke aflæst endnu';
 }
 function submitExpBoard(){
   const name=$('expFormName').value.trim(), ip=$('expFormIp').value.trim(), token=$('expFormToken').value.trim(), type=$('expFormType').value;
@@ -1056,11 +1063,13 @@ function testExpBoardConnection(id){
       if(!cell)return;
       if(d.error||!d.transport_ok){cell.innerHTML='<span style="color:#f38ba8">Ikke tilgængelig</span>';return}
       const r=d.response||{};
-      cell.innerHTML='<span style="color:#a6e3a1">OK</span> fw '+(r.fw_version||'?')+', kanaler '+(r.active_channels!==undefined?r.active_channels:'?')+expResetText(r);
+      // BUG-493: udvidelsesmodul-advarsel ogsaa direkte i Test forbindelse-resultatet
+      const expWarn=r.expander==='not_found'?' <span style="color:#f38ba8">⚠ udvidelsesmodul (kanal C/D) ikke fundet</span>':'';
+      cell.innerHTML='<span style="color:#a6e3a1">OK</span> fw '+(r.fw_version||'?')+', kanaler '+(r.active_channels!==undefined?r.active_channels:'?')+expResetText(r)+expWarn;
       // BUG-477: opdater kanaltallet paa siden med det samme (test-panelets kanalliste)
       if(r.active_channels&&_expBoards[id]){_expBoards[id].channels=r.active_channels;updateExpTestFields();}
       const bf=_expBoardsFull[id];  // FEAT-485: opdatér type-cellen med det boardet melder nu
-      if(bf&&r.board_type){bf.hw_type=r.board_type;bf.channels=r.active_channels||bf.channels;const tc=$('expType'+id);if(tc)tc.textContent=expTypeLabel(bf);}
+      if(bf&&r.board_type){bf.hw_type=r.board_type;bf.channels=r.active_channels||bf.channels;bf.expander=r.expander;const tc=$('expType'+id);if(tc)tc.innerHTML=expTypeLabel(bf);}
     });
   }).catch(e=>{if(cell)cell.innerHTML='<span style="color:#f38ba8">Fejl: '+escHtml(e.message)+'</span>'});
 }
