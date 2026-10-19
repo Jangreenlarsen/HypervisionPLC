@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.128] - 2026-10-19
+
+### BUG FIXES
+- **BUG-491:** "Test funktions-register" på I/O-siden kunne give "Fejl: Et andet expansion-board-kald er allerede i gang", selvom intet reelt var i vejen — knappen sendte kaldet rå og viste PLC'ens 409 med det samme, i stedet for at prøve igen som alle andre board-kald på siden (firmware-status-tjek, kanal-hentning m.fl.) allerede gør i op til 10 s. Da disse baggrundstjek kører automatisk, bl.a. lige efter siden er indlæst, kunne et tidspunkt med test ramme et af dem. "Kør"-knappen bruger nu samme genforsøgslogik.
+
 ## [7.9.68.127] - 2026-10-16
 
 ### BUG FIXES

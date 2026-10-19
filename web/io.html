@@ -1627,14 +1627,14 @@ function runExpTest(){
     }
   }
 
-  api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
-      if(!ok)throw new Error(j.error||'Fejl');
-      pollExpAction(d=>{
-        if(d.error){resEl.style.color='#f38ba8';resEl.textContent='Fejl: '+d.error;return}
-        resEl.style.color=(d.transport_ok&&d.response&&d.response.ok!==false)?'#a6e3a1':'#f38ba8';
-        resEl.textContent=JSON.stringify(d.response,null,2);
-      });
+  // BUG-491: brug expCallRaw (som alle andre board-kald) i stedet for et rå
+  // fetch — den prøver automatisk igen i op til 10 s på 409 "optaget", så
+  // testet ikke fejler bare fordi en baggrundsstatus (fw-tjek, kanaltal) er
+  // i gang mod det samme board lige nu.
+  expCallRaw(boardId,url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)},isWrite?'write':'read')
+    .then(d=>{
+      resEl.style.color=(d.transport_ok&&d.response&&d.response.ok!==false)?'#a6e3a1':'#f38ba8';
+      resEl.textContent=JSON.stringify(d.response,null,2);
     }).catch(e=>{resEl.style.color='#f38ba8';resEl.textContent='Fejl: '+e.message});
 }
 
