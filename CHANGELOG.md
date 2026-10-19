@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.132] - 2026-10-19
+
+### BUG FIXES
+- **BUG-494:** Opfølgning på FEAT-487 — den hjælpetekst der vises ved blot at skrive `mbx` (uden argumenter) nævnte ikke den nye `scan`-kommando. Et redigeringsscript stødte på en fejl og stoppede, før det nåede denne tredje af tre hjælpeblokke. Rettet.
+
 ## [7.9.68.131] - 2026-10-19
 
 ### NEW FEATURES
