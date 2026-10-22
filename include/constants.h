@@ -518,8 +518,11 @@ typedef enum {
   // Analog Inputs — Strøm (onboard signal conditioning)
   #define PIN_AI_I1           34    // Ii1: 4-20mA (ADC1_CH6, input-only)
   #define PIN_AI_I2           39    // Ii2: 4-20mA (ADC1_CH3, input-only)
-  #define PIN_AI_I3           36    // Ii3: 4-20mA (ADC1_CH0, input-only)
-  #define PIN_AI_I4           35    // Ii4: 4-20mA (ADC1_CH7, input-only)
+  // BUG-495: Ii3/Ii4 var byttet om (bekraeftet empirisk paa fysisk board,
+  // 2026-10-22) - GPIO36/35 var tildelt omvendt af den fysiske klemmerraekkes
+  // Ii3/Ii4-maerkning. Se BUGS_INDEX.md.
+  #define PIN_AI_I3           35    // Ii3: 4-20mA (ADC1_CH7, input-only)
+  #define PIN_AI_I4           36    // Ii4: 4-20mA (ADC1_CH0, input-only)
   // Analog Outputs (onboard DAC)
   #define PIN_AO1             25    // AO1: Vo1/Io1 (DAC1)
   #define PIN_AO2             26    // AO2: Vo2/Io2 (DAC2)

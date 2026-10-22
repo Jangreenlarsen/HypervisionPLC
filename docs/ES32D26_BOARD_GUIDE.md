@@ -75,8 +75,8 @@ Læser 8 opto-isolerede digitale inputs.
 |------------|--------------|-----------|------|
 | GPIO34 | Ii1 | ADC1_CH6 | ✅ Input-only pin |
 | GPIO39 | Ii2 | ADC1_CH3 | ✅ Input-only pin |
-| GPIO36 | Ii3 | ADC1_CH0 | ✅ Input-only pin |
-| GPIO35 | Ii4 | ADC1_CH7 | ✅ Input-only pin |
+| GPIO35 | Ii3 | ADC1_CH7 | ✅ Input-only pin — bekræftet med sensor fysisk flyttet mellem klemmer (BUG-495, 2026-10-22); var tidligere fejlagtigt dokumenteret som GPIO36 |
+| GPIO36 | Ii4 | ADC1_CH0 | ✅ Input-only pin — bekræftet med sensor fysisk flyttet mellem klemmer (BUG-495, 2026-10-22); var tidligere fejlagtigt dokumenteret som GPIO35 |
 
 ### Analog Outputs (DAC)
 

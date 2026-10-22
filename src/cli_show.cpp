@@ -394,6 +394,21 @@ void cli_cmd_show_config(const char *section) {
   // =========================================================================
 #if defined(BOARD_ES32D26)
   if (show_analog) {
+  // BUG-496: [ANALOG INPUTS] manglede helt her - 'show config' viste kun
+  // AO1/AO2-mode, saa Vi1-4/Ii1-4 enabled+kalibrering var usynlig i config-
+  // dumpet selvom de er persisteret separat (g_persist_config.analog_ai_v/i).
+  debug_println("[ANALOG INPUTS]");
+  static const char* AI_V_LABELS[4] = { "Vi1", "Vi2", "Vi3", "Vi4" };
+  static const char* AI_I_LABELS[4] = { "Ii1", "Ii2", "Ii3", "Ii4" };
+  for (uint8_t i = 0; i < 4; i++) {
+    const AnalogInputConfig *c = &g_persist_config.analog_ai_v[i];
+    debug_printf("%s: %s  scale=%g offset=%g\n", AI_V_LABELS[i], c->enabled ? "ON" : "off", (double)c->scale, (double)c->offset);
+  }
+  for (uint8_t i = 0; i < 4; i++) {
+    const AnalogInputConfig *c = &g_persist_config.analog_ai_i[i];
+    debug_printf("%s: %s  scale=%g offset=%g\n", AI_I_LABELS[i], c->enabled ? "ON" : "off", (double)c->scale, (double)c->offset);
+  }
+  debug_println("");
   debug_println("[ANALOG OUTPUTS]");
   debug_print("AO1 (GPIO25/DAC1): ");
   debug_println(g_persist_config.ao1_mode == AO_MODE_CURRENT ? "CURRENT (4-20mA)" : "VOLTAGE (0-10V)");
@@ -1451,6 +1466,24 @@ void cli_cmd_show_config(const char *section) {
 
 #if defined(BOARD_ES32D26)
   if (show_analog) {
+  // BUG-496: AI-kanalerne (Vi1-4/Ii1-4) manglede helt her - et 'show config'-
+  // dump kunne derfor ikke bruges til at gendanne enabled/scale/offset for
+  // analoge indgange (kun AO-mode blev genskabt).
+  debug_println("\n# Analog Inputs (ES32D26)");
+  static const char* AI_V_CMD[4] = { "vi1", "vi2", "vi3", "vi4" };
+  static const char* AI_I_CMD[4] = { "ii1", "ii2", "ii3", "ii4" };
+  for (uint8_t i = 0; i < 4; i++) {
+    const AnalogInputConfig *c = &g_persist_config.analog_ai_v[i];
+    debug_printf("set analog %s enabled %s\n", AI_V_CMD[i], c->enabled ? "on" : "off");
+    debug_printf("set analog %s scale %g\n", AI_V_CMD[i], (double)c->scale);
+    debug_printf("set analog %s offset %g\n", AI_V_CMD[i], (double)c->offset);
+  }
+  for (uint8_t i = 0; i < 4; i++) {
+    const AnalogInputConfig *c = &g_persist_config.analog_ai_i[i];
+    debug_printf("set analog %s enabled %s\n", AI_I_CMD[i], c->enabled ? "on" : "off");
+    debug_printf("set analog %s scale %g\n", AI_I_CMD[i], (double)c->scale);
+    debug_printf("set analog %s offset %g\n", AI_I_CMD[i], (double)c->offset);
+  }
   debug_println("\n# Analog Outputs (ES32D26)");
   debug_print("set ao1 mode ");
   debug_println(g_persist_config.ao1_mode == AO_MODE_CURRENT ? "current" : "voltage");

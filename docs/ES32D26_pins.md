@@ -23,8 +23,8 @@
 | IO32  | Vi4 — 0-10V AI  ✅ ADC1               |             |
 | IO34  | Ii1 — 4-20mA AI ✅ ADC1               |             |
 | IO39  | Ii2 — 4-20mA AI ✅ ADC1               |             |
-| IO36  | Ii3 — 4-20mA AI ✅ ADC1               |             |
-| IO35  | Ii4 — 4-20mA AI ✅ ADC1               |             |
+| IO35  | Ii3 — 4-20mA AI ✅ ADC1               | Multimeter (BUG-495, 2026-10-22) — var fejlagtigt IO36 |
+| IO36  | Ii4 — 4-20mA AI ✅ ADC1               | Multimeter (BUG-495, 2026-10-22) — var fejlagtigt IO35 |
 | IO25  | AO1 — Vo1/Io1 (DAC1) — **W5500 MOSI når Ethernet er aktiveret** |             |
 | IO26  | AO2 — Vo2/Io2 (DAC2) — **W5500 RST når Ethernet er aktiveret**  |             |
 
