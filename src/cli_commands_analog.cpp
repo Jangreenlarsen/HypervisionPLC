@@ -57,16 +57,65 @@ static AnalogChRef analog_resolve_channel(const char *name) {
  * SET ANALOG
  * ============================================================================ */
 
+// FEAT-498: anvend ÉT param/value-par (kaldes i en loekke af cli_cmd_set_analog
+// nedenfor, saa en enkelt kommandolinje kan saette flere parametre paa én gang -
+// netop den form 'show config' selv genererer i SET COMMANDS-sektionen, saa den
+// er direkte copy/paste-genindsaettelig igen).
+static bool analog_apply_one_param(const AnalogChRef &ref, bool *p_enabled, float *p_scale,
+                                    float *p_offset, uint8_t *p_samples,
+                                    const char *param, const char *value) {
+  if (!strcasecmp(param, "ENABLED")) {
+    bool on = (!strcasecmp(value, "ON") || !strcasecmp(value, "1") || !strcasecmp(value, "TRUE"));
+    bool off = (!strcasecmp(value, "OFF") || !strcasecmp(value, "0") || !strcasecmp(value, "FALSE"));
+    if (!on && !off) {
+      debug_println("SET ANALOG ENABLED: brug on|off");
+      return false;
+    }
+    *p_enabled = on;
+    debug_printf("%s enabled sat til: %s\n", ref.label, on ? "ON" : "OFF");
+    if (ref.group == ACH_AI_V && analog_driver_ai_v_is_adc2(ref.idx) && on) {
+      debug_println("  OBS: denne kanal er ADC2 — ubrugelig mens WiFi er tilsluttet");
+    }
+    debug_println("  Kraever 'save' + reboot (register-allokering sker ved boot)");
+  } else if (!strcasecmp(param, "SCALE")) {
+    *p_scale = strtof(value, NULL);
+    debug_printf("%s scale sat til: %g\n", ref.label, (double)*p_scale);
+    debug_println("  Kraever 'save' for at persistere (virker straks i RAM)");
+  } else if (!strcasecmp(param, "OFFSET")) {
+    *p_offset = strtof(value, NULL);
+    debug_printf("%s offset sat til: %g\n", ref.label, (double)*p_offset);
+    debug_println("  Kraever 'save' for at persistere (virker straks i RAM)");
+  } else if (!strcasecmp(param, "SAMPLES")) {
+    if (!p_samples) {
+      debug_printf("SET ANALOG: %s har ingen 'samples' (kun Vi1-4/Ii1-4 — AO har ingen multisampling)\n", ref.label);
+      return false;
+    }
+    long n = strtol(value, NULL, 10);
+    if (n < 1 || n > ANALOG_SAMPLES_MAX) {
+      debug_printf("SET ANALOG SAMPLES: skal vaere 1-%d\n", ANALOG_SAMPLES_MAX);
+      return false;
+    }
+    *p_samples = (uint8_t)n;
+    debug_printf("%s samples sat til: %u (gennemsnit af %u ADC-laesninger pr. poll)\n", ref.label, (unsigned)*p_samples, (unsigned)*p_samples);
+    debug_println("  Kraever 'save' for at persistere (virker straks i RAM)");
+  } else {
+    debug_printf("SET ANALOG: ukendt parameter '%s' (gyldige: enabled, scale, offset, samples)\n", param);
+    return false;
+  }
+  return true;
+}
+
 void cli_cmd_set_analog(uint8_t argc, char **argv) {
-  // set analog <kanal> enabled on|off
-  // set analog <kanal> scale <float>
-  // set analog <kanal> offset <float>
-  if (argc < 3) {
+  // set analog <kanal> <param1> <value1> [<param2> <value2> ...]
+  // fx: set analog vi2 enabled on scale 0.606769 offset -93.6406 samples 4
+  if (argc < 3 || ((argc - 1) % 2) != 0) {
     debug_println("SET ANALOG: mangler parametre");
     debug_println("  Brug: set analog <vi1-4|ii1-4|ao1-2> enabled on|off");
     debug_println("        set analog <kanal> scale <tal>");
     debug_println("        set analog <kanal> offset <tal>");
     debug_println("        set analog <vi1-4|ii1-4> samples <1-32>  (multisampling, FEAT-497)");
+    debug_println("        Flere parametre paa én linje er ogsaa tilladt, fx:");
+    debug_println("        set analog vi2 enabled on scale 0.606769 offset -93.6406 samples 4");
     return;
   }
 
@@ -75,9 +124,6 @@ void cli_cmd_set_analog(uint8_t argc, char **argv) {
     debug_printf("SET ANALOG: ukendt kanal '%s' (gyldige: vi1-4, ii1-4, ao1-2)\n", argv[0]);
     return;
   }
-
-  const char *param = argv[1];
-  const char *value = argv[2];
 
   bool *p_enabled = NULL;
   float *p_scale = NULL;
@@ -100,42 +146,14 @@ void cli_cmd_set_analog(uint8_t argc, char **argv) {
     p_offset  = &g_persist_config.analog_ao[ref.idx].offset;
   }
 
-  if (!strcasecmp(param, "ENABLED")) {
-    bool on = (!strcasecmp(value, "ON") || !strcasecmp(value, "1") || !strcasecmp(value, "TRUE"));
-    bool off = (!strcasecmp(value, "OFF") || !strcasecmp(value, "0") || !strcasecmp(value, "FALSE"));
-    if (!on && !off) {
-      debug_println("SET ANALOG ENABLED: brug on|off");
+  // FEAT-498: loeb param/value-parrene igennem i raekkefoelge. Stopper ved
+  // foerste fejl (lige som enkelt-parameter-formen altid har gjort) - resten
+  // af linjen anvendes IKKE, saa en fejlbehaeftet linje aldrig delvist
+  // anvendes stille og roligt.
+  for (uint8_t i = 1; i + 1 < argc; i += 2) {
+    if (!analog_apply_one_param(ref, p_enabled, p_scale, p_offset, p_samples, argv[i], argv[i + 1])) {
       return;
     }
-    *p_enabled = on;
-    debug_printf("%s enabled sat til: %s\n", ref.label, on ? "ON" : "OFF");
-    if (ref.group == ACH_AI_V && analog_driver_ai_v_is_adc2(ref.idx) && on) {
-      debug_println("  OBS: denne kanal er ADC2 — ubrugelig mens WiFi er tilsluttet");
-    }
-    debug_println("  Kraever 'save' + reboot (register-allokering sker ved boot)");
-  } else if (!strcasecmp(param, "SCALE")) {
-    *p_scale = strtof(value, NULL);
-    debug_printf("%s scale sat til: %g\n", ref.label, (double)*p_scale);
-    debug_println("  Kraever 'save' for at persistere (virker straks i RAM)");
-  } else if (!strcasecmp(param, "OFFSET")) {
-    *p_offset = strtof(value, NULL);
-    debug_printf("%s offset sat til: %g\n", ref.label, (double)*p_offset);
-    debug_println("  Kraever 'save' for at persistere (virker straks i RAM)");
-  } else if (!strcasecmp(param, "SAMPLES")) {
-    if (!p_samples) {
-      debug_printf("SET ANALOG: %s har ingen 'samples' (kun Vi1-4/Ii1-4 — AO har ingen multisampling)\n", ref.label);
-      return;
-    }
-    long n = strtol(value, NULL, 10);
-    if (n < 1 || n > ANALOG_SAMPLES_MAX) {
-      debug_printf("SET ANALOG SAMPLES: skal vaere 1-%d\n", ANALOG_SAMPLES_MAX);
-      return;
-    }
-    *p_samples = (uint8_t)n;
-    debug_printf("%s samples sat til: %u (gennemsnit af %u ADC-laesninger pr. poll)\n", ref.label, (unsigned)*p_samples, (unsigned)*p_samples);
-    debug_println("  Kraever 'save' for at persistere (virker straks i RAM)");
-  } else {
-    debug_printf("SET ANALOG: ukendt parameter '%s' (gyldige: enabled, scale, offset, samples)\n", param);
   }
 }
 

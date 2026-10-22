@@ -1988,16 +1988,19 @@ bool cli_parser_execute(char* line) {
       return false;
 
     } else if (!strcmp(what, "ANALOG")) {
-      // set analog <vi1-4|ii1-4|ao1-2> enabled on|off / scale <f> / offset <f>
-      if (argc >= 5) {
-        char *sub_argv[3] = { argv[2], argv[3], argv[4] };
-        cli_cmd_set_analog(3, sub_argv);
+      // set analog <kanal> <param1> <value1> [<param2> <value2> ...] (FEAT-498:
+      // flere parametre paa én linje, fx enabled/scale/offset/samples samlet -
+      // sub_argc = argc-2 (kanal + N param/value-par) skal vaere ulige og >= 3.
+      uint8_t sub_argc = (argc >= 2) ? (uint8_t)(argc - 2) : 0;
+      if (argc >= 5 && (sub_argc % 2) == 1) {
+        cli_cmd_set_analog(sub_argc, &argv[2]);
         return true;
       }
       debug_println("SET ANALOG: mangler parametre");
       debug_println("  Usage: set analog <vi1-4|ii1-4|ao1-2> enabled on|off");
       debug_println("         set analog <kanal> scale|offset <tal>");
       debug_println("         set analog <vi1-4|ii1-4> samples <1-32>  (multisampling, FEAT-497)");
+      debug_println("         Flere parametre paa én linje: set analog vi2 enabled on scale 0.6 offset -93 samples 4");
       return false;
 
     } else if (!strcmp(what, "MODUL") || !strcmp(what, "MODULE")) {

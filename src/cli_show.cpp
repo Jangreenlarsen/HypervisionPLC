@@ -1472,19 +1472,21 @@ void cli_cmd_show_config(const char *section) {
   debug_println("\n# Analog Inputs (ES32D26)");
   static const char* AI_V_CMD[4] = { "vi1", "vi2", "vi3", "vi4" };
   static const char* AI_I_CMD[4] = { "ii1", "ii2", "ii3", "ii4" };
+  // FEAT-498: ét samlet 'set analog'-kald pr. kanal (enabled+scale+offset+
+  // samples), i stedet for 4 separate linjer - saa dette er direkte
+  // copy/paste-genindsaetteligt igen efter FEAT-498 udvidede cli_cmd_set_analog
+  // til at tage flere param/value-par paa én linje.
   for (uint8_t i = 0; i < 4; i++) {
     const AnalogInputConfig *c = &g_persist_config.analog_ai_v[i];
-    debug_printf("set analog %s enabled %s\n", AI_V_CMD[i], c->enabled ? "on" : "off");
-    debug_printf("set analog %s scale %g\n", AI_V_CMD[i], (double)c->scale);
-    debug_printf("set analog %s offset %g\n", AI_V_CMD[i], (double)c->offset);
-    debug_printf("set analog %s samples %u\n", AI_V_CMD[i], (unsigned)g_persist_config.analog_ai_v_samples[i]);
+    debug_printf("set analog %s enabled %s scale %g offset %g samples %u\n",
+                 AI_V_CMD[i], c->enabled ? "on" : "off", (double)c->scale, (double)c->offset,
+                 (unsigned)g_persist_config.analog_ai_v_samples[i]);
   }
   for (uint8_t i = 0; i < 4; i++) {
     const AnalogInputConfig *c = &g_persist_config.analog_ai_i[i];
-    debug_printf("set analog %s enabled %s\n", AI_I_CMD[i], c->enabled ? "on" : "off");
-    debug_printf("set analog %s scale %g\n", AI_I_CMD[i], (double)c->scale);
-    debug_printf("set analog %s offset %g\n", AI_I_CMD[i], (double)c->offset);
-    debug_printf("set analog %s samples %u\n", AI_I_CMD[i], (unsigned)g_persist_config.analog_ai_i_samples[i]);
+    debug_printf("set analog %s enabled %s scale %g offset %g samples %u\n",
+                 AI_I_CMD[i], c->enabled ? "on" : "off", (double)c->scale, (double)c->offset,
+                 (unsigned)g_persist_config.analog_ai_i_samples[i]);
   }
   debug_println("\n# Analog Outputs (ES32D26)");
   debug_print("set ao1 mode ");

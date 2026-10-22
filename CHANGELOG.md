@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.136] - 2026-10-22
+
+### NEW FEATURES
+- **FEAT-498:** `set analog <kanal> <param1> <val1> [<param2> <val2> ...]` — flere parametre (enabled/scale/offset/samples) på én kommandolinje, fx `set analog vi2 enabled on scale 0.606769 offset -93.6406 samples 4`. `show config`s SET COMMANDS-sektion genererer nu netop ét sådant copy/paste-klar linje pr. kanal i stedet for 4 separate linjer.
+
 ## [7.9.68.135] - 2026-10-22
 
 ### BUG FIXES
