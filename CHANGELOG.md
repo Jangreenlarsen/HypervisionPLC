@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.134] - 2026-10-22
+
+### NEW FEATURES
+- **FEAT-497:** Konfigurerbar multisampling for de analoge indgange Vi1-4/Ii1-4 — `set analog <vi1-4|ii1-4> samples <1-32>` gennemsnitsberegner N ADC-læsninger pr. poll for støjreduktion. ESP32s egen ADC-karakterisering (Espressif) angiver op til ca. ±30mV kalibreret fejl pr. enkelt-sample som normalt — multisampling, ikke yderligere kalibrering, er den rigtige løsning på den spredning. Default 1 (uændret adfærd). Vises i `show analog` og `show config`. Kun CLI foreløbig — REST API og System-sidens kalibreringskort har ikke fået parameteren endnu.
+
+## [7.9.68.133] - 2026-10-22
+
+### BUG FIXES
+- **BUG-495:** ES32D26's Ii3/Ii4 GPIO-mapping var byttet om i firmwaren (`PIN_AI_I3`/`PIN_AI_I4` i `constants.h`) — firmwarens Ii3-register læste reelt den fysiske Ii4-klemme, og omvendt. Opdaget og bekræftet empirisk ved at flytte en 4-20mA-sensor mellem alle fire fysiske klemmer én ad gangen og sammenligne med `show analog`-output. Rettet til `PIN_AI_I3`=GPIO35, `PIN_AI_I4`=GPIO36. `docs/ES32D26_pins.md` og `docs/ES32D26_BOARD_GUIDE.md` opdateret med de bekræftede værdier.
+- **BUG-496:** `show config` viste kun AO1/AO2-mode under `[ANALOG OUTPUTS]` — Vi1-4/Ii1-4's enabled-status og kalibrering (scale/offset) manglede helt, både i den menneskelæsbare visning og i SET COMMANDS-gendannelsessektionen, selvom indstillingerne var korrekt persisteret i NVS. Tilføjet en ny `[ANALOG INPUTS]`-sektion plus tilsvarende `set analog`-kommandoer for alle 8 kanaler.
+
 ## [7.9.68.132] - 2026-10-19
 
 ### BUG FIXES
