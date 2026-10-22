@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.139] - 2026-10-22
+
+### BUG FIXES
+- **BUG-501:** ST Editorens syntax-highlighting viste kommentartekst i flere blandede farver i stedet for én ensartet kommentarfarve, når selve kommentarteksten nævnte ST-nøgleord/funktionsnavne/tal (fx forklarende kommentarer om `BIT_TST` eller `scale 0.606769`). Rodårsag: de efterfølgende regex-highlighting-passes (keywords/functions/types/numbers) kørte blindt hen over hele teksten igen efter kommentarerne allerede var farvet, og nestede deres egen farve oven i. Kommentarer trækkes nu ud til en placeholder før de andre passes kører, og gendannes uberørt til sidst. Kommentarfarven ændret fra grå til gul samtidig.
+
 ## [7.9.68.138] - 2026-10-22
 
 ### BUG FIXES
