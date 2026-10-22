@@ -187,7 +187,7 @@ PLC-siden af integrationen mod eksterne "HypervisionPLC Extension Boards" (se [k
 | GET | `/api/logic` | CHECK_AUTH | Global status (enabled, interval, total_cycles, heap/pool-resources) + programs[] (id,name,enabled,compiled,**priority,interval_ms,binding_count** [FEAT-010],source_size,execution_count,error_count) |
 | GET | `/api/logic/{id}` *(wildcard, 1–4)* | CHECK_AUTH | Fuld program-info + variables[] (index,name,type,value) hvis kompileret |
 | GET | `/api/logic/{id}/source` *(suffix)* | CHECK_AUTH | `{"id","name","source","size"}` |
-| POST | `/api/logic/{id}/source` *(suffix)* | CHECK_AUTH_WRITE | Body: `{"source":"<ST-kode>"}` (maks 8KB). Uploader + kompilerer. Svar inkl. `compiled`, `instr_count`, evt. `compile_error` |
+| POST | `/api/logic/{id}/source` *(suffix)* | CHECK_AUTH_WRITE | Body: `{"source":"<ST-kode>"}` (maks 128KB med PSRAM/16KB uden — BUG-500; den reelle graense er den delte source-pool på 64KB/8KB mellem alle 4 programmer, se `pool_total`/`pool_used` i `GET /api/logic`). Uploader + kompilerer. Svar inkl. `compiled`, `instr_count`, evt. `compile_error` |
 | POST | `/api/logic/{id}/enable` *(suffix)* | CHECK_AUTH_WRITE | Aktivér program |
 | POST | `/api/logic/{id}/disable` *(suffix)* | CHECK_AUTH_WRITE | Deaktivér program |
 | POST | `/api/logic/{id}/reinit` *(suffix)* | CHECK_AUTH_WRITE | Cold restart (nulstil variabler) |

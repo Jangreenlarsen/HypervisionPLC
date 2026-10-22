@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.138] - 2026-10-22
+
+### BUG FIXES
+- **BUG-500:** `POST /api/logic/{id}/source` afviste ST-program-uploads over 8KB ("Request too large (max 8KB)"), selvom ES32D26 (WROVER+PSRAM) har en 64KB delt source-pool for de 4 programmer — en hardkodet, for stram prætjek skrevet uden hensyn til boardets faktiske kapacitet (samme problemklasse som `BUG-429` allerede løste for `/api/system/restore`, bare aldrig anvendt her). Grænsen er nu `ST_LOGIC_POOL_SIZE × 2` (128KB m. PSRAM / 16KB uden), og upload-bufferen lægges nu i PSRAM i stedet for DRAM.
+
 ## [7.9.68.137] - 2026-10-22
 
 ### BUG FIXES

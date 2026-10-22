@@ -2141,12 +2141,27 @@ esp_err_t api_handler_logic_source_post(httpd_req_t *req)
   }
 
   // Get content length
+  // BUG-500: hardkodet 8192-graense her ignorerede at ES32D26 (BOARD_HAS_PSRAM)
+  // har en 64 KB source_pool (ST_LOGIC_POOL_SIZE, se st_logic_config.h) delt
+  // mellem alle 4 programmer - den reelle, korrekte graense haandhæves allerede
+  // praecist af st_logic_upload() nedenfor (mod ST_LOGIC_POOL_SIZE og faktisk
+  // ledig poolplads). Denne graense er kun en upfront DoS-/sanity-check foer
+  // JSON parses, saa den skal vaere generøs nok til poolens reelle kapacitet
+  // plus JSON-indpaknings-overhead (escapede \n/\"), ikke en separat, strammere
+  // reel graense. Samme moenster som BUG-429s fix af /api/system/restore.
+#ifdef BOARD_HAS_PSRAM
+  const size_t max_content_len = (size_t)ST_LOGIC_POOL_SIZE * 2;  // 128 KB margin til JSON-overhead
+#else
+  const size_t max_content_len = (size_t)ST_LOGIC_POOL_SIZE * 2;  // 16 KB (WROOM-fallback, intet PSRAM)
+#endif
   size_t content_len = req->content_len;
   if (content_len == 0) {
     return api_send_error(req, 400, "Empty request body");
   }
-  if (content_len > 8192) {
-    return api_send_error(req, 400, "Request too large (max 8KB)");
+  if (content_len > max_content_len) {
+    char errbuf[96];
+    snprintf(errbuf, sizeof(errbuf), "Request too large (max %u bytes)", (unsigned)max_content_len);
+    return api_send_error(req, 400, errbuf);
   }
 
   // Phase 1: Read HTTP body, parse JSON, extract source, upload to pool.
@@ -2154,7 +2169,12 @@ esp_err_t api_handler_logic_source_post(httpd_req_t *req)
   uint32_t source_len = 0;
   bool upload_ok = false;
   {
+#ifdef BOARD_HAS_PSRAM
+    char *content = (char *)heap_caps_malloc(content_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!content) content = (char *)malloc(content_len + 1);
+#else
     char *content = (char *)malloc(content_len + 1);
+#endif
     if (!content) {
       return api_send_error(req, 500, "Out of memory");
     }
