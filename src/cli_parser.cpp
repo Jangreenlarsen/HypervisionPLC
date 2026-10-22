@@ -499,6 +499,7 @@ static void print_set_help(void) {
   debug_println("    set ao2 mode <voltage|current> - AO2 output mode (ES32D26)");
   debug_println("    set analog <vi1-4|ii1-4|ao1-2> enabled <on|off> - Analog I/O kanal (ES32D26)");
   debug_println("    set analog <kanal> scale|offset <tal>           - Kalibrering (ES32D26)");
+  debug_println("    set analog <vi1-4|ii1-4> samples <1-32>         - Multisampling/stoejreduktion (FEAT-497)");
   debug_println("    set debug ?               - Debug flag kommandoer");
   debug_println("");
   debug_println("  Deprecated (use set modbus-slave instead):");
@@ -1996,6 +1997,7 @@ bool cli_parser_execute(char* line) {
       debug_println("SET ANALOG: mangler parametre");
       debug_println("  Usage: set analog <vi1-4|ii1-4|ao1-2> enabled on|off");
       debug_println("         set analog <kanal> scale|offset <tal>");
+      debug_println("         set analog <vi1-4|ii1-4> samples <1-32>  (multisampling, FEAT-497)");
       return false;
 
     } else if (!strcmp(what, "MODUL") || !strcmp(what, "MODULE")) {
