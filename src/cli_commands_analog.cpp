@@ -82,8 +82,11 @@ static bool analog_apply_one_param(const AnalogChRef &ref, bool *p_enabled, floa
     debug_printf("%s scale sat til: %g\n", ref.label, (double)*p_scale);
     debug_println("  Kraever 'save' for at persistere (virker straks i RAM)");
   } else if (!strcasecmp(param, "OFFSET")) {
+    // BUG-499: offset er i raa mV (samme enhed som 'Raa'-kolonnen i show
+    // analog) - value = scale*(raw_mv - offset). For at nulstille kanalen,
+    // kopiér raw mV-aflaesningen direkte ind som offset, ingen udregning.
     *p_offset = strtof(value, NULL);
-    debug_printf("%s offset sat til: %g\n", ref.label, (double)*p_offset);
+    debug_printf("%s offset sat til: %g mV (raa-domaene: value = scale*(raw_mv - offset))\n", ref.label, (double)*p_offset);
     debug_println("  Kraever 'save' for at persistere (virker straks i RAM)");
   } else if (!strcasecmp(param, "SAMPLES")) {
     if (!p_samples) {
@@ -112,7 +115,7 @@ void cli_cmd_set_analog(uint8_t argc, char **argv) {
     debug_println("SET ANALOG: mangler parametre");
     debug_println("  Brug: set analog <vi1-4|ii1-4|ao1-2> enabled on|off");
     debug_println("        set analog <kanal> scale <tal>");
-    debug_println("        set analog <kanal> offset <tal>");
+    debug_println("        set analog <kanal> offset <mV>  (raa-domaene, BUG-499: value = scale*(raw_mv-offset))");
     debug_println("        set analog <vi1-4|ii1-4> samples <1-32>  (multisampling, FEAT-497)");
     debug_println("        Flere parametre paa én linje er ogsaa tilladt, fx:");
     debug_println("        set analog vi2 enabled on scale 0.606769 offset -93.6406 samples 4");
@@ -181,6 +184,7 @@ void cli_cmd_show_analog(void) {
   bool wifi_active = wifi_driver_is_connected();
 
   debug_println("\n=== ANALOG I/O (ES32D26) ===");
+  debug_println("(offset er raa mV, BUG-499: Vaerdi = scale * (raw_mv - offset))");
   debug_println("\nSpaendingsindgange (0-10V):");
   debug_println("  Kanal En.  Raa     Vaerdi(V)  Register + kalibrering");
   for (uint8_t i = 0; i < 4; i++) {

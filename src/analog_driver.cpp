@@ -45,12 +45,16 @@ void analog_io_set_defaults(PersistConfig *cfg) {
   // praecise delerforhold kendes ikke fra software. Se AnalogInputConfig i
   // types.h for begrundelsen. Brugeren kalibrerer endeligt mod en kendt
   // spaendingskilde via `set analog vi1 scale/offset`.
+  // BUG-499: offset er raa-domaene (mV, samme enhed som 'Raa'-kolonnen),
+  // IKKE laengere output-enhed — value = scale * (raw_mv - offset).
   const float V_SCALE  = 1000.0f / 3300.0f;
-  const float V_OFFSET = 0.0f;
+  const float V_OFFSET = 0.0f;  // raw=0 => 0,00V, uaendret i begge domaener
 
   // Stroemkanaler (4-20mA): 0mV => 4,00mA (loop-nulpunkt), fuld ADC-skala => 20,00mA.
+  // I_OFFSET=-825: value=scale*(0-(-825))=scale*825=400 (4,00mA) ved raw=0,
+  // matematisk identisk med den gamle offset=400 i output-domaenet.
   const float I_SCALE  = (2000.0f - 400.0f) / 3300.0f;
-  const float I_OFFSET = 400.0f;
+  const float I_OFFSET = -825.0f;
 
   // AO (DAC, 8-bit 0-255): matcher AO_MODE_VOLTAGE-default (ao1_mode/ao2_mode).
   // 0-1000 (0,00-10,00V) => 0-255 DAC-taelleenheder.
@@ -122,7 +126,12 @@ void analog_driver_poll_inputs(void) {
     uint32_t sum_mv = 0;
     for (uint8_t s = 0; s < n; s++) sum_mv += analogReadMilliVolts(AI_V_PINS[i]);
     uint32_t raw_mv = sum_mv / n;
-    float value = cfg->offset + cfg->scale * (float)raw_mv;
+    // BUG-499: offset traekkes fra FOeR skalering (raa-domaene, samme enhed
+    // som 'Raa'-kolonnen i show analog) - ikke laengere lagt til EFTER
+    // skalering. Dermed er nulpunkt (offset) og spaend (scale) uafhaengige
+    // af hinanden: nulpunktstrim kraever ingen multiplikation, bare kopiér
+    // raw_mv-tallet direkte ind som offset. Se BUGS_INDEX.md.
+    float value = cfg->scale * ((float)raw_mv - cfg->offset);
     registers_set_holding_register(cfg->raw_reg, (uint16_t)raw_mv);
     registers_set_holding_register(cfg->value_reg, (uint16_t)lroundf(value));
   }
@@ -136,7 +145,8 @@ void analog_driver_poll_inputs(void) {
     uint32_t sum_mv = 0;
     for (uint8_t s = 0; s < n; s++) sum_mv += analogReadMilliVolts(AI_I_PINS[i]);
     uint32_t raw_mv = sum_mv / n;
-    float value = cfg->offset + cfg->scale * (float)raw_mv;
+    // BUG-499: se kommentar i Vi-loekken ovenfor.
+    float value = cfg->scale * ((float)raw_mv - cfg->offset);
     registers_set_holding_register(cfg->raw_reg, (uint16_t)raw_mv);
     registers_set_holding_register(cfg->value_reg, (uint16_t)lroundf(value));
   }

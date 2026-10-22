@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.137] - 2026-10-22
+
+### BUG FIXES
+- **BUG-499:** Analog input-kalibreringens `offset` var afhængig af `scale` (`Vaerdi = offset + scale × raw_mv`) — enhver justering af nulpunktet krævede at man selv udregnede `-scale × raw_mv` i hovedet, og et nyt nulpunkt kunne ikke sættes uafhængigt af spænd/span. Formlen byttet om: `Vaerdi = scale × (raw_mv − offset)` — offset er nu i **rå millivolt** (samme enhed som `Raa`-kolonnen i `show analog`), trukket fra *før* skalering. Nulpunktstrim kræver nu ingen udregning: kopiér `Raa`-tallet direkte ind som offset. Eksisterende kalibreringer (fx en allerede kalibreret Vi2-kanal) konverteres automatisk ved opstart (schema 32→33-migration, `offset_ny = -offset_gammel / scale`) — matematisk identisk resultat, intet datatab. AO-udgange (DAC) er upåvirket, bruger fortsat deres egen, separate formel.
+
 ## [7.9.68.136] - 2026-10-22
 
 ### NEW FEATURES

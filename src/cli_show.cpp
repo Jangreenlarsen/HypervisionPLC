@@ -398,6 +398,7 @@ void cli_cmd_show_config(const char *section) {
   // AO1/AO2-mode, saa Vi1-4/Ii1-4 enabled+kalibrering var usynlig i config-
   // dumpet selvom de er persisteret separat (g_persist_config.analog_ai_v/i).
   debug_println("[ANALOG INPUTS]");
+  debug_println("  (offset er raa mV, BUG-499: Vaerdi = scale * (raw_mv - offset))");
   static const char* AI_V_LABELS[4] = { "Vi1", "Vi2", "Vi3", "Vi4" };
   static const char* AI_I_LABELS[4] = { "Ii1", "Ii2", "Ii3", "Ii4" };
   for (uint8_t i = 0; i < 4; i++) {

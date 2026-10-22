@@ -498,7 +498,7 @@ static void print_set_help(void) {
   debug_println("    set ao1 mode <voltage|current> - AO1 output mode (ES32D26)");
   debug_println("    set ao2 mode <voltage|current> - AO2 output mode (ES32D26)");
   debug_println("    set analog <vi1-4|ii1-4|ao1-2> enabled <on|off> - Analog I/O kanal (ES32D26)");
-  debug_println("    set analog <kanal> scale|offset <tal>           - Kalibrering (ES32D26)");
+  debug_println("    set analog <kanal> scale <tal> / offset <mV>    - Kalibrering (ES32D26, offset er raa-mV, BUG-499)");
   debug_println("    set analog <vi1-4|ii1-4> samples <1-32>         - Multisampling/stoejreduktion (FEAT-497)");
   debug_println("    set debug ?               - Debug flag kommandoer");
   debug_println("");
@@ -1998,7 +1998,8 @@ bool cli_parser_execute(char* line) {
       }
       debug_println("SET ANALOG: mangler parametre");
       debug_println("  Usage: set analog <vi1-4|ii1-4|ao1-2> enabled on|off");
-      debug_println("         set analog <kanal> scale|offset <tal>");
+      debug_println("         set analog <kanal> scale <tal>");
+      debug_println("         set analog <kanal> offset <mV>  (raa-domaene, BUG-499: value = scale*(raw_mv-offset))");
       debug_println("         set analog <vi1-4|ii1-4> samples <1-32>  (multisampling, FEAT-497)");
       debug_println("         Flere parametre paa én linje: set analog vi2 enabled on scale 0.6 offset -93 samples 4");
       return false;

@@ -163,9 +163,10 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `set ao1 mode <voltage\|current>` | kun ES32D26 | Analog output 1: 0–10V eller 4–20mA |
 | `set ao2 mode <voltage\|current>` | kun ES32D26 | Analog output 2 |
 | `set analog <vi1-4\|ii1-4\|ao1-2> enabled on\|off` | kun ES32D26 | Slå en analog kanal til/fra (FEAT-034-037). AO1/AO2 skrives ikke mens Ethernet er aktiveret (BUG-423b) |
-| `set analog <kanal> scale\|offset <tal>` | kun ES32D26 | Kalibrering: skaleret = rå × scale + offset |
+| `set analog <kanal> scale <tal>` | kun ES32D26 | Kalibrering (hældning): `Vaerdi = scale × (raw_mv − offset)` |
+| `set analog <vi1-4\|ii1-4\|ao1-2> offset <mV>` | kun ES32D26 | **BUG-499.** Kalibrering (nulpunkt) — offset er i **rå millivolt**, samme enhed som `Raa`-kolonnen i `show analog`, trukket fra *før* skalering. Nulpunktstrim kræver derfor ingen udregning: kopiér `Raa`-aflæsningen direkte ind som offset. (Før BUG-499 lå offset i output-enheden og var afhængig af scale — ændret efter brugerfeedback: "det duer ikke") |
 | `set analog <vi1-4\|ii1-4> samples <1-32>` | kun ES32D26 | **FEAT-497.** Multisampling: gennemsnit af N ADC-læsninger pr. poll (støjreduktion — ESP32s egen ADC har ca. ±30mV kalibreret fejl pr. enkelt-sample). Default 1 (ingen ændring af hidtidig adfærd). Gælder kun Vi1-4/Ii1-4, ikke AO1-2 |
-| `set analog <kanal> <param1> <val1> [<param2> <val2> ...]` | kun ES32D26 | **FEAT-498.** Flere parametre på én linje, fx `set analog vi2 enabled on scale 0.606769 offset -93.6406 samples 4`. Anvendes i rækkefølge, stopper ved første fejl. Dette er netop det format `show config`s SET COMMANDS-sektion selv genererer — ét copy/paste-klar linje pr. kanal i stedet for 4 |
+| `set analog <kanal> <param1> <val1> [<param2> <val2> ...]` | kun ES32D26 | **FEAT-498.** Flere parametre på én linje, fx `set analog vi2 enabled on scale 0.606769 offset 154.34 samples 4`. Anvendes i rækkefølge, stopper ved første fejl. Dette er netop det format `show config`s SET COMMANDS-sektion selv genererer — ét copy/paste-klar linje pr. kanal i stedet for 4 |
 
 ### Modbus Slave (`set modbus-slave <param> <værdi>`)
 

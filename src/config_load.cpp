@@ -856,6 +856,32 @@ bool config_load_from_nvs(PersistConfig* out) {
       debug_println("CONFIG LOAD: Migration 31→32 complete");
     }
 
+    if (out->schema_version == 32) {
+      debug_println("CONFIG LOAD: Migrating schema 32 → 33 (BUG-499: analog offset raa-domaene)");
+
+      // offset-feltet skifter betydning: value = offset + scale*raw (gammel)
+      // -> value = scale*(raw - offset) (ny, raa-domaene - braugeren bad om
+      // at nulpunkt kunne saettes uden at skulle gange med scale i hovedet).
+      // Matematisk ÆKVIVALENT konvertering, INTET datatab eller aendring af
+      // den faktisk beregnede Vaerdi: offset_ny = -offset_gammel / scale.
+      // AO (udgange) roeres IKKE - de bruger en helt separat formel
+      // (dac_count = round((engineering_x100-offset)/scale), se
+      // analog_driver_flush_outputs()) og var ikke en del af brugerens
+      // klage (kun AI/indgange).
+      for (uint8_t i = 0; i < 4; i++) {
+        if (out->analog_ai_v[i].scale != 0.0f) {
+          out->analog_ai_v[i].offset = -out->analog_ai_v[i].offset / out->analog_ai_v[i].scale;
+        }
+        if (out->analog_ai_i[i].scale != 0.0f) {
+          out->analog_ai_i[i].offset = -out->analog_ai_i[i].offset / out->analog_ai_i[i].scale;
+        }
+      }
+
+      out->schema_version = 33;
+
+      debug_println("CONFIG LOAD: Migration 32→33 complete");
+    }
+
     if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);
