@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.140] - 2026-10-22
+
+### BUG FIXES
+- **BUG-502:** ST Editorens tekstjustering drev linje for linje afhængigt af hvor mange `:=`/`<>`/`>=`/`<=`-tegn en given linje indeholdt. Rodårsag: skrifttyperne 'Cascadia Code'/'Fira Code' smelter disse tegnsekvenser sammen til smallere ligatur-glyffer som standard, hvilket brød den pixel-præcise justering mellem den usynlige textarea og den farvede highlight-overlay ovenpå. Rettet med `font-variant-ligatures:none`/`font-feature-settings:"liga" 0,"calt" 0` på begge lag.
+
 ## [7.9.68.139] - 2026-10-22
 
 ### BUG FIXES
