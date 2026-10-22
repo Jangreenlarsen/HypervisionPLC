@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.135] - 2026-10-22
+
+### BUG FIXES
+- Opfølgning på FEAT-497: `samples`-parameteren manglede i to af CLI'ens hjælpetekster (`set analog <kanal> ?`'s argc<5-gate i `cli_parser.cpp`, og den generelle `set ?`-oversigt) — kun `cli_commands_analog.cpp`s egen usage-besked var opdateret, men den var reelt uopnåelig via den tidlige gate. Begge steder nævner nu `set analog <vi1-4|ii1-4> samples <1-32>`.
+
 ## [7.9.68.134] - 2026-10-22
 
 ### NEW FEATURES
