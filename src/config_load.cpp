@@ -836,6 +836,26 @@ bool config_load_from_nvs(PersistConfig* out) {
       debug_println("CONFIG LOAD: Migration 30→31 complete");
     }
 
+    if (out->schema_version == 31) {
+      debug_println("CONFIG LOAD: Migrating schema 31 → 32 (FEAT-497: analog multisampling)");
+
+      // Nye felter, fandtes ikke foer schema 32 — staar som nul-bytes i den
+      // raa NVS-blob (partial-fill ind i en stoerre struct). 0 samples ville
+      // give division med nul i analog_driver_poll_inputs(), saa sæt
+      // eksplicit til 1 (= uaendret adfaerd, ingen gennemsnitsberegning) i
+      // stedet for at lade dem staa nul. Rører IKKE enabled/scale/offset -
+      // allerede-kalibrerede kanaler (fx en bruger der lige har kalibreret
+      // Vi2 mod en ekstern referencespaending) skal forblive uberoert.
+      for (uint8_t i = 0; i < 4; i++) {
+        out->analog_ai_v_samples[i] = 1;
+        out->analog_ai_i_samples[i] = 1;
+      }
+
+      out->schema_version = 32;
+
+      debug_println("CONFIG LOAD: Migration 31→32 complete");
+    }
+
     if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);

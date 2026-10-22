@@ -63,12 +63,14 @@ void analog_io_set_defaults(PersistConfig *cfg) {
     cfg->analog_ai_v[i].offset   = V_OFFSET;
     cfg->analog_ai_v[i].raw_reg   = (uint16_t)(i * 2);       // HR 0,2,4,6
     cfg->analog_ai_v[i].value_reg = (uint16_t)(i * 2 + 1);   // HR 1,3,5,7
+    cfg->analog_ai_v_samples[i]  = 1;  // FEAT-497: ingen multisampling som default
 
     cfg->analog_ai_i[i].enabled  = false;
     cfg->analog_ai_i[i].scale    = I_SCALE;
     cfg->analog_ai_i[i].offset   = I_OFFSET;
     cfg->analog_ai_i[i].raw_reg   = (uint16_t)(8 + i * 2);     // HR 8,10,12,14
     cfg->analog_ai_i[i].value_reg = (uint16_t)(8 + i * 2 + 1); // HR 9,11,13,15
+    cfg->analog_ai_i_samples[i]  = 1;  // FEAT-497: ingen multisampling som default
   }
 
   for (uint8_t i = 0; i < 2; i++) {
@@ -104,12 +106,22 @@ void analog_driver_init(void) {
 void analog_driver_poll_inputs(void) {
   bool wifi_active = wifi_driver_is_connected();
 
+  // FEAT-497: gennemsnit af N samples pr. poll, stoejreduktion (ESP32s egen
+  // ADC-karakterisering angiver ca. ±30mV kalibreret fejl/enkelt-sample —
+  // se BUGS_INDEX.md). samples=1 (default) er identisk med den tidligere,
+  // ikke-gennemsnitsberegnede adfaerd. Loopraten (hovedloekken, ca. 50-150Hz)
+  // har rigeligt headroom til nogle faa-og-tyve ekstra ADC-konverteringer
+  // pr. kanal pr. pass.
   for (uint8_t i = 0; i < 4; i++) {
     const AnalogInputConfig *cfg = &g_persist_config.analog_ai_v[i];
     if (!cfg->enabled) continue;
     if (wifi_active && AI_V_IS_ADC2[i]) continue;  // ADC2+WiFi: behold sidste gyldige vaerdi
 
-    uint32_t raw_mv = analogReadMilliVolts(AI_V_PINS[i]);
+    uint8_t n = g_persist_config.analog_ai_v_samples[i];
+    if (n == 0) n = 1;
+    uint32_t sum_mv = 0;
+    for (uint8_t s = 0; s < n; s++) sum_mv += analogReadMilliVolts(AI_V_PINS[i]);
+    uint32_t raw_mv = sum_mv / n;
     float value = cfg->offset + cfg->scale * (float)raw_mv;
     registers_set_holding_register(cfg->raw_reg, (uint16_t)raw_mv);
     registers_set_holding_register(cfg->value_reg, (uint16_t)lroundf(value));
@@ -119,7 +131,11 @@ void analog_driver_poll_inputs(void) {
     const AnalogInputConfig *cfg = &g_persist_config.analog_ai_i[i];
     if (!cfg->enabled) continue;  // Alle Ii1-4 er ADC1 — upaavirket af WiFi
 
-    uint32_t raw_mv = analogReadMilliVolts(AI_I_PINS[i]);
+    uint8_t n = g_persist_config.analog_ai_i_samples[i];
+    if (n == 0) n = 1;
+    uint32_t sum_mv = 0;
+    for (uint8_t s = 0; s < n; s++) sum_mv += analogReadMilliVolts(AI_I_PINS[i]);
+    uint32_t raw_mv = sum_mv / n;
     float value = cfg->offset + cfg->scale * (float)raw_mv;
     registers_set_holding_register(cfg->raw_reg, (uint16_t)raw_mv);
     registers_set_holding_register(cfg->value_reg, (uint16_t)lroundf(value));

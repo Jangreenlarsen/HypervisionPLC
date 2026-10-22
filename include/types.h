@@ -810,6 +810,20 @@ typedef struct __attribute__((packed)) {
   uint8_t expansion_board_count;
   ExpansionBoard expansion_boards[EXPANSION_BOARD_MAX];
 
+  // FEAT-497 (schema 32+): antal ADC-samples der gennemsnitsberegnes pr.
+  // poll for hver analog indgang (stoejreduktion — ESP32s egen ADC-
+  // karakterisering angiver ca. ±30mV kalibreret fejl/enkelt-sample, se
+  // BUGS_INDEX.md). 1 = ingen aendring af eksisterende adfaerd (default,
+  // samme som foer dette felt fandtes). BEVIDST placeret helt til sidst,
+  // som alle andre sene tilfoejelser i denne struct (samme begrundelse
+  // som expansion_board_count ovenfor) — AnalogInputConfig selv maa IKKE
+  // udvides med et samples-felt, da den sidder MIDT i denne struct
+  // (analog_ai_v/analog_ai_i/analog_ao ovenfor), og enhver aendring af
+  // dens sizeof() ville forskyde byte-offset for ALT der kommer efter
+  // (https_port, rbac, ntp, acl_rules, expansion_boards, osv).
+  uint8_t analog_ai_v_samples[4];  // Vi1-Vi4
+  uint8_t analog_ai_i_samples[4];  // Ii1-Ii4
+
   // CRC checksum (last)
   uint16_t crc16;
 } PersistConfig;

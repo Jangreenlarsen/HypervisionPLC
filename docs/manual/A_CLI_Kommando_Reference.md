@@ -164,6 +164,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `set ao2 mode <voltage\|current>` | kun ES32D26 | Analog output 2 |
 | `set analog <vi1-4\|ii1-4\|ao1-2> enabled on\|off` | kun ES32D26 | Slå en analog kanal til/fra (FEAT-034-037). AO1/AO2 skrives ikke mens Ethernet er aktiveret (BUG-423b) |
 | `set analog <kanal> scale\|offset <tal>` | kun ES32D26 | Kalibrering: skaleret = rå × scale + offset |
+| `set analog <vi1-4\|ii1-4> samples <1-32>` | kun ES32D26 | **FEAT-497.** Multisampling: gennemsnit af N ADC-læsninger pr. poll (støjreduktion — ESP32s egen ADC har ca. ±30mV kalibreret fejl pr. enkelt-sample). Default 1 (ingen ændring af hidtidig adfærd). Gælder kun Vi1-4/Ii1-4, ikke AO1-2 |
 
 ### Modbus Slave (`set modbus-slave <param> <værdi>`)
 

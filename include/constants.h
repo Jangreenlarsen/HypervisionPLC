@@ -295,7 +295,7 @@ typedef enum {
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   31      // Current config schema version (schema 31: FEAT-409c tilfoejer board_type[] til ExpansionBoard, se config_load.cpp's migrationsblok. Schema 30: FEAT-409 tilfoejer expansion_board_count/expansion_boards[] til PersistConfig. Schema 29-feltet forbliver reserveret/ubrugt — FEAT-408 rullet tilbage, se BUGS_INDEX.md)
+#define CONFIG_SCHEMA_VERSION   32      // Current config schema version (schema 32: FEAT-497 tilfoejer analog_ai_v_samples[]/analog_ai_i_samples[] til PersistConfig, multisampling for Vi1-4/Ii1-4. Schema 31: FEAT-409c tilfoejer board_type[] til ExpansionBoard, se config_load.cpp's migrationsblok. Schema 30: FEAT-409 tilfoejer expansion_board_count/expansion_boards[] til PersistConfig. Schema 29-feltet forbliver reserveret/ubrugt — FEAT-408 rullet tilbage, se BUGS_INDEX.md)
 
 // FEAT-409: HypervisionPLC Extension Board — management-API-klient.
 // EXPANSION_BOARD_MAX matcher expansion-boardets eget design (op til 8 boards).
@@ -526,6 +526,8 @@ typedef enum {
   // Analog Outputs (onboard DAC)
   #define PIN_AO1             25    // AO1: Vo1/Io1 (DAC1)
   #define PIN_AO2             26    // AO2: Vo2/Io2 (DAC2)
+  // FEAT-497: graense for 'set analog <vi/ii-kanal> samples <n>' (multisampling)
+  #define ANALOG_SAMPLES_MAX  32
   // Status LED — ikke tilgængelig (GPIO15 brugt til 74HC165 LOAD)
   #define PIN_STATUS_LED      -1
   // Shift Register hardware pins — SN74HC595 (relæ-udgange) — VERIFIED med multimeter

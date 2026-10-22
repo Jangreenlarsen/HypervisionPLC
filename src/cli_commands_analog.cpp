@@ -66,6 +66,7 @@ void cli_cmd_set_analog(uint8_t argc, char **argv) {
     debug_println("  Brug: set analog <vi1-4|ii1-4|ao1-2> enabled on|off");
     debug_println("        set analog <kanal> scale <tal>");
     debug_println("        set analog <kanal> offset <tal>");
+    debug_println("        set analog <vi1-4|ii1-4> samples <1-32>  (multisampling, FEAT-497)");
     return;
   }
 
@@ -81,15 +82,18 @@ void cli_cmd_set_analog(uint8_t argc, char **argv) {
   bool *p_enabled = NULL;
   float *p_scale = NULL;
   float *p_offset = NULL;
+  uint8_t *p_samples = NULL;  // FEAT-497: kun Vi/Ii har multisampling, AO har ingen
 
   if (ref.group == ACH_AI_V) {
     p_enabled = &g_persist_config.analog_ai_v[ref.idx].enabled;
     p_scale   = &g_persist_config.analog_ai_v[ref.idx].scale;
     p_offset  = &g_persist_config.analog_ai_v[ref.idx].offset;
+    p_samples = &g_persist_config.analog_ai_v_samples[ref.idx];
   } else if (ref.group == ACH_AI_I) {
     p_enabled = &g_persist_config.analog_ai_i[ref.idx].enabled;
     p_scale   = &g_persist_config.analog_ai_i[ref.idx].scale;
     p_offset  = &g_persist_config.analog_ai_i[ref.idx].offset;
+    p_samples = &g_persist_config.analog_ai_i_samples[ref.idx];
   } else {
     p_enabled = &g_persist_config.analog_ao[ref.idx].enabled;
     p_scale   = &g_persist_config.analog_ao[ref.idx].scale;
@@ -117,8 +121,21 @@ void cli_cmd_set_analog(uint8_t argc, char **argv) {
     *p_offset = strtof(value, NULL);
     debug_printf("%s offset sat til: %g\n", ref.label, (double)*p_offset);
     debug_println("  Kraever 'save' for at persistere (virker straks i RAM)");
+  } else if (!strcasecmp(param, "SAMPLES")) {
+    if (!p_samples) {
+      debug_printf("SET ANALOG: %s har ingen 'samples' (kun Vi1-4/Ii1-4 — AO har ingen multisampling)\n", ref.label);
+      return;
+    }
+    long n = strtol(value, NULL, 10);
+    if (n < 1 || n > ANALOG_SAMPLES_MAX) {
+      debug_printf("SET ANALOG SAMPLES: skal vaere 1-%d\n", ANALOG_SAMPLES_MAX);
+      return;
+    }
+    *p_samples = (uint8_t)n;
+    debug_printf("%s samples sat til: %u (gennemsnit af %u ADC-laesninger pr. poll)\n", ref.label, (unsigned)*p_samples, (unsigned)*p_samples);
+    debug_println("  Kraever 'save' for at persistere (virker straks i RAM)");
   } else {
-    debug_printf("SET ANALOG: ukendt parameter '%s' (gyldige: enabled, scale, offset)\n", param);
+    debug_printf("SET ANALOG: ukendt parameter '%s' (gyldige: enabled, scale, offset, samples)\n", param);
   }
 }
 
@@ -128,18 +145,18 @@ void cli_cmd_set_analog(uint8_t argc, char **argv) {
 
 static void print_channel_row(const char *label, bool enabled, uint16_t raw_reg,
                                uint16_t value_reg, float scale, float offset,
-                               bool unavailable) {
+                               uint8_t samples, bool unavailable) {
   if (unavailable) {
-    debug_printf("  %-5s %-3s  %6s  %8s  raw_reg=%-4u val_reg=%-4u scale=%-8g offset=%-8g  ** WiFi aktiv, ADC2 utilgaengelig **\n",
-                 label, enabled ? "ON" : "off", "-", "-", raw_reg, value_reg, (double)scale, (double)offset);
+    debug_printf("  %-5s %-3s  %6s  %8s  raw_reg=%-4u val_reg=%-4u scale=%-8g offset=%-8g samples=%-2u  ** WiFi aktiv, ADC2 utilgaengelig **\n",
+                 label, enabled ? "ON" : "off", "-", "-", raw_reg, value_reg, (double)scale, (double)offset, (unsigned)samples);
     return;
   }
   uint16_t raw = registers_get_holding_register(raw_reg);
   uint16_t val = registers_get_holding_register(value_reg);
   char valbuf[16];
   snprintf(valbuf, sizeof(valbuf), "%d.%02d", val / 100, val % 100);
-  debug_printf("  %-5s %-3s  %5umV  %8s  raw_reg=%-4u val_reg=%-4u scale=%-8g offset=%-8g\n",
-               label, enabled ? "ON" : "off", raw, valbuf, raw_reg, value_reg, (double)scale, (double)offset);
+  debug_printf("  %-5s %-3s  %5umV  %8s  raw_reg=%-4u val_reg=%-4u scale=%-8g offset=%-8g samples=%-2u\n",
+               label, enabled ? "ON" : "off", raw, valbuf, raw_reg, value_reg, (double)scale, (double)offset, (unsigned)samples);
 }
 
 void cli_cmd_show_analog(void) {
@@ -153,7 +170,8 @@ void cli_cmd_show_analog(void) {
     bool unavail = wifi_active && analog_driver_ai_v_is_adc2(i) && c->enabled;
     char label[6];
     snprintf(label, sizeof(label), "Vi%d", i + 1);
-    print_channel_row(label, c->enabled, c->raw_reg, c->value_reg, c->scale, c->offset, unavail);
+    print_channel_row(label, c->enabled, c->raw_reg, c->value_reg, c->scale, c->offset,
+                       g_persist_config.analog_ai_v_samples[i], unavail);
   }
 
   debug_println("\nStroemindgange (4-20mA):");
@@ -162,7 +180,8 @@ void cli_cmd_show_analog(void) {
     const AnalogInputConfig *c = &g_persist_config.analog_ai_i[i];
     char label[6];
     snprintf(label, sizeof(label), "Ii%d", i + 1);
-    print_channel_row(label, c->enabled, c->raw_reg, c->value_reg, c->scale, c->offset, false);
+    print_channel_row(label, c->enabled, c->raw_reg, c->value_reg, c->scale, c->offset,
+                       g_persist_config.analog_ai_i_samples[i], false);
   }
 
   debug_println("\nAnaloge udgange (DAC, 8-bit):");

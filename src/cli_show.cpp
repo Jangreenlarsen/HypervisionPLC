@@ -402,11 +402,11 @@ void cli_cmd_show_config(const char *section) {
   static const char* AI_I_LABELS[4] = { "Ii1", "Ii2", "Ii3", "Ii4" };
   for (uint8_t i = 0; i < 4; i++) {
     const AnalogInputConfig *c = &g_persist_config.analog_ai_v[i];
-    debug_printf("%s: %s  scale=%g offset=%g\n", AI_V_LABELS[i], c->enabled ? "ON" : "off", (double)c->scale, (double)c->offset);
+    debug_printf("%s: %s  scale=%g offset=%g samples=%u\n", AI_V_LABELS[i], c->enabled ? "ON" : "off", (double)c->scale, (double)c->offset, (unsigned)g_persist_config.analog_ai_v_samples[i]);
   }
   for (uint8_t i = 0; i < 4; i++) {
     const AnalogInputConfig *c = &g_persist_config.analog_ai_i[i];
-    debug_printf("%s: %s  scale=%g offset=%g\n", AI_I_LABELS[i], c->enabled ? "ON" : "off", (double)c->scale, (double)c->offset);
+    debug_printf("%s: %s  scale=%g offset=%g samples=%u\n", AI_I_LABELS[i], c->enabled ? "ON" : "off", (double)c->scale, (double)c->offset, (unsigned)g_persist_config.analog_ai_i_samples[i]);
   }
   debug_println("");
   debug_println("[ANALOG OUTPUTS]");
@@ -1477,12 +1477,14 @@ void cli_cmd_show_config(const char *section) {
     debug_printf("set analog %s enabled %s\n", AI_V_CMD[i], c->enabled ? "on" : "off");
     debug_printf("set analog %s scale %g\n", AI_V_CMD[i], (double)c->scale);
     debug_printf("set analog %s offset %g\n", AI_V_CMD[i], (double)c->offset);
+    debug_printf("set analog %s samples %u\n", AI_V_CMD[i], (unsigned)g_persist_config.analog_ai_v_samples[i]);
   }
   for (uint8_t i = 0; i < 4; i++) {
     const AnalogInputConfig *c = &g_persist_config.analog_ai_i[i];
     debug_printf("set analog %s enabled %s\n", AI_I_CMD[i], c->enabled ? "on" : "off");
     debug_printf("set analog %s scale %g\n", AI_I_CMD[i], (double)c->scale);
     debug_printf("set analog %s offset %g\n", AI_I_CMD[i], (double)c->offset);
+    debug_printf("set analog %s samples %u\n", AI_I_CMD[i], (unsigned)g_persist_config.analog_ai_i_samples[i]);
   }
   debug_println("\n# Analog Outputs (ES32D26)");
   debug_print("set ao1 mode ");
