@@ -98,6 +98,7 @@ esp_err_t api_handler_logic_reinit(httpd_req_t *req);
 esp_err_t api_handler_logic_stats(httpd_req_t *req);
 esp_err_t api_handler_logic_wdt(httpd_req_t *req);  // FEAT-427 lag B
 esp_err_t api_handler_logic_globals(httpd_req_t *req);  // FEAT-007
+esp_err_t api_handler_logic_var_post(httpd_req_t *req);  // FEAT-503
 esp_err_t api_handler_logic_priority_post(httpd_req_t *req);  // FEAT-010
 esp_err_t api_handler_logic_program_interval_post(httpd_req_t *req);  // FEAT-010
 esp_err_t api_handler_counter_reset(httpd_req_t *req);
@@ -890,6 +891,8 @@ static const api_route_info_t API_ROUTES[] = {
   {"GET",    "/api/logic/{1-4}/debug/state",         "Debug snapshot"},
   {"POST",   "/api/logic/settings",                "Logic engine settings"},
   {"GET",    "/api/logic/globals",                   "List GLOBAL_VAR values"},
+  {"POST",   "/api/logic/globals/var",               "Write a GLOBAL_VAR value (FEAT-503)"},
+  {"POST",   "/api/logic/{id}/var",                  "Write an ST variable value (FEAT-503)"},
   {"GET",    "/api/logic/globals/source",            "Download GLOBAL_VAR source"},
   {"POST",   "/api/logic/globals/source",            "Upload GLOBAL_VAR source"},
   {"GET",    "/api/bindings",                      "ST var<->register bindings"},
@@ -1864,6 +1867,176 @@ esp_err_t api_handler_logic(httpd_req_t *req)
 }
 
 /* ============================================================================
+ * FEAT-503: POST /api/logic/{id}/var og /api/logic/globals/var
+ *
+ * Skriv en ST-variabels vaerdi paa navn — SCADA/klienter kunne foer kun skrive
+ * registre (HR/coil), saa en variabel skulle bindes til et register foerst.
+ * Skrivningen sker under st_var_spinlock (samme laas som input-bindinger i
+ * gpio_mapping.cpp og GLOBAL_VAR i VM'en). En variabel som programmet selv
+ * tildeler hver cyklus, overskrives naturligvis straks igen; og en variabel der
+ * er bundet som INPUT fra et register afvises (409), fordi bindingen ville
+ * overskrive den hver cyklus — skriv registret i stedet.
+ * ============================================================================ */
+
+static esp_err_t st_var_write_read_body(httpd_req_t *req, JsonDocument &doc, const char **name)
+{
+  char content[256];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    return api_send_error(req, 400, "Failed to read request body");
+  }
+  content[ret] = '\0';
+  if (deserializeJson(doc, content)) {
+    return api_send_error(req, 400, "Invalid JSON");
+  }
+  *name = doc["name"].as<const char*>();
+  if (!*name || !**name) {
+    return api_send_error(req, 400, "Missing 'name' field");
+  }
+  if (doc["value"].isNull()) {
+    return api_send_error(req, 400, "Missing 'value' field");
+  }
+  return ESP_OK;
+}
+
+static bool st_var_json_to_value(JsonVariantConst v, st_datatype_t type, st_value_t *out, char *err, size_t err_len)
+{
+  memset(out, 0, sizeof(*out));
+  if (type == ST_TYPE_BOOL) {
+    if (v.is<bool>()) { out->bool_val = v.as<bool>(); return true; }
+    if (v.is<long>()) { out->bool_val = v.as<long>() != 0; return true; }
+    snprintf(err, err_len, "BOOL expects true/false or 0/1");
+    return false;
+  }
+  if (type == ST_TYPE_REAL) {
+    if (v.is<float>() || v.is<long>()) { out->real_val = v.as<float>(); return true; }
+    snprintf(err, err_len, "REAL expects a number");
+    return false;
+  }
+  if (type == ST_TYPE_STRING) {
+    snprintf(err, err_len, "STRING variables cannot be written via REST");
+    return false;
+  }
+  if (!v.is<long long>()) {
+    snprintf(err, err_len, "Integer value expected");
+    return false;
+  }
+  long long n = v.as<long long>();
+  switch (type) {
+    case ST_TYPE_INT:
+      if (n < -32768 || n > 32767) { snprintf(err, err_len, "INT out of range (-32768..32767)"); return false; }
+      out->int_val = (int16_t)n; return true;
+    case ST_TYPE_DINT:
+    case ST_TYPE_TIME:
+      if (n < INT32_MIN || n > INT32_MAX) { snprintf(err, err_len, "DINT/TIME out of range"); return false; }
+      out->dint_val = (int32_t)n; return true;
+    case ST_TYPE_DWORD:
+      if (n < 0 || n > (long long)UINT32_MAX) { snprintf(err, err_len, "DWORD out of range (0..4294967295)"); return false; }
+      out->dword_val = (uint32_t)n; return true;
+    default:
+      snprintf(err, err_len, "Unsupported variable type");
+      return false;
+  }
+}
+
+static esp_err_t st_var_write_reply(httpd_req_t *req, int program, const char *name, st_datatype_t type, st_value_t val)
+{
+  char ip[16], user[24];
+  http_get_client_info(req, ip, sizeof(ip), user, sizeof(user));
+  char shown[24];
+  switch (type) {
+    case ST_TYPE_BOOL:  snprintf(shown, sizeof(shown), "%s", val.bool_val ? "TRUE" : "FALSE"); break;
+    case ST_TYPE_INT:   snprintf(shown, sizeof(shown), "%d", val.int_val); break;
+    case ST_TYPE_DWORD: snprintf(shown, sizeof(shown), "%lu", (unsigned long)val.dword_val); break;
+    case ST_TYPE_REAL:  snprintf(shown, sizeof(shown), "%g", (double)val.real_val); break;
+    default:            snprintf(shown, sizeof(shown), "%ld", (long)val.dint_val); break;
+  }
+  char msg[96];
+  if (program > 0) snprintf(msg, sizeof(msg), "ST-variabel Logic%d.%s := %s", program, name, shown);
+  else snprintf(msg, sizeof(msg), "GLOBAL_VAR %s := %s", name, shown);
+  system_log_add_event((uint8_t)SYSLOG_SRC_REST, user, ip, msg);
+
+  JsonDocument doc;
+  doc["status"] = "ok";
+  if (program > 0) doc["program"] = program;
+  doc["name"] = name;
+  switch (type) {
+    case ST_TYPE_BOOL:  doc["value"] = val.bool_val ? true : false; break;
+    case ST_TYPE_INT:   doc["value"] = val.int_val; break;
+    case ST_TYPE_DWORD: doc["value"] = val.dword_val; break;
+    case ST_TYPE_REAL:  doc["value"] = val.real_val; break;
+    default:            doc["value"] = val.dint_val; break;
+  }
+  char buf[256];
+  serializeJson(doc, buf, sizeof(buf));
+  return api_send_json(req, buf);
+}
+
+esp_err_t api_handler_logic_var_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  int id = api_extract_id_from_uri(req, "/api/logic/");
+  if (id < 1 || id > ST_LOGIC_MAX_PROGRAMS) {
+    return api_send_error(req, 400, "Invalid logic ID (must be 1-4)");
+  }
+  st_logic_engine_state_t *state = st_logic_get_state();
+  if (!state) {
+    return api_send_error(req, 500, "Logic engine not initialized");
+  }
+  st_logic_program_config_t *prog = st_logic_get_program(state, id - 1);
+  if (!prog || !prog->compiled) {
+    return api_send_error(req, 409, "Program not compiled. Upload source code first.");
+  }
+
+  JsonDocument doc;
+  const char *name = NULL;
+  esp_err_t bad = st_var_write_read_body(req, doc, &name);
+  if (bad != ESP_OK) return bad;
+
+  uint8_t var_index = 0xFF;
+  for (uint8_t i = 0; i < prog->bytecode.var_count; i++) {
+    if (strcmp(prog->bytecode.var_names[i], name) == 0) { var_index = i; break; }
+  }
+  if (var_index == 0xFF) {
+    char vars_list[256] = "";
+    int pos = 0;
+    for (uint8_t i = 0; i < prog->bytecode.var_count && pos < 250; i++) {
+      if (i > 0) pos += snprintf(vars_list + pos, sizeof(vars_list) - pos, ", ");
+      pos += snprintf(vars_list + pos, sizeof(vars_list) - pos, "%s", prog->bytecode.var_names[i]);
+    }
+    char errmsg[384];
+    snprintf(errmsg, sizeof(errmsg), "Variable '%s' not found. Available: %s", name, vars_list);
+    return api_send_error(req, 404, errmsg);
+  }
+
+  // En INPUT-binding (register -> variabel) overskriver variablen hver cyklus
+  for (uint8_t m = 0; m < g_persist_config.var_map_count; m++) {
+    const VariableMapping *map = &g_persist_config.var_maps[m];
+    if (map->source_type == MAPPING_SOURCE_ST_VAR && map->is_input &&
+        map->st_program_id == (uint8_t)(id - 1) && map->st_var_index == var_index) {
+      const char *kind = map->input_type == 1 ? "DI" : (map->input_type == 2 ? "coil" : "HR");
+      char errmsg[160];
+      snprintf(errmsg, sizeof(errmsg), "Variable '%s' is bound as INPUT from %s %u - write that register instead",
+               name, kind, (unsigned)map->input_reg);
+      return api_send_error(req, 409, errmsg);
+    }
+  }
+
+  st_datatype_t type = prog->bytecode.var_types[var_index];
+  st_value_t val;
+  char err[96];
+  if (!st_var_json_to_value(doc["value"], type, &val, err, sizeof(err))) {
+    return api_send_error(req, 400, err);
+  }
+  st_logic_lock_variables();
+  prog->bytecode.variables[var_index] = val;
+  st_logic_unlock_variables();
+  return st_var_write_reply(req, id, prog->bytecode.var_names[var_index], type, val);
+}
+
+/* ============================================================================
  * GET /api/logic/{id}
  * ============================================================================ */
 
@@ -1919,6 +2092,10 @@ esp_err_t api_handler_logic_single(httpd_req_t *req)
     // GAP-13: Variable binding
     if (uri_len >= 5 && strcmp(uri + uri_len - 5, "/bind") == 0) {
       return api_handler_logic_bind_post(req);
+    }
+    // FEAT-503: skriv en ST-variabels vaerdi paa navn
+    if (uri_len >= 4 && strcmp(uri + uri_len - 4, "/var") == 0) {
+      return api_handler_logic_var_post(req);
     }
     // FEAT-010: per-program priority/interval
     if (uri_len >= 9 && strcmp(uri + uri_len - 9, "/priority") == 0) {
@@ -2260,10 +2437,35 @@ esp_err_t api_handler_logic_globals(httpd_req_t *req)
   const char *uri = req->uri;
   size_t uri_len = strlen(uri);
   bool is_source = (uri_len >= 7 && strcmp(uri + uri_len - 7, "/source") == 0);
+  bool is_var = (uri_len >= 4 && strcmp(uri + uri_len - 4, "/var") == 0);  // FEAT-503
 
   st_logic_engine_state_t *state = st_logic_get_state();
   if (!state) {
     return api_send_error(req, 500, "ST Logic not initialized");
+  }
+
+  // FEAT-503: POST /api/logic/globals/var — skriv en GLOBAL_VAR paa navn
+  if (req->method == HTTP_POST && is_var) {
+    CHECK_AUTH_WRITE(req);
+    JsonDocument doc;
+    const char *name = NULL;
+    esp_err_t bad = st_var_write_read_body(req, doc, &name);
+    if (bad != ESP_OK) return bad;
+    uint8_t idx = st_logic_globals_lookup(state, name);
+    if (idx == 0xFF || idx >= state->global_count) {
+      char msg[96];
+      snprintf(msg, sizeof(msg), "GLOBAL_VAR '%s' not found", name);
+      return api_send_error(req, 404, msg);
+    }
+    st_value_t val;
+    char err[96];
+    if (!st_var_json_to_value(doc["value"], state->globals[idx].type, &val, err, sizeof(err))) {
+      return api_send_error(req, 400, err);
+    }
+    st_logic_lock_variables();
+    state->globals[idx].value = val;
+    st_logic_unlock_variables();
+    return st_var_write_reply(req, 0, state->globals[idx].name, state->globals[idx].type, val);
   }
 
   if (req->method == HTTP_GET) {

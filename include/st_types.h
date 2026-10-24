@@ -691,7 +691,7 @@ typedef struct {
   // Variable memory
   st_value_t variables[ST_MAX_PROGRAM_VARS];   // FEAT-426: max 64 (runtime values)
   st_value_t var_initial[ST_MAX_PROGRAM_VARS]; // Initial values from VAR declarations (v7.7.1)
-  char var_names[ST_MAX_PROGRAM_VARS][16];     // Variable names (for CLI binding by name, 15 chars max — heap optimization)
+  char var_names[ST_MAX_PROGRAM_VARS][32];     // Variable names (CLI/REST binding og skrivning paa navn) — FEAT-503: 31 tegn (foer 15, afkortede fx system_styre_mode)
   st_datatype_t var_types[ST_MAX_PROGRAM_VARS]; // Variable types (BOOL, INT, etc.) - for bindings display
   uint8_t var_count;
 

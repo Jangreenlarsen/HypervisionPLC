@@ -20,7 +20,8 @@
 
 /* Magic number "STBC" */
 #define ST_BYTECODE_MAGIC   0x53544243
-#define ST_BYTECODE_VERSION 6  // v6 (BUG-432): stateful-instansantal + STRING-literaler gemmes — uden dem
+#define ST_BYTECODE_VERSION 7  // v7 (FEAT-503): variabelnavne gemmes med 32 byte (foer 16)
+                                // v6 (BUG-432): stateful-instansantal + STRING-literaler gemmes — uden dem
                                 // koerte et cachet program uden timere/flanker/tekster efter genstart
                                 // v5 (FEAT-428): header + fw_build — cached bytecode is tied to the firmware build
                                 // v4 (BUG-384): new ST_OP_STORE_PARAM inserted into st_opcode_t

@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.141] - 2026-10-24
+
+### FEATURES
+- **FEAT-503:** ST-variabler og GLOBAL_VAR kan skrives via REST: `POST /api/logic/{id}/var` og `POST /api/logic/globals/var` med `{"name":…,"value":…}` (skriverettighed kræves). Typekonvertering og områdetjek efter variablens type; STRING afvises; en variabel bundet som INPUT fra et register afvises (409) — skriv registret i stedet. Skrivningen logges i hændelsesloggen. Variabelnavne op til 31 tegn i API/CLI/bindinger (før 15 — fx `system_styre_mode` blev til `system_styre_mo`); bytecode-cachen genkompileres automatisk ved første boot.
+
 ## [7.9.68.140] - 2026-10-22
 
 ### BUG FIXES
