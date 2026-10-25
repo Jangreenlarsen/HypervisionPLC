@@ -220,6 +220,7 @@ const char* watchdog_reset_reason_to_str(uint32_t reason_val) {
 
 #define RTC_WDT_EARLY_BOOT_MS  60000
 static bool g_rtc_wdt_armed = false;
+static uint32_t g_rtc_wdt_timeout_ms = 0;
 
 static void rtc_wdt_arm(uint32_t timeout_ms) {
   rtc_wdt_protect_off();
@@ -230,6 +231,7 @@ static void rtc_wdt_arm(uint32_t timeout_ms) {
   rtc_wdt_enable();
   rtc_wdt_protect_on();
   g_rtc_wdt_armed = true;
+  g_rtc_wdt_timeout_ms = timeout_ms;
 }
 
 static void rtc_wdt_disarm(void) {
@@ -239,8 +241,52 @@ static void rtc_wdt_disarm(void) {
   g_rtc_wdt_armed = false;
 }
 
+bool watchdog_rtc_armed(void) { return g_rtc_wdt_armed; }
+uint32_t watchdog_rtc_timeout_ms(void) { return g_rtc_wdt_timeout_ms; }
+
+/* BUG-506: boot-broedkrumme i RTC-hukommelse (overlever watchdog-/panic-reset,
+ * ikke stroemsvigt). Viser HVOR i opstarten PLC'en hang, hvis en watchdog
+ * maatte redde den. "loop" = opstarten blev gennemfoert. */
+#define WDT_BOOT_MAGIC 0x424F4F54UL  // "BOOT"
+typedef struct {
+  uint32_t magic;
+  char stage[16];
+} WdtBootTrace;
+RTC_NOINIT_ATTR static WdtBootTrace g_boot_trace;
+static char g_prev_boot_stage[16] = "";
+
+void watchdog_boot_stage(const char *stage) {
+  g_boot_trace.magic = WDT_BOOT_MAGIC;
+  strncpy(g_boot_trace.stage, stage ? stage : "?", sizeof(g_boot_trace.stage) - 1);
+  g_boot_trace.stage[sizeof(g_boot_trace.stage) - 1] = '\0';
+}
+
+const char* watchdog_prev_boot_stage(void) { return g_prev_boot_stage; }
+
+/* BUG-506: 'test crash rtc yes' - task-watchdog'en fodres fortsat, RTC-
+ * watchdog'en ikke; kun den kan derfor udloese resettet. */
+void watchdog_test_rtc_hang(void) {
+  debug_printf("TEST CRASH (rtc): RTC-watchdog'en fodres ikke laengere - forventet genstart om ca. %lu s.\n",
+               (unsigned long)(g_rtc_wdt_timeout_ms / 1000));
+  debug_println("Kommer genstarten IKKE, virker RTC-watchdog'en ikke.");
+  uint32_t start = millis();
+  uint32_t last = 0xFFFFFFFF;
+  while (true) {
+    esp_task_wdt_reset();
+    uint32_t s = (millis() - start) / 1000;
+    if (s % 10 == 0 && s != last) { last = s; debug_printf("  %lu s...\n", (unsigned long)s); }
+    delay(100);
+  }
+}
+
 void watchdog_early_boot_arm(void) {
   rtc_wdt_arm(RTC_WDT_EARLY_BOOT_MS);
+  esp_reset_reason_t rr = esp_reset_reason();
+  if (g_boot_trace.magic == WDT_BOOT_MAGIC && rr != ESP_RST_POWERON && rr != ESP_RST_BROWNOUT) {
+    memcpy(g_prev_boot_stage, g_boot_trace.stage, sizeof(g_prev_boot_stage));
+    g_prev_boot_stage[sizeof(g_prev_boot_stage) - 1] = '\0';
+  }
+  watchdog_boot_stage("start");
 }
 
 /* ============================================================================
@@ -304,9 +350,16 @@ void watchdog_init(void) {
     } else {
       g_watchdog_state.crash_streak = 1;
     }
-    snprintf(g_watchdog_state.last_error, sizeof(g_watchdog_state.last_error),
-             "Crash: %s efter %lu s drift (%u i traek)", watchdog_reset_reason_to_str(rr),
-             (unsigned long)(prev_uptime / 1000), (unsigned)g_watchdog_state.crash_streak);
+    if (g_prev_boot_stage[0] && strcmp(g_prev_boot_stage, "loop") != 0) {
+      // BUG-506: hang/crash UNDER opstarten - vis hvilket trin
+      snprintf(g_watchdog_state.last_error, sizeof(g_watchdog_state.last_error),
+               "Crash: %s under opstart, trin '%s' (%u i traek)", watchdog_reset_reason_to_str(rr),
+               g_prev_boot_stage, (unsigned)g_watchdog_state.crash_streak);
+    } else {
+      snprintf(g_watchdog_state.last_error, sizeof(g_watchdog_state.last_error),
+               "Crash: %s efter %lu s drift (%u i traek)", watchdog_reset_reason_to_str(rr),
+               (unsigned long)(prev_uptime / 1000), (unsigned)g_watchdog_state.crash_streak);
+    }
     g_watchdog_state.last_error_epoch = prev_epoch;  // FEAT-429: senest kendte tid foer crashet
     if (g_watchdog_state.crash_streak >= WATCHDOG_SAFE_MODE_STREAK) {
       g_watchdog_state.safe_mode = 1;
@@ -391,6 +444,8 @@ void watchdog_feed(void) {
   }
 
   if (g_rtc_wdt_armed) rtc_wdt_feed();  // BUG-504
+  static bool loop_marked = false;
+  if (!loop_marked) { loop_marked = true; watchdog_boot_stage("loop"); }  // BUG-506
 
   if (!g_watchdog_initialized || !g_watchdog_enabled) {
     return;

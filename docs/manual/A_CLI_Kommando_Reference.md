@@ -34,7 +34,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `disconnect wifi` / `dc` | — | Afbryd WiFi | `disconnect wifi` |
 | `test sr` | — | Test af shift-register outputs (kun boards med `SHIFT_REGISTER_ENABLED`) | `test sr` |
 | `test sr input` | — | Test af shift-register inputs | `test sr input` |
-| `test crash panic\|wdt yes` | `yes` påkrævet | **FEAT-427.** Bevidst crash til test af crash-tæller og safe mode: `panic` genstarter straks (panic-reset), `wdt` hænger hovedløkken så task-watchdog'en genstarter efter timeout. 3 i træk (hver < 10 min drift) → safe mode. **Kun til test — genstarter PLC'en.** Brug Telnet | `test crash panic yes` |
+| `test crash panic\|wdt\|rtc yes` | `yes` påkrævet | **FEAT-427.** Bevidst crash til test af crash-tæller og safe mode: `panic` genstarter straks (panic-reset), `wdt` hænger hovedløkken så task-watchdog'en genstarter efter timeout, `rtc` (BUG-506) stopper kun fodringen af RTC-watchdog'en (hardware) — beviser at den genstarter PLC'en efter sin timeout (reset-årsag `Other watchdog`). 3 i træk (hver < 10 min drift) → safe mode. **Kun til test — genstarter PLC'en.** Brug Telnet | `test crash panic yes` |
 | `delete user <navn>` | — | Slet RBAC-bruger | `delete user viewer` |
 | `no set gpio <pin>` | — | Fjern GPIO-mapping (auto-gemmes til NVS) | `no set gpio 23` |
 | `no set counter <id>` | `id`: 1–4 | Deaktivér/slet counter-konfiguration og frigiv dens registre. Brug `save` bagefter (før v7.9.68.44 overlevede sletningen ikke en genstart, BUG-442) | `no set counter 1` |

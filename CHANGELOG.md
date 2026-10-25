@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.144] - 2026-10-25
+
+### BUG FIXES / DIAGNOSTIK
+- **BUG-506:** Opfølgning på BUG-504 — PLC'en hang stadig af og til efter strømsvigt. Nye værktøjer til at finde ud af *hvor*: (1) boot-brødkrumme i RTC-hukommelsen — hvert opstartstrin (`nvs`, `config`, `drivers`, `subsystems`, `modbus`, `st-load`, `network`, `rs485`, `ntp`, `cli`, `loop`) markeres; reddes PLC'en af en watchdog, viser `show watchdog` "Forrige opstart nåede: trin '…'" og `Last error` siger "under opstart, trin '…'"; (2) `show watchdog` viser om RTC-watchdog'en er armeret og dens timeout; (3) `test crash rtc yes` beviser at RTC-watchdog'en reelt genstarter PLC'en. Manual §13.5 punkt 5 beskriver fejlsøgningen, inkl. hængninger før firmwaren starter (strapping-pins GPIO0/GPIO12).
+
 ## [7.9.68.143] - 2026-10-25
 
 ### NEW FEATURES

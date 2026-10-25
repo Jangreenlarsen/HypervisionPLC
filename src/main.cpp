@@ -105,6 +105,7 @@ void setup() {
   Serial.println("");
 
   // Initialize NVS flash (for configuration persistence)
+  watchdog_boot_stage("nvs");  // BUG-506
   esp_err_t err = nvs_flash_init();
   if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     // NVS partition was truncated and needs to be erased
@@ -122,11 +123,13 @@ void setup() {
 
   // Load configuration from NVS
   Serial.print("Config: Loading... ");
+  watchdog_boot_stage("config");
   config_load_from_nvs(&g_persist_config);
   Serial.println("OK");
 
   // Initialize hardware drivers
   Serial.print("GPIO: ");
+  watchdog_boot_stage("drivers");
   gpio_driver_init();       // GPIO system + shift registers (ES32D26)
   Serial.println("OK");
 #if defined(ANALOG_IO_ENABLED)
@@ -142,6 +145,7 @@ void setup() {
   // Granular boot diagnostics: each letter = one subsystem initialized
   Serial.print("Subsystems: "); Serial.flush();
   Serial.print("C"); Serial.flush();   // Counter
+  watchdog_boot_stage("subsystems");
   counter_engine_init();    // Counter feature (SW/SW-ISR/HW modes)
   Serial.print("T"); Serial.flush();   // Timer
   timer_engine_init();      // Timer feature (4 modes)
@@ -177,6 +181,7 @@ void setup() {
 #else
   // Other boards: dual-UART — slave and master can run simultaneously
   Serial.print("Ms"); Serial.flush();  // Modbus slave
+  watchdog_boot_stage("modbus");
   modbus_server_init(g_persist_config.modbus_slave.slave_id);    // Modbus RTU server (UART0)
   Serial.print("Mm"); Serial.flush();  // Modbus master
   modbus_master_init();     // Modbus RTU master (UART1, separate RS485 port)
@@ -212,6 +217,7 @@ void setup() {
 
   // Load ST Logic programs from persistent config
   Serial.print("ST Logic: ");
+  watchdog_boot_stage("st-load");
   st_logic_load_from_persist_config(&g_persist_config);
   Serial.println("OK");
 
@@ -252,6 +258,7 @@ void setup() {
   Serial.println("Coils: 32 (256 bits), Discrete inputs: 32 (256 bits)\n");
 
   // Initialize network subsystem (v3.0+)
+  watchdog_boot_stage("network");
   if (network_manager_init() == 0) {
     Serial.println("Network manager initialized (Wi-Fi + Ethernet)");
 
@@ -306,6 +313,7 @@ void setup() {
     // kunne nå bussen. Kræv nu en bevidst menneskelig handling: flere
     // MELLEMRUM i træk. Enhver anden byte nulstiller tælleren, så binær
     // bus-trafik ikke kan udløse afbrydelsen.
+    watchdog_boot_stage("rs485");  // BUG-506
     while (Serial.available()) Serial.read();   // smid trafik fra før boot væk
 
     const uint8_t ABORT_SPACES_REQUIRED = 3;
@@ -355,9 +363,11 @@ void setup() {
 #endif
 
   // Initialize NTP time sync (v7.8.1) — after network init
+  watchdog_boot_stage("ntp");
   ntp_driver_init();
 
   // Initialize CLI remote (unified serial + Telnet)
+  watchdog_boot_stage("cli");
   if (cli_remote_init() == 0) {
     Serial.println("CLI remote initialized (serial + Telnet support)");
   }

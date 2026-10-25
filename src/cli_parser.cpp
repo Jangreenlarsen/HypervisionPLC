@@ -3037,9 +3037,22 @@ bool cli_parser_execute(char* line) {
     if (argc >= 2 && !strcasecmp(argv[1], "crash")) {
       bool panic = (argc >= 3 && !strcasecmp(argv[2], "panic"));
       bool wdt   = (argc >= 3 && !strcasecmp(argv[2], "wdt"));
+      bool rtc   = (argc >= 3 && !strcasecmp(argv[2], "rtc"));
+      if (rtc && argc >= 4 && !strcasecmp(argv[3], "yes")) {
+        // BUG-506: bevis at RTC-watchdog'en (hardware) reelt genstarter PLC'en.
+        // Task-watchdog'en fodres fortsat, RTC-watchdog'en ikke - kun den kan
+        // derfor udloese resettet. Efter genstart: 'show watchdog' -> Other watchdog.
+        if (!watchdog_rtc_armed()) {
+          debug_println("FEJL: RTC-watchdog'en er ikke armeret (watchdog slaaet fra?)");
+          return false;
+        }
+        watchdog_test_rtc_hang();  // vender ikke tilbage
+        return true;
+      }
       if ((!panic && !wdt) || argc < 4 || strcasecmp(argv[3], "yes") != 0) {
         debug_println("Brug: test crash panic yes   (panic-reset med det samme)");
         debug_println("      test crash wdt yes     (haeng hovedloekken -> task-watchdog efter timeout)");
+        debug_println("      test crash rtc yes     (stop kun RTC-watchdog-fodring -> hardware-reset)");
         debug_println("Bevidst crash til test af crash-taeller/safe mode. 3 crashes i traek,");
         debug_println("hver efter < 10 min drift, sender PLC'en i SAFE MODE ('clear safemode').");
         return false;

@@ -55,6 +55,13 @@ void watchdog_init(void);
  * task-watchdog'en ikke kan fange. Fodres af watchdog_feed().
  */
 void watchdog_early_boot_arm(void);
+bool watchdog_rtc_armed(void);
+uint32_t watchdog_rtc_timeout_ms(void);
+
+/* BUG-506: boot-broedkrumme - marker opstartstrin (overlever watchdog-reset) */
+void watchdog_boot_stage(const char *stage);
+const char* watchdog_prev_boot_stage(void);  // "" = ukendt / stroemsvigt
+void watchdog_test_rtc_hang(void);           // 'test crash rtc yes' - vender ikke tilbage
 
 /**
  * @brief Feed the watchdog (reset timeout counter)

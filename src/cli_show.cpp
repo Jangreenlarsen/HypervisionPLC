@@ -4853,6 +4853,20 @@ void cli_cmd_show_watchdog(void) {
   debug_print("Timeout: ");
   debug_print_uint(wdt->timeout_ms / 1000);
   debug_println(" seconds");
+  // BUG-504/506: RTC-watchdog'en (hardware, sidste sikkerhedsnet)
+  if (watchdog_rtc_armed()) {
+    debug_printf("RTC watchdog: armeret, %lu s (test: 'test crash rtc yes')\n",
+                 (unsigned long)(watchdog_rtc_timeout_ms() / 1000));
+  } else {
+    debug_println("RTC watchdog: IKKE armeret");
+  }
+  {
+    const char *st = watchdog_prev_boot_stage();
+    debug_print("Forrige opstart naaede: ");
+    if (!st[0]) debug_println("ukendt (stroemsvigt/power-on - RTC-hukommelse nulstillet)");
+    else if (!strcmp(st, "loop")) debug_println("hovedloekken (opstart gennemfoert)");
+    else { debug_print("trin '"); debug_print(st); debug_println("' - HANG/CRASH UNDER OPSTART"); }
+  }
   debug_print("Reboot counter: ");
   debug_print_uint(wdt->reboot_counter);
   {
