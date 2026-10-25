@@ -882,6 +882,15 @@ bool config_load_from_nvs(PersistConfig* out) {
       debug_println("CONFIG LOAD: Migration 32→33 complete");
     }
 
+    if (out->schema_version == 33) {
+      debug_println("CONFIG LOAD: Migrating schema 33 → 34 (FEAT-505: device_description)");
+      // Nyt felt - nul-bytes i den raa blob er allerede en tom streng; saet
+      // eksplicit for at vaere konsistent med de oevrige migrationsblokke.
+      memset(out->device_description, 0, sizeof(out->device_description));
+      out->schema_version = 34;
+      debug_println("CONFIG LOAD: Migration 33→34 complete");
+    }
+
     if (out->schema_version != CONFIG_SCHEMA_VERSION) {
       debug_print("ERROR: Unsupported schema version (stored=");
       debug_print_uint(out->schema_version);

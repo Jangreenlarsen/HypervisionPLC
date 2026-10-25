@@ -130,6 +130,7 @@
  * starter forfra ved en programgenkompilering.
  */
 #define ST_MAX_GLOBAL_VARS        16    // Max globale variable paa tvaers af Logic1-4
+#define DEVICE_DESCRIPTION_MAX    64    // FEAT-505: PLC-beskrivelse inkl. nul-terminator (max 63 tegn)
 #define ST_GLOBAL_SOURCE_MAX      1024  // Max kildetekst-stoerrelse for GLOBAL_VAR-blokken (fast buffer, ingen pool)
 
 /* FEAT-009: STRUCT-type deklarationer (v7.9.13.0)
@@ -295,7 +296,7 @@ typedef enum {
  * EEPROM / NVS CONFIGURATION
  * ============================================================================ */
 
-#define CONFIG_SCHEMA_VERSION   33      // Current config schema version (schema 33: BUG-499 aendrer analog_ai_v[]/analog_ai_i[]'s offset-felt fra output-domaene til raa-domaene (value = scale*(raw-offset) i stedet for offset+scale*raw) - eksisterende kalibreringer konverteres i migrationsblokken, ingen datatab. Schema 32: FEAT-497 tilfoejer analog_ai_v_samples[]/analog_ai_i_samples[] til PersistConfig, multisampling for Vi1-4/Ii1-4. Schema 31: FEAT-409c tilfoejer board_type[] til ExpansionBoard, se config_load.cpp's migrationsblok. Schema 30: FEAT-409 tilfoejer expansion_board_count/expansion_boards[] til PersistConfig. Schema 29-feltet forbliver reserveret/ubrugt — FEAT-408 rullet tilbage, se BUGS_INDEX.md)
+#define CONFIG_SCHEMA_VERSION   34      // Current config schema version (schema 34: FEAT-505 tilfoejer device_description[] til PersistConfig (fritekst vist i web-topmenuen). schema 33: BUG-499 aendrer analog_ai_v[]/analog_ai_i[]'s offset-felt fra output-domaene til raa-domaene (value = scale*(raw-offset) i stedet for offset+scale*raw) - eksisterende kalibreringer konverteres i migrationsblokken, ingen datatab. Schema 32: FEAT-497 tilfoejer analog_ai_v_samples[]/analog_ai_i_samples[] til PersistConfig, multisampling for Vi1-4/Ii1-4. Schema 31: FEAT-409c tilfoejer board_type[] til ExpansionBoard, se config_load.cpp's migrationsblok. Schema 30: FEAT-409 tilfoejer expansion_board_count/expansion_boards[] til PersistConfig. Schema 29-feltet forbliver reserveret/ubrugt — FEAT-408 rullet tilbage, se BUGS_INDEX.md)
 
 // FEAT-409: HypervisionPLC Extension Board — management-API-klient.
 // EXPANSION_BOARD_MAX matcher expansion-boardets eget design (op til 8 boards).
@@ -719,7 +720,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.68.142"
+#define PROJECT_VERSION     "7.9.68.143"
 #define PROJECT_LICENSE     "AGPL-3.0-or-later"
 #define PROJECT_SOURCE_URL  "https://github.com/Jangreenlarsen/HypervisionPLC"   // FEAT-433: AGPL §13 kildekode-tilbud
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)

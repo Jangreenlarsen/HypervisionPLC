@@ -812,6 +812,23 @@ void cli_cmd_set_hostname(const char* hostname) {
   debug_println("NOTE: Anvendt paa interfacet nu. Reconnect/genstart opdaterer den DHCP-broadcastede vaert. Brug 'save' for at persistere til NVS.");
 }
 
+// FEAT-505: fritekst-beskrivelse af PLC'en, vist i web-topmenuen
+void cli_cmd_set_description(const char* text) {
+  if (!text) text = "";
+  if (strlen(text) >= DEVICE_DESCRIPTION_MAX) {
+    debug_printf("SET DESCRIPTION: for lang (max %d tegn)\n", DEVICE_DESCRIPTION_MAX - 1);
+    return;
+  }
+  strncpy(g_persist_config.device_description, text, DEVICE_DESCRIPTION_MAX - 1);
+  g_persist_config.device_description[DEVICE_DESCRIPTION_MAX - 1] = '\0';
+  if (text[0]) {
+    debug_printf("Beskrivelse sat til: %s\n", g_persist_config.device_description);
+  } else {
+    debug_println("Beskrivelse ryddet");
+  }
+  debug_println("Brug 'save' for at persistere til NVS.");
+}
+
 void cli_cmd_set_baud(uint32_t baud) {
   debug_println("DEPRECATED: Use 'set modbus-slave baudrate <value>' instead");
   // Still works for backward compatibility

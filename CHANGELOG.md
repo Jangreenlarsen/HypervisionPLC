@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.143] - 2026-10-25
+
+### NEW FEATURES
+- **FEAT-505:** Web-topmenuen viser nu PLC'ens hostname og en valgfri beskrivelse (fx "Pumpehus nord") lige efter menupunkterne, så man kan se hvilken PLC man sidder på. Beskrivelsen sættes på System-siden (hostname-kortet), med `set description <tekst>` i CLI eller `POST /api/hostname` med `{"description":"..."}`. Max 63 tegn, med i backup/restore. Vises kun for indloggede brugere.
+
 ## [7.9.68.142] - 2026-10-25
 
 ### BUG FIXES

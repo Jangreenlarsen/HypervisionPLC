@@ -81,6 +81,7 @@ void cli_cmd_clear_counters(void);
  * @param hostname New hostname (max 32 chars)
  */
 void cli_cmd_set_hostname(const char* hostname);
+void cli_cmd_set_description(const char* text);  // FEAT-505
 
 /**
  * @brief Handle "set baud" command

@@ -131,10 +131,13 @@
 
 <!-- Netværk: Hostname -->
 <div class="card">
-<h2>Enhedsnavn (Hostname)</h2>
-<p>Bruges til mDNS-identifikation på netværket.</p>
-<input type="text" id="deviceHostname" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px;margin-bottom:8px">
-<div class="btn-row"><button class="btn btn-success btn-sm" onclick="saveHostname()">Gem Hostname</button></div>
+<h2>Enhedsnavn (Hostname) og beskrivelse</h2>
+<p>Hostname bruges til mDNS-identifikation på netværket. Begge vises i topmenuen, så man kan se hvilken PLC man sidder på.</p>
+<label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Hostname</label>
+<input type="text" id="deviceHostname" maxlength="31" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px;margin-bottom:8px">
+<label style="display:block;font-size:11px;color:#a6adc8;margin-bottom:3px">Beskrivelse (fx "Pumpehus nord", max 63 tegn)</label>
+<input type="text" id="deviceDescription" maxlength="63" style="width:100%;padding:5px 8px;background:#313244;border:1px solid #45475a;border-radius:4px;color:#cdd6f4;font-size:12px;margin-bottom:8px">
+<div class="btn-row"><button class="btn btn-success btn-sm" onclick="saveHostname()">Gem</button></div>
 <div class="alert" id="hostnameAlert"></div>
 </div>
 
@@ -1412,16 +1415,20 @@ function saveEthernet(){
 
 // --- Hostname ---
 function loadHostname(){
-  api('/api/hostname').then(r=>r.json()).then(d=>{$('deviceHostname').value=d.hostname||''}).catch(()=>{});
+  api('/api/hostname').then(r=>r.json()).then(d=>{$('deviceHostname').value=d.hostname||'';$('deviceDescription').value=d.description||''}).catch(()=>{});
 }
 function saveHostname(){
   const h=$('deviceHostname').value.trim();
+  const desc=$('deviceDescription').value.trim();
   if(!h){showAlert('hostnameAlert','err','Hostname må ikke være tomt');return}
-  api('/api/hostname',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hostname:h})}).then(r=>{
+  api('/api/hostname',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hostname:h,description:desc})}).then(r=>{
     if(r.status===403)throw new Error('Ingen skriveadgang (privilege read)');
     if(!r.ok)throw new Error('HTTP '+r.status);
     return r.json();
-  }).then(()=>showAlert('hostnameAlert','warn','Hostname opdateret i RAM. Kræver Save + Genstart.'))
+  }).then(d=>{
+    hfNavInfo(d);
+    showAlert('hostnameAlert','warn','Opdateret i RAM. Kræver Save (hostname også genstart for DHCP).');
+  })
   .catch(e=>showAlert('hostnameAlert','err','Fejl: '+e.message));
 }
 

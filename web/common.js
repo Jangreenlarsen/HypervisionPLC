@@ -196,13 +196,36 @@ function hfDefaultPwBanner(d){
   b.innerHTML=(d.default_password?'⚠ Du bruger fabrikkens standard-adgangskode.':'⚠ En eller flere konti bruger stadig fabrikkens standard-adgangskode.')+' Skift den under <a href="/system" style="color:#1e1e2e;text-decoration:underline">System → Brugerstyring</a>.';
   document.body.insertBefore(b,document.body.firstChild);
 }
+// FEAT-505: hostname + beskrivelse i topmenuen lige efter menupunkterne, så
+// man kan se hvilken PLC man sidder på. Data fra /api/user/me (samme hook som
+// FEAT-440) eller svaret fra POST /api/hostname på System-siden.
+function hfNavInfo(d){
+  if(!d||d.hostname===undefined)return;
+  const nav=document.querySelector('.topnav');
+  if(!nav)return;
+  let el=document.getElementById('hfNavInfo');
+  if(!el){
+    el=document.createElement('span');
+    el.id='hfNavInfo';
+    el.style.cssText='margin-left:12px;font-size:12px;color:#a6adc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40vw';
+    const anchor=document.getElementById('saveBtn')||nav.querySelector('.user-badge');
+    nav.insertBefore(el,anchor||null);
+  }
+  el.textContent='';
+  const h=document.createElement('b');
+  h.style.color='#cdd6f4';
+  h.textContent=d.hostname||'';
+  el.appendChild(h);
+  if(d.description){el.appendChild(document.createTextNode(' — '+d.description))}
+  el.title=(d.hostname||'')+(d.description?' — '+d.description:'');
+}
 (function(){
   if(!window.fetch)return;
   const _f=window.fetch;
   window.fetch=function(u){
     const p=_f.apply(this,arguments);
     if(String(u&&u.url||u).indexOf('/api/user/me')>=0||String(u&&u.url||u).indexOf('/api/login')>=0){
-      p.then(r=>r.ok?r.clone().json():null).then(hfDefaultPwBanner).catch(()=>{});
+      p.then(r=>r.ok?r.clone().json():null).then(d=>{hfDefaultPwBanner(d);hfNavInfo(d)}).catch(()=>{});
     }
     return p;
   };

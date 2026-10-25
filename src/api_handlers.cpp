@@ -5424,7 +5424,18 @@ esp_err_t api_handler_user_me(httpd_req_t *req)
   int uid = http_server_auth_user(req);
   char buf[256];
   build_user_info_json(uid, NULL, buf, sizeof(buf));
-  return api_send_json(req, buf);
+  if (uid < 0) return api_send_json(req, buf);
+
+  // FEAT-505: hostname + beskrivelse til web-topmenuen - alle login-sider
+  // henter allerede /api/user/me, saa ingen ekstra forespoergsel mod enheden.
+  // Kun til indloggede brugere (beskrivelsen kan naevne anlaeg/placering).
+  JsonDocument doc;
+  if (deserializeJson(doc, buf)) return api_send_json(req, buf);
+  doc["hostname"] = g_persist_config.hostname;
+  doc["description"] = g_persist_config.device_description;
+  char out[512];
+  serializeJson(doc, out, sizeof(out));
+  return api_send_json(req, out);
 }
 
 /**
@@ -7375,6 +7386,7 @@ esp_err_t api_handler_system_backup(httpd_req_t *req)
   doc["build"] = BUILD_NUMBER;
   doc["schema_version"] = g_persist_config.schema_version;
   doc["hostname"] = g_persist_config.hostname;
+  doc["description"] = g_persist_config.device_description;  // FEAT-505
 
   // ── MODBUS MODE ──
   doc["modbus_mode"] = g_persist_config.modbus_mode;
@@ -8061,6 +8073,10 @@ esp_err_t api_handler_system_restore(httpd_req_t *req)
     strncpy(g_persist_config.hostname, doc["hostname"] | "", sizeof(g_persist_config.hostname) - 1);
     g_persist_config.hostname[sizeof(g_persist_config.hostname) - 1] = '\0';
   }
+  if (doc.containsKey("description")) {  // FEAT-505
+    strncpy(g_persist_config.device_description, doc["description"] | "", sizeof(g_persist_config.device_description) - 1);
+    g_persist_config.device_description[sizeof(g_persist_config.device_description) - 1] = '\0';
+  }
 
   // ── RESTORE NETWORK ──
   if (doc.containsKey("network")) {
@@ -8745,8 +8761,11 @@ esp_err_t api_handler_hostname_get(httpd_req_t *req)
   http_server_stat_request();
   CHECK_AUTH(req);
 
-  char buf[128];
-  snprintf(buf, sizeof(buf), "{\"hostname\":\"%s\"}", g_persist_config.hostname);
+  JsonDocument doc;
+  doc["hostname"] = g_persist_config.hostname;
+  doc["description"] = g_persist_config.device_description;  // FEAT-505
+  char buf[192];
+  serializeJson(doc, buf, sizeof(buf));
   return api_send_json(req, buf);
 }
 
@@ -8772,13 +8791,35 @@ esp_err_t api_handler_hostname_post(httpd_req_t *req)
     return api_send_error(req, 400, "Invalid JSON");
   }
 
-  if (!doc.containsKey("hostname")) {
-    return api_send_error(req, 400, "Missing 'hostname' field");
+  // FEAT-505: "description" kan sendes alene eller sammen med "hostname"
+  bool has_host = doc.containsKey("hostname");
+  bool has_desc = doc.containsKey("description");
+  if (!has_host && !has_desc) {
+    return api_send_error(req, 400, "Missing 'hostname' or 'description' field");
   }
 
-  const char *hostname = doc["hostname"].as<const char*>();
-  if (!hostname || strlen(hostname) == 0 || strlen(hostname) >= sizeof(g_persist_config.hostname)) {
+  const char *hostname = has_host ? doc["hostname"].as<const char*>() : NULL;
+  if (has_host && (!hostname || strlen(hostname) == 0 || strlen(hostname) >= sizeof(g_persist_config.hostname))) {
     return api_send_error(req, 400, "Invalid hostname (1-31 chars)");
+  }
+  const char *desc = has_desc ? (doc["description"] | "") : NULL;
+  if (has_desc && strlen(desc) >= sizeof(g_persist_config.device_description)) {
+    return api_send_error(req, 400, "Description too long (max 63 chars)");
+  }
+
+  if (has_desc) {
+    strncpy(g_persist_config.device_description, desc, sizeof(g_persist_config.device_description) - 1);
+    g_persist_config.device_description[sizeof(g_persist_config.device_description) - 1] = '\0';
+  }
+
+  if (!has_host) {
+    JsonDocument out;
+    out["status"] = 200;
+    out["hostname"] = g_persist_config.hostname;
+    out["description"] = g_persist_config.device_description;
+    char resp[192];
+    serializeJson(out, resp, sizeof(resp));
+    return api_send_json(req, resp);
   }
 
   strncpy(g_persist_config.hostname, hostname, sizeof(g_persist_config.hostname) - 1);
@@ -8796,10 +8837,13 @@ esp_err_t api_handler_hostname_post(httpd_req_t *req)
     ethernet_driver_set_hostname(g_persist_config.hostname);
   }
 
-  char resp[192];
-  snprintf(resp, sizeof(resp),
-    "{\"status\":200,\"hostname\":\"%s\",\"message\":\"Anvendt paa interfacet — reconnect/genstart for at opdatere DHCP-broadcast hostname\"}",
-    g_persist_config.hostname);
+  JsonDocument out;
+  out["status"] = 200;
+  out["hostname"] = g_persist_config.hostname;
+  out["description"] = g_persist_config.device_description;  // FEAT-505
+  out["message"] = "Anvendt paa interfacet — reconnect/genstart for at opdatere DHCP-broadcast hostname";
+  char resp[320];
+  serializeJson(out, resp, sizeof(resp));
   return api_send_json(req, resp);
 }
 

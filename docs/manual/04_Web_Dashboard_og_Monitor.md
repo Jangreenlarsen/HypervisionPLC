@@ -8,6 +8,8 @@
 
 Webgrænsefladen består af otte sider — en offentlig, login-fri statusside plus syv login-krævende sider bag samme topnavigation:
 
+Topnavigationen viser lige efter menupunkterne PLC'ens **hostname** og en valgfri **beskrivelse** (fx "Pumpehus nord"), så man altid kan se hvilken PLC man sidder på (FEAT-505). Begge sættes på `/system` under "Enhedsnavn (Hostname) og beskrivelse", via CLI (`set hostname`, `set description`) eller REST (`POST /api/hostname`). Vises kun for indloggede brugere — ikke på den offentlige statusside.
+
 | Side | URL | Login krævet? | Formål |
 |------|-----|:---:|--------|
 | **Status** | `/` | Nej (FEAT-407) | Offentligt, admin-udvalgt statusoverblik — se nedenfor |

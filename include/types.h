@@ -824,6 +824,11 @@ typedef struct __attribute__((packed)) {
   uint8_t analog_ai_v_samples[4];  // Vi1-Vi4
   uint8_t analog_ai_i_samples[4];  // Ii1-Ii4
 
+  // FEAT-505 (schema 34+): fritekst-beskrivelse af PLC'en (fx "Pumpehus nord"),
+  // vist i web-UI'ets topmenu ved siden af hostname. Helt til sidst, samme
+  // begrundelse som felterne ovenfor.
+  char device_description[DEVICE_DESCRIPTION_MAX];
+
   // CRC checksum (last)
   uint16_t crc16;
 } PersistConfig;

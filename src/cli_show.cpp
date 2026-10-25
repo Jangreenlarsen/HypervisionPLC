@@ -120,6 +120,8 @@ void cli_cmd_show_config(const char *section) {
 
   debug_print("Hostname: ");
   debug_println(g_persist_config.hostname[0] ? g_persist_config.hostname : "(NOT SET)");
+  debug_print("Beskrivelse: ");  // FEAT-505
+  debug_println(g_persist_config.device_description[0] ? g_persist_config.device_description : "(ingen)");
 
   // Board / IO Board identification
   debug_print("Board: ");
@@ -1522,6 +1524,10 @@ void cli_cmd_show_config(const char *section) {
   debug_println("\n# System");
   debug_print("set hostname ");
   debug_println(g_persist_config.hostname[0] ? g_persist_config.hostname : "modbus-esp32");
+  if (g_persist_config.device_description[0]) {  // FEAT-505
+    debug_print("set description ");
+    debug_println(g_persist_config.device_description);
+  }
   debug_print("set echo ");
   debug_println(g_persist_config.remote_echo ? "on" : "off");
   debug_print("set gpio 2 ");

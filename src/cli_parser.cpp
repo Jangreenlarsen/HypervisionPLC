@@ -166,7 +166,7 @@ const char* const CLI_WORDS_SHOW[] = {
   "status", "backup", "debug", "persist", "watchdog", "modbus-master",
   "modbus-slave", "modbus-expansion", "holding-reg", "coil", "logic", "users", NULL };
 const char* const CLI_WORDS_SET[] = {
-  "counter", "timer", "gpio", "hostname", "wifi", "ethernet", "telnet", "http",
+  "counter", "timer", "gpio", "hostname", "description", "wifi", "ethernet", "telnet", "http",
   "sse", "ntp", "acl", "persist", "logic", "modbus-master", "modbus-slave",
   "modbus-expansion", "watchdog", "debug", "echo", "rate-limit", "user", "rbac",
   "analog", "baudrate", "slave-id", "module", "holding-reg", "coil", NULL };
@@ -334,6 +334,7 @@ static const char* normalize_alias(const char* s) {
       str_eq_i(s, "H-REG") || str_eq_i(s, "HREG")) return "H-REG";
   if (str_eq_i(s, "COIL")) return "COIL";
   if (str_eq_i(s, "HOSTNAME")) return "HOSTNAME";
+  if (str_eq_i(s, "DESCRIPTION")) return "DESCRIPTION";
   if (str_eq_i(s, "WIFI")) return "WIFI";
   if (str_eq_i(s, "TELNET")) return "TELNET";
   if (str_eq_i(s, "ETHERNET") || str_eq_i(s, "ETH")) return "ETHERNET";
@@ -463,6 +464,7 @@ static void print_set_help(void) {
   debug_println("");
   debug_println("  System:");
   debug_println("    set hostname <name>       - Saet hostname");
+  debug_println("    set description <tekst>   - Beskrivelse af PLC'en (vises i web-topmenuen)");
   debug_println("    set echo <on|off>         - Saet remote echo");
   debug_println("    set gpio ?                - GPIO pin-mapping kommandoer");
   debug_println("");
@@ -1338,6 +1340,16 @@ bool cli_parser_execute(char* line) {
         return false;
       }
       cli_cmd_set_hostname(argv[2]);
+      return true;
+    } else if (!strcmp(what, "DESCRIPTION")) {
+      // FEAT-505: set description <tekst ...> - resten af linjen (ogsaa uden
+      // anfoerselstegn); "set description" uden tekst rydder beskrivelsen
+      char text[DEVICE_DESCRIPTION_MAX * 2] = "";
+      for (uint8_t i = 2; i < argc; i++) {
+        if (i > 2) strncat(text, " ", sizeof(text) - strlen(text) - 1);
+        strncat(text, argv[i], sizeof(text) - strlen(text) - 1);
+      }
+      cli_cmd_set_description(text);
       return true;
     } else if (!strcmp(what, "WATCHDOG")) {
       // FEAT-427: set watchdog timeout <sek> | enable | disable

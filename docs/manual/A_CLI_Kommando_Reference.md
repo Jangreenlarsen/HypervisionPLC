@@ -134,6 +134,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | Kommando | Parametre | Beskrivelse |
 |---|---|---|
 | `set hostname <navn>` | maks. 31 tegn | Sæt hostname |
+| `set description <tekst>` | maks. 63 tegn | **FEAT-505.** Fritekst-beskrivelse af PLC'en (fx `set description Pumpehus nord` — resten af linjen, mellemrum tilladt), vist i web-topmenuen ved siden af hostname. Uden tekst ryddes den. Kræver `save` |
 | `set echo <on\|off>` | — | Aktivér/deaktivér remote echo |
 | `set watchdog timeout <5-120>` | sekunder | **FEAT-427.** Task-watchdog'ens timeout — gemmes og virker straks. Gælder hovedløkken og de overvågede baggrunds-tasks (Modbus Master, expansion-workers). RTC-watchdog'en (BUG-504, sidste sikkerhedsnet for hårde låsninger) følger med på 2× denne værdi |
 | `clear logic <id> wdt` | — | **FEAT-427.** Kvittér programmets watchdog: nulstil tællere; et program som watchdog'en stoppede, startes igen |

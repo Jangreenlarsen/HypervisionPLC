@@ -41,10 +41,10 @@ Nedenfor markeres suffix-routede under-endpoints med *(via wildcard-suffix)*.
 | POST | `/api/system/defaults` | CHECK_AUTH_WRITE | Nulstiller til fabriksdefaults (kun i RAM, ikke gemt) |
 | GET | `/api/system/rate-limit` | CHECK_AUTH | **FEAT-170.** `{"enabled":bool,"persisted":false}` — status for token-bucket rate-limiteren selv (§B.1). Mirror af CLI's `show rate-limit`. |
 | POST | `/api/system/rate-limit` | CHECK_AUTH_WRITE | **FEAT-170.** Body: `{"enabled":bool}`. Mirror af CLI's `set rate-limit`. Bevidst IKKE persisteret til NVS (nulstilles til aktiveret ved boot), samme opførsel som CLI-kommandoen altid har haft. |
-| GET | `/api/user/me` | *Ingen* (returnerer `authenticated:false` hvis ikke logget ind) | Aktuel brugers auth-status: username, roles, privilege, mode (`legacy`/`rbac`) |
+| GET | `/api/user/me` | *Ingen* (returnerer `authenticated:false` hvis ikke logget ind) | Aktuel brugers auth-status: username, roles, privilege, mode (`legacy`/`rbac`); for indloggede brugere også `hostname` og `description` (FEAT-505, til topmenuen) |
 | POST | `/api/cli` | CHECK_AUTH_ROLE(`cli`) + write-check | Body: `{"command":"<cli-kommando>"}`. Kører kommandoen via samme dispatcher som Serial/Telnet, returnerer `{"output":"..."}`. Blokerer `reboot`/`defaults`. Maks 256 tegn kommando. |
-| GET | `/api/hostname` | CHECK_AUTH | `{"hostname":"..."}` |
-| POST | `/api/hostname` | CHECK_AUTH_WRITE | Body: `{"hostname":"..."}` (1-31 tegn) |
+| GET | `/api/hostname` | CHECK_AUTH | `{"hostname":"...","description":"..."}` |
+| POST | `/api/hostname` | CHECK_AUTH_WRITE | Body: `{"hostname":"...","description":"..."}` — hostname 1-31 tegn, description 0-63 tegn (FEAT-505); hver af dem kan sendes alene |
 
 ## B.3 Konfiguration
 
