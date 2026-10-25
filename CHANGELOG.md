@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.142] - 2026-10-25
+
+### BUG FIXES
+- **BUG-504:** PLC'en kom ikke altid i luften efter strømsvigt, men hang. To årsager: (1) brownout-detektoren var slået helt fra i `setup()` (gammel workaround for dev-boards på svag USB-strøm) — så kunne ESP32 køre videre på for lav spænding under strømsvigt/-genkomst og låse fast i stedet for at blive holdt i reset; (2) task-watchdog'en er software og kan ikke fange en hård låsning, og den armeres først efter NVS-init. Rettet: brownout-detektoren er aktiv igen, og RTC-watchdog'en (hardware) armeres allerførst i opstarten som sidste sikkerhedsnet (2× task-timeout, 60 s som standard), fodres sammen med task-watchdog'en og følger samme til/fra-indstilling.
+
 ## [7.9.68.141] - 2026-10-24
 
 ### FEATURES

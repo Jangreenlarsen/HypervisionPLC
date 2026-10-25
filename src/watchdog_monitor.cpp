@@ -17,6 +17,7 @@
 #include "watchdog_monitor.h"
 #include "debug.h"
 #include <esp_task_wdt.h>
+#include <soc/rtc_wdt.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_attr.h>
@@ -209,6 +210,40 @@ const char* watchdog_reset_reason_to_str(uint32_t reason_val) {
 }
 
 /* ============================================================================
+ * RTC WATCHDOG (BUG-504)
+ * ============================================================================
+ * Task-watchdog'en er software (FreeRTOS) og kraever at scheduler/interrupts
+ * koerer. En haard laasning (fx CPU/cache/PSRAM-bus haengt efter et
+ * spaendingsdyk ved stroemsvigt) fanges kun af RTC-watchdog'en, der sidder i
+ * RTC-domaenet og nulstiller hele systemet. Timeout = 2x task-watchdog'ens,
+ * saa task-watchdog'en (med crash-diagnostik) normalt naar at fyre foerst. */
+
+#define RTC_WDT_EARLY_BOOT_MS  60000
+static bool g_rtc_wdt_armed = false;
+
+static void rtc_wdt_arm(uint32_t timeout_ms) {
+  rtc_wdt_protect_off();
+  rtc_wdt_disable();
+  rtc_wdt_set_length_of_reset_signal(RTC_WDT_SYS_RESET_SIG, RTC_WDT_LENGTH_3_2us);
+  rtc_wdt_set_stage(RTC_WDT_STAGE0, RTC_WDT_STAGE_ACTION_RESET_SYSTEM);
+  rtc_wdt_set_time(RTC_WDT_STAGE0, timeout_ms);
+  rtc_wdt_enable();
+  rtc_wdt_protect_on();
+  g_rtc_wdt_armed = true;
+}
+
+static void rtc_wdt_disarm(void) {
+  rtc_wdt_protect_off();
+  rtc_wdt_disable();
+  rtc_wdt_protect_on();
+  g_rtc_wdt_armed = false;
+}
+
+void watchdog_early_boot_arm(void) {
+  rtc_wdt_arm(RTC_WDT_EARLY_BOOT_MS);
+}
+
+/* ============================================================================
  * PUBLIC API - INITIALIZATION
  * ============================================================================ */
 
@@ -320,6 +355,16 @@ void watchdog_init(void) {
     debug_println("WATCHDOG: Disabled in configuration");
   }
 
+  // BUG-504: RTC-watchdog'en foelger samme til/fra-indstilling som task-watchdog'en
+  if (g_watchdog_enabled) {
+    rtc_wdt_arm(g_watchdog_timeout_ms * 2);
+    debug_print("WATCHDOG: RTC watchdog armeret, ");
+    debug_print_uint(g_watchdog_timeout_ms * 2 / 1000);
+    debug_println("s");
+  } else {
+    rtc_wdt_disarm();
+  }
+
   // Save new state to NVS
   watchdog_save_state();
 
@@ -344,6 +389,8 @@ void watchdog_feed(void) {
       watchdog_save_state();
     }
   }
+
+  if (g_rtc_wdt_armed) rtc_wdt_feed();  // BUG-504
 
   if (!g_watchdog_initialized || !g_watchdog_enabled) {
     return;
@@ -462,6 +509,7 @@ bool watchdog_set_timeout(uint32_t timeout_ms) {
   if (g_watchdog_initialized) {
     esp_task_wdt_init(timeout_ms / 1000, true);
   }
+  if (g_rtc_wdt_armed) rtc_wdt_arm(timeout_ms * 2);  // BUG-504
   watchdog_save_state();
   return true;
 }

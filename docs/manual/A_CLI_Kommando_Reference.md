@@ -135,7 +135,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 |---|---|---|
 | `set hostname <navn>` | maks. 31 tegn | Sæt hostname |
 | `set echo <on\|off>` | — | Aktivér/deaktivér remote echo |
-| `set watchdog timeout <5-120>` | sekunder | **FEAT-427.** Task-watchdog'ens timeout — gemmes og virker straks. Gælder hovedløkken og de overvågede baggrunds-tasks (Modbus Master, expansion-workers) |
+| `set watchdog timeout <5-120>` | sekunder | **FEAT-427.** Task-watchdog'ens timeout — gemmes og virker straks. Gælder hovedløkken og de overvågede baggrunds-tasks (Modbus Master, expansion-workers). RTC-watchdog'en (BUG-504, sidste sikkerhedsnet for hårde låsninger) følger med på 2× denne værdi |
 | `clear logic <id> wdt` | — | **FEAT-427.** Kvittér programmets watchdog: nulstil tællere; et program som watchdog'en stoppede, startes igen |
 | `clear safemode` | — | **FEAT-427.** Forlad safe mode: ST kører igen og udgangene følger igen deres coils. Find først årsagen til crashene (`show watchdog`) |
 | `reset watchdog stats` | — | **FEAT-448.** Nulstil watchdog-statistikken — genstarter, crashes (i alt/i træk), sidste fejl og drift før genstart — fx som **nulpunkt ved idriftsættelse**. Tidspunktet vises som "siden …" i `show watchdog` og på Watchdog-kortet. Timeout og en evt. aktiv safe mode ændres ikke |

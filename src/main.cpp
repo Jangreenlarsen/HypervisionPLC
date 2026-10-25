@@ -73,8 +73,15 @@ Console *g_serial_console = NULL;  // Used by cli_commands.cpp to detect Serial 
 // ============================================================================
 
 void setup() {
-  // Disable brownout detector (38-pin boards with weak USB power)
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+  // BUG-504: RTC-watchdog'en armeres allerfoerst - daekker hele boot-sekvensen
+  // og haarde laasninger som task-watchdog'en ikke kan fange.
+  watchdog_early_boot_arm();
+
+  // BUG-504: brownout-detektoren slaas IKKE laengere fra. Den blev tidligere
+  // nulstillet her som workaround for dev-boards paa svag USB-stroem - men det
+  // fjernede netop den mekanisme der holder ESP32 i reset mens spaendingen er
+  // under spec ved stroemsvigt/-genkomst, saa PLC'en kunne laase fast i stedet
+  // for at genstarte rent.
 
   // BUG-421: install the GPIO ISR service before any subsystem needs it
   // (the W5500 MAC driver's interrupt-driven RX/link detection requires

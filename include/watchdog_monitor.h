@@ -50,6 +50,13 @@
 void watchdog_init(void);
 
 /**
+ * @brief BUG-504: armér RTC-watchdog'en (hardware, RTC-domænet) allerførst i
+ * setup(). Sidste sikkerhedsnet for hårde låsninger (fx efter brownout), som
+ * task-watchdog'en ikke kan fange. Fodres af watchdog_feed().
+ */
+void watchdog_early_boot_arm(void);
+
+/**
  * @brief Feed the watchdog (reset timeout counter)
  *
  * CRITICAL: This function MUST be called from main loop() at least once
