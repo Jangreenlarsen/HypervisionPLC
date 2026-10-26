@@ -86,7 +86,7 @@ show modbus-master                        (status + kø-/cache-statistik)
 
 Nogle slaver sender en gang imellem en **forkert, men gyldig** værdi. Eksempel: et **R4DCB08**-temperaturmodul (8 × DS18B20) aflæser af og til en føler forkert og sender 0,0 °C eller et spring på præcis 2,0 °C (én bit i følerens rå værdi). Modbus-kontrolsummen (CRC) fanger kun fejl på bussen, ikke i slaven, så PLC'en kan ikke se det på selve svaret — værdien når ST Logic, REST/SCADA og trends som en ægte måling.
 
-Filteret ligger på **I/O-siden** i kortet **Filter mod fejlmålinger (Modbus-slaver)**. En regel dækker en **kilde** — PLC'ens egen RS485 (Modbus Master) eller en kanal (A–H) på et expansion board — en slave, en registertype (HR/IR) og et adresseområde:
+Filteret ligger på **I/O-siden** i kortet **Filter mod fejlmålinger — Modbus Master (læsning fra slaver)**. Det gælder kun værdier, PLC'en selv læser som master — ikke når PLC'en er Modbus Slave. En regel dækker en **kilde** — PLC'ens egen RS485 (Modbus Master) eller en kanal (A–H) på et expansion board — en slave, en registertype (HR/IR) og et adresseområde:
 
 | Felt | Betydning |
 |------|-----------|

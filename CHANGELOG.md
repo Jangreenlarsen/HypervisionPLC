@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.148] - 2026-10-26
+
+### CHANGES
+- **FEAT-508:** Kortet på I/O-siden hedder nu **Filter mod fejlmålinger — Modbus Master (læsning fra slaver)** og siger tydeligt, at det gælder værdier PLC'en selv læser som master (egen RS485 eller expansion board), ikke når PLC'en er Modbus Slave.
+
 ## [7.9.68.147] - 2026-10-26
 
 ### NEW FEATURES
