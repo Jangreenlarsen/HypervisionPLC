@@ -92,7 +92,45 @@ int main() {
     CHECK(feed(f, 0, 10, 3, MB_REQ_READ_HOLDING, 2, 2) == MB_FILTER_ACCEPT, "anden kanal filtreres ikke");
     Entry g; feed(g, 371);
     CHECK(feed(g, 0) == MB_FILTER_ACCEPT, "egen RS485 filtreres ikke af en board-regel"); }
-  // 12. mb_filter_set validerer (NVS findes ikke paa PC, saa gyldige regler fejler foerst ved gemning)
+  // 12. filterloggen: holdt tilbage, bekraeftet og ugyldig logges; almindelige kun under trace
+  rule(0, 15, 1, true, true, 0x8000);
+  mb_filter_reset_stats();
+  { mb_filter_log_t buf[MB_FILTER_LOG_SIZE]; uint32_t latest = 0;
+    Entry e; feed(e, 371); feed(e, 0); feed(e, 371); feed(e, 400); feed(e, 401); feed(e, 0x8000);
+    uint16_t n = mb_filter_log_copy(0, buf, MB_FILTER_LOG_SIZE, &latest);
+    CHECK(n == 4, "4 haendelser i loggen");
+    if (n == 4) {
+      CHECK(buf[0].outcome == MB_FLOG_HELD && buf[0].received == 0 && buf[0].kept == 371, "0,0 holdt tilbage, 371 beholdt");
+      CHECK(buf[1].outcome == MB_FLOG_HELD && buf[1].received == 400, "spring holdt");
+      CHECK(buf[2].outcome == MB_FLOG_CONFIRMED && buf[2].received == 401 && buf[2].kept == 371, "spring bekraeftet (foer: 371)");
+      CHECK(buf[3].outcome == MB_FLOG_INVALID && buf[3].received == -32768, "ugyldig logget (INT16)");
+      CHECK(buf[3].seq == latest, "latest = seneste seq");
+      CHECK(mb_filter_log_copy(buf[1].seq, buf, MB_FILTER_LOG_SIZE, &latest) == 2, "since giver kun nyere poster");
+    } }
+  // trace: almindelige godkendte aflaesninger logges, og trace slukker selv
+  mb_filter_reset_stats();
+  { mb_filter_log_t buf[MB_FILTER_LOG_SIZE]; uint32_t latest = 0; int8_t tr; uint32_t left;
+    Entry e; feed(e, 371);
+    mb_filter_trace(0, 10);
+    mb_filter_trace_state(&tr, &left);
+    CHECK(tr == 0 && left == 10, "trace aktiv i 10 s");
+    feed(e, 372); feed(e, 373);
+    CHECK(mb_filter_log_copy(0, buf, MB_FILTER_LOG_SIZE, &latest) == 2 && buf[0].outcome == MB_FLOG_ACCEPTED && buf[1].received == 373, "godkendte aflaesninger logget under trace");
+    g_now += 11000;
+    feed(e, 374);
+    mb_filter_trace_state(&tr, &left);
+    CHECK(tr == -1 && mb_filter_log_copy(0, buf, MB_FILTER_LOG_SIZE, &latest) == 2, "trace slukket efter tiden");
+    mb_filter_trace(0, 5000); mb_filter_trace_state(&tr, &left);
+    CHECK(left == MB_FILTER_TRACE_MAX_S, "trace hoejst 15 min");
+    mb_filter_trace(-1, 0); mb_filter_trace_state(&tr, &left);
+    CHECK(tr == -1, "trace slaaet fra");
+    // ringbufferen: kun de seneste 64
+    mb_filter_trace(0, 60);
+    for (int i = 0; i < 100; i++) feed(e, 374 + (i % 2));
+    CHECK(mb_filter_log_copy(0, buf, MB_FILTER_LOG_SIZE, &latest) == MB_FILTER_LOG_SIZE && buf[MB_FILTER_LOG_SIZE - 1].seq == latest, "ringbuffer holder de seneste 64");
+    mb_filter_trace(-1, 0); }
+
+  // 13. mb_filter_set validerer (NVS findes ikke paa PC, saa gyldige regler fejler foerst ved gemning)
   { mb_filter_rule_t r; memset(&r, 0, sizeof(r)); r.slave_id = 0; r.reg_type = MB_REQ_READ_HOLDING; r.confirm = 1; r.max_jump = 5;
     CHECK(mb_filter_set(&r, 1) != NULL && strstr(mb_filter_set(&r, 1), "Slave-ID"), "slave 0 afvises");
     r.slave_id = 10; r.addr_from = 5; r.addr_to = 2;

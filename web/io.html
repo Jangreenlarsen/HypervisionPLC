@@ -134,10 +134,25 @@
 <button class="btn btn-sm btn-primary" onclick="mbfAdd()">+ Tilføj regel</button>
 <button class="btn btn-sm btn-primary" onclick="mbfAdd({name:'R4DCB08 temperaturer',slave:1,type:'hr',addr_from:0,addr_to:7,signed:true,max_jump:15,confirm:1})" title="8 temperaturer i HR 0-7 (0,1 °C), spring over 1,5 °C skal bekræftes af næste aflæsning — ret slave-ID til modulets">+ Forslag: R4DCB08</button>
 <span style="flex:1"></span>
-<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="mbfResetStats()">Nulstil tællere</button>
+<button class="btn btn-sm btn-primary" id="mbfLogBtn" onclick="mbfLogToggle()">Vis filterlog</button>
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="mbfResetStats()" title="Nulstiller tællerne og tømmer filterloggen">Nulstil tællere</button>
 <button class="btn btn-success btn-sm" onclick="mbfSave()">Gem filtre</button>
 </div>
 <div class="alert" id="mbfAlert"></div>
+<div id="mbfLogPanel" style="display:none;margin-top:10px;background:#181825;border:1px solid #313244;border-radius:6px;padding:10px">
+<div style="font-weight:600;color:#89b4fa;margin-bottom:4px">Filterlog — hvad kommer ind, og hvad bliver godkendt</div>
+<p style="font-size:11px;color:#a6adc8;margin:0 0 8px">Viser hver gang filteret <span style="color:#fab387">holder en aflæsning tilbage</span>, <span style="color:#89b4fa">godkender et bekræftet spring</span> eller finder en <span style="color:#f38ba8">ugyldig værdi</span>. Almindelige <span style="color:#a6e3a1">godkendte</span> aflæsninger vises kun, når du slår dem til for én regel nedenfor (slukker selv). Opdateres hvert 2. sekund, mens loggen er åben. Værdier er rå registerværdier. PLC'en gemmer de seneste 64 hændelser; siden samler op til 300.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px;margin-bottom:8px">
+<label>Vis også godkendte aflæsninger for <select id="mbfTraceRule" style="padding:2px 4px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px"></select></label>
+<label>i <select id="mbfTraceSecs" style="padding:2px 4px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px"><option value="60">1 min</option><option value="300" selected>5 min</option><option value="900">15 min</option></select></label>
+<button class="btn btn-sm btn-primary" onclick="mbfTrace(true)">Start</button>
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="mbfTrace(false)">Stop</button>
+<span id="mbfTraceState" style="color:#a6adc8"></span>
+<span style="flex:1"></span>
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="mbfLogRows=[];mbfLogDraw()">Ryd visning</button>
+</div>
+<div style="overflow-x:auto;max-height:360px;overflow-y:auto"><table class="tbl"><thead><tr><th>Tid</th><th>Regel</th><th>Kilde</th><th>Slave · register</th><th>Modtaget</th><th>Beholdt / før</th><th>Udfald</th></tr></thead><tbody id="mbfLogBody"></tbody></table></div>
+</div>
 </div>
 
 <!-- Modbus Transceiver (GUI-oprydning: ny — hidtil kun CLI "set modbus mode"/"set modbus slave|master uart") -->
@@ -1742,7 +1757,6 @@ function mbfRender(){
   const b=$('mbfBody');
   if(!mbfRules.length){b.innerHTML='<tr><td colspan="15" style="color:#6c7086;text-align:center">Ingen filtre — alle værdier gemmes som slaven sender dem.</td></tr>';return;}
   b.innerHTML=mbfRules.map((r,i)=>{const s=r.stats||{};const n=(k,w,mn,mx)=>'<input type="number" data-k="'+k+'" min="'+mn+'" max="'+mx+'" value="'+escHtml(r[k]??'')+'" style="'+mbfIn+';width:'+w+'px">';
-    const last=s.last_age_ms!=null?'adr. '+s.last_addr+': '+s.last_value+' (beholdt '+s.last_kept+') for '+mbfAgo(s.last_age_ms)+' siden':'—';
     return '<tr data-i="'+i+'"><td><input type="checkbox" data-k="enabled"'+(r.enabled!==false?' checked':'')+'></td>'+
     '<td><input type="text" data-k="name" maxlength="23" value="'+escHtml(r.name||'')+'" style="'+mbfIn+';width:150px"></td>'+
     '<td>'+mbfSrcSel(r)+'</td><td>'+(r.board?'<select data-k="channel" style="'+mbfIn+'">'+[1,2,3,4,5,6,7,8].map(c=>'<option value="'+c+'"'+(r.channel===c?' selected':'')+'>'+String.fromCharCode(64+c)+'</option>').join('')+'</select>':'<span style="color:#6c7086">–</span>')+'</td>'+
@@ -1750,9 +1764,38 @@ function mbfRender(){
     '<td>'+n('addr_from',60,0,65535)+'</td><td>'+n('addr_to',60,0,65535)+'</td>'+
     '<td><input type="checkbox" data-k="signed"'+(r.signed?' checked':'')+'></td><td>'+n('max_jump',60,0,65535)+'</td><td>'+n('confirm',40,1,5)+'</td>'+
     '<td style="white-space:nowrap"><input type="checkbox" data-k="invalid_enabled"'+(r.invalid_enabled?' checked':'')+'> '+n('invalid_raw',70,-32768,65535)+'</td>'+
-    '<td style="white-space:nowrap">'+(s.rejected||0)+' / '+(s.confirmed||0)+' / '+(s.invalid||0)+'</td><td style="font-size:11px;color:#a6adc8">'+escHtml(last)+'</td>'+
+    '<td style="white-space:nowrap" id="mbfS'+i+'">'+mbfStatTxt(s)+'</td><td style="font-size:11px;color:#a6adc8" id="mbfL'+i+'">'+escHtml(mbfLastTxt(s))+'</td>'+
     '<td><button class="btn btn-sm btn-danger" onclick="mbfDel('+i+')" title="Fjern reglen">&#x2715;</button></td></tr>';}).join('');
 }
+function mbfStatTxt(s){return (s.rejected||0)+' / '+(s.confirmed||0)+' / '+(s.invalid||0);}
+function mbfLastTxt(s){return s.last_age_ms!=null?'adr. '+s.last_addr+': '+s.last_value+' (beholdt '+s.last_kept+') for '+mbfAgo(s.last_age_ms)+' siden':'—';}
+let mbfLogTimer=null,mbfLogSeq=0,mbfLogRows=[];
+const MBF_OUT={held:['Holdt tilbage','#fab387'],confirmed:['Spring bekræftet — godkendt','#89b4fa'],invalid:['Ugyldig — fejl','#f38ba8'],accepted:['Godkendt','#a6e3a1']};
+function mbfRuleName(i){const r=mbfRules[i]||{};return r.name||('Regel '+(i+1));}
+function mbfLogToggle(){const p=$('mbfLogPanel');const open=p.style.display==='none';p.style.display=open?'block':'none';$('mbfLogBtn').textContent=open?'Skjul filterlog':'Vis filterlog';
+  if(open){$('mbfTraceRule').innerHTML='<option value="-1">— ingen —</option>'+mbfRules.map((r,i)=>'<option value="'+i+'">'+escHtml(mbfRuleName(i))+'</option>').join('');mbfLogPoll();mbfLogTimer=setInterval(mbfLogPoll,2000);}
+  else{clearInterval(mbfLogTimer);mbfLogTimer=null;}}
+function mbfTraceTxt(tr){return tr&&tr.rule>=0?'Viser godkendte for "'+mbfRuleName(tr.rule)+'" — '+Math.ceil(tr.remaining_s/60)+' min tilbage':'';}
+function mbfLogShow(d){
+  const now=Date.now();(d.entries||[]).forEach(e=>{e.t=now-e.age_ms;mbfLogRows.unshift(e);});
+  if(mbfLogRows.length>300)mbfLogRows.length=300;
+  if(d.seq!=null)mbfLogSeq=d.seq;
+  $('mbfTraceState').textContent=mbfTraceTxt(d.trace);
+  mbfLogDraw();}
+function mbfLogDraw(){
+  const pad=n=>String(n).padStart(2,'0');
+  $('mbfLogBody').innerHTML=mbfLogRows.length?mbfLogRows.map(e=>{const d=new Date(e.t),o=MBF_OUT[e.outcome]||[e.outcome,'#cdd6f4'];
+    const kept=e.kept==null?'—':((e.outcome==='held'||e.outcome==='invalid')?'beholdt ':'før ')+e.kept;
+    return '<tr><td style="white-space:nowrap">'+pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())+'</td><td>'+escHtml(mbfRuleName(e.rule))+'</td><td>'+(e.board?'Board '+e.board+' kanal '+String.fromCharCode(64+e.channel):'Egen RS485')+'</td><td>'+e.slave+' · '+String(e.type).toUpperCase()+e.addr+'</td><td><b>'+e.received+'</b></td><td>'+kept+'</td><td style="color:'+o[1]+'">'+escHtml(o[0])+'</td></tr>';}).join(''):'<tr><td colspan="7" style="color:#6c7086;text-align:center">Ingen hændelser endnu.</td></tr>';}
+function mbfLogPoll(){
+  api('/api/modbus/filters/log?since='+mbfLogSeq).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(d=>{if(d.seq<mbfLogSeq){mbfLogSeq=0;}mbfLogShow(d);}).catch(()=>{});
+  api('/api/modbus/filters').then(r=>r.ok?r.json():null).then(d=>{if(!d||!d.rules)return;d.rules.forEach((r,i)=>{const a=$('mbfS'+i),b=$('mbfL'+i);if(a)a.textContent=mbfStatTxt(r.stats||{});if(b)b.textContent=mbfLastTxt(r.stats||{});});}).catch(()=>{});}
+function mbfTrace(on){
+  const rule=on?parseInt($('mbfTraceRule').value):-1;
+  if(on&&rule<0){showAlert('mbfAlert','warn','Vælg en regel først.');return;}
+  if(on&&mbfRules[rule]&&mbfRules[rule].stats===undefined){showAlert('mbfAlert','warn','Gem filtrene først.');return;}
+  api('/api/modbus/filters/trace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rule,seconds:parseInt($('mbfTraceSecs').value)})}).then(r=>r.json().then(d=>({r,d}))).then(({r,d})=>{if(!r.ok)throw new Error(d.error||('HTTP '+r.status));
+    $('mbfTraceState').textContent=mbfTraceTxt(d.trace);}).catch(e=>showAlert('mbfAlert','err','Fejl: '+e.message));}
 function mbfSrcSel(r){const names={};Object.values(_expBoards||{}).forEach(x=>{names[x.number]=x.name;});
   let o='<option value="0"'+(!r.board?' selected':'')+'>Egen RS485</option>';
   for(let i=1;i<=8;i++){if(names[i]||r.board===i)o+='<option value="'+i+'"'+(r.board===i?' selected':'')+'>Board '+i+(names[i]?' — '+escHtml(names[i]):'')+'</option>';}

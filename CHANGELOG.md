@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.149] - 2026-10-26
+
+### NEW FEATURES
+- **FEAT-508:** **Filterlog** på I/O-siden (knappen *Vis filterlog* i filterkortet): de seneste hændelser med tid, regel, kilde, slave/register, modtaget og beholdt værdi og udfald (holdt tilbage / spring bekræftet / ugyldig), opdateret hvert 2. sekund sammen med tællerne. *Vis også godkendte aflæsninger* for én regel i 1-15 min (slukker selv). Ringbuffer på 64 hændelser i RAM. `GET /api/modbus/filters/log?since=N`, `POST /api/modbus/filters/trace`.
+
 ## [7.9.68.148] - 2026-10-26
 
 ### CHANGES

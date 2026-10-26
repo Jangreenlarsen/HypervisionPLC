@@ -3741,10 +3741,55 @@ static esp_err_t mb_filters_reply(httpd_req_t *req)
   return api_send_json(req, out.c_str());
 }
 
+// GET /api/modbus/filters/log?since=SEQ — filterloggens poster efter SEQ (aeldste foerst)
+static esp_err_t mb_filters_log_reply(httpd_req_t *req)
+{
+  uint32_t since = 0;
+  char q[48], v[16];
+  if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK &&
+      httpd_query_key_value(q, "since", v, sizeof(v)) == ESP_OK) {
+    since = (uint32_t)strtoul(v, NULL, 10);
+  }
+  mb_filter_log_t *buf = (mb_filter_log_t *)malloc(sizeof(mb_filter_log_t) * MB_FILTER_LOG_SIZE);
+  if (!buf) return api_send_error(req, 500, "Out of memory");
+  uint32_t latest = 0;
+  uint16_t n = mb_filter_log_copy(since, buf, MB_FILTER_LOG_SIZE, &latest);
+  int8_t trace_rule; uint32_t trace_left;
+  mb_filter_trace_state(&trace_rule, &trace_left);
+  JsonDocument doc;
+  doc["seq"] = latest;
+  JsonObject tr = doc["trace"].to<JsonObject>();
+  tr["rule"] = trace_rule;
+  tr["remaining_s"] = trace_left;
+  JsonArray arr = doc["entries"].to<JsonArray>();
+  static const char *const names[] = {"", "held", "confirmed", "invalid", "accepted"};
+  uint32_t now = millis();
+  for (uint16_t i = 0; i < n; i++) {
+    const mb_filter_log_t *e = &buf[i];
+    JsonObject o = arr.add<JsonObject>();
+    o["seq"] = e->seq;
+    o["age_ms"] = (uint32_t)(now - e->ms);
+    o["rule"] = e->rule;
+    o["board"] = e->board;
+    o["channel"] = e->channel;
+    o["slave"] = e->slave;
+    o["type"] = (e->reg_type == MB_REQ_READ_INPUT_REG) ? "ir" : "hr";
+    o["addr"] = e->addr;
+    o["outcome"] = (e->outcome <= MB_FLOG_ACCEPTED) ? names[e->outcome] : "";
+    o["received"] = e->received;
+    if (e->has_kept) o["kept"] = e->kept;
+  }
+  free(buf);
+  String out;
+  serializeJson(doc, out);
+  return api_send_json(req, out.c_str());
+}
+
 static esp_err_t api_handler_mb_filters_get(httpd_req_t *req)
 {
   http_server_stat_request();
   CHECK_AUTH(req);
+  if (strstr(req->uri, "/filters/log") != NULL) return mb_filters_log_reply(req);
   return mb_filters_reply(req);
 }
 
@@ -3756,6 +3801,20 @@ static esp_err_t api_handler_mb_filters_post(httpd_req_t *req)
   if (strstr(req->uri, "/filters/reset-stats") != NULL) {
     mb_filter_reset_stats();
     return api_send_json(req, "{\"status\":\"ok\"}");
+  }
+  // POST /api/modbus/filters/trace {"rule":N,"seconds":S} — "vis alle aflaesninger" (rule -1 = fra)
+  if (strstr(req->uri, "/filters/trace") != NULL) {
+    char body[96];
+    int blen = httpd_req_recv(req, body, sizeof(body) - 1);
+    if (blen <= 0) return api_send_error(req, 400, "Empty body");
+    body[blen] = '\0';
+    JsonDocument tdoc;
+    if (deserializeJson(tdoc, body)) return api_send_error(req, 400, "Invalid JSON");
+    long rule = tdoc["rule"] | -1L, secs = tdoc["seconds"] | 300L;
+    if (rule >= (long)g_mb_filter_count) return api_send_error(req, 400, "Ukendt regel");
+    if (secs < 0) secs = 0;
+    mb_filter_trace((int8_t)(rule < 0 ? -1 : rule), (uint32_t)secs);
+    return mb_filters_log_reply(req);
   }
 
   size_t total = req->content_len;

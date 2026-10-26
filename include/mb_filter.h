@@ -91,7 +91,48 @@ mb_filter_result_t mb_filter_check(uint8_t board, uint8_t channel, uint8_t slave
                                    bool have_old, int32_t old_val, int32_t new_val,
                                    int32_t *cand_val, uint8_t *cand_count);
 
-/** Nulstil statistikken (fx fra web-UI). */
+/** Nulstil statistikken og filterloggen (fx fra web-UI). */
 void mb_filter_reset_stats();
+
+/* ----------------------------------------------------------------------------
+ * Filterlog (FEAT-508): de seneste beslutninger i RAM — holdt tilbage, bekraeftet
+ * spring og ugyldige. Med "vis alle aflaesninger" (trace) for en regel logges
+ * ogsaa de almindelige, godkendte aflaesninger, i en begraenset periode.
+ * -------------------------------------------------------------------------- */
+
+#define MB_FILTER_LOG_SIZE      64
+#define MB_FILTER_TRACE_MAX_S   900   // "vis alle aflaesninger" slukker selv efter hoejst 15 min
+
+typedef enum {
+  MB_FLOG_HELD = 1,                 // holdt tilbage (spring venter paa bekraeftelse)
+  MB_FLOG_CONFIRMED,                // spring bekraeftet og godkendt
+  MB_FLOG_INVALID,                  // ugyldig vaerdi -> fejlstatus
+  MB_FLOG_ACCEPTED                  // almindelig godkendt aflaesning (kun under trace)
+} mb_flog_outcome_t;
+
+typedef struct {
+  uint32_t seq;                     // loebenummer (1, 2, ...) — til trinvis hentning
+  uint32_t ms;                      // millis() for haendelsen
+  uint8_t  rule;                    // regelnummer (0-7)
+  uint8_t  board, channel, slave;
+  uint8_t  reg_type;                // 3 = HR, 4 = IR
+  uint8_t  outcome;                 // mb_flog_outcome_t
+  uint8_t  has_kept;                // 0 = der var ingen tidligere vaerdi
+  uint16_t addr;
+  int32_t  received;                // modtaget vaerdi (med fortegn hvis reglen er INT16)
+  int32_t  kept;                    // beholdt vaerdi (HELD/INVALID) eller vaerdien foer (CONFIRMED/ACCEPTED)
+} mb_filter_log_t;
+
+/**
+ * Kopier loggens poster med seq > since (aeldste foerst) til out.
+ * @return antal kopierede; *latest = hoejeste seq i loggen.
+ */
+uint16_t mb_filter_log_copy(uint32_t since, mb_filter_log_t *out, uint16_t max, uint32_t *latest);
+
+/** Slaa "vis alle aflaesninger" til for en regel i `seconds` sekunder (rule < 0 eller seconds = 0: fra). */
+void mb_filter_trace(int8_t rule, uint32_t seconds);
+
+/** Aktiv trace: regelnummer og resterende sekunder (rule = -1 hvis fra). */
+void mb_filter_trace_state(int8_t *rule, uint32_t *remaining_s);
 
 #endif // MB_FILTER_H
