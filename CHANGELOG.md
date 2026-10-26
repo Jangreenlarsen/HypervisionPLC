@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.150] - 2026-10-26
+
+### BUG FIXES
+- **BUG-509:** REST-rate-limiten (30 kald i burst, 10/s pr. klient) var reelt fælles for alle klienter, fordi klientens IP blev læst forkert fra httpd'ens IPv6-socket (alle fik IP 0). En åben PLC-webside kunne derfor få SCADA'ens kald afvist med 429 — set som "kommunikation tabt" i SCADA. Nu en bucket pr. klient-IP (som IP-ACL og alarmloggen). Desuden går optjent tid ikke længere tabt ved genopfyldning.
+
 ## [7.9.68.149] - 2026-10-26
 
 ### NEW FEATURES

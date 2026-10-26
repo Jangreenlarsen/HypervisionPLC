@@ -12097,27 +12097,35 @@ bool http_rate_limit_check(httpd_req_t *req)
 {
   if (!rate_limit_enabled) return true;
 
-  // Get client IP from socket
-  int sockfd = httpd_req_to_sockfd(req);
-  struct sockaddr_in addr;
-  socklen_t addr_len = sizeof(addr);
-  if (getpeername(sockfd, (struct sockaddr *)&addr, &addr_len) != 0) {
-    return true;  // Can't get IP — allow
-  }
-
-  uint32_t ip = addr.sin_addr.s_addr;
+  // BUG-509: klientens IP via get_client_ip_raw() (som BUG-298 indfoerte for
+  // alarmlog/ACL). httpd'en bruger IPv6-sockets, saa en IPv4-klient er
+  // ::ffff:a.b.c.d — den gamle kode laeste den som sockaddr_in og fik
+  // sin6_flowinfo (= 0) for ALLE klienter. Alle delte dermed EN bucket: en aaben
+  // PLC-webside kunne faa SCADA'ens kald afvist med 429 (og omvendt).
+  uint32_t ip = get_client_ip_raw(req);
+  if (ip == 0) return true;  // Can't get IP — allow
   RateLimitEntry *e = rate_limit_find(ip);
 
   // Refill tokens based on elapsed time
+  // BUG-509: last_refill_ms blev sat til `now`, saa resten af den optjente tid
+  // (op til 99 ms ved 10 tokens/s) gik tabt ved hver genopfyldning — med
+  // jaevnligt kommende kald kunne den reelle rate falde mod ~5/s, og en SCADA
+  // paa 5 kald/s toemte langsomt bucket'en (falske 429). Ryk nu kun frem med
+  // den tid, de udleverede tokens svarer til; er bucket'en fuld, er der intet
+  // at gemme til senere.
   uint32_t now = millis();
   uint32_t elapsed_ms = now - e->last_refill_ms;
-  if (elapsed_ms > 0) {
-    uint32_t new_tokens = (elapsed_ms * RATE_LIMIT_REFILL_RATE) / 1000;
-    if (new_tokens > 0) {
-      e->tokens = (e->tokens + new_tokens > RATE_LIMIT_BUCKET_SIZE)
-                    ? RATE_LIMIT_BUCKET_SIZE
-                    : e->tokens + new_tokens;
+  // (lang pause: bucket'en er fuld — og elapsed*rate kan ikke loebe over)
+  uint32_t new_tokens = (elapsed_ms >= (RATE_LIMIT_BUCKET_SIZE * 1000UL) / RATE_LIMIT_REFILL_RATE)
+                          ? RATE_LIMIT_BUCKET_SIZE
+                          : (elapsed_ms * RATE_LIMIT_REFILL_RATE) / 1000;
+  if (new_tokens > 0) {
+    if (e->tokens + new_tokens >= RATE_LIMIT_BUCKET_SIZE) {
+      e->tokens = RATE_LIMIT_BUCKET_SIZE;
       e->last_refill_ms = now;
+    } else {
+      e->tokens += new_tokens;
+      e->last_refill_ms += (new_tokens * 1000) / RATE_LIMIT_REFILL_RATE;
     }
   }
 
