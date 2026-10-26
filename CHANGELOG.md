@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.146] - 2026-10-26
+
+### NEW FEATURES
+- **FEAT-508:** Filter mod fejlmålinger fra Modbus-slaver (Modbus Master, PLC'ens egen RS485). Nyt kort **Filter mod fejlmålinger** på I/O-siden: pr. regel slave, HR/IR, adresseområde, fortegn, *maks. spring* og *bekræft*; et større spring godkendes først, når de næste aflæsninger bekræfter det, ellers beholdes den gamle værdi — en enkeltstående fejlmåling (fx R4DCB08/DS18B20, der sender 0,0 eller +2,0 °C) når aldrig ST Logic, REST/SCADA eller trends. Valgfri *ugyldig værdi* giver fejlstatus (ny fejlkode 9 `MB_VALUE_INVALID`). Tællere for holdt tilbage/bekræftet/ugyldige og seneste afvisning. Knap med forslag til R4DCB08. `GET/POST /api/modbus/filters`, `POST /api/modbus/filters/reset-stats`. Gemmes i egen NVS-nøgle (ingen schema-ændring) og virker straks. PC-test: `bash test/mb_filter_host/run.sh`. Manual §6.5.1.
+
 ## [7.9.68.145] - 2026-10-26
 
 ### NEW FEATURES

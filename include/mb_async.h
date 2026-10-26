@@ -101,7 +101,9 @@ typedef struct {
   uint32_t            last_update_ms; // millis() at last update
   uint8_t             last_fc;        // Actual FC of last completed op (1-6)
   uint32_t            pending_since_ms; // BUG-333: millis() when status became PENDING
-} mb_cache_entry_t;                   // ~25 bytes
+  int32_t             cand_value;       // FEAT-508: niveau for et spring der venter paa bekraeftelse
+  uint8_t             cand_count;       // FEAT-508: laesninger paa cand_value (0 = intet ventende spring)
+} mb_cache_entry_t;                   // ~30 bytes
 
 typedef struct {
   mb_request_type_t type;             // 1 byte

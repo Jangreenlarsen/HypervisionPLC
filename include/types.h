@@ -443,7 +443,8 @@ typedef enum {
   MB_NOT_ENABLED = 5,
   MB_INVALID_SLAVE = 6,       // BUG-084: Invalid slave ID (not 1-247)
   MB_INVALID_ADDRESS = 7,     // BUG-085: Invalid address (not 0-65535)
-  MB_BUS_BUSY = 8             // BUG-338: kunne ikke faa UART-mutex (optaget af anden transaktion i >2s)
+  MB_BUS_BUSY = 8,            // BUG-338: kunne ikke faa UART-mutex (optaget af anden transaktion i >2s)
+  MB_VALUE_INVALID = 9        // FEAT-508: slaven svarede med den vaerdi, et filter kalder ugyldig
 } mb_error_code_t;
 
 typedef struct {

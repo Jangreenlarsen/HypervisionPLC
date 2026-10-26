@@ -56,6 +56,7 @@ extern void alarm_raise(uint8_t severity, const char *msg);
 #include "modbus_expansion.h"  // BUG-419 - modbus_expansion_init() (connection-pool mutex)
 #include "expansion_api_client.h"  // BUG-455 - expansion_api_client_init() (vedvarende worker)
 #include "mb_activity_log.h"   // FEAT-149 - Wire-level Modbus activity log
+#include "mb_filter.h"         // FEAT-508 - filter mod fejlmaalinger fra Modbus-slaver
 #include "trend_recorder.h"    // FEAT-099 - Periodic register trend recorder
 #include "system_log.h"        // FEAT-086/089 - Event + register-change log
 #include "api_audit_log.h"     // FEAT-033 - Request audit log
@@ -129,6 +130,9 @@ void setup() {
 
   // FEAT-507: ekstern watchdog (TPL5010) - efter config, da den deler pins med Ethernet
   watchdog_ext_init(g_persist_config.network.ethernet.enabled);
+
+  // FEAT-508: filter mod fejlmaalinger fra Modbus-slaver (egen NVS-noegle)
+  mb_filter_load();
 
   // Initialize hardware drivers
   Serial.print("GPIO: ");

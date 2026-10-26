@@ -64,6 +64,7 @@
 #include "register_allocator.h"     // BUG-439
 #include "network_config.h"  // network_config_ip_to_str()
 #include "mb_async.h"
+#include "mb_filter.h"  // FEAT-508
 #include "modbus_expansion_async.h"  // FEAT-446: expansion-cache til /api/modbus/external
 #include "mb_activity_log.h"
 #include "trend_recorder.h"
@@ -901,6 +902,8 @@ static const api_route_info_t API_ROUTES[] = {
   {"POST",   "/api/modbus/slave",                  "Configure slave"},
   {"GET",    "/api/modbus/master",                 "Master config+stats"},
   {"POST",   "/api/modbus/master",                 "Configure master"},
+  {"GET",    "/api/modbus/filters",                "Filter mod fejlmaalinger: regler+statistik (FEAT-508)"},
+  {"POST",   "/api/modbus/filters",                "Gem filterregler (FEAT-508)"},
   {"GET",    "/api/wifi",                          "WiFi config+status"},
   {"POST",   "/api/wifi",                          "Configure WiFi"},
   {"POST",   "/api/wifi/connect",                  "Connect WiFi"},
@@ -3685,6 +3688,135 @@ esp_err_t api_handler_debug_set(httpd_req_t *req)
 }
 
 /* ============================================================================
+ * FEAT-508: /api/modbus/filters — filter mod fejlmaalinger fra Modbus-slaver
+ *   GET  -> regler + statistik
+ *   POST -> {"rules":[...]} erstatter alle regler (gemmes i NVS, virker straks)
+ *   POST /api/modbus/filters/reset-stats -> nulstil statistikken
+ * ============================================================================ */
+
+static esp_err_t mb_filters_reply(httpd_req_t *req)
+{
+  JsonDocument doc;
+  doc["max_rules"] = MB_FILTER_MAX_RULES;
+  doc["max_confirm"] = MB_FILTER_MAX_CONFIRM;
+  JsonArray arr = doc["rules"].to<JsonArray>();
+  uint32_t now = millis();
+  // kopi under laasen: async-tasken opdaterer statistikken samtidig
+  mb_filter_rule_t rules[MB_FILTER_MAX_RULES];
+  mb_filter_stats_t stats[MB_FILTER_MAX_RULES];
+  portENTER_CRITICAL(&mb_cache_spinlock);
+  uint8_t n = g_mb_filter_count;
+  memcpy(rules, g_mb_filter_rules, sizeof(rules));
+  memcpy(stats, g_mb_filter_stats, sizeof(stats));
+  portEXIT_CRITICAL(&mb_cache_spinlock);
+  for (uint8_t i = 0; i < n; i++) {
+    const mb_filter_rule_t *r = &rules[i];
+    JsonObject o = arr.add<JsonObject>();
+    o["name"] = r->name;
+    o["enabled"] = r->enabled ? true : false;
+    o["slave"] = r->slave_id;
+    o["type"] = (r->reg_type == MB_REQ_READ_INPUT_REG) ? "ir" : "hr";
+    o["addr_from"] = r->addr_from;
+    o["addr_to"] = r->addr_to;
+    o["signed"] = r->is_signed ? true : false;
+    o["max_jump"] = r->max_jump;
+    o["confirm"] = r->confirm;
+    o["invalid_enabled"] = r->invalid_enabled ? true : false;
+    o["invalid_raw"] = r->invalid_raw;
+    JsonObject s = o["stats"].to<JsonObject>();
+    s["rejected"] = stats[i].rejected;
+    s["confirmed"] = stats[i].confirmed;
+    s["invalid"] = stats[i].invalid;
+    if (stats[i].last_ms) {
+      s["last_addr"] = stats[i].last_addr;
+      s["last_value"] = stats[i].last_value;
+      s["last_kept"] = stats[i].last_kept;
+      s["last_age_ms"] = (uint32_t)(now - stats[i].last_ms);
+    }
+  }
+  String out;
+  serializeJson(doc, out);
+  return api_send_json(req, out.c_str());
+}
+
+static esp_err_t api_handler_mb_filters_get(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH(req);
+  return mb_filters_reply(req);
+}
+
+static esp_err_t api_handler_mb_filters_post(httpd_req_t *req)
+{
+  http_server_stat_request();
+  CHECK_AUTH_WRITE(req);
+
+  if (strstr(req->uri, "/filters/reset-stats") != NULL) {
+    mb_filter_reset_stats();
+    return api_send_json(req, "{\"status\":\"ok\"}");
+  }
+
+  size_t total = req->content_len;
+  if (total == 0) return api_send_error(req, 400, "Empty body");
+  if (total > 4096) return api_send_error(req, 413, "Body too large");
+  char *body = (char *)malloc(total + 1);
+  if (!body) return api_send_error(req, 500, "Out of memory");
+  size_t got = 0;
+  while (got < total) {
+    int r = httpd_req_recv(req, body + got, total - got);
+    if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
+    if (r <= 0) { free(body); return api_send_error(req, 400, "Failed to read request body"); }
+    got += (size_t)r;
+  }
+  body[got] = '\0';
+  JsonDocument doc;
+  DeserializationError jerr = deserializeJson(doc, body);
+  free(body);
+  if (jerr) return api_send_error(req, 400, "Invalid JSON");
+  JsonArray arr = doc["rules"].as<JsonArray>();
+  if (arr.isNull()) return api_send_error(req, 400, "Missing 'rules' array");
+  if (arr.size() > MB_FILTER_MAX_RULES) return api_send_error(req, 400, "Hoejst 8 regler");
+
+  mb_filter_rule_t rules[MB_FILTER_MAX_RULES];
+  memset(rules, 0, sizeof(rules));
+  uint8_t n = 0;
+  for (JsonObject o : arr) {
+    mb_filter_rule_t *r = &rules[n];
+    long slave = o["slave"] | 0L, from = o["addr_from"] | -1L, to = o["addr_to"] | -1L;
+    long jump = o["max_jump"] | 0L, confirm = o["confirm"] | 1L, inv = o["invalid_raw"] | 0L;
+    const char *type = o["type"] | "hr";
+    if (from < 0 || from > 65535 || to < 0 || to > 65535) return api_send_error(req, 400, "Adresser skal vaere 0-65535");
+    if (jump < 0 || jump > 65535) return api_send_error(req, 400, "Maks. spring skal vaere 0-65535");
+    if (inv < -32768 || inv > 65535) return api_send_error(req, 400, "Ugyldig vaerdi skal vaere -32768..65535");
+    if (strcasecmp(type, "hr") != 0 && strcasecmp(type, "ir") != 0) return api_send_error(req, 400, "type skal vaere 'hr' eller 'ir'");
+    r->enabled = (o["enabled"] | true) ? 1 : 0;
+    r->slave_id = (slave >= 1 && slave <= 247) ? (uint8_t)slave : 0;
+    r->reg_type = (strcasecmp(type, "ir") == 0) ? MB_REQ_READ_INPUT_REG : MB_REQ_READ_HOLDING;
+    r->is_signed = (o["signed"] | false) ? 1 : 0;
+    r->addr_from = (uint16_t)from;
+    r->addr_to = (uint16_t)to;
+    r->max_jump = (uint16_t)jump;
+    r->confirm = (confirm >= 1 && confirm <= MB_FILTER_MAX_CONFIRM) ? (uint8_t)confirm : 0;
+    r->invalid_enabled = (o["invalid_enabled"] | false) ? 1 : 0;
+    r->invalid_raw = (uint16_t)(int32_t)inv;   // -32768 = 0x8000 (INT16) gemmes som de raa 16 bit
+    strlcpy(r->name, o["name"] | "", sizeof(r->name));
+    n++;
+  }
+  const char *err = mb_filter_set(rules, n);
+  if (err) {
+    char msg[96];
+    snprintf(msg, sizeof(msg), "Regel: %s", err);
+    return api_send_error(req, 400, msg);
+  }
+  char ip[16], user[24];
+  http_get_client_info(req, ip, sizeof(ip), user, sizeof(user));
+  char msg[64];
+  snprintf(msg, sizeof(msg), "Modbus-filter: %u regel(er) gemt", (unsigned)n);
+  system_log_add_event((uint8_t)SYSLOG_SRC_REST, user, ip, msg);
+  return mb_filters_reply(req);
+}
+
+/* ============================================================================
  * GET /api/modbus/* - Modbus slave/master config + stats (GAP-4, GAP-5, GAP-18)
  * ============================================================================ */
 
@@ -3704,6 +3836,10 @@ esp_err_t api_handler_modbus_get(httpd_req_t *req)
   if (strstr(req->uri, "/external") != NULL) {
     extern esp_err_t api_handler_modbus_external_get(httpd_req_t *req);
     return api_handler_modbus_external_get(req);
+  }
+  // FEAT-508: filter mod fejlmaalinger (egen handler: egen stat/auth)
+  if (strstr(req->uri, "/filters") != NULL) {
+    return api_handler_mb_filters_get(req);
   }
 
   http_server_stat_request();
@@ -3797,6 +3933,10 @@ esp_err_t api_handler_modbus_post(httpd_req_t *req)
       return api_handler_modbus_activity_toggle(req, false);
     }
     return api_handler_modbus_activity_clear(req);
+  }
+  // FEAT-508: filter mod fejlmaalinger (egen handler: egen stat/auth)
+  if (strstr(req->uri, "/filters") != NULL) {
+    return api_handler_mb_filters_post(req);
   }
 
   http_server_stat_request();

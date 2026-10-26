@@ -121,6 +121,25 @@
 <div class="alert" id="mbmAlert"></div>
 </div>
 
+<!-- FEAT-508: filter mod fejlmålinger fra slaver på PLC'ens egen RS485 (Modbus Master) -->
+<div class="card" style="grid-column:1/-1">
+<h2>Filter mod fejlmålinger (Modbus Master)</h2>
+<p>Nogle slaver sender en gang imellem en <b>forkert, men gyldig</b> værdi — fx et R4DCB08-temperaturmodul, der aflæser en DS18B20-føler forkert (0,0 eller et spring på præcis 2,0 °C). Modbus-kontrolsummen fanger kun fejl på bussen, ikke i slaven. Et filter holder et <b>stort spring</b> tilbage, indtil de næste aflæsninger bekræfter det; en enkeltstående fejlmåling når derfor aldrig ST Logic, SCADA eller trends. Et ægte spring kommer frem én eller få aflæsninger senere.</p>
+<p style="font-size:11px;color:#a6adc8">Værdierne er <b>rå registerværdier</b>: på R4DCB08 er 1 = 0,1 °C, så <i>Maks. spring</i> 15 = 1,5 °C. <i>Bekræft</i> = hvor mange aflæsninger efter springet, der skal ligge på det nye niveau. <i>Ugyldig værdi</i> (valgfri) markerer målingen som fejl i stedet. Gælder slaver på PLC'ens egen RS485 (ikke expansion boards). Gemmes straks og virker uden genstart.</p>
+<div style="overflow-x:auto"><table class="tbl" id="mbfTable">
+<thead><tr><th title="Reglen er slået til">Til</th><th>Navn</th><th>Slave</th><th>Type</th><th>Fra adr.</th><th>Til adr.</th><th title="Registrene er INT16 (kan være negative, fx temperaturer under 0)">Fortegn</th><th title="Største ændring (rå enheder) der godtages straks">Maks. spring</th><th title="Aflæsninger efter springet, der skal bekræfte det (1-5)">Bekræft</th><th title="Rå værdi der betyder fejl (fx føler mangler)">Ugyldig værdi</th><th title="Aflæsninger holdt tilbage / spring bekræftet / ugyldige">Holdt / bekræftet / ugyldig</th><th>Seneste holdt tilbage</th><th></th></tr></thead>
+<tbody id="mbfBody"><tr><td colspan="13" style="color:#6c7086;text-align:center">Indlæser...</td></tr></tbody>
+</table></div>
+<div class="btn-row" style="flex-wrap:wrap;gap:6px">
+<button class="btn btn-sm btn-primary" onclick="mbfAdd()">+ Tilføj regel</button>
+<button class="btn btn-sm btn-primary" onclick="mbfAdd({name:'R4DCB08 temperaturer',slave:1,type:'hr',addr_from:0,addr_to:7,signed:true,max_jump:15,confirm:1})" title="8 temperaturer i HR 0-7 (0,1 °C), spring over 1,5 °C skal bekræftes af næste aflæsning — ret slave-ID til modulets">+ Forslag: R4DCB08</button>
+<span style="flex:1"></span>
+<button class="btn btn-sm" style="background:#45475a;color:#cdd6f4" onclick="mbfResetStats()">Nulstil tællere</button>
+<button class="btn btn-success btn-sm" onclick="mbfSave()">Gem filtre</button>
+</div>
+<div class="alert" id="mbfAlert"></div>
+</div>
+
 <!-- Modbus Transceiver (GUI-oprydning: ny — hidtil kun CLI "set modbus mode"/"set modbus slave|master uart") -->
 <div class="card">
 <h2>Modbus Transceiver</h2>
@@ -1715,8 +1734,44 @@ function saveTransceiver(){
   .catch(e=>showAlert('xcvrAlert','err','Fejl: '+e.message));
 }
 
+// --- FEAT-508: filter mod fejlmålinger ---
+let mbfRules=[];
+const mbfIn='padding:2px 4px;background:#1e1e2e;border:1px solid #45475a;border-radius:3px;color:#cdd6f4;font-size:11px';
+function mbfAgo(ms){const s=Math.round(ms/1000);return s<60?s+' s':s<3600?Math.round(s/60)+' min':s<86400?Math.round(s/3600)+' t':Math.round(s/86400)+' d';}
+function mbfRender(){
+  const b=$('mbfBody');
+  if(!mbfRules.length){b.innerHTML='<tr><td colspan="13" style="color:#6c7086;text-align:center">Ingen filtre — alle værdier gemmes som slaven sender dem.</td></tr>';return;}
+  b.innerHTML=mbfRules.map((r,i)=>{const s=r.stats||{};const n=(k,w,mn,mx)=>'<input type="number" data-k="'+k+'" min="'+mn+'" max="'+mx+'" value="'+escHtml(r[k]??'')+'" style="'+mbfIn+';width:'+w+'px">';
+    const last=s.last_age_ms!=null?'adr. '+s.last_addr+': '+s.last_value+' (beholdt '+s.last_kept+') for '+mbfAgo(s.last_age_ms)+' siden':'—';
+    return '<tr data-i="'+i+'"><td><input type="checkbox" data-k="enabled"'+(r.enabled!==false?' checked':'')+'></td>'+
+    '<td><input type="text" data-k="name" maxlength="23" value="'+escHtml(r.name||'')+'" style="'+mbfIn+';width:150px"></td>'+
+    '<td>'+n('slave',50,1,247)+'</td><td><select data-k="type" style="'+mbfIn+'"><option value="hr"'+(r.type!=='ir'?' selected':'')+'>HR</option><option value="ir"'+(r.type==='ir'?' selected':'')+'>IR</option></select></td>'+
+    '<td>'+n('addr_from',60,0,65535)+'</td><td>'+n('addr_to',60,0,65535)+'</td>'+
+    '<td><input type="checkbox" data-k="signed"'+(r.signed?' checked':'')+'></td><td>'+n('max_jump',60,0,65535)+'</td><td>'+n('confirm',40,1,5)+'</td>'+
+    '<td style="white-space:nowrap"><input type="checkbox" data-k="invalid_enabled"'+(r.invalid_enabled?' checked':'')+'> '+n('invalid_raw',70,-32768,65535)+'</td>'+
+    '<td style="white-space:nowrap">'+(s.rejected||0)+' / '+(s.confirmed||0)+' / '+(s.invalid||0)+'</td><td style="font-size:11px;color:#a6adc8">'+escHtml(last)+'</td>'+
+    '<td><button class="btn btn-sm btn-danger" onclick="mbfDel('+i+')" title="Fjern reglen">&#x2715;</button></td></tr>';}).join('');
+}
+function mbfCollect(){
+  document.querySelectorAll('#mbfBody tr[data-i]').forEach(tr=>{const r=mbfRules[+tr.dataset.i];
+    tr.querySelectorAll('[data-k]').forEach(el=>{const k=el.dataset.k;r[k]=el.type==='checkbox'?el.checked:el.type==='number'?(el.value===''?null:Number(el.value)):el.value;});});
+}
+function mbfLoad(){api('/api/modbus/filters').then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(d=>{mbfRules=d.rules||[];mbfRender();}).catch(e=>{$('mbfBody').innerHTML='<tr><td colspan="13" style="color:#f38ba8">Kunne ikke hente filtre: '+escHtml(e.message)+'</td></tr>';});}
+function mbfAdd(p){mbfCollect();if(mbfRules.length>=8){showAlert('mbfAlert','err','Højst 8 regler');return;}mbfRules.push(Object.assign({name:'',enabled:true,slave:1,type:'hr',addr_from:0,addr_to:0,signed:false,max_jump:10,confirm:1,invalid_enabled:false,invalid_raw:0},p||{}));mbfRender();showAlert('mbfAlert','warn','Husk at trykke Gem filtre.');}
+function mbfDel(i){mbfCollect();mbfRules.splice(i,1);mbfRender();showAlert('mbfAlert','warn','Reglen er fjernet her — tryk Gem filtre for at gemme.');}
+function mbfSave(){
+  mbfCollect();
+  const rules=mbfRules.map(r=>({name:r.name||'',enabled:r.enabled!==false,slave:r.slave,type:r.type,addr_from:r.addr_from,addr_to:r.addr_to,signed:!!r.signed,max_jump:r.max_jump??0,confirm:r.confirm??1,invalid_enabled:!!r.invalid_enabled,invalid_raw:r.invalid_raw??0}));
+  api('/api/modbus/filters',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rules})}).then(r=>r.json().then(d=>({r,d}))).then(({r,d})=>{
+    if(r.status===403)throw new Error('Ingen skriveadgang');
+    if(!r.ok)throw new Error(d.error||d.message||('HTTP '+r.status));
+    mbfRules=d.rules||[];mbfRender();showAlert('mbfAlert','ok','Filtre gemt ('+mbfRules.length+' regel/regler) — virker straks.');
+  }).catch(e=>showAlert('mbfAlert','err','Fejl: '+e.message));
+}
+function mbfResetStats(){api('/api/modbus/filters/reset-stats',{method:'POST'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);mbfLoad();showAlert('mbfAlert','ok','Tællere nulstillet.');}).catch(e=>showAlert('mbfAlert','err','Fejl: '+e.message));}
+
 function loadAll(){
-  loadModbusSlave();loadModbusMaster();loadTransceiver();
+  loadModbusSlave();loadModbusMaster();loadTransceiver();mbfLoad();
   updateExpTestFields();  // FEAT-422: korrekte felter selv hvis boards ikke kan hentes
   loadExpBoardTypes().then(loadExpBoards);
   buildCards();

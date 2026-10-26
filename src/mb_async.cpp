@@ -15,6 +15,7 @@
 #include "modbus_master.h"
 #include "st_builtin_modbus.h"
 #include "mb_activity_log.h"
+#include "mb_filter.h"         // FEAT-508
 
 /* ============================================================================
  * GLOBALS
@@ -22,6 +23,32 @@
 
 mb_async_state_t g_mb_async = {0};
 portMUX_TYPE mb_cache_spinlock = portMUX_INITIALIZER_UNLOCKED;
+
+/**
+ * FEAT-508: gem en laest registervaerdi gennem filteret mod fejlmaalinger.
+ * Kaldes med mb_cache_spinlock taget. Et spring, der venter paa bekraeftelse,
+ * beholder den gamle vaerdi (status forbliver VALID — laesningen lykkedes).
+ */
+static void mb_store_filtered(mb_cache_entry_t *e, uint8_t slave_id, uint16_t addr, uint8_t reg_type,
+                              int32_t value) {
+  bool have_old = (e->last_update_ms != 0 && e->last_error == MB_OK);
+  switch (mb_filter_check(slave_id, reg_type, addr, have_old, e->value.int_val, value,
+                          &e->cand_value, &e->cand_count)) {
+    case MB_FILTER_ACCEPT:
+      e->value.int_val = value;
+      e->status = MB_CACHE_VALID;
+      e->last_error = MB_OK;
+      break;
+    case MB_FILTER_HOLD:
+      e->status = MB_CACHE_VALID;
+      e->last_error = MB_OK;
+      break;
+    case MB_FILTER_INVALID:
+      e->status = MB_CACHE_ERROR;
+      e->last_error = MB_VALUE_INVALID;
+      break;
+  }
+}
 
 // Ring-buffer pool for FC16 multi-register write values
 uint16_t g_mb_multi_write_pool[MB_MULTI_REG_POOL_SIZE][16] = {0};
@@ -683,12 +710,11 @@ static void mb_async_task_func(void *pvParameters) {
           if (ce) {
             portENTER_CRITICAL(&mb_cache_spinlock);
             if (err == MB_OK) {
-              ce->value.int_val = (int32_t)regs[i];
-              ce->status = MB_CACHE_VALID;
+              mb_store_filtered(ce, req.slave_id, req.address + i, (uint8_t)MB_REQ_READ_HOLDING, (int32_t)regs[i]);
             } else {
               ce->status = MB_CACHE_ERROR;
+              ce->last_error = err;
             }
-            ce->last_error = err;
             ce->last_update_ms = millis();
             ce->last_fc = (uint8_t)MB_REQ_READ_HOLDINGS;
             portEXIT_CRITICAL(&mb_cache_spinlock);
@@ -711,6 +737,7 @@ static void mb_async_task_func(void *pvParameters) {
             if (err == MB_OK) {
               ce->value.int_val = (int32_t)write_vals[i];
               ce->status = MB_CACHE_VALID;
+              ce->cand_count = 0;  // FEAT-508: en skrevet vaerdi er det nye niveau
             } else {
               ce->status = MB_CACHE_ERROR;
             }
@@ -783,17 +810,21 @@ static void mb_async_task_func(void *pvParameters) {
       }
       if (entry) {
         portENTER_CRITICAL(&mb_cache_spinlock);
-        if (err == MB_OK) {
+        if (err == MB_OK && (req.type == MB_REQ_READ_HOLDING || req.type == MB_REQ_READ_INPUT_REG)) {
+          mb_store_filtered(entry, req.slave_id, req.address, cache_type, result.int_val);  // FEAT-508
+        } else if (err == MB_OK) {
           // BUG-426: for skrivninger er `result` kun et OK-flag (bool_val) —
           // cachen skal have den SKREVNE vaerdi, ellers laeser ST/UI "1"
           // tilbage fra registret, og write-dedup sammenligner mod forkert vaerdi.
           bool is_write = (req.type == MB_REQ_WRITE_COIL || req.type == MB_REQ_WRITE_HOLDING);
           entry->value = is_write ? req.write_value : result;
           entry->status = MB_CACHE_VALID;
+          entry->last_error = err;
+          if (is_write) entry->cand_count = 0;  // FEAT-508: en skrevet vaerdi er det nye niveau
         } else {
           entry->status = MB_CACHE_ERROR;
+          entry->last_error = err;
         }
-        entry->last_error = err;
         entry->last_update_ms = millis();
         entry->last_fc = (uint8_t)req.type;  // Track actual operation FC (FC01-FC06)
         portEXIT_CRITICAL(&mb_cache_spinlock);

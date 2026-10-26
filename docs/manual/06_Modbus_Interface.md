@@ -82,6 +82,28 @@ show modbus-master                        (status + kø-/cache-statistik)
 
 **Via web-GUI (FEAT-166):** slave-id/baudrate/paritet/stopbits/inter-frame-delay (Slave) og enabled/baudrate/paritet/stopbits/timeout/inter-frame-delay/max-requests/cache-ttl (Master) kan nu også sættes fra `/system`-siden — samme felter som ovenfor, blot uden CLI. `cache-size`/`queue-size` er ikke inkluderet dér, da de er faste compile-time-kapaciteter (`MB_CACHE_MAX`/`MB_QUEUE_MAX`), ikke runtime-konfigurerbare via REST i dag.
 
+### 6.5.1 Filter mod fejlmålinger (FEAT-508)
+
+Nogle slaver sender en gang imellem en **forkert, men gyldig** værdi. Eksempel: et **R4DCB08**-temperaturmodul (8 × DS18B20) aflæser af og til en føler forkert og sender 0,0 °C eller et spring på præcis 2,0 °C (én bit i følerens rå værdi). Modbus-kontrolsummen (CRC) fanger kun fejl på bussen, ikke i slaven, så PLC'en kan ikke se det på selve svaret — værdien når ST Logic, REST/SCADA og trends som en ægte måling.
+
+Filteret ligger på **I/O-siden** i kortet **Filter mod fejlmålinger (Modbus Master)**. En regel dækker en slave, en registertype (HR/IR) og et adresseområde:
+
+| Felt | Betydning |
+|------|-----------|
+| **Maks. spring** | Største ændring (rå registerenheder) fra den sidst godkendte værdi, der godtages straks. På R4DCB08 er 1 = 0,1 °C, så 15 = 1,5 °C. 0 = intet springfilter. |
+| **Bekræft** | Antal aflæsninger efter springet, der skal ligge på det nye niveau (inden for *Maks. spring*), før det godkendes (1–5). Indtil da beholder PLC'en den gamle værdi. |
+| **Fortegn** | Registrene er INT16 (fx temperaturer under 0 °C). Uden fortegn er −0,5 → +0,3 et kæmpe spring. |
+| **Ugyldig værdi** | Valgfri rå værdi, der betyder fejl (fx en "føler mangler"-kode). Målingen får fejlstatus (fejlkode 9) i stedet for en værdi. |
+
+En enkeltstående fejlmåling når derfor aldrig cachen; et ægte spring kommer frem én (eller *Bekræft*) aflæsning senere. Knappen **Forslag: R4DCB08** udfylder HR 0–7, fortegn, maks. spring 15 og bekræft 1 — ret slave-ID til modulets. Kortet viser pr. regel hvor mange aflæsninger der er holdt tilbage, hvor mange spring der er bekræftet, og den senest holdt-tilbage værdi (med den beholdte værdi), så man kan se om filteret arbejder. **Nulstil tællere** nulstiller tallene.
+
+- Gælder slaver på PLC'ens **egen RS485** (Modbus Master: ST Logic `MB_*`, `/api/ext/rtu/...`, Intern Modbus) — ikke expansion boards.
+- Gemmes straks i NVS (egen nøgle, uden for config-backup'en) og virker uden genstart. Højst 8 regler.
+- Første aflæsning efter opstart eller efter en fejl (timeout o.l.) godkendes altid — der er intet at sammenligne med.
+- Et filter retter ikke årsagen: tjek følere, kabler og samlinger (på R4DCB08 typisk de følere, der har flest holdt-tilbage aflæsninger).
+
+REST: `GET/POST /api/modbus/filters` — se [bilag B](B_REST_API_Reference.md).
+
 ## 6.6 Overvågning af faktisk bustrafik
 
 Både Slave- og Master-siden logges live i **Modbus Aktivitetsloggen** i dashboardet ([§4.2](04_Web_Dashboard_og_Monitor.md)) — et wire-level-vindue der viser hver transaktion uanset hvor den stammer fra (ST Logic, CLI, dashboard, eller en ekstern master der taler til jeres slave). Uvurderligt værktøj når noget "burde virke, men gør ikke" — se [kapitel 13](13_Fejlfinding.md).
