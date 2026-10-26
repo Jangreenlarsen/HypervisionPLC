@@ -38,8 +38,14 @@
  * GLOBAL STATE
  * ============================================================================ */
 
-// Global logic engine state - single instance for all 4 programs
-static st_logic_engine_state_t g_logic_state;
+// Global logic engine state - single instance for all 4 programs.
+// BUG-512: ~22 KB - laa som statisk variabel i intern DRAM og tog den sidste
+// margin fra WiFi-driveren (ESP_ERR_NO_MEM i ets_timer_setfn -> crash-loop paa en
+// PLC med expansion boards + SCADA-trafik). Lægges nu i PSRAM ved foerste brug.
+// VM'en koerer paa sin egen kopi paa stakken (st_logic_engine.cpp), og bytekoden
+// laa allerede i PSRAM, saa det varme arbejde bliver i intern RAM. Ingen ISR
+// roerer ST-tilstanden.
+static st_logic_engine_state_t *g_logic_state = NULL;
 
 // Global parser and compiler to avoid stack overflow
 // (These are large structures, don't allocate on stack)
@@ -51,7 +57,18 @@ static st_compiler_t *g_compiler = NULL;
  * @brief Get pointer to global logic engine state
  */
 st_logic_engine_state_t *st_logic_get_state(void) {
-  return &g_logic_state;
+  // Foerste kald sker i setup() foer baggrunds-tasks startes (single-threaded)
+  if (!g_logic_state) {
+    g_logic_state = (st_logic_engine_state_t *)heap_caps_calloc(1, sizeof(st_logic_engine_state_t),
+                                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!g_logic_state) {
+      g_logic_state = (st_logic_engine_state_t *)calloc(1, sizeof(st_logic_engine_state_t));
+    }
+    if (!g_logic_state) {
+      abort();  // uden ST-tilstand kan firmwaren ikke koere - genstart frem for NULL-deref
+    }
+  }
+  return g_logic_state;
 }
 
 /* ============================================================================

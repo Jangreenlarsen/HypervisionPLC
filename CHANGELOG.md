@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.153] - 2026-10-26
+
+### BUG FIXES
+- **BUG-512:** PLC'en med expansion boards (10.1.1.30) genstartede igen og igen: `ESP_ERROR_CHECK failed: ESP_ERR_NO_MEM` i WiFi-driveren (`ppTask` → `ieee80211_ampdu_request` → `ets_timer_setfn`). WiFi kræver intern RAM, og der var kun ca. 35 KB fri. ST Logic-motorens tilstand (`g_logic_state`, ca. 22 KB: 4 programmer med variabler og statistik) lå statisk i intern RAM og ligger nu i PSRAM. VM'en kører stadig på stakken, så afviklingen er lige så hurtig som før. Statisk intern RAM faldt fra 96,8 KB til 82,0 KB. Testet på 10.1.1.30: stabil og ingen genstarter.
+
 ## [7.9.68.152] - 2026-10-26
 
 ### BUG FIXES
