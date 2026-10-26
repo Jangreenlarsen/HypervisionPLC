@@ -310,7 +310,7 @@ Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ek
 | `MBX_READ_HOLDINGS(board, kanal, slave, addr, count)` | INT×5 (count: 1-16) | `ARRAY OF INT` (+ BOOL) | 03 | **FEAT-461.** Læser op til 16 registre i ÉN transaktion. Syntaks: `arr := MBX_READ_HOLDINGS(board, kanal, slave, addr, count);` — arrayet får de senest kendte værdier (cache), og en opfriskning sættes i kø. Bruger samme cache-poster som `MBX_READ_HOLDING`, så værdierne også ses i Register Map. `MBX_SUCCESS()` = alle registre har en gyldig værdi |
 | `MBX_WRITE_HOLDINGS(board, kanal, slave, addr, count)` | INT×5 (count: 1-16) | `ARRAY OF INT` | 16 | **v7.9.68.0.** Kø'er skrivning. Særskilt array-syntaks, se nedenfor. Bypasser cachen (se advarsel nedenfor) |
 | `MBX_WRITE_COILS(board, kanal, slave, addr, count)` | INT×5 (count: 1-16) | `ARRAY OF BOOL` | 15 | **v7.9.68.0.** Kø'er skrivning. Særskilt array-syntaks, se nedenfor. Bypasser cachen (se advarsel nedenfor) |
-| `MBX_SUCCESS()` | — | BOOL | — | TRUE hvis seneste `MBX_*`-kald lykkedes |
+| `MBX_SUCCESS()` | — | BOOL | — | TRUE hvis seneste `MBX_*`-kald lykkedes. **Cachen lever kun 2 s:** et `MBX_READ_*` der kaldes sjældnere end hvert 2. sekund (fx kun i en 10 s-takt) finder altid en udløbet værdi, og `MBX_SUCCESS()` er så **altid FALSE**. Læs mindst hvert sekund, og lad kun selve handlingen (fx en skrivning) ske i den langsomme takt |
 | `MBX_BUSY()` | — | BOOL | — | TRUE hvis expansion-data-kø har ventende forespørgsler |
 | `MBX_ERROR()` | — | INT | — | Seneste fejlkode — samme `mb_error_code_t`-tabel som D.5.9's `MB_ERROR()` |
 
