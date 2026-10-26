@@ -34,7 +34,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `disconnect wifi` / `dc` | — | Afbryd WiFi | `disconnect wifi` |
 | `test sr` | — | Test af shift-register outputs (kun boards med `SHIFT_REGISTER_ENABLED`) | `test sr` |
 | `test sr input` | — | Test af shift-register inputs | `test sr input` |
-| `test crash panic\|wdt\|rtc yes` | `yes` påkrævet | **FEAT-427.** Bevidst crash til test af crash-tæller og safe mode: `panic` genstarter straks (panic-reset), `wdt` hænger hovedløkken så task-watchdog'en genstarter efter timeout, `rtc` (BUG-506) stopper kun fodringen af RTC-watchdog'en (hardware) — beviser at den genstarter PLC'en efter sin timeout (reset-årsag `Other watchdog`). 3 i træk (hver < 10 min drift) → safe mode. **Kun til test — genstarter PLC'en.** Brug Telnet | `test crash panic yes` |
+| `test crash panic\|wdt\|rtc\|ext yes` | `yes` påkrævet | **FEAT-427.** Bevidst crash til test af crash-tæller og safe mode: `panic` genstarter straks (panic-reset), `wdt` hænger hovedløkken så task-watchdog'en genstarter efter timeout, `rtc` (BUG-506) stopper kun fodringen af RTC-watchdog'en (hardware) — beviser at den genstarter PLC'en efter sin timeout (reset-årsag `Other watchdog`), `ext` (FEAT-507) stopper kun DONE-kvitteringen til den eksterne TPL5010 — `show watchdog` viser bagefter om testen bestod. 3 i træk (hver < 10 min drift) → safe mode. **Kun til test — genstarter PLC'en.** Brug Telnet | `test crash panic yes` |
 | `delete user <navn>` | — | Slet RBAC-bruger | `delete user viewer` |
 | `no set gpio <pin>` | — | Fjern GPIO-mapping (auto-gemmes til NVS) | `no set gpio 23` |
 | `no set counter <id>` | `id`: 1–4 | Deaktivér/slet counter-konfiguration og frigiv dens registre. Brug `save` bagefter (før v7.9.68.44 overlevede sletningen ikke en genstart, BUG-442) | `no set counter 1` |
@@ -141,6 +141,7 @@ CLI'en tokeniserer input på whitespace, understøtter citerede strenge (`"..."`
 | `clear safemode` | — | **FEAT-427.** Forlad safe mode: ST kører igen og udgangene følger igen deres coils. Find først årsagen til crashene (`show watchdog`) |
 | `reset watchdog stats` | — | **FEAT-448.** Nulstil watchdog-statistikken — genstarter, crashes (i alt/i træk), sidste fejl og drift før genstart — fx som **nulpunkt ved idriftsættelse**. Tidspunktet vises som "siden …" i `show watchdog` og på Watchdog-kortet. Timeout og en evt. aktiv safe mode ændres ikke |
 | `set watchdog enable\|disable` | — | **FEAT-427.** Gemmes, træder i kraft efter genstart. Uden watchdog genstarter PLC'en ikke, hvis den hænger |
+| `set watchdog ext on\|off` | — | **FEAT-507.** Ekstern watchdog TPL5010 (WAKE GPIO18, DONE GPIO19, RSTn → EN): firmwaren kvitterer for hver WAKE-puls med DONE fra hovedløkken. Gemmes, træder i kraft efter genstart. Kan ikke slås til, mens W5500 Ethernet er aktiveret (deler pins). **Er TPL5010 monteret, skal den slås til — ellers resetter den PLC'en hvert ~2. minut.** Test: `test crash ext yes` |
 | `set debug <flag> <on\|off>` | flag: `config-save`, `config-load`, `all` | Debug-logging-flag |
 | `set gpio <pin> input <idx>` | pin: 0–39 eller 100–255 (virtuel); idx: discrete input-index | Map GPIO-pin til discrete input |
 | `set gpio <pin> coil <idx>` | idx: coil-index | Map coil til GPIO-output |

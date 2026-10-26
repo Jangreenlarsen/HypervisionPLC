@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.145] - 2026-10-26
+
+### NEW FEATURES
+- **FEAT-507:** Understøttelse af ekstern watchdog **TPL5010** (WAKE → GPIO18, DONE ← GPIO19, RSTn → EN). TPL5010 er aktiv fra power-on og resetter PLC'en via EN, hvis firmwaren ikke kvitterer for en WAKE-puls (~60–120 s med ~60 s interval) — også hvis ESP32 hænger, før firmwaren starter, hvilket ingen intern watchdog kan fange (BUG-506). Firmwaren kvitterer kun fra hovedløkken, aldrig fra opstarten. Slås til med `set watchdog ext on` (gemt, efter genstart); `show watchdog` viser WAKE/DONE-tællere; `test crash ext yes` tester den. Kan ikke bruges samtidig med W5500 Ethernet (deler GPIO18/19) — firmwaren afviser kombinationen i CLI og REST. Hardware-beslutning: W5500 droppes indtil videre (netværk via WiFi), TPL5010 + spændingsovervåger APX803/TPS3839 på EN — se `docs/ES32D26_BOARD_GUIDE.md`.
+
 ## [7.9.68.144] - 2026-10-25
 
 ### BUG FIXES / DIAGNOSTIK

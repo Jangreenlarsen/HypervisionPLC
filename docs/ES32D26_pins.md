@@ -49,3 +49,15 @@
 Mens Ethernet er aktiveret, skriver firmwaren **ikke** til DAC'en (AO1/AO2 er reelt slået fra), da `dacWrite()` ellers ville overtage MOSI/RST. Med Ethernet slået fra kan AO1/AO2 bruges som før (hvis de analoge kredsløb er tilsluttet).
 
 **Reelt ledige GPIOs** (når Ethernet er slået fra): IO4, IO5 (strapping), IO18, IO19.
+
+## Ekstern watchdog TPL5010 (FEAT-507, beslutning 2026-10-26)
+
+W5500 er droppet indtil videre (netværk via WiFi). GPIO18/19 bruges i stedet til en ekstern watchdog, og en spændingsovervåger (APX803/TPS3839) sidder på EN — se [ES32D26_BOARD_GUIDE.md](ES32D26_BOARD_GUIDE.md#reset-supervisor--ekstern-watchdog-beslutning-2026-10-26).
+
+| GPIO  | Funktion | Retning |
+|-------|----------|---------|
+| IO18  | TPL5010 WAKE | input (interrupt, stigende kant) |
+| IO19  | TPL5010 DONE | output (kort høj puls) |
+| EN    | TPL5010 RSTn + APX803/TPS3839 RESET | hardware, wired-OR med RESET-knappen |
+
+Kan ikke bruges samtidig med W5500 — firmwaren afviser at slå begge til.

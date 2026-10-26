@@ -127,6 +127,9 @@ void setup() {
   config_load_from_nvs(&g_persist_config);
   Serial.println("OK");
 
+  // FEAT-507: ekstern watchdog (TPL5010) - efter config, da den deler pins med Ethernet
+  watchdog_ext_init(g_persist_config.network.ethernet.enabled);
+
   // Initialize hardware drivers
   Serial.print("GPIO: ");
   watchdog_boot_stage("drivers");

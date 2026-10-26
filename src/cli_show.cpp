@@ -4861,6 +4861,22 @@ void cli_cmd_show_watchdog(void) {
     debug_println("RTC watchdog: IKKE armeret");
   }
   {
+    // FEAT-507: ekstern TPL5010
+    uint32_t wakes = 0, dones = 0, since = 0;
+    bool passed = false;
+    watchdog_ext_get_stats(&wakes, &dones, &since, &passed);
+    if (watchdog_ext_active()) {
+      debug_printf("Ekstern watchdog (TPL5010): AKTIV - %lu WAKE, %lu DONE", (unsigned long)wakes, (unsigned long)dones);
+      if (dones) debug_printf(", sidste DONE for %lu s siden", (unsigned long)(since / 1000));
+      debug_println("");
+    } else if (watchdog_ext_enabled()) {
+      debug_println("Ekstern watchdog (TPL5010): slaaet til, men IKKE startet (Ethernet aktiv, eller genstart mangler)");
+    } else {
+      debug_println("Ekstern watchdog (TPL5010): fra ('set watchdog ext on')");
+    }
+    if (passed) debug_println("  'test crash ext' BESTAAET - TPL5010 genstartede PLC'en");
+  }
+  {
     const char *st = watchdog_prev_boot_stage();
     debug_print("Forrige opstart naaede: ");
     if (!st[0]) debug_println("ukendt (stroemsvigt/power-on - RTC-hukommelse nulstillet)");

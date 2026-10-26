@@ -4311,7 +4311,11 @@ esp_err_t api_handler_ethernet_post(httpd_req_t *req)
   }
 
   if (doc.containsKey("enabled")) {
-    g_persist_config.network.ethernet.enabled = doc["enabled"].as<bool>() ? 1 : 0;
+    bool en = doc["enabled"].as<bool>();
+    if (en && watchdog_ext_enabled()) {  // FEAT-507: deler GPIO18/19
+      return api_send_error(req, 409, "Ekstern watchdog (TPL5010) bruger GPIO18/19 - slaa den fra foerst");
+    }
+    g_persist_config.network.ethernet.enabled = en ? 1 : 0;
   }
   if (doc.containsKey("dhcp")) {
     g_persist_config.network.ethernet.dhcp_enabled = doc["dhcp"].as<bool>() ? 1 : 0;

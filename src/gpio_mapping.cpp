@@ -55,6 +55,8 @@ const char *gpio_mapping_pin_reserved(uint16_t pin, bool is_output) {
        pin == PIN_SPI_CS || pin == PIN_W5500_INT || pin == PIN_W5500_RST))
     return "W5500 Ethernet (aktiveret)";
   if (pin == PIN_AO1 || pin == PIN_AO2) return "analog udgang (DAC)";
+  if (watchdog_ext_enabled() && (pin == PIN_EXT_WDT_WAKE || pin == PIN_EXT_WDT_DONE))
+    return "ekstern watchdog TPL5010 (FEAT-507)";
 #endif
   if (is_output && pin >= 34) return "input-only (kan ikke vaere udgang)";
   return NULL;

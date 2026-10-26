@@ -496,6 +496,11 @@ typedef enum {
   #define PIN_SPI_CS          5     // Chip Select (ledig, ⚠️ strapping pin)
   #define PIN_W5500_INT       4     // Interrupt (ledig)
   #define PIN_W5500_RST       26    // Hardware Reset (tidl. GPIO16 = PSRAM) — deler pin med AO2/DAC2
+  // FEAT-507: ekstern watchdog TPL5010 (paa W5500's tidligere SPI-pins - kan
+  // ikke bruges samtidig med Ethernet). WAKE = TPL5010 -> ESP32 (input),
+  // DONE = ESP32 -> TPL5010 (output). RSTn -> EN er ren hardware.
+  #define PIN_EXT_WDT_WAKE    18
+  #define PIN_EXT_WDT_DONE    19
   // BUG-423: skiftet fra SPI3_HOST (VSPI) til SPI2_HOST (HSPI) under
   // fejlsøgning af PSRAM-heap-korruption ved Ethernet-aktivering. Alle
   // W5500-ben er alligevel GPIO-matrix-remappede her (ingen af dem er nogen
@@ -720,7 +725,7 @@ typedef enum {
  * ============================================================================ */
 
 #define PROJECT_NAME        "Modbus RTU Server (ESP32)"
-#define PROJECT_VERSION     "7.9.68.144"
+#define PROJECT_VERSION     "7.9.68.145"
 #define PROJECT_LICENSE     "AGPL-3.0-or-later"
 #define PROJECT_SOURCE_URL  "https://github.com/Jangreenlarsen/HypervisionPLC"   // FEAT-433: AGPL §13 kildekode-tilbud
 // BUILD_DATE and BUILD_NUMBER now in build_version.h (auto-generated)

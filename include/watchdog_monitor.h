@@ -63,6 +63,15 @@ void watchdog_boot_stage(const char *stage);
 const char* watchdog_prev_boot_stage(void);  // "" = ukendt / stroemsvigt
 void watchdog_test_rtc_hang(void);           // 'test crash rtc yes' - vender ikke tilbage
 
+/* FEAT-507: ekstern watchdog TPL5010 (WAKE GPIO18, DONE GPIO19, RSTn -> EN).
+ * Indstillingen gemmes i NVS og traeder i kraft efter genstart. */
+void watchdog_ext_init(bool ethernet_enabled);  // kaldes efter config_load
+bool watchdog_ext_enabled(void);                // gemt indstilling
+bool watchdog_ext_active(void);                 // koerer denne boot
+void watchdog_ext_set_enabled(bool en);
+void watchdog_ext_get_stats(uint32_t *wake_count, uint32_t *done_count, uint32_t *since_done_ms, bool *test_passed);
+void watchdog_test_ext_hang(void);              // 'test crash ext yes' - vender ikke tilbage
+
 /**
  * @brief Feed the watchdog (reset timeout counter)
  *

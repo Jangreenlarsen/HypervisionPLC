@@ -15,6 +15,7 @@
  */
 
 #include "watchdog_monitor.h"
+#include "constants.h"  // FEAT-507: PIN_EXT_WDT_*
 #include "debug.h"
 #include <esp_task_wdt.h>
 #include <soc/rtc_wdt.h>
@@ -290,6 +291,134 @@ void watchdog_early_boot_arm(void) {
 }
 
 /* ============================================================================
+ * EKSTERN WATCHDOG - TPL5010 (FEAT-507)
+ * ============================================================================
+ * TPL5010 er aktiv fra power-on og sender en WAKE-puls hvert interval (sat
+ * med modstand paa DELAY, ~60 s). Kvitteres der ikke med DONE foer naeste
+ * WAKE, traekker den RSTn -> EN lav = fuld hardware-reset. Effektiv timeout
+ * er derfor 1-2 intervaller (~60-120 s), aktiv fra foerste sekund - ogsaa
+ * hvis ESP32 haenger foer firmwaren overhovedet starter.
+ * DONE sendes KUN fra watchdog_feed() (hovedloekken + lange CLI-operationer),
+ * aldrig fra setup(): haenger opstarten, kommer der intet DONE -> reset.
+ * Kan ikke bruges samtidig med W5500 Ethernet (deler GPIO18/19). */
+
+#if defined(PIN_EXT_WDT_WAKE) && defined(PIN_EXT_WDT_DONE)
+#define WATCHDOG_NVS_EXT_KEY   "wdt_ext"    // 1 = slaaet til
+#define WATCHDOG_NVS_EXTT_KEY  "wdt_ext_t"  // 1 = 'test crash ext' i gang
+static bool g_ext_enabled = false;
+static bool g_ext_active = false;
+static volatile bool g_ext_wake_pending = false;
+static volatile uint32_t g_ext_wake_count = 0;
+static uint32_t g_ext_done_count = 0;
+static uint32_t g_ext_last_done_ms = 0;
+static bool g_ext_test_passed = false;
+static bool g_ext_test_running = false;
+
+static void IRAM_ATTR ext_wake_isr(void) {
+  g_ext_wake_pending = true;
+  g_ext_wake_count++;
+}
+
+static uint8_t ext_nvs_get(const char *key) {
+  uint8_t v = 0;
+  nvs_handle_t h;
+  if (nvs_open(WATCHDOG_NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
+    nvs_get_u8(h, key, &v);
+    nvs_close(h);
+  }
+  return v;
+}
+
+static void ext_nvs_set(const char *key, uint8_t v) {
+  nvs_handle_t h;
+  if (nvs_open(WATCHDOG_NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
+    nvs_set_u8(h, key, v);
+    nvs_commit(h);
+    nvs_close(h);
+  }
+}
+
+static void ext_done_pulse(void) {
+  digitalWrite(PIN_EXT_WDT_DONE, HIGH);
+  delayMicroseconds(20);  // TPL5010 kraever kun en kort hoej puls
+  digitalWrite(PIN_EXT_WDT_DONE, LOW);
+  g_ext_done_count++;
+  g_ext_last_done_ms = millis();
+}
+
+void watchdog_ext_init(bool ethernet_enabled) {
+  g_ext_enabled = ext_nvs_get(WATCHDOG_NVS_EXT_KEY) != 0;
+  if (ext_nvs_get(WATCHDOG_NVS_EXTT_KEY)) {
+    // Genstart efter 'test crash ext yes': kun et EN-reset (rapporteres som
+    // power-on) taeller som bestaaet - task/RTC-watchdog'en blev fodret.
+    g_ext_test_passed = (esp_reset_reason() == ESP_RST_POWERON);
+    ext_nvs_set(WATCHDOG_NVS_EXTT_KEY, 0);
+  }
+  if (!g_ext_enabled) return;
+  if (ethernet_enabled) {
+    debug_println("WATCHDOG: ekstern watchdog (TPL5010) IKKE startet - GPIO18/19 bruges af Ethernet");
+    return;
+  }
+  pinMode(PIN_EXT_WDT_DONE, OUTPUT);
+  digitalWrite(PIN_EXT_WDT_DONE, LOW);
+  pinMode(PIN_EXT_WDT_WAKE, INPUT);
+  attachInterrupt(digitalPinToInterrupt(PIN_EXT_WDT_WAKE), ext_wake_isr, RISING);
+  g_ext_active = true;
+  debug_println("WATCHDOG: ekstern watchdog (TPL5010) aktiv - WAKE GPIO18, DONE GPIO19");
+}
+
+bool watchdog_ext_enabled(void) { return g_ext_enabled; }
+bool watchdog_ext_active(void) { return g_ext_active; }
+
+void watchdog_ext_set_enabled(bool en) {
+  g_ext_enabled = en;
+  ext_nvs_set(WATCHDOG_NVS_EXT_KEY, en ? 1 : 0);
+}
+
+void watchdog_ext_get_stats(uint32_t *wake_count, uint32_t *done_count, uint32_t *since_done_ms, bool *test_passed) {
+  if (wake_count) *wake_count = g_ext_wake_count;
+  if (done_count) *done_count = g_ext_done_count;
+  if (since_done_ms) *since_done_ms = g_ext_done_count ? (millis() - g_ext_last_done_ms) : 0;
+  if (test_passed) *test_passed = g_ext_test_passed;
+}
+
+/* 'test crash ext yes': task- og RTC-watchdog'en fodres fortsat, kun DONE
+ * udebliver - saa kun TPL5010 kan genstarte PLC'en. */
+void watchdog_test_ext_hang(void) {
+  ext_nvs_set(WATCHDOG_NVS_EXTT_KEY, 1);
+  g_ext_test_running = true;
+  debug_println("TEST CRASH (ext): DONE-kvittering til TPL5010 stoppet - forventet hardware-reset inden ca. 2 min.");
+  debug_println("Efter genstart viser 'show watchdog' om testen bestod.");
+  uint32_t start = millis();
+  uint32_t last = 0xFFFFFFFF;
+  while (true) {
+    esp_task_wdt_reset();
+    if (g_rtc_wdt_armed) rtc_wdt_feed();
+    uint32_t s = (millis() - start) / 1000;
+    if (s % 15 == 0 && s != last) { last = s; debug_printf("  %lu s...\n", (unsigned long)s); }
+    delay(100);
+  }
+}
+
+static void ext_feed(void) {
+  if (g_ext_active && !g_ext_test_running && g_ext_wake_pending) {
+    g_ext_wake_pending = false;
+    ext_done_pulse();
+  }
+}
+#else
+void watchdog_ext_init(bool) {}
+bool watchdog_ext_enabled(void) { return false; }
+bool watchdog_ext_active(void) { return false; }
+void watchdog_ext_set_enabled(bool) {}
+void watchdog_ext_get_stats(uint32_t *w, uint32_t *d, uint32_t *s, bool *t) {
+  if (w) *w = 0; if (d) *d = 0; if (s) *s = 0; if (t) *t = false;
+}
+void watchdog_test_ext_hang(void) {}
+static void ext_feed(void) {}
+#endif
+
+/* ============================================================================
  * PUBLIC API - INITIALIZATION
  * ============================================================================ */
 
@@ -444,6 +573,7 @@ void watchdog_feed(void) {
   }
 
   if (g_rtc_wdt_armed) rtc_wdt_feed();  // BUG-504
+  ext_feed();                           // FEAT-507: DONE til TPL5010 ved ventende WAKE
   static bool loop_marked = false;
   if (!loop_marked) { loop_marked = true; watchdog_boot_stage("loop"); }  // BUG-506
 

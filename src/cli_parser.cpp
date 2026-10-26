@@ -1369,8 +1369,23 @@ bool cli_parser_execute(char* line) {
         if (!en) debug_println("ADVARSEL: uden watchdog genstarter PLC'en IKKE hvis den haenger");
         return true;
       }
+      // FEAT-507: set watchdog ext on|off - ekstern TPL5010 (WAKE GPIO18, DONE GPIO19)
+      if (argc >= 4 && !strcasecmp(argv[2], "ext")) {
+        bool on = !strcasecmp(argv[3], "on") || !strcasecmp(argv[3], "enable");
+        bool off = !strcasecmp(argv[3], "off") || !strcasecmp(argv[3], "disable");
+        if (!on && !off) { debug_println("Brug: set watchdog ext on|off"); return false; }
+        if (on && g_persist_config.network.ethernet.enabled) {
+          debug_println("FEJL: ekstern watchdog deler GPIO18/19 med W5500 - slaa Ethernet fra foerst ('set modul ethernet disable')");
+          return false;
+        }
+        watchdog_ext_set_enabled(on);
+        debug_printf("Ekstern watchdog (TPL5010) %s (gemt - traeder i kraft efter genstart)\n", on ? "slaaet TIL" : "slaaet FRA");
+        if (off) debug_println("ADVARSEL: er TPL5010 monteret, resetter den PLC'en hvert ~2 min uden DONE-kvittering");
+        return true;
+      }
       debug_println("Brug: set watchdog timeout <5-120>   (sekunder)");
       debug_println("      set watchdog enable|disable  (efter genstart)");
+      debug_println("      set watchdog ext on|off      (ekstern TPL5010, efter genstart)");
       return false;
 
     } else if (!strcmp(what, "BAUDRATE")) {
@@ -3038,6 +3053,15 @@ bool cli_parser_execute(char* line) {
       bool panic = (argc >= 3 && !strcasecmp(argv[2], "panic"));
       bool wdt   = (argc >= 3 && !strcasecmp(argv[2], "wdt"));
       bool rtc   = (argc >= 3 && !strcasecmp(argv[2], "rtc"));
+      if (argc >= 4 && !strcasecmp(argv[2], "ext") && !strcasecmp(argv[3], "yes")) {
+        // FEAT-507: kun DONE til TPL5010 udebliver -> hardware-reset via EN
+        if (!watchdog_ext_active()) {
+          debug_println("FEJL: ekstern watchdog er ikke aktiv ('set watchdog ext on' + genstart)");
+          return false;
+        }
+        watchdog_test_ext_hang();  // vender ikke tilbage
+        return true;
+      }
       if (rtc && argc >= 4 && !strcasecmp(argv[3], "yes")) {
         // BUG-506: bevis at RTC-watchdog'en (hardware) reelt genstarter PLC'en.
         // Task-watchdog'en fodres fortsat, RTC-watchdog'en ikke - kun den kan
@@ -3053,6 +3077,7 @@ bool cli_parser_execute(char* line) {
         debug_println("Brug: test crash panic yes   (panic-reset med det samme)");
         debug_println("      test crash wdt yes     (haeng hovedloekken -> task-watchdog efter timeout)");
         debug_println("      test crash rtc yes     (stop kun RTC-watchdog-fodring -> hardware-reset)");
+        debug_println("      test crash ext yes     (stop kun DONE til ekstern TPL5010 -> EN-reset)");
         debug_println("Bevidst crash til test af crash-taeller/safe mode. 3 crashes i traek,");
         debug_println("hver efter < 10 min drift, sender PLC'en i SAFE MODE ('clear safemode').");
         return false;

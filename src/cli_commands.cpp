@@ -16,6 +16,7 @@
  */
 
 #include "gpio_mapping.h"  // BUG-428
+#include "watchdog_monitor.h"  // FEAT-507
 #include "cli_commands.h"
 #include "system_log.h"  // FEAT-086
 #include "counter_engine.h"
@@ -2406,6 +2407,10 @@ void cli_cmd_set_ethernet(uint8_t argc, char* argv[]) {
   const char* value = (argc >= 2) ? argv[1] : "";
 
   if (!strcasecmp(option, "enable")) {
+    if (watchdog_ext_enabled()) {  // FEAT-507: deler GPIO18/19
+      debug_println("FEJL: ekstern watchdog (TPL5010) bruger GPIO18/19 - 'set watchdog ext off' foerst");
+      return;
+    }
     g_persist_config.network.ethernet.enabled = 1;
     debug_println("Ethernet enabled (W5500)");
 

@@ -106,10 +106,46 @@ Disse GPIOs er **ikke brugt** af ES32D26 boardet:
 |------------|--------|-----------|------------|
 | GPIO4 | Ledig | Nej | Fri til brug (W5500 INT hvis Ethernet) |
 | GPIO5 | Ledig | Ja (BOOT) | ⚠️ Intern pullup. Påvirker boot mode (W5500 CS hvis Ethernet) |
-| GPIO18 | Ledig | Nej | Fri til brug (W5500 SCK hvis Ethernet) |
-| GPIO19 | Ledig | Nej | Fri til brug (W5500 MISO hvis Ethernet) |
+| GPIO18 | Ekstern watchdog WAKE | Nej | TPL5010 WAKE (FEAT-507) — W5500 SCK hvis Ethernet |
+| GPIO19 | Ekstern watchdog DONE | Nej | TPL5010 DONE (FEAT-507) — W5500 MISO hvis Ethernet |
 
-**Totalt:** 4 frie GPIOs (4, 5, 18, 19). GPIO5 er strapping pin — brug med forsigtighed.
+**Totalt:** 4 frie GPIOs (4, 5, 18, 19) — GPIO18/19 er nu reserveret til den eksterne watchdog. GPIO5 er strapping pin — brug med forsigtighed.
+
+---
+
+## Reset-supervisor + ekstern watchdog (beslutning 2026-10-26)
+
+**Baggrund (BUG-506):** PLC'en starter ikke efter strømtab — hver gang — men starter ved tryk på RESET. ESP32 slipper ud af reset, før 3,3 V fra step-downen er stabil, og hænger i ROM-koden, før firmwaren kører. Ingen intern watchdog (task-, interrupt- eller RTC-watchdog) kan hjælpe dér.
+
+**Beslutning:**
+- **W5500 Ethernet droppes indtil videre** — netværk kører på WiFi. Det frigør GPIO18/19 (og AO1/AO2 virker igen).
+- **APX803 eller TPS3839** (spændingsovervåger, ca. 2,9–3,0 V tærskel) på **EN**: holder ESP32 i reset, til 3,3 V er stabil. Fjerner rodårsagen til BUG-506.
+- **TPL5010** (ekstern watchdog/timer) som sidste sikkerhedsnet: aktiv fra power-on, uafhængig af firmwaren.
+
+**TPL5010-tilslutning:**
+
+| TPL5010 | Til | Note |
+|---|---|---|
+| VDD / GND | 3,3 V / GND | |
+| DELAY/M_RST | modstand til GND | Interval **ca. 60 s** — modstandsværdi fra databladets tabel |
+| WAKE | **GPIO18** (input) | Puls hvert interval |
+| DONE | **GPIO19** (output) | Firmwaren kvitterer for hver WAKE |
+| RSTn | **EN** | Reset ved manglende DONE |
+
+**Funktion:** TPL5010 sender WAKE hvert ~60 s. Firmwaren svarer med DONE — men **kun fra hovedløkken** (`watchdog_feed()`), aldrig fra opstarten. Udebliver DONE før næste WAKE, trækker den EN lav = fuld hardware-reset. Effektiv timeout er dermed **ca. 60–120 s**: lang nok til opstart og firmware-opgradering (TPL5010 nulstilles ikke af en software-genstart), men aktiv fra første sekund — også hvis ESP32 aldrig når sin egen kode.
+
+**EN-ledningsføring:** supervisorens og TPL5010's RESET-udgange samt RESET-knappen deler EN (wired-OR). Tjek i databladene om udgangene er open-drain. Er en af dem push-pull, så forbind den via en Schottky-diode (katode mod udgangen), så den kun kan trække EN lav og ikke kæmper mod knappen eller den anden kreds. Behold pull-up'en og kondensatoren på EN.
+
+**Firmware:** `set watchdog ext on` + `save` + genstart aktiverer DONE-kvitteringen (FEAT-507). **Monteres TPL5010 uden at slå den til, resetter den PLC'en hvert ~2. minut.** Kan ikke bruges samtidig med W5500 (firmwaren afviser kombinationen). Test: `test crash ext yes` — `show watchdog` viser bagefter om testen bestod.
+
+**Watchdog-lag samlet:**
+
+| Lag | Timeout | Fanger |
+|---|---|---|
+| Task-watchdog (intern) | 30 s | hovedløkken hænger — med crash-log |
+| RTC-watchdog (intern, BUG-504) | 60 s | hårde låsninger efter firmwaren er startet |
+| TPL5010 (ekstern, FEAT-507) | ~60–120 s | alt andet, også hængning før firmwaren starter |
+| APX803/TPS3839 (supervisor) | — | holder ESP32 i reset under ustabil forsyning |
 
 > ⚠️ **GPIO16 og GPIO17 er IKKE ledige** på dette board: ESP32-WROVER-modulet bruger dem internt til sin PSRAM. Ældre udgaver af denne guide angav dem som frie og brugte dem til W5500 RST/MOSI — det var rodårsagen til Ethernet-crashene (BUG-423). Firmwaren afviser dem nu i GPIO-mappings (BUG-428).
 
