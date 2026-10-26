@@ -149,6 +149,8 @@ typedef struct {
   int32_t           last_error;
   uint32_t          last_update_ms;
   uint32_t          pending_since_ms;
+  int32_t           cand_value;     // FEAT-508: niveau for et spring der venter paa bekraeftelse
+  uint8_t           cand_count;     // FEAT-508: laesninger paa cand_value (0 = intet ventende spring)
 } mbx_cache_entry_t;
 
 typedef struct {

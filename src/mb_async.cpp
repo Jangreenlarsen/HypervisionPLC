@@ -32,7 +32,7 @@ portMUX_TYPE mb_cache_spinlock = portMUX_INITIALIZER_UNLOCKED;
 static void mb_store_filtered(mb_cache_entry_t *e, uint8_t slave_id, uint16_t addr, uint8_t reg_type,
                               int32_t value) {
   bool have_old = (e->last_update_ms != 0 && e->last_error == MB_OK);
-  switch (mb_filter_check(slave_id, reg_type, addr, have_old, e->value.int_val, value,
+  switch (mb_filter_check(0, 0, slave_id, reg_type, addr, have_old, e->value.int_val, value,
                           &e->cand_value, &e->cand_count)) {
     case MB_FILTER_ACCEPT:
       e->value.int_val = value;

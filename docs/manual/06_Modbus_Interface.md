@@ -86,7 +86,7 @@ show modbus-master                        (status + kø-/cache-statistik)
 
 Nogle slaver sender en gang imellem en **forkert, men gyldig** værdi. Eksempel: et **R4DCB08**-temperaturmodul (8 × DS18B20) aflæser af og til en føler forkert og sender 0,0 °C eller et spring på præcis 2,0 °C (én bit i følerens rå værdi). Modbus-kontrolsummen (CRC) fanger kun fejl på bussen, ikke i slaven, så PLC'en kan ikke se det på selve svaret — værdien når ST Logic, REST/SCADA og trends som en ægte måling.
 
-Filteret ligger på **I/O-siden** i kortet **Filter mod fejlmålinger (Modbus Master)**. En regel dækker en slave, en registertype (HR/IR) og et adresseområde:
+Filteret ligger på **I/O-siden** i kortet **Filter mod fejlmålinger (Modbus-slaver)**. En regel dækker en **kilde** — PLC'ens egen RS485 (Modbus Master) eller en kanal (A–H) på et expansion board — en slave, en registertype (HR/IR) og et adresseområde:
 
 | Felt | Betydning |
 |------|-----------|
@@ -97,7 +97,7 @@ Filteret ligger på **I/O-siden** i kortet **Filter mod fejlmålinger (Modbus Ma
 
 En enkeltstående fejlmåling når derfor aldrig cachen; et ægte spring kommer frem én (eller *Bekræft*) aflæsning senere. Knappen **Forslag: R4DCB08** udfylder HR 0–7, fortegn, maks. spring 15 og bekræft 1 — ret slave-ID til modulets. Kortet viser pr. regel hvor mange aflæsninger der er holdt tilbage, hvor mange spring der er bekræftet, og den senest holdt-tilbage værdi (med den beholdte værdi), så man kan se om filteret arbejder. **Nulstil tællere** nulstiller tallene.
 
-- Gælder slaver på PLC'ens **egen RS485** (Modbus Master: ST Logic `MB_*`, `/api/ext/rtu/...`, Intern Modbus) — ikke expansion boards.
+- Gælder læsninger fra slaver på PLC'ens **egen RS485** (Modbus Master: ST Logic `MB_*`, `/api/ext/rtu/...`, Intern Modbus) og på **expansion boards** (ST Logic `MBX_*`, `/api/ext/mbx/...`). Skrivninger filtreres ikke; en skrevet værdi er det nye niveau.
 - Gemmes straks i NVS (egen nøgle, uden for config-backup'en) og virker uden genstart. Højst 8 regler.
 - Første aflæsning efter opstart eller efter en fejl (timeout o.l.) godkendes altid — der er intet at sammenligne med.
 - Et filter retter ikke årsagen: tjek følere, kabler og samlinger (på R4DCB08 typisk de følere, der har flest holdt-tilbage aflæsninger).

@@ -4,19 +4,23 @@
 #include <stdio.h>
 #include "mb_filter.h"
 #include "mb_async.h"
+#include "modbus_expansion_async.h"
 
 uint32_t g_now = 1000;
 uint32_t millis() { return g_now; }
 portMUX_TYPE mb_cache_spinlock = 0;
 mb_async_state_t g_mb_async = {};
+mbx_async_state_t g_mbx_async = {};
+portMUX_TYPE mbx_cache_spinlock = 0;
 
 static int fails = 0;
 #define CHECK(c, msg) do { if (!(c)) { printf("FEJL: %s (linje %d)\n", msg, __LINE__); fails++; } } while (0)
 
 // En "cache-post" som mb_async: gem kun ved ACCEPT
 struct Entry { bool have = false; int32_t val = 0; int32_t cand = 0; uint8_t cnt = 0; bool err = false; };
-static mb_filter_result_t feed(Entry &e, int32_t raw, uint8_t slave = 10, uint16_t addr = 3, uint8_t type = MB_REQ_READ_HOLDING) {
-  mb_filter_result_t r = mb_filter_check(slave, type, addr, e.have && !e.err, e.val, raw & 0xFFFF, &e.cand, &e.cnt);
+static mb_filter_result_t feed(Entry &e, int32_t raw, uint8_t slave = 10, uint16_t addr = 3, uint8_t type = MB_REQ_READ_HOLDING,
+                                uint8_t board = 0, uint8_t channel = 0) {
+  mb_filter_result_t r = mb_filter_check(board, channel, slave, type, addr, e.have && !e.err, e.val, raw & 0xFFFF, &e.cand, &e.cnt);
   if (r == MB_FILTER_ACCEPT) { e.val = raw & 0xFFFF; e.have = true; e.err = false; }
   if (r == MB_FILTER_INVALID) e.err = true;
   return r;
@@ -79,7 +83,16 @@ int main() {
   // 10. slaaet fra = ingen filtrering
   g_mb_filter_rules[0].enabled = 0;
   { Entry e; feed(e, 371); CHECK(feed(e, 0) == MB_FILTER_ACCEPT, "regel slaaet fra"); }
-  // 11. mb_filter_set validerer (NVS findes ikke paa PC, saa gyldige regler fejler foerst ved gemning)
+  // 11. expansion board: reglen goelder kun det board og den kanal, den er sat til
+  rule(0, 15, 1);
+  g_mb_filter_rules[0].board = 2; g_mb_filter_rules[0].channel = 1;
+  { Entry e; feed(e, 371, 10, 3, MB_REQ_READ_HOLDING, 2, 1);
+    CHECK(feed(e, 0, 10, 3, MB_REQ_READ_HOLDING, 2, 1) == MB_FILTER_HOLD, "board 2 kanal A filtreres");
+    Entry f; feed(f, 371, 10, 3, MB_REQ_READ_HOLDING, 2, 2);
+    CHECK(feed(f, 0, 10, 3, MB_REQ_READ_HOLDING, 2, 2) == MB_FILTER_ACCEPT, "anden kanal filtreres ikke");
+    Entry g; feed(g, 371);
+    CHECK(feed(g, 0) == MB_FILTER_ACCEPT, "egen RS485 filtreres ikke af en board-regel"); }
+  // 12. mb_filter_set validerer (NVS findes ikke paa PC, saa gyldige regler fejler foerst ved gemning)
   { mb_filter_rule_t r; memset(&r, 0, sizeof(r)); r.slave_id = 0; r.reg_type = MB_REQ_READ_HOLDING; r.confirm = 1; r.max_jump = 5;
     CHECK(mb_filter_set(&r, 1) != NULL && strstr(mb_filter_set(&r, 1), "Slave-ID"), "slave 0 afvises");
     r.slave_id = 10; r.addr_from = 5; r.addr_to = 2;
@@ -88,7 +101,11 @@ int main() {
     CHECK(strstr(mb_filter_set(&r, 1), "maks. spring") != NULL, "regel uden virkning afvises");
     r.max_jump = 5; r.confirm = 9;
     CHECK(strstr(mb_filter_set(&r, 1), "Bekraeft") != NULL, "confirm uden for 1-5 afvises");
-    r.confirm = 1;
+    r.confirm = 1; r.board = 3; r.channel = 0;
+    CHECK(strstr(mb_filter_set(&r, 1), "kanal") != NULL, "board uden kanal afvises");
+    r.board = 9; r.channel = 1;
+    CHECK(strstr(mb_filter_set(&r, 1), "board 1-8") != NULL, "board 9 afvises");
+    r.board = 0; r.channel = 0;
     CHECK(strstr(mb_filter_set(&r, 1), "NVS") != NULL, "gyldig regel naar til gemning"); }
 
   if (fails) { printf("%d TEST(S) FEJLEDE\n", fails); return 1; }

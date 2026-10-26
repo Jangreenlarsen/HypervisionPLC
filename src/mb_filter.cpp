@@ -7,16 +7,18 @@
 
 #include "mb_filter.h"
 #include "mb_async.h"
+#include "modbus_expansion_async.h"
 #include <nvs.h>
 #include <string.h>
 
 #define MB_FILTER_NVS_NAMESPACE "mb_filter"
 #define MB_FILTER_NVS_KEY       "rules"
-#define MB_FILTER_BLOB_VERSION  1
+#define MB_FILTER_BLOB_VERSION  2   // 2: board/kanal tilfoejet (version 1 blev aldrig udrullet)
 
 mb_filter_rule_t  g_mb_filter_rules[MB_FILTER_MAX_RULES];
 uint8_t           g_mb_filter_count = 0;
 mb_filter_stats_t g_mb_filter_stats[MB_FILTER_MAX_RULES];
+portMUX_TYPE      g_mb_filter_lock = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct {
   uint8_t          version;
@@ -25,6 +27,9 @@ typedef struct {
 } mb_filter_blob_t;
 
 static const char *validate(const mb_filter_rule_t *r) {
+  if (r->board > 8) return "Kilde skal vaere egen RS485 eller board 1-8";
+  if (r->board > 0 && (r->channel < 1 || r->channel > 8)) return "Vaelg boardets kanal (A-H)";
+  if (r->board == 0 && r->channel != 0) return "Egen RS485 har ingen kanal";
   if (r->slave_id < 1 || r->slave_id > 247) return "Slave-ID skal vaere 1-247";
   if (r->reg_type != MB_REQ_READ_HOLDING && r->reg_type != MB_REQ_READ_INPUT_REG)
     return "Registertype skal vaere holding (HR) eller input (IR)";
@@ -76,21 +81,27 @@ const char *mb_filter_set(const mb_filter_rule_t *rules, uint8_t count) {
   nvs_close(h);
   if (err != ESP_OK) return "Kunne ikke gemme i NVS";
 
-  // Skift reglerne under cache-laasen, saa async-tasken aldrig ser et halvt skrevet saet
-  portENTER_CRITICAL(&mb_cache_spinlock);
+  // Skift reglerne under filter-laasen, saa ingen task ser et halvt skrevet saet
+  portENTER_CRITICAL(&g_mb_filter_lock);
   memset(g_mb_filter_rules, 0, sizeof(g_mb_filter_rules));
   memcpy(g_mb_filter_rules, blob.rules, count * sizeof(mb_filter_rule_t));
   g_mb_filter_count = count;
   memset(g_mb_filter_stats, 0, sizeof(g_mb_filter_stats));
+  portEXIT_CRITICAL(&g_mb_filter_lock);
+  // Ventende spring hoerer til de gamle regler: glem dem (hver cache under sin egen laas)
+  portENTER_CRITICAL(&mb_cache_spinlock);
   for (uint8_t i = 0; i < g_mb_async.entry_count; i++) g_mb_async.entries[i].cand_count = 0;
   portEXIT_CRITICAL(&mb_cache_spinlock);
+  portENTER_CRITICAL(&mbx_cache_spinlock);
+  for (uint16_t i = 0; i < g_mbx_async.entry_count; i++) g_mbx_async.entries[i].cand_count = 0;
+  portEXIT_CRITICAL(&mbx_cache_spinlock);
   return NULL;
 }
 
 void mb_filter_reset_stats() {
-  portENTER_CRITICAL(&mb_cache_spinlock);
+  portENTER_CRITICAL(&g_mb_filter_lock);
   memset(g_mb_filter_stats, 0, sizeof(g_mb_filter_stats));
-  portEXIT_CRITICAL(&mb_cache_spinlock);
+  portEXIT_CRITICAL(&g_mb_filter_lock);
 }
 
 static inline int32_t as_num(const mb_filter_rule_t *r, int32_t raw) {
@@ -101,14 +112,14 @@ static inline int32_t absdiff(int32_t a, int32_t b) {
   return a > b ? a - b : b - a;
 }
 
-mb_filter_result_t mb_filter_check(uint8_t slave_id, uint8_t reg_type, uint16_t addr,
-                                   bool have_old, int32_t old_val, int32_t new_val,
-                                   int32_t *cand_val, uint8_t *cand_count) {
+static mb_filter_result_t check_locked(uint8_t board, uint8_t channel, uint8_t slave_id, uint8_t reg_type,
+                                       uint16_t addr, bool have_old, int32_t old_val, int32_t new_val,
+                                       int32_t *cand_val, uint8_t *cand_count) {
   int8_t idx = -1;
   for (uint8_t i = 0; i < g_mb_filter_count; i++) {
     const mb_filter_rule_t *r = &g_mb_filter_rules[i];
-    if (r->enabled && r->slave_id == slave_id && r->reg_type == reg_type &&
-        addr >= r->addr_from && addr <= r->addr_to) {
+    if (r->enabled && r->board == board && (board == 0 || r->channel == channel) &&
+        r->slave_id == slave_id && r->reg_type == reg_type && addr >= r->addr_from && addr <= r->addr_to) {
       idx = (int8_t)i;
       break;
     }
@@ -150,4 +161,15 @@ mb_filter_result_t mb_filter_check(uint8_t slave_id, uint8_t reg_type, uint16_t 
   st->last_ms = millis();
   if (st->last_ms == 0) st->last_ms = 1;
   return MB_FILTER_HOLD;
+}
+
+mb_filter_result_t mb_filter_check(uint8_t board, uint8_t channel, uint8_t slave_id, uint8_t reg_type, uint16_t addr,
+                                   bool have_old, int32_t old_val, int32_t new_val,
+                                   int32_t *cand_val, uint8_t *cand_count) {
+  if (g_mb_filter_count == 0) return MB_FILTER_ACCEPT;   // intet filter: ingen laas i den travle sti
+  portENTER_CRITICAL(&g_mb_filter_lock);
+  mb_filter_result_t r = check_locked(board, channel, slave_id, reg_type, addr, have_old, old_val, new_val,
+                                      cand_val, cand_count);
+  portEXIT_CRITICAL(&g_mb_filter_lock);
+  return r;
 }

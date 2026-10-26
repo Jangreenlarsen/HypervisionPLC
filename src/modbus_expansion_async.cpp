@@ -12,9 +12,37 @@
 #include "modbus_expansion_async.h"
 #include "watchdog_monitor.h"  // FEAT-427
 #include "modbus_expansion.h"
+#include "mb_filter.h"         // FEAT-508
 
 mbx_async_state_t g_mbx_async = {0};
 portMUX_TYPE mbx_cache_spinlock = portMUX_INITIALIZER_UNLOCKED;
+
+/**
+ * FEAT-508: gem en laest registervaerdi gennem filteret mod fejlmaalinger
+ * (samme regler som Modbus Master, med board+kanal som kilde). Kaldes med
+ * mbx_cache_spinlock taget. Et spring der venter paa bekraeftelse beholder
+ * den gamle vaerdi (status forbliver VALID — laesningen lykkedes).
+ */
+static void mbx_store_filtered(mbx_cache_entry_t *e, uint8_t board, uint8_t channel, uint8_t slave_id,
+                               uint16_t addr, uint8_t reg_type, int32_t value) {
+  bool have_old = (e->last_update_ms != 0 && e->last_error == MB_OK);
+  switch (mb_filter_check(board, channel, slave_id, reg_type, addr, have_old, e->value.int_val, value,
+                          &e->cand_value, &e->cand_count)) {
+    case MB_FILTER_ACCEPT:
+      e->value.int_val = value;
+      e->status = MBX_CACHE_VALID;
+      e->last_error = MB_OK;
+      break;
+    case MB_FILTER_HOLD:
+      e->status = MBX_CACHE_VALID;
+      e->last_error = MB_OK;
+      break;
+    case MB_FILTER_INVALID:
+      e->status = MBX_CACHE_ERROR;
+      e->last_error = MB_VALUE_INVALID;
+      break;
+  }
+}
 
 uint16_t g_mbx_multi_write_reg_pool[MBX_MULTI_POOL_SIZE][16] = {0};
 volatile uint8_t g_mbx_multi_write_reg_next = 0;
@@ -657,12 +685,12 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
           if (!e) continue;
           portENTER_CRITICAL(&mbx_cache_spinlock);
           if (err == MB_OK) {
-            e->value.int_val = (int32_t)regs[i];
-            e->status = MBX_CACHE_VALID;
+            mbx_store_filtered(e, req.board, req.channel, req.slave_id, req.address + i,
+                               (uint8_t)MBX_REQ_READ_HOLDING, (int32_t)regs[i]);
           } else {
             e->status = MBX_CACHE_ERROR;
+            e->last_error = err;
           }
-          e->last_error = err;
           e->last_update_ms = millis();
           portEXIT_CRITICAL(&mbx_cache_spinlock);
         }
@@ -703,17 +731,22 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
       }
       if (entry) {
         portENTER_CRITICAL(&mbx_cache_spinlock);
-        if (err == MB_OK) {
+        if (err == MB_OK && (req.type == MBX_REQ_READ_HOLDING || req.type == MBX_REQ_READ_INPUT_REG)) {
+          mbx_store_filtered(entry, req.board, req.channel, req.slave_id, req.address, cache_type,
+                             result.int_val);  // FEAT-508
+        } else if (err == MB_OK) {
           // BUG-479 (= BUG-426 for expansion): for skrivninger er `result` kun et
           // OK-flag — cachen skal have den SKREVNE vaerdi, ellers laeser ST/UI
           // "1" tilbage, og write-dedup sammenligner mod forkert vaerdi
           const bool is_write = (req.type == MBX_REQ_WRITE_COIL || req.type == MBX_REQ_WRITE_HOLDING);
           entry->value = is_write ? req.write_value : result;
           entry->status = MBX_CACHE_VALID;
+          entry->last_error = err;
+          if (is_write) entry->cand_count = 0;  // FEAT-508: en skrevet vaerdi er det nye niveau
         } else {
           entry->status = MBX_CACHE_ERROR;
+          entry->last_error = err;
         }
-        entry->last_error = err;
         entry->last_update_ms = millis();
         portEXIT_CRITICAL(&mbx_cache_spinlock);
       }

@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.147] - 2026-10-26
+
+### NEW FEATURES
+- **FEAT-508 (udvidet):** Filteret mod fejlmålinger gælder nu også **expansion boards**. Hver regel har en *kilde*: PLC'ens egen RS485 eller board 1-8 + kanal A-H (kolonnerne *Kilde* og *Kanal* på I/O-siden, med boardets navn). `GET/POST /api/modbus/filters` har felterne `board` og `channel`. Filteret har fået sin egen lås, fordi expansion-cachen opdateres af flere workers. NVS-formatet er version 2 (version 1 fra 7.9.68.146 blev aldrig udrullet og ignoreres).
+
 ## [7.9.68.146] - 2026-10-26
 
 ### NEW FEATURES
