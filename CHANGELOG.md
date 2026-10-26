@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.151] - 2026-10-26
+
+### BUG FIXES
+- **BUG-510:** ST-editoren kunne ikke hente et program, og viste "Kunne ikke hente kildekode: HTTP 500 Response too large". `GET /api/logic/{id}/source` allokerede kun kildestørrelsen + 256 byte, men JSON-udgaven er større end råteksten (hver linjeskift bliver til `\n`, citationstegn og backslash får en backslash foran). Et program på ca. 12 KB med mange linjer overskred de 256 byte. Bufferen måles nu præcist med `measureJson()` og lægges i PSRAM. Samme fejl rettet i `GET /api/logic/globals/source`.
+
 ## [7.9.68.150] - 2026-10-26
 
 ### BUG FIXES

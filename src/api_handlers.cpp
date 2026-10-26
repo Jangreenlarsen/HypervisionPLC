@@ -2266,16 +2266,10 @@ esp_err_t api_handler_logic_source_get(httpd_req_t *req)
   // IMPORTANT: source_pool entries are NOT null-terminated (contiguous in shared pool).
   // Must use prog->source_size, NOT strlen(source).
   size_t source_len = prog->source_size;
-  size_t buf_size = source_len + 256;  // Extra space for JSON wrapper
-  char *buf = (char *)malloc(buf_size);
-  if (!buf) {
-    return api_send_error(req, 500, "Out of memory");
-  }
 
   // Make null-terminated copy for JSON serialization
   char *source_copy = (char *)malloc(source_len + 1);
   if (!source_copy) {
-    free(buf);
     return api_send_error(req, 500, "Out of memory");
   }
   memcpy(source_copy, source, source_len);
@@ -2286,10 +2280,24 @@ esp_err_t api_handler_logic_source_get(httpd_req_t *req)
   doc["name"] = prog->name;
   doc["source"] = source_copy;
   doc["size"] = source_len;
-
-  size_t json_len = serializeJson(doc, buf, buf_size);
   free(source_copy);
 
+  // BUG-510: bufferen var source_len + 256, men JSON-udgaven er stoerre end
+  // raateksten (hver linjeskift bliver "\n", citationstegn og backslash faar en
+  // backslash foran) - et program paa ca. 12 KB med mange linjer gav
+  // "Response too large" i editoren. Maal den noejagtige stoerrelse i stedet.
+  size_t buf_size = measureJson(doc) + 1;
+#ifdef BOARD_HAS_PSRAM
+  char *buf = (char *)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!buf) buf = (char *)malloc(buf_size);
+#else
+  char *buf = (char *)malloc(buf_size);
+#endif
+  if (!buf) {
+    return api_send_error(req, 500, "Out of memory");
+  }
+
+  size_t json_len = serializeJson(doc, buf, buf_size);
   if (json_len >= buf_size) {
     free(buf);
     return api_send_error(req, 500, "Response too large");
@@ -2475,14 +2483,14 @@ esp_err_t api_handler_logic_globals(httpd_req_t *req)
     CHECK_AUTH(req);
 
     if (is_source) {
-      size_t buf_size = state->global_source_size + 256;
+      JsonDocument doc;
+      doc["source"] = state->global_source;
+      doc["size"] = state->global_source_size;
+      size_t buf_size = measureJson(doc) + 1;  // BUG-510: noejagtig stoerrelse (JSON-escaping)
       char *buf = (char *)malloc(buf_size);
       if (!buf) {
         return api_send_error(req, 500, "Out of memory");
       }
-      JsonDocument doc;
-      doc["source"] = state->global_source;
-      doc["size"] = state->global_source_size;
       size_t json_len = serializeJson(doc, buf, buf_size);
       if (json_len >= buf_size) {
         free(buf);
