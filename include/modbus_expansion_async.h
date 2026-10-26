@@ -151,7 +151,16 @@ typedef struct {
   uint32_t          pending_since_ms;
   int32_t           cand_value;     // FEAT-508: niveau for et spring der venter paa bekraeftelse
   uint8_t           cand_count;     // FEAT-508: laesninger paa cand_value (0 = intet ventende spring)
+  uint8_t           fail_count;     // BUG-511: fejlede laesninger i traek paa DETTE register
+  uint32_t          retry_after_ms; // BUG-511: foerst efter dette tidspunkt maa registret laeses igen (0 = frit)
 } mbx_cache_entry_t;
+
+// BUG-511: backoff pr. REGISTER. Et register der ikke svarer holdt foer kanalen
+// optaget i en hel transaktions-timeout (>= 800 ms) HVER cyklus, og alle andre
+// laesninger paa samme kanal ventede bagved og blev for gamle (cachen lever 2 s).
+// Nu proeves det kun igen efter 1, 2, 4, 8, 10, 10 ... sekunder.
+#define MBX_REG_BACKOFF_BASE_MS   1000
+#define MBX_REG_BACKOFF_MAX_MS   10000
 
 typedef struct {
   mbx_request_type_t type;

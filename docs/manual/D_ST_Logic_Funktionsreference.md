@@ -316,6 +316,8 @@ Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ek
 
 `board` skal referere til et faktisk konfigureret board (se System-siden/`show modbus-expansion`), ellers returnerer kaldet `MB_INVALID_ADDRESS` uden at forsøge noget netværkskald. Diagnostik: `show modbus-expansion queue` (CLI) viser kø-dybde, cache-hits/misses, og aktiv backoff pr. (board, kanal, slave).
 
+> **Register der ikke svarer (BUG-511, v7.9.68.152):** en kanal er én fysisk RS485-bus, så forespørgslerne på den kører strengt efter hinanden. Et register, der ikke besvares, optager kanalen i en hel transaktions-timeout (min. 800 ms). Før BUG-511 skete det **hver cyklus**, så alle andre læsninger på samme kanal ventede og blev for gamle (cachen lever 2 s → `MBX_SUCCESS()` blev FALSE for alle). Nu har hvert register sin egen backoff: efter en fejlet læsning proves det først igen efter 1, 2, 4, 8 og derefter 10 s. I mellemtiden står dets cache-post på fejl (`MBX_SUCCESS()` = FALSE, `MBX_ERROR()` = timeout), uden bus-trafik, og de øvrige registre læses som normalt. Et svar fra registret nulstiller backoff'en straks. Gælder `MBX_READ_*` og `MBX_READ_HOLDINGS` (nøglen er blokkens første adresse); skrivninger berøres ikke.
+
 > **`MBX_WRITE_HOLDINGS`/`MBX_WRITE_COILS` bruger samme påkrævede array-syntaks som `MB_WRITE_HOLDINGS`** (§D.5.9 ovenfor), blot med `board`/`kanal` som to ekstra, indledende argumenter:
 > ```st
 > VAR regs: ARRAY[0..3] OF INT; END_VAR

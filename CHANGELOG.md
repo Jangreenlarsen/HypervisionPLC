@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.152] - 2026-10-26
+
+### BUG FIXES
+- **BUG-511:** Hvis ST læste et expansion-board-register, der ikke svarede, gik alle andre læsninger på samme kanal i stå (værdierne blev for gamle, `MBX_SUCCESS()` blev FALSE). Kanalen er én RS485-bus, og det uanswerede register optog den i en hel timeout (min. 800 ms) hver eneste cyklus. Backoff fandtes kun pr. slave og blev nulstillet af ethvert svar fra den samme slave (BUG-480), så et dødt register på en levende slave blev aldrig bremset. Nu har hvert register sin egen backoff (1, 2, 4, 8, derefter 10 s); et svar nulstiller den straks. Gælder `MBX_READ_*` og `MBX_READ_HOLDINGS`.
+
 ## [7.9.68.151] - 2026-10-26
 
 ### BUG FIXES

@@ -218,6 +218,30 @@ static inline uint8_t mbx_effective_priority(const mbx_async_request_t *r, uint3
   return r->priority;
 }
 
+// BUG-511: register-niveau backoff. mbx_cache_spinlock skal vaere taget af kalderen
+// for note_result_locked; backed_off tager den selv.
+static bool mbx_entry_backed_off(mbx_cache_entry_t *e) {
+  if (!e) return false;
+  portENTER_CRITICAL(&mbx_cache_spinlock);
+  uint32_t ra = e->retry_after_ms;
+  portEXIT_CRITICAL(&mbx_cache_spinlock);
+  return ra != 0 && (int32_t)(ra - millis()) > 0;
+}
+
+static void mbx_entry_note_result_locked(mbx_cache_entry_t *e, mb_error_code_t err) {
+  if (err == MB_OK) {
+    e->fail_count = 0;
+    e->retry_after_ms = 0;
+    return;
+  }
+  if (e->fail_count < 255) e->fail_count++;
+  uint32_t bo = MBX_REG_BACKOFF_BASE_MS;
+  for (uint8_t i = 1; i < e->fail_count && bo < MBX_REG_BACKOFF_MAX_MS; i++) bo *= 2;
+  if (bo > MBX_REG_BACKOFF_MAX_MS) bo = MBX_REG_BACKOFF_MAX_MS;
+  uint32_t ra = millis() + bo;
+  e->retry_after_ms = ra ? ra : 1;
+}
+
 // BUG-417: true if some OTHER worker already has this exact (board,kanal)
 // in flight. Caller must hold pq_mutex — inflight[] shares that lock rather
 // than its own, since claiming a slot happens atomically with dequeue.
@@ -334,6 +358,11 @@ bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, u
   if (entry && status == MBX_CACHE_PENDING) {
     return true;  // Allerede i kø (deduplikering)
   }
+  // BUG-511: registret svarede ikke sidst — vent med at proeve igen, saa det
+  // ikke optager kanalen hver cyklus. Cache-posten staar paa fejl (MBX_SUCCESS=FALSE).
+  if (entry && mbx_entry_backed_off(entry)) {
+    return true;
+  }
 
   uint8_t prio = MBX_PRIO_READ_FRESH;
   if (entry && status == MBX_CACHE_VALID) {
@@ -417,6 +446,10 @@ bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, 
 // MBX_READ_HOLDINGS deler cache, og Register Map/eksterne registre ser dem.
 bool modbus_expansion_async_queue_read_multi_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count) {
   if (count == 0 || count > 16) return false;
+  // BUG-511: en blok der ikke svarer proeves kun igen efter backoff (noegle = foerste adresse)
+  if (mbx_entry_backed_off(mbx_cache_find(board, channel, slave_id, address, (uint8_t)MBX_REQ_READ_HOLDING))) {
+    return true;
+  }
   uint8_t prio = MBX_PRIO_READ_FRESH;
   for (uint8_t i = 0; i < count; i++) {
     mbx_cache_entry_t *e = mbx_cache_find(board, channel, slave_id, address + i, (uint8_t)MBX_REQ_READ_HOLDING);
@@ -634,6 +667,32 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
       }
     }
 
+    // BUG-511: register i backoff - forespoergsler der laa i koeen foer registret
+    // fejlede ("rejst" af ST) sendes ikke; ingen bus-trafik, kanalen holdes fri.
+    {
+      const bool is_read_req = (req.type == MBX_REQ_READ_COIL || req.type == MBX_REQ_READ_INPUT ||
+                                req.type == MBX_REQ_READ_HOLDING || req.type == MBX_REQ_READ_INPUT_REG ||
+                                req.type == MBX_REQ_READ_HOLDINGS);
+      if (is_read_req) {
+        uint8_t ct = (req.type == MBX_REQ_READ_HOLDINGS) ? (uint8_t)MBX_REQ_READ_HOLDING : (uint8_t)req.type;
+        mbx_cache_entry_t *be = mbx_cache_find(req.board, req.channel, req.slave_id, req.address, ct);
+        if (be && mbx_entry_backed_off(be)) {
+          uint8_t n = (req.type == MBX_REQ_READ_HOLDINGS && req.count > 0 && req.count <= 16) ? req.count : 1;
+          for (uint8_t i = 0; i < n; i++) {
+            mbx_cache_entry_t *e = (i == 0) ? be : mbx_cache_find(req.board, req.channel, req.slave_id, req.address + i, ct);
+            if (!e) continue;
+            portENTER_CRITICAL(&mbx_cache_spinlock);
+            e->status = MBX_CACHE_ERROR;
+            e->last_error = MB_TIMEOUT;
+            portEXIT_CRITICAL(&mbx_cache_spinlock);
+          }
+          g_mbx_async.total_errors++;
+          mbx_inflight_clear(req.board, req.channel);
+          continue;
+        }
+      }
+    }
+
     mb_error_code_t err = MB_OK;
     st_value_t result;
     result.int_val = 0;
@@ -691,6 +750,7 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
             e->status = MBX_CACHE_ERROR;
             e->last_error = err;
           }
+          mbx_entry_note_result_locked(e, err);  // BUG-511
           e->last_update_ms = millis();
           portEXIT_CRITICAL(&mbx_cache_spinlock);
         }
@@ -746,6 +806,10 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
         } else {
           entry->status = MBX_CACHE_ERROR;
           entry->last_error = err;
+        }
+        if (req.type == MBX_REQ_READ_COIL || req.type == MBX_REQ_READ_INPUT ||
+            req.type == MBX_REQ_READ_HOLDING || req.type == MBX_REQ_READ_INPUT_REG) {
+          mbx_entry_note_result_locked(entry, err);  // BUG-511 (kun laesninger, ikke skrivninger)
         }
         entry->last_update_ms = millis();
         portEXIT_CRITICAL(&mbx_cache_spinlock);
