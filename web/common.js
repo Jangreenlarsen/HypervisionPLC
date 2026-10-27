@@ -136,6 +136,7 @@ function checkAlarms(m){
   const bar=$('alarmBar');
   if(alarms.length){
     bar.style.display='flex';
+    bar.title='ALARM: '+alarms.join(' | ');  // fuld tekst, hvis den er afkortet i menulinjen
     bar.innerHTML='<span>ALARM: '+alarms.join(' | ')+'</span>'
       +'<button onclick="ackAlarmBar()" title="Afstem — skjul indtil det bliver værre" style="background:#1e1e2e;color:#f38ba8;border:none;border-radius:3px;padding:2px 10px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;margin-left:12px">Afstem ✕</button>';
   }else{

@@ -10,6 +10,8 @@ Webgrænsefladen består af otte sider — en offentlig, login-fri statusside pl
 
 Topnavigationen viser lige efter menupunkterne PLC'ens **hostname** og en valgfri **beskrivelse** (fx "Pumpehus nord"), så man altid kan se hvilken PLC man sidder på (FEAT-505). Begge sættes på `/system` under "Enhedsnavn (Hostname) og beskrivelse", via CLI (`set hostname`, `set description`) eller REST (`POST /api/hostname`). Vises kun for indloggede brugere — ikke på den offentlige statusside. Yderst til højre står den kørende **firmware-version og build** (fx `v7.9.68.157 · b2970`, FEAT-516), også kun for indloggede.
 
+På `/dashboard` vises **ALARM-bjælken** (heap, Modbus-timeouts, auth-fejl, expansion board offline m.m.) på samme linje som Monitor-menuen, mellem menuknapperne og Uptime (FEAT-517). Siden flytter sig derfor ikke, når en alarm kommer eller går. En lang alarmtekst afkortes med "…", og den fulde tekst vises, når man holder musen over bjælken. **Afstem ✕** skjuler alarmerne, indtil de bliver værre.
+
 | Side | URL | Login krævet? | Formål |
 |------|-----|:---:|--------|
 | **Status** | `/` | Nej (FEAT-407) | Offentligt, admin-udvalgt statusoverblik — se nedenfor |

@@ -155,11 +155,10 @@
 <button onclick="showPage('settings',this)">Indstillinger</button>
 <button onclick="showPage('statusside',this)" title="Vælg hvad den offentlige, login-fri statusside (/) viser">Statusside</button>
 </div>
+<!-- Alarm Bar: paa samme linje som menuen, saa siden ikke hopper naar en alarm kommer/gaar -->
+<div class="alarm-bar" id="alarmBar"></div>
 <span class="info" id="hdrInfo"></span>
 </div>
-
-<!-- Alarm Bar -->
-<div class="alarm-bar" id="alarmBar"></div>
 
 <!-- FEAT-427: safe mode-banner (vises kun naar PLC'en er i safe mode) -->
 <div id="safeModeBanner" style="display:none;background:#5c1d2a;border:1px solid #f38ba8;color:#f5c2cf;padding:8px 14px;margin:6px 12px;border-radius:6px;font-size:13px">

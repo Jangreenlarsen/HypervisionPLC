@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.158] - 2026-10-27
+
+### CHANGES
+- **FEAT-517:** ALARM-bjælken på `/dashboard` sidder nu på samme linje som Monitor-menuen, mellem menuknapperne og Uptime, i stedet for på en egen linje under den. Før rykkede hele siden ned og op, hver gang en alarm kom eller gik. En lang tekst afkortes med "…", og den fulde tekst vises som tooltip.
+
 ## [7.9.68.157] - 2026-10-27
 
 ### NEW FEATURES
