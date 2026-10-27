@@ -530,6 +530,15 @@ bool modbus_expansion_async_is_busy() {
   }
   return false;
 }
+bool modbus_expansion_async_is_channel_busy(uint8_t board, uint8_t channel) {
+  if (xSemaphoreTake(g_mbx_async.pq_mutex, pdMS_TO_TICKS(5)) != pdTRUE) return true;  // kan ikke tjekke = optaget
+  bool busy = mbx_channel_is_inflight_locked(board, channel);
+  for (uint8_t i = 0; !busy && i < g_mbx_async.pq_count; i++) {
+    busy = g_mbx_async.pq_buf[i].board == board && g_mbx_async.pq_buf[i].channel == channel;
+  }
+  xSemaphoreGive(g_mbx_async.pq_mutex);
+  return busy;
+}
 uint8_t modbus_expansion_async_queue_depth() { return g_mbx_async.pq_count; }
 
 /* ============================================================================

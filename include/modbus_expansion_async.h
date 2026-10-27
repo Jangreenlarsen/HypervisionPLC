@@ -243,6 +243,8 @@ bool modbus_expansion_async_queue_write_multi_holdings(uint8_t board, uint8_t ch
 bool modbus_expansion_async_queue_write_multi_coils(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const bool *values);
 
 bool modbus_expansion_async_is_busy();
+// BUG-513: kun (board, kanal): ventende i koeen eller i flight
+bool modbus_expansion_async_is_channel_busy(uint8_t board, uint8_t channel);
 uint8_t modbus_expansion_async_queue_depth();
 
 // BUG-419: lets modbus_expansion.cpp's connection-slot eviction check

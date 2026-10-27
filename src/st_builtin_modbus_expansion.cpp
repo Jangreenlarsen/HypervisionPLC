@@ -335,6 +335,14 @@ st_value_t st_builtin_mbx_success_func() {
 st_value_t st_builtin_mbx_busy_func() {
   st_value_t result; result.bool_val = modbus_expansion_async_is_busy(); return result;
 }
+// BUG-513: MBX_BUSY() er TRUE saa laenge NOGEN kanal arbejder, saa en timeout
+// paa kanal A stoppede ST, der ventede paa MBX_BUSY() foer skrivning paa D.
+st_value_t st_builtin_mbx_ch_busy_func(int32_t board, int32_t channel) {
+  st_value_t result;
+  result.bool_val = (board >= 1 && board <= 255 && channel >= 1 && channel <= 255) &&
+                    modbus_expansion_async_is_channel_busy((uint8_t)board, (uint8_t)channel);
+  return result;
+}
 st_value_t st_builtin_mbx_error_func() {
   st_value_t result; result.int_val = g_mbx_last_error; return result;
 }

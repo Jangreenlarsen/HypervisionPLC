@@ -694,7 +694,10 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       else if (strcasecmp(node->data.function_call.func_name, "TIME_HOUR") == 0) func_id = ST_BUILTIN_TIME_HOUR;
       else if (strcasecmp(node->data.function_call.func_name, "TIME_MINUTE") == 0) func_id = ST_BUILTIN_TIME_MINUTE;
       else if (strcasecmp(node->data.function_call.func_name, "TIME_DAY") == 0) func_id = ST_BUILTIN_TIME_DAY;
-      else if (strcasecmp(node->data.function_call.func_name, "MBX_BUSY") == 0) func_id = ST_BUILTIN_MBX_BUSY;
+      else if (strcasecmp(node->data.function_call.func_name, "MBX_BUSY") == 0) {
+        // BUG-513: MBX_BUSY(board, kanal) = kun den kanal; MBX_BUSY() = alle (som foer)
+        func_id = (node->data.function_call.arg_count == 2) ? ST_BUILTIN_MBX_CH_BUSY : ST_BUILTIN_MBX_BUSY;
+      }
       else if (strcasecmp(node->data.function_call.func_name, "MBX_ERROR") == 0) func_id = ST_BUILTIN_MBX_ERROR;
       else if (strcasecmp(node->data.function_call.func_name, "WDT_FEED") == 0) func_id = ST_BUILTIN_WDT_FEED;  // FEAT-427
       // v7.7.2: Hardware Counter Access
@@ -775,7 +778,8 @@ bool st_compiler_compile_expr(st_compiler_t *compiler, st_ast_node_t *node) {
       // Compile arguments (push onto stack)
       const bool mbx_ch = (func_id == ST_BUILTIN_MBX_READ_COIL || func_id == ST_BUILTIN_MBX_READ_INPUT ||
                            func_id == ST_BUILTIN_MBX_READ_HOLDING || func_id == ST_BUILTIN_MBX_READ_INPUT_REG ||
-                           func_id == ST_BUILTIN_MBX_WRITE_COIL || func_id == ST_BUILTIN_MBX_WRITE_HOLDING);  // FEAT-467
+                           func_id == ST_BUILTIN_MBX_WRITE_COIL || func_id == ST_BUILTIN_MBX_WRITE_HOLDING ||
+                           func_id == ST_BUILTIN_MBX_CH_BUSY);  // FEAT-467, BUG-513
       for (uint8_t i = 0; i < node->data.function_call.arg_count; i++) {
         bool ok = (mbx_ch && i == 1) ? st_compiler_compile_mbx_channel(compiler, node->data.function_call.args[i])
                                      : st_compiler_compile_expr(compiler, node->data.function_call.args[i]);

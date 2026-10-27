@@ -311,7 +311,8 @@ Samme non-blocking cache/kø-mønster som D.5.9's `MB_*`-familie, blot mod en ek
 | `MBX_WRITE_HOLDINGS(board, kanal, slave, addr, count)` | INT×5 (count: 1-16) | `ARRAY OF INT` | 16 | **v7.9.68.0.** Kø'er skrivning. Særskilt array-syntaks, se nedenfor. Bypasser cachen (se advarsel nedenfor) |
 | `MBX_WRITE_COILS(board, kanal, slave, addr, count)` | INT×5 (count: 1-16) | `ARRAY OF BOOL` | 15 | **v7.9.68.0.** Kø'er skrivning. Særskilt array-syntaks, se nedenfor. Bypasser cachen (se advarsel nedenfor) |
 | `MBX_SUCCESS()` | — | BOOL | — | TRUE hvis seneste `MBX_*`-kald lykkedes. **Cachen lever kun 2 s:** et `MBX_READ_*` der kaldes sjældnere end hvert 2. sekund (fx kun i en 10 s-takt) finder altid en udløbet værdi, og `MBX_SUCCESS()` er så **altid FALSE**. Læs mindst hvert sekund, og lad kun selve handlingen (fx en skrivning) ske i den langsomme takt |
-| `MBX_BUSY()` | — | BOOL | — | TRUE hvis expansion-data-kø har ventende forespørgsler |
+| `MBX_BUSY()` | — | BOOL | — | TRUE hvis expansion-data-kø har ventende forespørgsler eller en transaktion i gang — på **en hvilken som helst** kanal og ethvert board |
+| `MBX_BUSY(board, kanal)` | INT×2 | BOOL | — | **BUG-513.** Kun den kanal: TRUE hvis noget til (board, kanal) ligger i køen eller er i gang. Kanal som tal eller bogstav (`'D'`). Brug denne før skrivninger, fx `IF NOT MBX_BUSY(1, 'D') THEN ...` — med `MBX_BUSY()` stopper en timeout på én kanal skrivningerne på alle de andre |
 | `MBX_ERROR()` | — | INT | — | Seneste fejlkode — samme `mb_error_code_t`-tabel som D.5.9's `MB_ERROR()` |
 
 `board` skal referere til et faktisk konfigureret board (se System-siden/`show modbus-expansion`), ellers returnerer kaldet `MB_INVALID_ADDRESS` uden at forsøge noget netværkskald. Diagnostik: `show modbus-expansion queue` (CLI) viser kø-dybde, cache-hits/misses, og aktiv backoff pr. (board, kanal, slave).

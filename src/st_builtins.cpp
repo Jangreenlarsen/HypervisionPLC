@@ -553,6 +553,10 @@ st_value_t st_builtin_call(st_builtin_func_t func_id, st_value_t arg1, st_value_
       result = st_builtin_mbx_busy_func();
       break;
 
+    case ST_BUILTIN_MBX_CH_BUSY:  // BUG-513
+      result = st_builtin_mbx_ch_busy_func(arg1.int_val, arg2.int_val);
+      break;
+
     case ST_BUILTIN_MBX_ERROR:
       result = st_builtin_mbx_error_func();
       break;
@@ -705,6 +709,7 @@ const char *st_builtin_name(st_builtin_func_t func_id) {
     case ST_BUILTIN_TIME_HOUR:          return "TIME_HOUR";
     case ST_BUILTIN_TIME_MINUTE:        return "TIME_MINUTE";
     case ST_BUILTIN_TIME_DAY:           return "TIME_DAY";
+    case ST_BUILTIN_MBX_CH_BUSY:        return "MBX_BUSY";   // BUG-513
     case ST_BUILTIN_CNT_SETUP:     return "CNT_SETUP";
     case ST_BUILTIN_CNT_SETUP_ADV: return "CNT_SETUP_ADV";
     case ST_BUILTIN_CNT_SETUP_CMP: return "CNT_SETUP_CMP";
@@ -822,6 +827,7 @@ uint8_t st_builtin_arg_count(st_builtin_func_t func_id) {
       return 3;
 
     case ST_BUILTIN_FILTER:        // FILTER(IN, TIME_CONSTANT)
+    case ST_BUILTIN_MBX_CH_BUSY:   // MBX_BUSY(board, kanal) — BUG-513
       return 2;
 
     // 0-argument functions (v7.7.0)
@@ -947,6 +953,7 @@ st_datatype_t st_builtin_return_type(st_builtin_func_t func_id) {
     case ST_BUILTIN_MBX_WRITE_COILS:    // MBX_WRITE_COILS → BOOL (queued flag) — v7.9.68.0
     case ST_BUILTIN_MBX_SUCCESS:       // MBX_SUCCESS → BOOL — FEAT-410
     case ST_BUILTIN_MBX_BUSY:          // MBX_BUSY → BOOL — FEAT-410
+    case ST_BUILTIN_MBX_CH_BUSY:       // MBX_BUSY(board, kanal) → BOOL — BUG-513
     case ST_BUILTIN_WDT_FEED:          // WDT_FEED → BOOL — FEAT-427
     case ST_BUILTIN_TIME_VALID:        // TIME_VALID → BOOL — FEAT-469
     // BUG-433: manglede og faldt til INT — VM'en mærkede resultatet forkert

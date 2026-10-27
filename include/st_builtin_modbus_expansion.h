@@ -73,6 +73,11 @@ st_value_t st_builtin_mbx_success_func();
 st_value_t st_builtin_mbx_busy_func();
 
 /**
+ * @brief MBX_BUSY(board, kanal) → BOOL — kun den kanal: noget i koeen eller en transaktion i gang (BUG-513)
+ */
+st_value_t st_builtin_mbx_ch_busy_func(int32_t board, int32_t channel);
+
+/**
  * @brief MBX_ERROR() → INT — seneste mb_error_code_t
  */
 st_value_t st_builtin_mbx_error_func();

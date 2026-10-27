@@ -165,6 +165,9 @@ typedef enum {
   ST_BUILTIN_TIME_MINUTE,        // TIME_MINUTE() → INT 0-59
   ST_BUILTIN_TIME_DAY,           // TIME_DAY() → INT 1-31 (dag i måneden)
 
+  // BUG-513: altid tilføjet SIDST. Compileren vælger den, når MBX_BUSY kaldes med 2 argumenter.
+  ST_BUILTIN_MBX_CH_BUSY,        // MBX_BUSY(board, kanal) → BOOL (kun den kanal)
+
   ST_BUILTIN_COUNT          // Total number of built-ins
 } st_builtin_func_t;
 

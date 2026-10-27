@@ -646,6 +646,7 @@ static void print_modbus_expansion_help(void) {
   debug_println("  MBX_WRITE_COILS(board, kanal, slave, addr, count) := array (ARRAY OF BOOL) (async, FC15 multi, v7.9.68.0)");
   debug_println("  MBX_SUCCESS() → BOOL  - TRUE hvis seneste MBX_*-kald lykkedes");
   debug_println("  MBX_BUSY() → BOOL     - TRUE hvis expansion-datakøen har ventende forespørgsler");
+  debug_println("  MBX_BUSY(board, kanal) → BOOL - kun den kanal (brug den før skrivning)");
   debug_println("  MBX_ERROR() → INT     - Seneste fejlkode (samme mb_error_code_t-tabel som MB_ERROR())");
   debug_println("");
   debug_println("  board: 1-8 (nr som vist i 'show modbus-expansion'). kanal: A/B eller 1-8.");

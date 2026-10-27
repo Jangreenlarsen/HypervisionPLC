@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.154] - 2026-10-27
+
+### BUG FIXES
+- **BUG-513:** En timeout på én expansion-kanal stoppede ST-skrivninger på alle de andre kanaler i timeoutens varighed. `MBX_BUSY()` er TRUE, så længe noget som helst ligger i expansion-køen eller er i gang, på enhver kanal og ethvert board. ST-kode, der skriver `IF NOT MBX_BUSY() THEN ...`, sprang derfor skrivningerne på kanal D over, mens kanal A ventede på en slave, der ikke svarede. Selve kanalerne kører uafhængigt (både på PLC'en og på boardet). Ny form `MBX_BUSY(board, kanal)` ser kun på den kanal. Kanalen kan angives som tal eller bogstav. `MBX_BUSY()` uden argumenter virker som før.
+
 ## [7.9.68.153] - 2026-10-26
 
 ### BUG FIXES
