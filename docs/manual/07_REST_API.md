@@ -129,6 +129,7 @@ SCADA og andre systemer kan læse og skrive registre på enhederne bag PLC'en me
 | `type=uint\|int\|dint\|dword\|real` | Fortolkning af HR/IR; 32-bit-typer bruger 2 registre (high word først, som de interne) |
 | `wait=ms` | Vent op til `ms` (max 2000) på et friskt svar fra bussen |
 | `max_age=ms` | Hvor gammel en cache-værdi må være, før den hentes igen (standard 1000) |
+| `prio=high\|normal` | **FEAT-515.** `high`: læsningen køes som PLC'ens egne (ST). `normal` eller udeladt: bag PLC'ens egne (se *Prioritet* nedenfor). Brug kun `high` til få, vigtige tags |
 
 ```bash
 curl -u admin:… "http://10.1.1.30/api/ext/mbx/1/D/1/coils/0?count=4&wait=500"
@@ -139,7 +140,7 @@ curl -u admin:… "http://10.1.1.30/api/ext/mbx/1/D/1/coils/0?count=4&wait=500"
 
 Læsninger går gennem **samme kø og cache som ST Logic** — PLC'ens webserver taler aldrig selv med bussen. Uden `wait` får du den seneste kendte værdi med det samme, og kaldet sætter en opfriskning i kø; første læsning af en ny adresse giver derfor `"value":null,"status":"pending"`. En SCADA, der poller fast, har værdien fra 2. kald. Med `wait` venter kaldet på svaret, men webserveren er optaget imens — brug korte ventetider. `status` er `ok`, `pending` eller `error`.
 
-**Prioritet (FEAT-514, v7.9.68.155):** læsninger via `/api/ext/...` står i køen **bag PLC'ens egne** (ST Logic og trend). Er køen fuld, er det SCADA's læsninger, der må vente eller afvises først. En SCADA-læsning, der har ventet 5 s, rykkes op, så SCADA aldrig går helt i stå. Beder ST om et register, der allerede venter fra SCADA, rykkes den ventende forespørgsel op til ST's prioritet. **Skrivninger** (POST, fx et nødstop) har altid højeste prioritet og kommer forrest, før alle læsninger. Køernes tilstand ses i `/api/metrics` (`modbus_master_queue_*` for egen RS485, `mbx_queue_*` / `mbx_priority_drops` for expansion boards).
+**Prioritet (FEAT-514, v7.9.68.155):** læsninger via `/api/ext/...` står i køen **bag PLC'ens egne** (ST Logic og trend). Er køen fuld, er det SCADA's læsninger, der må vente eller afvises først. En SCADA-læsning, der har ventet 5 s, rykkes op, så SCADA aldrig går helt i stå. Beder ST om et register, der allerede venter fra SCADA, rykkes den ventende forespørgsel op til ST's prioritet. Med `prio=high` (FEAT-515, v7.9.68.156) køes en læsning i stedet som PLC'ens egne, fx tilbagemelding fra et nødstop. Står mange tags på `high`, forsvinder effekten, og ST kan blive forsinket. **Skrivninger** (POST, fx et nødstop) har altid højeste prioritet og kommer forrest, før alle læsninger. Køernes tilstand ses i `/api/metrics` (`modbus_master_queue_*` for egen RS485, `mbx_queue_*` / `mbx_priority_drops` for expansion boards).
 
 **Skrivning (POST)** — kun `hr` og `coils`, kræver skriverettighed og logges i hændelsesloggen:
 

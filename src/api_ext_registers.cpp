@@ -192,6 +192,19 @@ static ext_fmt_t ext_query_fmt(httpd_req_t *req, bool *ok) {
   return FMT_UINT;
 }
 
+// FEAT-515: prio=high -> koees med PLC'ens egen prioritet; normal/udeladt ->
+// bag PLC'ens egne (FEAT-514). Returnerer true for "lav" (normal SCADA-laesning).
+static bool ext_query_prio_low(httpd_req_t *req, bool *ok) {
+  char q[160], v[8];
+  *ok = true;
+  if (httpd_req_get_url_query_str(req, q, sizeof(q)) != ESP_OK || httpd_query_key_value(q, "prio", v, sizeof(v)) != ESP_OK)
+    return true;
+  if (!strcmp(v, "high")) return false;
+  if (!strcmp(v, "normal")) return true;
+  *ok = false;
+  return true;
+}
+
 static int ext_print_target(char *out, size_t cap, const ext_target_t *t) {
   if (t->mbx)
     return snprintf(out, cap, "{\"src\":\"mbx\",\"board\":%u,\"channel\":\"%c\",\"slave\":%u,\"type\":\"%s\",\"address\":%u",
@@ -227,6 +240,9 @@ esp_err_t api_ext_registers_get(httpd_req_t *req) {
   bool fmt_ok;
   ext_fmt_t fmt = ext_query_fmt(req, &fmt_ok);
   if (!fmt_ok) return api_send_error(req, 400, "Ugyldig type-parameter (uint, int, dint, dword, real)");
+  bool prio_ok;
+  const bool low = ext_query_prio_low(req, &prio_ok);  // FEAT-515
+  if (!prio_ok) return api_send_error(req, 400, "Ugyldig prio-parameter (high, normal)");
   const bool bit = (t.kind == EXT_COILS || t.kind == EXT_DI);
   if (bit) fmt = FMT_UINT;
   const uint8_t width = (fmt == FMT_DINT || fmt == FMT_DWORD || fmt == FMT_REAL) ? 2 : 1;
@@ -253,16 +269,17 @@ esp_err_t api_ext_registers_get(httpd_req_t *req) {
   bool queue_full = false;
   if (any_stale) {
     if (t.kind == EXT_HR && nregs > 1) {  // ét FC03 med flere registre
-      // FEAT-514: SCADA/REST-laesninger koees bag PLC'ens egne (skrivninger forbliver forrest)
-      bool ok = t.mbx ? modbus_expansion_async_queue_read_multi_holdings(t.board, t.channel, t.slave, t.addr, (uint8_t)nregs, true)
-                      : mb_async_queue_read_multi(t.slave, t.addr, (uint8_t)nregs, true);
+      // FEAT-514: SCADA/REST-laesninger koees bag PLC'ens egne (skrivninger forbliver forrest),
+      // medmindre klienten beder om prio=high (FEAT-515)
+      bool ok = t.mbx ? modbus_expansion_async_queue_read_multi_holdings(t.board, t.channel, t.slave, t.addr, (uint8_t)nregs, low)
+                      : mb_async_queue_read_multi(t.slave, t.addr, (uint8_t)nregs, low);
       queue_full = !ok;
       if (ok) for (uint16_t i = 0; i < nregs; i++) queued[i] = true;
     } else {
       for (uint16_t i = 0; i < nregs; i++) {
         if (!queued[i]) continue;
-        bool ok = t.mbx ? modbus_expansion_async_queue_read((mbx_request_type_t)t.kind, t.board, t.channel, t.slave, t.addr + i, true)
-                        : mb_async_queue_read((mb_request_type_t)t.kind, t.slave, t.addr + i, true);
+        bool ok = t.mbx ? modbus_expansion_async_queue_read((mbx_request_type_t)t.kind, t.board, t.channel, t.slave, t.addr + i, low)
+                        : mb_async_queue_read((mb_request_type_t)t.kind, t.slave, t.addr + i, low);
         if (!ok) { queue_full = true; queued[i] = false; }
       }
     }

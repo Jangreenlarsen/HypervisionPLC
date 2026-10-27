@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.156] - 2026-10-27
+
+### NEW FEATURES
+- **FEAT-515:** `GET /api/ext/rtu|mbx/...` tager nu `prio=high`. Så køes læsningen som PLC'ens egne (ST) i stedet for bag dem (FEAT-514). Bruges af SCADA til få, vigtige tags, fx tilbagemelding fra et nødstop. `prio=normal` eller udeladt giver samme adfærd som før. En ugyldig værdi giver 400.
+
 ## [7.9.68.155] - 2026-10-27
 
 ### NEW FEATURES
