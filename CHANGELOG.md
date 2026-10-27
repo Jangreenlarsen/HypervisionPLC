@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.157] - 2026-10-27
+
+### NEW FEATURES
+- **FEAT-516:** Firmwarefilen til upload får nu navn efter version og build og lægges i projektets rod, fx `HypervisionPLC-v7.9.68.157-b2970.bin`. Det er den signerede fil til OTA. Er signeringen mislykket, ender navnet på `-unsigned`. Kun den nyeste fil gemmes, og den committes ikke (`*.bin` er i `.gitignore`). Filen laves af det nye post-build-script `scripts/export_firmware_pio.py`.
+- **FEAT-516:** Web-GUI'ets topmenu viser den kørende firmware-version og build yderst til højre, fx `v7.9.68.157 · b2970`. `GET /api/user/me` returnerer derfor nu også `version` og `build` for indloggede brugere.
+
 ## [7.9.68.156] - 2026-10-27
 
 ### NEW FEATURES

@@ -83,7 +83,19 @@ pio clean && pio run
 ✓ No new warnings
 ✓ RAM/Flash usage acceptable
 ✓ Build numbers incremented
+✓ Firmware file in project root: HypervisionPLC-v<version>-b<build>.bin
 ```
+
+**Firmware file for upload (FEAT-516):** every `pio run` copies the firmware to the
+project root as `HypervisionPLC-v<PROJECT_VERSION>-b<BUILD_NUMBER>.bin`, for example
+`HypervisionPLC-v7.9.68.156-b2967.bin`. The copy is made by `scripts/export_firmware_pio.py`,
+which runs after the signing step.
+- It is the **signed** file. Use it for OTA upload in the web GUI.
+- If signing failed, the name ends in `-unsigned`, and OTA will reject it.
+- Only the newest file is kept in the root. `*.bin` is in `.gitignore`, so it is never committed.
+
+After a build, tell the user the full file name. The version + build is also shown at the
+far right of the web GUI's top menu, so the user can check what the PLC is running.
 
 **Changed ST compiler/VM/builtins (`src/st_*.cpp`)?** Run the PC test — it compiles the
 ST core with g++ and runs real ST programs through it (no hardware needed):

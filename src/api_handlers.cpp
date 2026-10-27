@@ -5650,6 +5650,8 @@ esp_err_t api_handler_user_me(httpd_req_t *req)
   if (deserializeJson(doc, buf)) return api_send_json(req, buf);
   doc["hostname"] = g_persist_config.hostname;
   doc["description"] = g_persist_config.device_description;
+  doc["version"] = PROJECT_VERSION;  // FEAT-516: vises yderst til hoejre i topmenuen
+  doc["build"] = BUILD_NUMBER;
   char out[512];
   serializeJson(doc, out, sizeof(out));
   return api_send_json(req, out);

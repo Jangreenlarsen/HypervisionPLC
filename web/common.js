@@ -218,6 +218,20 @@ function hfNavInfo(d){
   el.appendChild(h);
   if(d.description){el.appendChild(document.createTextNode(' — '+d.description))}
   el.title=(d.hostname||'')+(d.description?' — '+d.description:'');
+  // FEAT-516: firmware-version + build yderst til hoejre i topmenuen
+  if(d.version){
+    let v=document.getElementById('hfNavVer');
+    if(!v){
+      v=document.createElement('span');
+      v.id='hfNavVer';
+      // .save-btn skubber allerede resten til hoejre; kun uden den skal versionen selv
+      v.style.cssText='padding-left:12px;font-size:11px;color:#7f849c;white-space:nowrap';
+      if(!document.getElementById('saveBtn'))v.style.marginLeft='auto';
+      nav.appendChild(v);
+    }
+    v.textContent='v'+d.version+(d.build?' · b'+d.build:'');
+    v.title='Firmware v'+d.version+(d.build?' build '+d.build:'');
+  }
 }
 (function(){
   if(!window.fetch)return;

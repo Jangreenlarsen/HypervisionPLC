@@ -81,7 +81,12 @@ Always read [`BUGS_INDEX.md`](BUGS_INDEX.md) to identify relevant bugs.
 
 Takes 10 seconds, saves hours of debugging.
 
-### 4. MODULAR ARCHITECTURE
+### 4. FIRMWARE FILE FOR UPLOAD
+Every build places the signed firmware in the project root as
+`HypervisionPLC-v<version>-b<build>.bin`. Only the newest file is kept. Tell the user that file name after each build.
+See [`CLAUDE_WORKFLOW.md`](CLAUDE_WORKFLOW.md) → Step 3.
+
+### 5. MODULAR ARCHITECTURE
 30+ focused files, each with single responsibility. No circular dependencies.
 
 See [`CLAUDE_ARCH.md`](CLAUDE_ARCH.md) for details.
