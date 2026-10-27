@@ -286,6 +286,9 @@ static bool mb_pq_insert(mb_async_request_t *req) {
 // newly-arrived FRESH requests instead of losing to them forever. See
 // MB_STARVATION_AGE_MS's comment in mb_async.h for the full scenario.
 static inline uint8_t mb_effective_priority(const mb_async_request_t *r, uint32_t now_ms) {
+  if (r->priority == MB_PRIO_READ_EXT) {  // FEAT-514
+    return ((now_ms - r->enqueued_ms) >= MB_EXT_AGE_MS) ? MB_PRIO_READ_REFRESH : MB_PRIO_READ_EXT;
+  }
   if (r->priority > MB_PRIO_READ_FRESH && (now_ms - r->enqueued_ms) >= MB_STARVATION_AGE_MS) {
     return MB_PRIO_READ_FRESH;
   }
@@ -330,11 +333,25 @@ static bool mb_pq_dequeue(mb_async_request_t *out) {
  * QUEUE FUNCTIONS
  * ============================================================================ */
 
-bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t address) {
+// FEAT-514: loefter en allerede koeet laesning (fx fra SCADA) til prio, hvis
+// den ligger lavere. Ellers ville ST staa i koe bag SCADA pga. deduplikeringen.
+static void mb_pq_upgrade_read(mb_request_type_t type, uint8_t slave_id, uint16_t address, uint8_t prio) {
+  if (xSemaphoreTake(g_mb_async.pq_mutex, pdMS_TO_TICKS(10)) != pdTRUE) return;
+  for (uint8_t i = 0; i < g_mb_async.pq_count; i++) {
+    mb_async_request_t *r = &g_mb_async.pq_buf[i];
+    if (r->type == type && r->slave_id == slave_id && r->address == address && r->priority > prio) {
+      r->priority = prio;
+    }
+  }
+  xSemaphoreGive(g_mb_async.pq_mutex);
+}
+
+bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t address, bool ext) {
   // Check cache — if already PENDING and cache enabled, skip (deduplication)
   extern bool g_mb_cache_enabled;
   mb_cache_entry_t *entry = mb_cache_find(slave_id, address, (uint8_t)type);
   if (g_mb_cache_enabled && entry && entry->status == MB_CACHE_PENDING) {
+    if (!ext) mb_pq_upgrade_read(type, slave_id, address, entry->last_update_ms ? MB_PRIO_READ_REFRESH : MB_PRIO_READ_FRESH);
     return true;  // Already queued
   }
 
@@ -343,6 +360,7 @@ bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t addr
   if (entry && entry->status == MB_CACHE_VALID) {
     prio = MB_PRIO_READ_REFRESH;
   }
+  if (ext) prio = MB_PRIO_READ_EXT;  // FEAT-514
 
   // Mark as pending
   if (!entry) {
@@ -417,7 +435,7 @@ bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t add
   return true;
 }
 
-bool mb_async_queue_read_multi(uint8_t slave_id, uint16_t address, uint8_t count) {
+bool mb_async_queue_read_multi(uint8_t slave_id, uint16_t address, uint8_t count, bool ext) {
   if (count == 0 || count > 16) return false;
 
   // Check if any of the addresses already have cached values → refresh priority
@@ -436,7 +454,7 @@ bool mb_async_queue_read_multi(uint8_t slave_id, uint16_t address, uint8_t count
   req.slave_id = slave_id;
   req.address = address;
   req.count = count;
-  req.priority = prio;
+  req.priority = ext ? (uint8_t)MB_PRIO_READ_EXT : prio;  // FEAT-514
   req.source = g_mb_activity_next_source;
 
   // Mark all individual cache entries as pending

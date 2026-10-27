@@ -74,7 +74,7 @@ set modbus-master queue-size 16           (max ventende requests)
 show modbus-master                        (status + kø-/cache-statistik)
 ```
 
-**Prioritering:** skrivninger (Write) prioriteres altid over læsninger; blandt læsninger prioriteres "første læsning" (intet cachet endnu) over "opdatering af allerede kendt værdi". Er køen fuld, fortrænges den laveste-prioritets ventende request — se [§13.4](13_Fejlfinding.md#134-modbus-master-holder-op-med-at-opdatere-en-bestemt-adresse) hvis en bestemt adresse holder op med at opdatere.
+**Prioritering:** skrivninger (Write) prioriteres altid over læsninger — også skrivninger fra SCADA via REST; blandt læsninger prioriteres "første læsning" (intet cachet endnu) over "opdatering af allerede kendt værdi", og **læsninger fra SCADA/REST (`/api/ext/...`) kommer bagerst** (FEAT-514, se [§7](07_REST_API.md)). Er køen fuld, fortrænges den laveste-prioritets ventende request — se [§13.4](13_Fejlfinding.md#134-modbus-master-holder-op-med-at-opdatere-en-bestemt-adresse) hvis en bestemt adresse holder op med at opdatere.
 
 **Manuelt afprøve Master:** se [`mb read`/`mb write`](05_CLI_Konsol.md#54-mb--modbus-master-fra-kommandolinjen) i CLI-kapitlet, eller vælg **Intern Modbus** som board i I/O-sidens test-panel (under Modbus Expansion Boards, se §6.7).
 

@@ -139,6 +139,8 @@ curl -u admin:… "http://10.1.1.30/api/ext/mbx/1/D/1/coils/0?count=4&wait=500"
 
 Læsninger går gennem **samme kø og cache som ST Logic** — PLC'ens webserver taler aldrig selv med bussen. Uden `wait` får du den seneste kendte værdi med det samme, og kaldet sætter en opfriskning i kø; første læsning af en ny adresse giver derfor `"value":null,"status":"pending"`. En SCADA, der poller fast, har værdien fra 2. kald. Med `wait` venter kaldet på svaret, men webserveren er optaget imens — brug korte ventetider. `status` er `ok`, `pending` eller `error`.
 
+**Prioritet (FEAT-514, v7.9.68.155):** læsninger via `/api/ext/...` står i køen **bag PLC'ens egne** (ST Logic og trend). Er køen fuld, er det SCADA's læsninger, der må vente eller afvises først. En SCADA-læsning, der har ventet 5 s, rykkes op, så SCADA aldrig går helt i stå. Beder ST om et register, der allerede venter fra SCADA, rykkes den ventende forespørgsel op til ST's prioritet. **Skrivninger** (POST, fx et nødstop) har altid højeste prioritet og kommer forrest, før alle læsninger. Køernes tilstand ses i `/api/metrics` (`modbus_master_queue_*` for egen RS485, `mbx_queue_*` / `mbx_priority_drops` for expansion boards).
+
 **Skrivning (POST)** — kun `hr` og `coils`, kræver skriverettighed og logges i hændelsesloggen:
 
 ```bash

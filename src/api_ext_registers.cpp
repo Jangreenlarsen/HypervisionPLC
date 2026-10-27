@@ -253,15 +253,16 @@ esp_err_t api_ext_registers_get(httpd_req_t *req) {
   bool queue_full = false;
   if (any_stale) {
     if (t.kind == EXT_HR && nregs > 1) {  // ét FC03 med flere registre
-      bool ok = t.mbx ? modbus_expansion_async_queue_read_multi_holdings(t.board, t.channel, t.slave, t.addr, (uint8_t)nregs)
-                      : mb_async_queue_read_multi(t.slave, t.addr, (uint8_t)nregs);
+      // FEAT-514: SCADA/REST-laesninger koees bag PLC'ens egne (skrivninger forbliver forrest)
+      bool ok = t.mbx ? modbus_expansion_async_queue_read_multi_holdings(t.board, t.channel, t.slave, t.addr, (uint8_t)nregs, true)
+                      : mb_async_queue_read_multi(t.slave, t.addr, (uint8_t)nregs, true);
       queue_full = !ok;
       if (ok) for (uint16_t i = 0; i < nregs; i++) queued[i] = true;
     } else {
       for (uint16_t i = 0; i < nregs; i++) {
         if (!queued[i]) continue;
-        bool ok = t.mbx ? modbus_expansion_async_queue_read((mbx_request_type_t)t.kind, t.board, t.channel, t.slave, t.addr + i)
-                        : mb_async_queue_read((mb_request_type_t)t.kind, t.slave, t.addr + i);
+        bool ok = t.mbx ? modbus_expansion_async_queue_read((mbx_request_type_t)t.kind, t.board, t.channel, t.slave, t.addr + i, true)
+                        : mb_async_queue_read((mb_request_type_t)t.kind, t.slave, t.addr + i, true);
         if (!ok) { queue_full = true; queued[i] = false; }
       }
     }

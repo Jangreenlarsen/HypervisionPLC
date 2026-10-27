@@ -212,6 +212,9 @@ static bool mbx_pq_insert(mbx_async_request_t *req) {
 // newly-arrived FRESH requests instead of losing to them forever. See
 // MBX_STARVATION_AGE_MS's comment in modbus_expansion_async.h.
 static inline uint8_t mbx_effective_priority(const mbx_async_request_t *r, uint32_t now_ms) {
+  if (r->priority == MBX_PRIO_READ_EXT) {  // FEAT-514
+    return ((now_ms - r->enqueued_ms) >= MBX_EXT_AGE_MS) ? MBX_PRIO_READ_REFRESH : MBX_PRIO_READ_EXT;
+  }
   if (r->priority > MBX_PRIO_READ_FRESH && (now_ms - r->enqueued_ms) >= MBX_STARVATION_AGE_MS) {
     return MBX_PRIO_READ_FRESH;
   }
@@ -342,7 +345,21 @@ static bool mbx_pq_dequeue(mbx_async_request_t *out) {
  * QUEUE FUNCTIONS
  * ============================================================================ */
 
-bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address) {
+// FEAT-514: loefter en allerede koeet laesning (fx fra SCADA) til prio, hvis den ligger lavere.
+static void mbx_pq_upgrade_read(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id,
+                                uint16_t address, uint8_t prio) {
+  if (xSemaphoreTake(g_mbx_async.pq_mutex, pdMS_TO_TICKS(10)) != pdTRUE) return;
+  for (uint8_t i = 0; i < g_mbx_async.pq_count; i++) {
+    mbx_async_request_t *r = &g_mbx_async.pq_buf[i];
+    if (r->type == type && r->board == board && r->channel == channel && r->slave_id == slave_id &&
+        r->address == address && r->priority > prio) {
+      r->priority = prio;
+    }
+  }
+  xSemaphoreGive(g_mbx_async.pq_mutex);
+}
+
+bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, bool ext) {
   mbx_cache_entry_t *entry = mbx_cache_find(board, channel, slave_id, address, (uint8_t)type);
   // BUG-419: snapshot status under the spinlock instead of reading
   // entry->status directly — this function runs on ST Logic's task (Core 1)
@@ -356,6 +373,8 @@ bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, u
     portEXIT_CRITICAL(&mbx_cache_spinlock);
   }
   if (entry && status == MBX_CACHE_PENDING) {
+    if (!ext) mbx_pq_upgrade_read(type, board, channel, slave_id, address,
+                                  entry->last_update_ms ? MBX_PRIO_READ_REFRESH : MBX_PRIO_READ_FRESH);  // FEAT-514
     return true;  // Allerede i kø (deduplikering)
   }
   // BUG-511: registret svarede ikke sidst — vent med at proeve igen, saa det
@@ -368,6 +387,7 @@ bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, u
   if (entry && status == MBX_CACHE_VALID) {
     prio = MBX_PRIO_READ_REFRESH;
   }
+  if (ext) prio = MBX_PRIO_READ_EXT;  // FEAT-514
 
   if (!entry) {
     entry = mbx_cache_get_or_create(board, channel, slave_id, address, (uint8_t)type);
@@ -444,7 +464,7 @@ bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, 
 // registres cache-poster (nøgle MBX_REQ_READ_HOLDING pr. adresse) — samme
 // princip som mb_async_queue_read_multi() — så MBX_READ_HOLDING og
 // MBX_READ_HOLDINGS deler cache, og Register Map/eksterne registre ser dem.
-bool modbus_expansion_async_queue_read_multi_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count) {
+bool modbus_expansion_async_queue_read_multi_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, bool ext) {
   if (count == 0 || count > 16) return false;
   // BUG-511: en blok der ikke svarer proeves kun igen efter backoff (noegle = foerste adresse)
   if (mbx_entry_backed_off(mbx_cache_find(board, channel, slave_id, address, (uint8_t)MBX_REQ_READ_HOLDING))) {
@@ -463,7 +483,7 @@ bool modbus_expansion_async_queue_read_multi_holdings(uint8_t board, uint8_t cha
   req.slave_id = slave_id;
   req.address = address;
   req.count = count;
-  req.priority = prio;
+  req.priority = ext ? (uint8_t)MBX_PRIO_READ_EXT : prio;  // FEAT-514
   for (uint8_t i = 0; i < count; i++) {
     mbx_cache_entry_t *e = mbx_cache_get_or_create(board, channel, slave_id, address + i, (uint8_t)MBX_REQ_READ_HOLDING);
     if (e) {

@@ -108,6 +108,9 @@
 // behandles som FRESH ved valg — dens (langt ældre) insert_seq vinder så
 // uafgørelser mod nyligt ankomne FRESH-forespørgsler.
 #define MBX_STARVATION_AGE_MS  2000
+// FEAT-514: som MB_EXT_AGE_MS — en ventende SCADA-laesning behandles efter saa
+// lang tid som REFRESH, saa SCADA aldrig sulter helt.
+#define MBX_EXT_AGE_MS  5000
 
 typedef enum {
   MBX_REQ_READ_COIL = 1,
@@ -124,7 +127,8 @@ typedef enum {
 typedef enum {
   MBX_PRIO_WRITE        = 0,
   MBX_PRIO_READ_FRESH    = 1,
-  MBX_PRIO_READ_REFRESH  = 2
+  MBX_PRIO_READ_REFRESH  = 2,
+  MBX_PRIO_READ_EXT      = 3   // FEAT-514: laesning fra SCADA/REST — altid bag PLC'ens egne
 } mbx_request_priority_t;
 
 typedef enum {
@@ -230,7 +234,8 @@ bool modbus_expansion_async_is_paused();
 mbx_cache_entry_t *mbx_cache_find(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t req_type);
 mbx_cache_entry_t *mbx_cache_get_or_create(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t req_type);
 
-bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address);
+// FEAT-514: ext=true for SCADA/REST (MBX_PRIO_READ_EXT); se mb_async_queue_read()
+bool modbus_expansion_async_queue_read(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, bool ext = false);
 // BUG-488: force=true springer write-dedup over (REST-skrivning skal altid ud paa
 // bussen og opdatere cachen, ogsaa naar cachen allerede viser samme vaerdi — som mb_async)
 bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, st_value_t value,
@@ -238,7 +243,7 @@ bool modbus_expansion_async_queue_write(mbx_request_type_t type, uint8_t board, 
 
 // v7.9.68.0: multi-register write (FC16) / multi-coil write (FC15) — bypass the
 // single-address cache entirely (see file header design note above).
-bool modbus_expansion_async_queue_read_multi_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count);  // FEAT-461
+bool modbus_expansion_async_queue_read_multi_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, bool ext = false);  // FEAT-461, FEAT-514
 bool modbus_expansion_async_queue_write_multi_holdings(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const uint16_t *values);
 bool modbus_expansion_async_queue_write_multi_coils(uint8_t board, uint8_t channel, uint8_t slave_id, uint16_t address, uint8_t count, const bool *values);
 

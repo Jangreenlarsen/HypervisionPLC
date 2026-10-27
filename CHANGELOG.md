@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.155] - 2026-10-27
+
+### NEW FEATURES
+- **FEAT-514:** Læsninger fra SCADA/REST står nu bag PLC'ens egne i Modbus-køerne, både den lokale RS485-master og expansion boards. SCADA polled ofte, og dens læsninger stod i kø på lige fod med ST's, så PLC'ens egne værdier kom senere. Ny laveste prioritet `READ_EXT` gælder for `/api/ext/...`-læsninger og GUI'ens register-watch. Er køen fuld, er det dem, der fortrænges først. Efter 5 s i kø rykkes de op, så SCADA aldrig sulter. Beder ST om et register, der allerede ligger i kø fra SCADA, løftes den ventende forespørgsel til ST's prioritet. Skrivninger fra SCADA (fx et nødstop) har fortsat højeste prioritet. Nye metrics: `mbx_queue_depth`, `mbx_queue_hwm`, `mbx_queue_full_count`, `mbx_priority_drops`.
+
 ## [7.9.68.154] - 2026-10-27
 
 ### BUG FIXES

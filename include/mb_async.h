@@ -56,6 +56,9 @@
  * FRESH for selection purposes — its (much older) insert_seq then wins ties
  * against newly-arrived FRESH requests, bounding worst-case starvation. */
 #define MB_STARVATION_AGE_MS  2000
+// FEAT-514: en SCADA/REST-laesning (MB_PRIO_READ_EXT), der har ventet saa
+// laenge, behandles som REFRESH, saa SCADA aldrig sulter helt.
+#define MB_EXT_AGE_MS  5000
 
 /* ============================================================================
  * TYPES
@@ -77,7 +80,8 @@ typedef enum {
 typedef enum {
   MB_PRIO_WRITE        = 0,   // Writes always first (FC05/FC06/FC15/FC16)
   MB_PRIO_READ_FRESH   = 1,   // First read — no cached value yet
-  MB_PRIO_READ_REFRESH = 2    // Cache refresh — client already has a value
+  MB_PRIO_READ_REFRESH = 2,   // Cache refresh — client already has a value
+  MB_PRIO_READ_EXT     = 3    // FEAT-514: laesning fra SCADA/REST — altid bag PLC'ens egne
 } mb_request_priority_t;
 
 typedef enum {
@@ -231,7 +235,9 @@ mb_cache_entry_t *mb_cache_get_or_create(uint8_t slave_id, uint16_t address, uin
  * @brief Queue a read request (non-blocking, deduplicates)
  * @return true if queued or already pending
  */
-bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t address);
+// FEAT-514: ext=true for SCADA/REST (MB_PRIO_READ_EXT, bag PLC'ens egne). En
+// ST-laesning af et register, der allerede ligger i koe fra SCADA, loefter den.
+bool mb_async_queue_read(mb_request_type_t type, uint8_t slave_id, uint16_t address, bool ext = false);
 
 /**
  * @brief Queue a write request (non-blocking, always queued)
@@ -247,7 +253,7 @@ bool mb_async_queue_write(mb_request_type_t type, uint8_t slave_id, uint16_t add
  * Updates individual cache entries for each address in range.
  * @return true if queued successfully
  */
-bool mb_async_queue_read_multi(uint8_t slave_id, uint16_t address, uint8_t count);
+bool mb_async_queue_read_multi(uint8_t slave_id, uint16_t address, uint8_t count, bool ext = false);  // FEAT-514
 
 /**
  * @brief Queue a multi-register write (FC16)

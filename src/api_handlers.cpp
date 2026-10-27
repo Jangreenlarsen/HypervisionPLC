@@ -9410,7 +9410,7 @@ esp_err_t api_handler_modbus_external_get(httpd_req_t *req)
             stale = (e->status != MB_CACHE_PENDING) && (e->last_update_ms == 0 || (tnow - e->last_update_ms) >= 1000);
             portEXIT_CRITICAL(&mb_cache_spinlock);
           }
-          if (stale) mb_async_queue_read((mb_request_type_t)a2, (uint8_t)a1, (uint16_t)a3);
+          if (stale) mb_async_queue_read((mb_request_type_t)a2, (uint8_t)a1, (uint16_t)a3, true);  // FEAT-514: GUI-watch bag PLC'ens egne
         } else if (tok[0] == 'x' && nf == 5) {
           if (a1 < 1 || a1 > EXPANSION_BOARD_MAX || a2 < 1 || a2 > 8 || a3 < 1 || a3 > 247 || a4 < 1 || a4 > 4 || a5 > 65535) continue;
           if (!g_persist_config.expansion_boards[a1 - 1].configured) continue;
@@ -9423,7 +9423,7 @@ esp_err_t api_handler_modbus_external_get(httpd_req_t *req)
             stale = (e->status != MBX_CACHE_PENDING) && (e->last_update_ms == 0 || (tnow - e->last_update_ms) >= 1000);
             portEXIT_CRITICAL(&mbx_cache_spinlock);
           }
-          if (stale) modbus_expansion_async_queue_read((mbx_request_type_t)a4, (uint8_t)a1, (uint8_t)a2, (uint8_t)a3, (uint16_t)a5);
+          if (stale) modbus_expansion_async_queue_read((mbx_request_type_t)a4, (uint8_t)a1, (uint8_t)a2, (uint8_t)a3, (uint16_t)a5, true);  // FEAT-514
         }
       }
     }
@@ -10452,6 +10452,15 @@ static esp_err_t send_metrics_response(httpd_req_t *req, bool include_registers)
     PROM_APPEND("# HELP modbus_master_priority_drops Requests dropped by priority eviction\n");
     PROM_APPEND("# TYPE modbus_master_priority_drops counter\n");
     PROM_APPEND("modbus_master_priority_drops %lu\n", (unsigned long)mb_async->priority_drops);
+    {  // FEAT-514: samme tal for expansion-koeen (MBX)
+      const mbx_async_state_t *mx = modbus_expansion_async_get_state();
+      PROM_APPEND("# HELP mbx_queue_depth Expansion-koe: dybde, high watermark, afvist (fuld), smidt ud (prioritet)\n");
+      PROM_APPEND("# TYPE mbx_queue_depth gauge\n");
+      PROM_APPEND("mbx_queue_depth %u\n", (unsigned)mx->pq_count);
+      PROM_APPEND("mbx_queue_hwm %u\n", (unsigned)mx->queue_high_watermark);
+      PROM_APPEND("mbx_queue_full_count %lu\n", (unsigned long)mx->queue_full_count);
+      PROM_APPEND("mbx_priority_drops %lu\n", (unsigned long)mx->priority_drops);
+    }
     PROM_APPEND("# HELP modbus_master_cache_hit_rate Cache hit rate percent\n");
     PROM_APPEND("# TYPE modbus_master_cache_hit_rate gauge\n");
     {
