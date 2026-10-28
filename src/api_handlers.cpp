@@ -10458,6 +10458,9 @@ static esp_err_t send_metrics_response(httpd_req_t *req, bool include_registers)
     PROM_APPEND("# HELP lwip_sockets_used lwIP-sockets i brug (max %d)\n", CONFIG_LWIP_MAX_SOCKETS);
     PROM_APPEND("# TYPE lwip_sockets_used gauge\n");
     PROM_APPEND("lwip_sockets_used %u\n", (unsigned)http_server_sockets_used());
+    PROM_APPEND("# HELP http_socket_restarts_total Webserver genstartet pga. opbrugte sockets (BUG-518)\n");
+    PROM_APPEND("# TYPE http_socket_restarts_total counter\n");
+    PROM_APPEND("http_socket_restarts_total %lu\n", (unsigned long)http_server_socket_restarts());
     {  // FEAT-514: samme tal for expansion-koeen (MBX)
       const mbx_async_state_t *mx = modbus_expansion_async_get_state();
       PROM_APPEND("# HELP mbx_queue_depth Expansion-koe: dybde, high watermark, afvist (fuld), smidt ud (prioritet)\n");

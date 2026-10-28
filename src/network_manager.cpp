@@ -27,6 +27,7 @@
 #include "constants.h"
 #include "debug.h"
 #include "debug_flags.h"
+#include "config_struct.h"  // BUG-518: g_persist_config.network.http til genstart af webserveren
 
 static const char *TAG = "NET_MGR";
 
@@ -431,6 +432,31 @@ int network_manager_loop(void)
       network_mgr.state.telnet_client_connected = 1;
     } else {
       network_mgr.state.telnet_client_connected = 0;
+    }
+  }
+
+  // BUG-518: sikkerhedsnet mod udtoemte lwIP-sockets. Staar tabellen fuld i
+  // 30 s, genstartes webserveren — det lukker alle web-forbindelser (ogsaa
+  // doede keep-alives fra fx en dvalende browser) og frigiver socketsene til
+  // expansion boards, telnet og nye web-klienter. ST og I/O beroeres ikke.
+  {
+    static uint32_t last_check_ms = 0;
+    static uint32_t full_since_ms = 0;
+    uint32_t now = millis();
+    if (now - last_check_ms >= 5000) {
+      last_check_ms = now;
+      if (http_server_sockets_used() >= CONFIG_LWIP_MAX_SOCKETS - 1) {
+        if (full_since_ms == 0) full_since_ms = now ? now : 1;
+        if (now - full_since_ms >= 30000 && http_server_is_running()) {
+          ESP_LOGW(TAG, "BUG-518: lwIP-sockets opbrugt i 30 s - genstarter webserveren");
+          http_server_stop();
+          http_server_start(&g_persist_config.network.http);
+          http_server_note_socket_restart();
+          full_since_ms = 0;
+        }
+      } else {
+        full_since_ms = 0;
+      }
     }
   }
 

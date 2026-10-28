@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.160] - 2026-10-28
+
+### BUG FIXES
+- **BUG-518 (rettet igen):** Reserven i 7.9.68.159 låste webserveren efter ca. 3 minutter. En afvist ny forbindelse betyder nemlig, at webserveren heller ikke kan smide en gammel ud. Reserven er fjernet. I stedet:
+  - Webserveren har højst **4** samtidige forbindelser.
+  - **Sikkerhedsnet:** står socket-tabellen fuld i 30 s, genstarter PLC'en selv webserveren. Alle web-forbindelser lukkes, også døde forbindelser fra en browser i dvale, og socketsene frigives til expansion boards og telnet. ST og I/O berøres ikke.
+  - Ny metric `http_socket_restarts_total`.
+  - Testet 15 min på 10.1.1.30 med GUI og SCADA: 12-15 af 16 sockets i brug, ingen genstarter, expansion board online hele tiden.
+
 ## [7.9.68.159] - 2026-10-28
 
 ### BUG FIXES

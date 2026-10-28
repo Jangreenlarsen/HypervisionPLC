@@ -39,10 +39,10 @@
 
 static const char *TAG = "HTTP_SRV";
 
-// BUG-518: sockets der altid holdes fri til expansion boards m.m.
-// (aabne MBX-forbindelser taeller allerede i forbruget; reserven daekker en
-// genforbindelse + board-HTTP-kaldet + 1 til overs)
-#define HTTP_SOCKET_RESERVE 3
+// BUG-518: antal genstarter af webserveren pga. udtoemte sockets (network_manager)
+static uint32_t s_socket_restarts = 0;
+void http_server_note_socket_restart(void) { s_socket_restarts++; }
+uint32_t http_server_socket_restarts(void) { return s_socket_restarts; }
 
 /* ============================================================================
  * INTERNAL STATE
@@ -1357,16 +1357,10 @@ static esp_err_t http_acl_open_fn(httpd_handle_t hd, int sockfd)
     return ESP_OK;  // Ukendt familie — tillad
   }
 
-  if (!ip_acl_check(ip, ACL_SVC_HTTP)) return ESP_FAIL;
-
-  // BUG-518: hold altid sockets fri til expansion boards (Modbus TCP-puljen
-  // genforbinder efter hver timeout, BUG-469). Mangler der, afvises den NYE
-  // web-forbindelse — browseren proever igen; PLC'ens I/O-forbindelser vinder.
-  if (http_server_sockets_used() > CONFIG_LWIP_MAX_SOCKETS - HTTP_SOCKET_RESERVE) {
-    ESP_LOGW(TAG, "BUG-518: for faa frie sockets — afviser ny web-forbindelse");
-    return ESP_FAIL;
-  }
-  return ESP_OK;
+  // BUG-518: ingen socket-reserve her — at afvise den nye forbindelse
+  // forhindrer httpd's LRU-purge (den koerer foerst efter en godkendt accept)
+  // og laaste webserveren. Loftet holdes i stedet via max_open_sockets.
+  return ip_acl_check(ip, ACL_SVC_HTTP) ? ESP_OK : ESP_FAIL;
 }
 
 int http_server_start(const HttpConfig *config)
@@ -1470,8 +1464,10 @@ int http_server_start(const HttpConfig *config)
     // kunne bruge dem alle. Saa kunne httpd ikke accept()'e nye forbindelser
     // og dermed heller ikke LRU-purge de gamle (fx en browser, der gik i
     // dvale uden at lukke) — GUI, telnet og expansion boards doede for evigt.
-    // 5 holder httpd paa 7 sockets; LRU-purge frigiver stadig ved nye klienter.
-    httpd_config.max_open_sockets = 5;
+    // 4 holder httpd paa 6 sockets; LRU-purge frigiver stadig ved nye klienter.
+    // Sikkerhedsnet: network_manager_loop() genstarter httpd, hvis tabellen
+    // alligevel staar fuld i 30 s.
+    httpd_config.max_open_sockets = 4;
     // BUG-336c: HTTPD_DEFAULT_CONFIG() leaves core_id at tskNO_AFFINITY,
     // so the scheduler was free to place this task on Core 1 — the same
     // core as loopTask (CLI, incl. `mb scan`). Pin to Core 0 so the two

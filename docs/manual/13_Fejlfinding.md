@@ -118,6 +118,23 @@ Watchdog-statistikken (antal genstarter, crashes, sidste fejl) tæller fra NVS b
 5. **Hænger efter strømsvigt (BUG-506):** vent **mindst 2 minutter** efter strømmen er kommet igen. Hænger firmwaren, genstarter RTC-watchdog'en den senest efter sin timeout (60 s). Kommer PLC'en derefter i luften, viser `show watchdog` linjen **"Forrige opstart nåede: trin '…'"** — det trin opstarten hang i (`network`, `rs485`, `modbus` …). Kommer den **aldrig** igen af sig selv, hænger den *før* firmwaren starter, og så hjælper ingen watchdog. Tilslut USB-konsollen og sluk/tænd: `waiting for download` = GPIO0 holdt lavt ved opstart (fx USB-auto-reset-kredsløbet på et dev-board med USB-kabel tilsluttet); `flash read err` = GPIO12 (74HC595 SER) læst højt ved opstart → forkert flash-spænding. Begge er hardware (strapping-pins), ikke software. RTC-watchdog'en kan selv testes med `test crash rtc yes`.
    **Starter den kun, når du trykker RESET** (hver gang efter strømtab): ESP32 slipper ud af reset, før 3,3 V-forsyningen er stabil — typisk for kort RC-forsinkelse på EN-benet i forhold til den langsomt stigende spænding fra step-down-regulatoren. Test med en kondensator på 4,7-10 µF mellem EN og GND (uden USB-kabel tilsluttet); starter den så hver gang, er en EN-kondensator eller et reset-IC (spændingsovervåger) den permanente løsning. Hjælper det ikke, så mål GPIO0 lige efter opstart — er den lav, mangler der en 10 kΩ pull-up til 3,3 V.
 
+## 13.5b "Ping virker, men web-GUI og telnet svarer ikke"
+
+**Symptomer:**
+- Ping svarer, men browseren og telnet får ingen svar. Forbindelsen oprettes og lukkes straks.
+- Ofte mistes forbindelsen til expansion boards samtidig.
+- ST og RS485 kører videre.
+
+**Årsag:** ESP32'en har kun **16 netværks-sockets**, som deles af webserver, SSE, telnet, expansion-forbindelser og SCADA. Er de brugt op, kan ingen ny forbindelse åbnes.
+
+Fra v7.9.68.160 (BUG-518):
+- **Loft på webserveren:** den bruger højst 4 forbindelser.
+- **Automatisk genstart:** står tabellen fuld i 30 s, genstarter PLC'en selv webserveren. GUI'en er så væk i højst ca. 30 s og kommer selv igen, og expansion boards får deres forbindelse tilbage.
+
+**Overvåg** i `/api/metrics`:
+- `lwip_sockets_used` (normalt 8-14),
+- `http_socket_restarts_total`. Stiger den ofte, bruges der for mange forbindelser. Luk overflødige browserfaner, og fjern expansion-læsninger fra kanaler uden slaver, da hver kanal i brug holder én socket.
+
 ## 13.6 Telnet/CLI svarer ikke, selvom netværket virker
 
 Telnet understøtter kun **én samtidig forbindelse**. Er en tidligere session ikke lukket ordentligt (fx en klient der crashede uden at sende disconnect), kan porten fremstå optaget. Brug web-CLI (`/cli`) som alternativ adgang, eller genstart enheden hvis ingen anden adgang er mulig.

@@ -48,6 +48,9 @@ int http_server_start(const HttpConfig *config);
 
 // BUG-518: lwIP-sockets i brug lige nu (af CONFIG_LWIP_MAX_SOCKETS = 16)
 uint8_t http_server_sockets_used(void);
+// BUG-518: antal gange webserveren er genstartet pga. udtoemte sockets
+void http_server_note_socket_restart(void);
+uint32_t http_server_socket_restarts(void);
 
 /**
  * Stop HTTP server
