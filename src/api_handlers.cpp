@@ -10454,6 +10454,10 @@ static esp_err_t send_metrics_response(httpd_req_t *req, bool include_registers)
     PROM_APPEND("# HELP modbus_master_priority_drops Requests dropped by priority eviction\n");
     PROM_APPEND("# TYPE modbus_master_priority_drops counter\n");
     PROM_APPEND("modbus_master_priority_drops %lu\n", (unsigned long)mb_async->priority_drops);
+    // BUG-518: socket-forbrug (16 i alt) — naar det naar 16, doer GUI/telnet/expansion
+    PROM_APPEND("# HELP lwip_sockets_used lwIP-sockets i brug (max %d)\n", CONFIG_LWIP_MAX_SOCKETS);
+    PROM_APPEND("# TYPE lwip_sockets_used gauge\n");
+    PROM_APPEND("lwip_sockets_used %u\n", (unsigned)http_server_sockets_used());
     {  // FEAT-514: samme tal for expansion-koeen (MBX)
       const mbx_async_state_t *mx = modbus_expansion_async_get_state();
       PROM_APPEND("# HELP mbx_queue_depth Expansion-koe: dybde, high watermark, afvist (fuld), smidt ud (prioritet)\n");

@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.159] - 2026-10-28
+
+### BUG FIXES
+- **BUG-518:** Efter et stykke tid med web-GUI'en åben døde GUI'en, telnet og forbindelsen til expansion boards helt, mens ST og RS485 kørte videre. Årsagen var, at ESP32'en kun har 16 netværks-sockets, og webserveren alene måtte bruge 12 (10 forbindelser plus 2 interne). Sammen med SSE, telnet og expansion-forbindelserne blev tabellen fuld. Så kunne webserveren ikke tage imod nye forbindelser og dermed heller ikke smide gamle ud, fx fra en browser der gik i dvale. Expansion-forbindelsen, der genforbinder efter hver timeout, fik heller ingen socket. Rettelsen:
+  - Webserveren har nu højst 5 forbindelser (gamle smides stadig ud, når nye kommer).
+  - Der holdes altid 3 sockets fri til PLC'ens egne forbindelser. Mangler de, afvises en ny web-forbindelse, og browseren prøver igen, så expansion boards altid kan forbinde.
+  - Ny metric `lwip_sockets_used`.
+
 ## [7.9.68.158] - 2026-10-27
 
 ### CHANGES

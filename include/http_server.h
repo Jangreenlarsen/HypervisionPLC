@@ -46,6 +46,9 @@ int http_server_init(void);
  */
 int http_server_start(const HttpConfig *config);
 
+// BUG-518: lwIP-sockets i brug lige nu (af CONFIG_LWIP_MAX_SOCKETS = 16)
+uint8_t http_server_sockets_used(void);
+
 /**
  * Stop HTTP server
  * @return 0 on success, -1 on error
