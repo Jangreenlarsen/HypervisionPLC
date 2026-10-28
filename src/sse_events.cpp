@@ -12,7 +12,7 @@
  * - Acceptor task listens on SSE port, spawns per-client FreeRTOS tasks
  * - Each client task: parses HTTP, checks auth, streams SSE events
  * - Change detection by polling current values vs last-sent values
- * - Max 3 simultaneous clients (configurable via SSE_MAX_CLIENTS)
+ * - Max 2 simultaneous clients (configurable via SSE_MAX_CLIENTS, BUG-518)
  * - Topic-based subscription filtering (counters, timers, registers, system)
  * - Configurable register watch lists via query params (hr, ir, coils, di)
  * - TCP keepalive for zombie detection, automatic cleanup

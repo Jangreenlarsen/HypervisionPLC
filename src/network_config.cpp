@@ -66,7 +66,7 @@ void network_config_init_defaults(NetworkConfig *config)
   config->http.priority = 1;                      // NORMAL priority (0=LOW, 1=NORMAL, 2=HIGH)
   config->http.sse_port = 0;                      // 0 = auto (main port + 1, e.g., 81)
   config->http.sse_enabled = 1;                   // SSE enabled by default
-  config->http.sse_max_clients = 3;               // Default 3 clients
+  config->http.sse_max_clients = 2;               // Default 2 clients (BUG-518)
   config->http.sse_check_interval_ms = 100;       // 10 Hz change detection
   config->http.sse_heartbeat_ms = 15000;          // 15s heartbeat
 

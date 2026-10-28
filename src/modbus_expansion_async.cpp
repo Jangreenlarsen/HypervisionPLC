@@ -642,6 +642,7 @@ static void modbus_expansion_async_task_func(void *pvParameters) {
     if ((now_ms - last_sweep_ms) >= MBX_PENDING_SWEEP_INTERVAL_MS) {
       last_sweep_ms = now_ms;
       mbx_cache_sweep_stale_pending();
+      modbus_expansion_close_dead_connections();  // BUG-518: spar sockets paa kanaler uden svar
     }
 
     // BUG-478: semaforen er kun et "vaagn op"-hint. Et token gik tabt hver

@@ -23,7 +23,7 @@
  * CONFIGURATION
  * ============================================================================ */
 
-#define SSE_MAX_CLIENTS         3       // Max simultaneous SSE connections (RAM limited)
+#define SSE_MAX_CLIENTS         2       // Max simultaneous SSE connections (BUG-518: 3 -> 2, lwIP har kun 16 sockets)
 #define SSE_CHECK_INTERVAL_MS   100     // Change detection interval (10 Hz)
 #define SSE_HEARTBEAT_MS        15000   // SSE keepalive comment interval
 #define SSE_DEFAULT_PORT        81      // Default SSE port (main port + 1)

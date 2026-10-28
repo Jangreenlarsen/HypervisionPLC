@@ -2679,7 +2679,7 @@ void cli_cmd_set_sse(uint8_t argc, char* argv[]) {
     if (argc < 2) { debug_println("SET SSE MAX-CLIENTS: missing value"); return; }
     int val = atoi(argv[1]);
     if (val < 1 || val > SSE_MAX_CLIENTS) {  // BUG-483: var 1-5, men kun SSE_MAX_CLIENTS slots
-      debug_println("SET SSE MAX-CLIENTS: invalid value (1-3)");
+      debug_println("SET SSE MAX-CLIENTS: invalid value (1-2)");
       return;
     }
     g_persist_config.network.http.sse_max_clients = (uint8_t)val;

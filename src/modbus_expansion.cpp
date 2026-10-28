@@ -42,6 +42,7 @@ typedef struct {
   WiFiClient client;
   uint16_t  next_transaction_id;
   uint32_t  last_activity_ms;
+  uint32_t  opened_ms;   // BUG-518: millis() da forbindelsen sidst blev oprettet
 } mbx_connection_t;
 
 static mbx_connection_t g_mbx_conn[MODBUS_EXPANSION_MAX_CONNECTIONS];
@@ -208,6 +209,29 @@ void modbus_expansion_close(uint8_t board, uint8_t channel) {
   }
 }
 
+// BUG-518: lwIP har kun 16 sockets. En kanal, hvor intet har svaret OK i
+// MBX_DEAD_CONN_CLOSE_MS (fx ingen slaver tilsluttet - boardet svarer kun med
+// gateway-exceptions), skal ikke holde en socket aaben. Den lukkes her og
+// genaabnes automatisk ved naeste forespoergsel (BUG-511-backoff = sjaeldent).
+void modbus_expansion_close_dead_connections(void) {
+  if (!g_mbx_conn_mutex || xSemaphoreTake(g_mbx_conn_mutex, pdMS_TO_TICKS(20)) != pdTRUE) return;
+  const uint32_t now = millis();
+  for (uint8_t i = 0; i < MODBUS_EXPANSION_MAX_CONNECTIONS; i++) {
+    mbx_connection_t *c = &g_mbx_conn[i];
+    if (!c->in_use || !c->client.connected()) continue;
+    if (now - c->opened_ms < MBX_DEAD_CONN_CLOSE_MS) continue;
+    mbx_chan_stats_t cs;
+    const uint32_t last_ok = modbus_expansion_get_chan_stats(c->board, c->channel, &cs) ? cs.last_ok_ms : 0;
+    if (last_ok != 0 && now - last_ok < MBX_DEAD_CONN_CLOSE_MS) continue;
+    // Samme regel som eviction (BUG-419): aldrig en forbindelse midt i en transaktion
+    if (modbus_expansion_async_is_channel_inflight(c->board, c->channel)) continue;
+    c->client.stop();
+    ESP_LOGI(TAG, "BUG-518: lukker board=%u kanal=%u - intet OK-svar i %lu s",
+             c->board, c->channel, (unsigned long)(MBX_DEAD_CONN_CLOSE_MS / 1000));
+  }
+  xSemaphoreGive(g_mbx_conn_mutex);
+}
+
 uint8_t modbus_expansion_get_connections(mbx_connection_info_t *out, uint8_t max_out) {
   uint8_t n = 0;
   for (uint8_t i = 0; i < MODBUS_EXPANSION_MAX_CONNECTIONS && n < max_out; i++) {
@@ -252,6 +276,7 @@ static mb_error_code_t mbx_transact_inner(uint8_t board, uint8_t channel, uint8_
     if (!conn->client.connect(ip_str, port, MBX_CONNECT_TIMEOUT_MS)) {
       return MB_TIMEOUT;  // Kunne ikke forbinde — behandles som TIMEOUT (samme som en tavs slave for kalderen)
     }
+    conn->opened_ms = millis();  // BUG-518
   }
 
   // BUG-469: smid evt. sene svar fra en tidligere, timeout'et transaktion

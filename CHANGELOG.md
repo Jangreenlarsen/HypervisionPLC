@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [7.9.68.161] - 2026-10-28
+
+### CHANGES
+- **BUG-518 (mere luft i socket-tabellen):**
+  - **SSE:** højst 2 samtidige klienter i stedet for 3 (`set sse max-clients 1-2`).
+  - **Expansion-kanaler uden svar:** en kanal, der ikke har givet et gyldigt svar i 30 s, fx fordi der ikke sidder nogen slaver på den, holder ikke længere en netværksforbindelse åben. Forbindelsen genåbnes automatisk ved næste forespørgsel.
+  - **Testblokken i Logic1 er fjernet.** Den læste kanal A, C og en slave, der ikke findes, på D.
+
 ## [7.9.68.160] - 2026-10-28
 
 ### BUG FIXES

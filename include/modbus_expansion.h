@@ -77,6 +77,10 @@ uint32_t modbus_expansion_board_last_rx_ms(uint8_t board);
  */
 #define MODBUS_EXPANSION_MAX_CONNECTIONS 8
 
+// BUG-518: luk forbindelser til kanaler uden OK-svar i saa lang tid (spar sockets)
+#define MBX_DEAD_CONN_CLOSE_MS 30000
+void modbus_expansion_close_dead_connections(void);
+
 // Minimum-timeout for en data-transaktion. FEAT-458: er boardets egen kanal-
 // timeout kendt (hentet fra GET /api/channels), bruges boardets + margin.
 #define MODBUS_EXPANSION_TRANSACTION_TIMEOUT_MS 800

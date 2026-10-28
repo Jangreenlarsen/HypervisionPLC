@@ -481,7 +481,7 @@ bool config_load_from_nvs(PersistConfig* out) {
       out->network.http.priority = 1;                 // NORMAL priority
       out->network.http.sse_port = 0;                 // 0 = auto (main port + 1)
       out->network.http.sse_enabled = 1;               // SSE enabled by default
-      out->network.http.sse_max_clients = 3;            // Default 3 clients
+      out->network.http.sse_max_clients = 2;            // Default 2 clients (BUG-518)
       out->network.http.sse_check_interval_ms = 100;    // 10 Hz change detection
       out->network.http.sse_heartbeat_ms = 15000;       // 15s heartbeat
 
@@ -517,7 +517,7 @@ bool config_load_from_nvs(PersistConfig* out) {
       debug_println("CONFIG LOAD: Migrating schema 11 → 12 (SSE config fields)");
 
       out->network.http.sse_enabled = 1;               // SSE enabled by default
-      out->network.http.sse_max_clients = 3;            // Default 3 clients
+      out->network.http.sse_max_clients = 2;            // Default 2 clients (BUG-518)
       out->network.http.sse_check_interval_ms = 100;    // 10 Hz change detection
       out->network.http.sse_heartbeat_ms = 15000;       // 15s heartbeat
 
